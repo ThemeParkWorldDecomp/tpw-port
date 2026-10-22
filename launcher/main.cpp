@@ -436,6 +436,19 @@ int main(int argc, char** argv) {
 #ifdef _WIN32
     for (int crash : {SIGSEGV, SIGILL, SIGABRT}) std::signal(crash, OnCrash);   // no sigaction, SIGBUS or SIGTRAP there
     tpw::win32::DivideLikeTheMac();   // x86 traps what the Mac divides (host_win32.h)
+    if (!tpw::win32::HasStandardError()) {
+        // Started from Explorer (a Windows app has no console): the log goes to launcher.log beside launcher.ini.
+        std::string folder;
+        for (int i = 1; i + 1 < argc; ++i)
+            if (std::strcmp(argv[i], "--data") == 0) folder = argv[i + 1];
+        if (folder.empty()) {
+            if (char* pref = SDL_GetPrefPath("", tpw::ui::kDataFolderName)) {
+                folder = pref;
+                SDL_free(pref);
+            }
+        }
+        if (!folder.empty()) tpw::win32::LogToFile((std::filesystem::u8path(folder) / "launcher.log").u8string());
+    }
 #else
     for (int crash : {SIGSEGV, SIGBUS, SIGTRAP, SIGILL, SIGABRT}) {
         struct sigaction action{};

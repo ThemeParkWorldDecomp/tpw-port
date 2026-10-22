@@ -141,9 +141,8 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
     set(TPW_STUB_SYSLIBS --syslib /System/Library/Frameworks/OpenGL.framework/OpenGL)
   elseif(WIN32)
     # MinGW's C runtime is partly static (libmingw32, libmingwex) and its DLLs are linked through import libraries, so
-    # the generator reads those as it reads the other static libraries. glLockArraysEXT and glUnlockArraysEXT are
-    # extensions opengl32.dll does not export: they stay stand-ins (they are only hints), declared as functions.
-    set(TPW_STUB_SYSLIBS --c-function glLockArraysEXT --c-function glUnlockArraysEXT)
+    # the generator reads those as it reads the other static libraries.
+    set(TPW_STUB_SYSLIBS)
     foreach(lib mingw32 mingwex ucrt kernel32 user32 gdi32 opengl32 glu32 advapi32 shell32 ole32 oleaut32 imm32 winmm
                 version setupapi ws2_32 c++ unwind)
       find_library(TPW_WIN_LIB_${lib} NAMES ${lib} HINTS ${CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES})
@@ -169,6 +168,11 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   add_executable(tpw_launcher $<TARGET_OBJECTS:tpw_launcher_objects> ${TPW_STUBS})
   target_include_directories(tpw_launcher PRIVATE ${TPW_INCLUDE_DIR} launcher)
   target_link_libraries(tpw_launcher PRIVATE tpw tpw_platform tpw_launcher_ui)
+  if(WIN32)
+    # A Windows app, not a console one: started from Explorer it opens no console window, and its log goes to
+    # launcher.log beside launcher.ini (launcher/main.cpp).
+    set_target_properties(tpw_launcher PROPERTIES WIN32_EXECUTABLE ON)
+  endif()
 
   # What can be checked of the platform layer without a display (path mapping, key
   # tables, string helpers): ctest runs it.

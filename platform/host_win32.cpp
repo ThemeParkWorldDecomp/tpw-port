@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 
 namespace tpw::win32 {
 
@@ -89,5 +90,48 @@ void DivideLikeTheMac() {
     (void)handler;
 }
 
+bool HasStandardError() {
+    const HANDLE handle = GetStdHandle(STD_ERROR_HANDLE);
+    return handle != nullptr && handle != INVALID_HANDLE_VALUE && GetFileType(handle) != FILE_TYPE_UNKNOWN;
+}
+
+bool LogToFile(const std::string& path) {
+    std::wstring wide(static_cast<size_t>(MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0)), L'\0');
+    if (wide.empty() || MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, wide.data(), static_cast<int>(wide.size())) == 0)
+        return false;
+    // Emptied first, then both streams append, so their lines interleave in the order they were written.
+    if (_wfreopen(wide.c_str(), L"w", stderr) == nullptr || _wfreopen(wide.c_str(), L"a", stderr) == nullptr ||
+        _wfreopen(wide.c_str(), L"a", stdout) == nullptr) {
+        return false;
+    }
+    std::setvbuf(stderr, nullptr, _IONBF, 0);
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+    return true;
+}
+
 }  // namespace tpw::win32
+
+// GL_EXT_compiled_vertex_array (include/platform/opengl.h). opengl32.dll exports OpenGL 1.1 only, so the engine's calls go
+// to the driver's own entry points, asked of the current context at the first call (the engine makes them while drawing).
+// A driver without the extension leaves them doing nothing, which a hint allows.
+namespace {
+template <class Function> Function DriverGLProc(const char* name) {
+    const PROC proc = wglGetProcAddress(name);
+    const auto value = reinterpret_cast<intptr_t>(proc);
+    // Some drivers answer 1, 2, 3 or -1 for a name they do not have.
+    return value == 0 || value == 1 || value == 2 || value == 3 || value == -1 ? nullptr : reinterpret_cast<Function>(proc);
+}
+}  // namespace
+
+extern "C" {
+void glLockArraysEXT(int32_t first, int32_t count) {
+    static const auto function = DriverGLProc<void(APIENTRY*)(int32_t, int32_t)>("glLockArraysEXT");
+    if (function != nullptr) function(first, count);
+}
+
+void glUnlockArraysEXT() {
+    static const auto function = DriverGLProc<void(APIENTRY*)()>("glUnlockArraysEXT");
+    if (function != nullptr) function();
+}
+}
 #endif
