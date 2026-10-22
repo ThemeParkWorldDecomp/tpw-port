@@ -32,6 +32,23 @@ struct ScriptedState {
 };
 ScriptedState gScripted;
 
+// The Mac key code of a scripted key (--type, --hold). Letters, digits and space are their own virtual keys; other
+// punctuation is no key, only the character (as '@' always was): its code is a navigation key's ('.' is 0x2e,
+// VK_DELETE, which the edit boxes took as forward delete). Return, escape and the arrows (the Mac's characters 0x1c to
+// 0x1f) are their virtual keys too.
+char ScriptedMacKey(char character) {
+    const unsigned char code = static_cast<unsigned char>(character);
+    const int32_t windowsKey = character == '\r'     ? 0x0d
+                               : character == '\x1b' ? 0x1b
+                               : character == '\x1c' ? 0x25
+                               : character == '\x1d' ? 0x27
+                               : character == '\x1e' ? 0x26
+                               : character == '\x1f' ? 0x28
+                               : std::isalnum(code) || character == ' ' ? std::toupper(code)
+                                                                        : 0;
+    return static_cast<char>(tpw::MacKeyCodeFromScancode(static_cast<SDL_Scancode>(tpw::ScancodeFromWindowsKey(windowsKey))));
+}
+
 // The Mac character code of a key event: the layout's character with the modifiers
 // applied, or the Mac's control character for a key without one.
 char MacCharacter(const SDL_KeyboardEvent& key) {
@@ -260,25 +277,20 @@ void UGamework::Run() {
             const char before = index > 0 ? typing.text[static_cast<size_t>(index) - 1] : '\0';
             const bool option = before == '`', control = before == '^';
             const bool down = (pass - typing.pass) % 2 == 0;
-            // Letters, digits and space are their own virtual keys; other punctuation is no key, only the character (as '@' always
-            // was): its code is a navigation key's ('.' is 0x2e, VK_DELETE, which the edit boxes took as forward delete).
-            // Return, escape and the arrows (the Mac's characters 0x1c to 0x1f) are their virtual keys too.
-            const unsigned char code = static_cast<unsigned char>(character);
-            const int32_t windowsKey = character == '\r'     ? 0x0d
-                                       : character == '\x1b' ? 0x1b
-                                       : character == '\x1c' ? 0x25
-                                       : character == '\x1d' ? 0x27
-                                       : character == '\x1e' ? 0x26
-                                       : character == '\x1f' ? 0x28
-                                       : std::isalnum(code) || character == ' ' ? std::toupper(code)
-                                                                                : 0;
-            const char macKey = static_cast<char>(tpw::MacKeyCodeFromScancode(
-                static_cast<SDL_Scancode>(tpw::ScancodeFromWindowsKey(windowsKey))));
+            const char macKey = ScriptedMacKey(character);
             const uint32_t modifiers =
                 (std::isupper(static_cast<unsigned char>(character)) ? 0x200u : 0u) | (option ? 0x800u : 0u) |
                 (control ? 0x1000u : 0u);
             tpw::Log("scripted typing: '%c' %s (pass %d)", character, down ? "down" : "up", pass);
             HandleTyping(character, macKey, modifiers, down);
+        }
+        // The scripted held keys (--hold): down on their pass, up so many passes later.
+        for (const tpw::Config::ScriptedHold& hold : tpw::config().holds) {
+            const int32_t pass = gFrames + 1;
+            if (pass != hold.pass && pass != hold.pass + hold.passes) continue;
+            const bool down = pass == hold.pass;
+            tpw::Log("scripted hold: key 0x%02x %s (pass %d)", static_cast<unsigned char>(hold.key), down ? "down" : "up", pass);
+            HandleTyping(hold.key, ScriptedMacKey(hold.key), 0, down);
         }
         if (!Process()) mRunning = false;
         if (tpw::config().probe) {

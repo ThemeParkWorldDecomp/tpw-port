@@ -175,6 +175,24 @@ void OnCrashInfo(int signal, siginfo_t* info, void* context) {
 }
 #endif
 
+// The keys of --type and --hold: "\\r" stands for return, "\\e" for escape and "\\L", "\\R", "\\U", "\\D" for the arrow
+// keys (the Mac's character codes for them, 0x1c to 0x1f).
+std::string UnescapeKeys(const std::string& raw) {
+    std::string text;
+    for (size_t i = 0; i < raw.size(); ++i) {
+        const char next = i + 1 < raw.size() ? raw[i + 1] : '\0';
+        const char escaped = next == 'r' ? '\r' : next == 'e' ? '\x1b' : next == 'L' ? '\x1c' : next == 'R' ? '\x1d'
+                           : next == 'U' ? '\x1e' : next == 'D' ? '\x1f' : '\0';
+        if (raw[i] == '\\' && escaped != '\0') {
+            text += escaped;
+            ++i;
+        } else {
+            text += raw[i];
+        }
+    }
+    return text;
+}
+
 void Usage(const char* program) {
     std::fprintf(stderr,
                  "usage: %s [options]\n"
@@ -220,6 +238,8 @@ void Usage(const char* program) {
                  "                 \\r for return, \\e escape, \\L \\R \\U \\D the arrow keys; a backtick holds Alt and a caret\n"
                  "                 Ctrl for the next one, as in `s and `l,\n"
                  "                 the game's quick save and load, and ^o, which opens the park)\n"
+                 "  --hold KEY@N/K  a scripted held key: KEY (one, with --type's escapes) down on pass N and up K\n"
+                 "                 passes later, as the camera's arrows want (\\U@500/40 scrolls the view up)\n"
                  "  --no-movies    skip the logo and intro films\n"
                  "  --mute         no sound\n"
                  "  --display D    open the window on screen D: an SDL display number (0, 1, ...) or part of the\n"
@@ -566,21 +586,22 @@ int main(int argc, char** argv) {
                 std::fprintf(stderr, "launcher: --type wants TEXT@N (the text and the pass number from 1): %s\n", spec.c_str());
                 return 2;
             }
-            const std::string raw = spec.substr(0, at);
-            // "\\r" stands for return, "\\e" for escape and "\\L", "\\R", "\\U", "\\D" for the arrow keys (the Mac's
-            // character codes for them, 0x1c to 0x1f).
-            for (size_t i = 0; i < raw.size(); ++i) {
-                const char next = i + 1 < raw.size() ? raw[i + 1] : '\0';
-                const char escaped = next == 'r' ? '\r' : next == 'e' ? '\x1b' : next == 'L' ? '\x1c' : next == 'R' ? '\x1d'
-                                   : next == 'U' ? '\x1e' : next == 'D' ? '\x1f' : '\0';
-                if (raw[i] == '\\' && escaped != '\0') {
-                    typing.text += escaped;
-                    ++i;
-                } else {
-                    typing.text += raw[i];
-                }
-            }
+            typing.text = UnescapeKeys(spec.substr(0, at));
             config.typing.push_back(typing);
+        }
+        else if (arg == "--hold") {
+            const std::string spec = value();
+            const size_t at = spec.rfind('@'), slash = spec.rfind('/');
+            tpw::Config::ScriptedHold hold{};
+            const std::string key = at == std::string::npos ? std::string() : UnescapeKeys(spec.substr(0, at));
+            if (key.size() != 1 || slash == std::string::npos || slash < at ||
+                (hold.pass = std::atoi(spec.c_str() + at + 1)) < 1 || (hold.passes = std::atoi(spec.c_str() + slash + 1)) < 1) {
+                std::fprintf(stderr, "launcher: --hold wants KEY@N/K (one key, the pass it goes down and for how many): %s\n",
+                             spec.c_str());
+                return 2;
+            }
+            hold.key = key[0];
+            config.holds.push_back(hold);
         }
         else if (arg == "--probe") {
             config.probe = true;
