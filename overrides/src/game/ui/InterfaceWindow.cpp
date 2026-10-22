@@ -66,8 +66,9 @@ int32_t ShiftedAbove(const InterfaceWindow* window) {
 }
 }  // namespace
 
+// TPW_PORT_FIX widepanel UI_IsWideWindow | Mac: (no wide windows) | Port: a window wider than the 2048 units of the 4:3 layout; one exactly that wide (the Options panel's 0..2048) is a 4:3 panel like the others' 0..2047 | Why: the Options panel counted as wide, so it stayed at the left and its rows were anchored to the screen's edges one by one, apart from their panel
 bool UI_IsWideWindow(const InterfaceWindow* window) {
-    return window != nullptr && gUIUnitWidth > 0x800 && window->mRect.mRight - window->mRect.mLeft >= 0x800;
+    return window != nullptr && gUIUnitWidth > 0x800 && window->mRect.mRight - window->mRect.mLeft > 0x800;
 }
 
 int16_t UI_WideShift(const InterfaceWindow* window) {
@@ -125,7 +126,8 @@ InterfaceWindow::InterfaceWindow(InterfaceWindow* parent, int32_t attributes, in
     if (gUIUnitWidth > 0x800 && parent != nullptr) {
         int16_t shift = 0;
         if (UI_IsWideWindow(parent)) {
-            if (right - left < 0x800) shift = UI_WideAnchor(left, right, gUIUnitWidth);
+            // TPW_PORT_FIX widepanel InterfaceWindow::InterfaceWindow | Mac: (no anchoring) | Port: a window up to 2048 units wide is anchored, the full-width ones (0..2047 and 0..2048) to the middle | Why: the Options panel (0..2048) is pillarboxed as the other full-screen panels are
+            if (right - left <= 0x800) shift = UI_WideAnchor(left, right, gUIUnitWidth);
             gWideShifts[this] = shift;
         } else {
             shift = UI_WideShiftFor(this, (attributes & 0x400) == 0x400);
