@@ -217,7 +217,8 @@ void Usage(const char* program) {
                  "  --drag X0,Y0-X1,Y1@N[/K]  a scripted left drag: the pointer to (X0, Y0) on pass N, the button down on\n"
                  "                 pass N+2, K steps (default 8) to (X1, Y1), the button up on pass N+K+4 (repeatable)\n"
                  "  --type TEXT@N  scripted typing: one character every two passes from pass N (letters, digits, space;\n"
-                 "                 \\r for return; a backtick holds Alt and a caret Ctrl for the next one, as in `s and `l,\n"
+                 "                 \\r for return, \\e escape, \\L \\R \\U \\D the arrow keys; a backtick holds Alt and a caret\n"
+                 "                 Ctrl for the next one, as in `s and `l,\n"
                  "                 the game's quick save and load, and ^o, which opens the park)\n"
                  "  --no-movies    skip the logo and intro films\n"
                  "  --mute         no sound\n"
@@ -229,6 +230,8 @@ void Usage(const char* program) {
                  "                 (a test run on a screen someone is working on; a click focuses it as usual). Not full\n"
                  "                 screen: a full-screen Space cannot sit behind anything, so the game's window is fitted\n"
                  "                 to the screen instead, inside the menu bar and the dock\n"
+                 "  --no-mouse     the real mouse is ignored: only the scripted clicks and drags reach the game, and the\n"
+                 "                 pointer rests at its centre between them (so a test's view never scrolls from the edge)\n"
                  "  --dump-frames DIR  save the presented frames there as frame-NNNN.bmp (each one that differs from\n"
                  "                     the frame before it; the first 200; the launcher's own window's too, as\n"
                  "                     launcher-frame-NNNN.bmp)\n"
@@ -564,9 +567,14 @@ int main(int argc, char** argv) {
                 return 2;
             }
             const std::string raw = spec.substr(0, at);
-            for (size_t i = 0; i < raw.size(); ++i) {   // the two characters "\\r" stand for return
-                if (raw[i] == '\\' && i + 1 < raw.size() && raw[i + 1] == 'r') {
-                    typing.text += '\r';
+            // "\\r" stands for return, "\\e" for escape and "\\L", "\\R", "\\U", "\\D" for the arrow keys (the Mac's
+            // character codes for them, 0x1c to 0x1f).
+            for (size_t i = 0; i < raw.size(); ++i) {
+                const char next = i + 1 < raw.size() ? raw[i + 1] : '\0';
+                const char escaped = next == 'r' ? '\r' : next == 'e' ? '\x1b' : next == 'L' ? '\x1c' : next == 'R' ? '\x1d'
+                                   : next == 'U' ? '\x1e' : next == 'D' ? '\x1f' : '\0';
+                if (raw[i] == '\\' && escaped != '\0') {
+                    typing.text += escaped;
                     ++i;
                 } else {
                     typing.text += raw[i];
@@ -585,6 +593,7 @@ int main(int argc, char** argv) {
         else if (arg == "--mute") config.mute = true;
         else if (arg == "--display") config.display = value();
         else if (arg == "--background") config.background = true;
+        else if (arg == "--no-mouse") config.noMouse = true;
         else if (arg == "--no-fit") config.fit = false;
         else if (arg == "--stub-abort") gAbortOnStub = true;
         else if (arg == "--stub-trace") gTraceStubs = true;

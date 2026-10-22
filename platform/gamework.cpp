@@ -119,6 +119,18 @@ void UGamework::HandleCommand(int32_t command, uint32_t) {
 void UGamework::Run() {
     if (!Initialise()) return;
     while (mRunning) {
+        if (tpw::config().noMouse && !gScripted.active) {   // --no-mouse: the pointer rests at the game's centre
+            int wide = 0, high = 0;
+            tpw::GameSize(wide, high);
+            if (wide > 0 && high > 0) {
+                gScripted.active = true;
+                gScripted.x = static_cast<float>(wide) / 2.0f;
+                gScripted.y = static_cast<float>(high) / 2.0f;
+                // The game keeps the pointer it was last told of, (0, 0) until the first move: a corner, which scrolls
+                // the view from the edge.
+                HandleMouseMoved(MakeGameEvent(wide / 2, high / 2));
+            }
+        }
         SDL_Event sdl;
         while (mRunning && SDL_PollEvent(&sdl)) {
             switch (sdl.type) {
@@ -128,6 +140,7 @@ void UGamework::Run() {
                 HandleCommand(3, tpw::MacModifiersFromSDL(static_cast<uint16_t>(SDL_GetModState())));
                 break;
             case SDL_EVENT_MOUSE_MOTION: {
+                if (tpw::config().noMouse) break;
                 gScripted.active = false;   // the real mouse takes over from a scripted click
                 const tpw::Event event = MakeEvent(sdl.motion.x, sdl.motion.y);
                 HandleMouseMoved(event);
@@ -135,6 +148,7 @@ void UGamework::Run() {
             }
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
             case SDL_EVENT_MOUSE_BUTTON_UP: {
+                if (tpw::config().noMouse) break;
                 MouseButton button;
                 if (!MouseButtonFromSDL(sdl.button.button, button)) break;
                 const tpw::Event event = MakeEvent(sdl.button.x, sdl.button.y);
@@ -143,6 +157,7 @@ void UGamework::Run() {
                 break;
             }
             case SDL_EVENT_MOUSE_WHEEL: {
+                if (tpw::config().noMouse) break;
                 const tpw::Event event = MakeEventAtMouse();
                 HandleMouseWheel(event, static_cast<int32_t>(sdl.wheel.y));
                 break;
@@ -247,8 +262,16 @@ void UGamework::Run() {
             const bool down = (pass - typing.pass) % 2 == 0;
             // Letters, digits and space are their own virtual keys; other punctuation is no key, only the character (as '@' always
             // was): its code is a navigation key's ('.' is 0x2e, VK_DELETE, which the edit boxes took as forward delete).
+            // Return, escape and the arrows (the Mac's characters 0x1c to 0x1f) are their virtual keys too.
             const unsigned char code = static_cast<unsigned char>(character);
-            const int32_t windowsKey = character == '\r' ? 0x0d : std::isalnum(code) || character == ' ' ? std::toupper(code) : 0;
+            const int32_t windowsKey = character == '\r'     ? 0x0d
+                                       : character == '\x1b' ? 0x1b
+                                       : character == '\x1c' ? 0x25
+                                       : character == '\x1d' ? 0x27
+                                       : character == '\x1e' ? 0x26
+                                       : character == '\x1f' ? 0x28
+                                       : std::isalnum(code) || character == ' ' ? std::toupper(code)
+                                                                                : 0;
             const char macKey = static_cast<char>(tpw::MacKeyCodeFromScancode(
                 static_cast<SDL_Scancode>(tpw::ScancodeFromWindowsKey(windowsKey))));
             const uint32_t modifiers =
