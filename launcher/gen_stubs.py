@@ -32,10 +32,12 @@ import ctypes.util
 import pathlib
 import platform
 import re
+import shutil
 import subprocess
 import sys
 
 DARWIN = sys.platform == "darwin"
+WINDOWS = sys.platform == "win32"
 # Scopes whose functions belong to the platform layer rather than to the game.
 PLATFORM_SCOPES = ("NS_MacDoze::", "SamsUtilities::", "IDirectDraw", "IdxDirectDraw::", "IDirect3D")
 SPECIAL_PREFIXES = ("vtable for ", "typeinfo for ", "typeinfo name for ", "VTT for ", "guard variable for ",
@@ -56,6 +58,8 @@ def symbols(nm, files):
                 undefined.add(parts[1])
             elif len(parts) == 3 and parts[1] not in "Uu":
                 defined.add(parts[2])
+                if WINDOWS and parts[2].startswith("__imp_"):
+                    defined.add(parts[2][6:])   # an import library's data: the linker auto-imports the plain name
     return undefined, defined
 
 
@@ -69,6 +73,10 @@ class SystemLibraries:
 
     def __init__(self, extra):
         names = [None]
+        if WINDOWS:
+            # Nothing is dlsym'ed: the C runtime and the Win32 import libraries come as --provides (CMakeLists.txt).
+            self.handles = []
+            return
         if DARWIN:
             names += ["/usr/lib/libSystem.B.dylib", "/usr/lib/libc++.1.dylib", "/usr/lib/libc++abi.dylib"]
         else:
@@ -105,9 +113,12 @@ def main():
     ap.add_argument("--provides", action="append", default=[], help="a static library the launcher links; the symbols it defines get no stand-in")
     ap.add_argument("--c-function", action="append", default=[], help="an unmangled name that is a function")
     ap.add_argument("--nm", default="nm")
-    ap.add_argument("--cxxfilt", default="c++filt")
+    ap.add_argument("--cxxfilt", default=None, help="default: c++filt, else llvm-cxxfilt beside --nm")
     ap.add_argument("inputs", nargs="+")
     args = ap.parse_args()
+    if args.cxxfilt is None:
+        beside = pathlib.Path(args.nm).with_name("llvm-cxxfilt" + pathlib.Path(args.nm).suffix)
+        args.cxxfilt = "c++filt" if shutil.which("c++filt") or not beside.is_file() else str(beside)
 
     undefined, defined = symbols(args.nm, args.inputs)
     defined |= symbols(args.nm, args.provides)[1]
@@ -292,12 +303,18 @@ def trampolines(functions):
         w(f'    "{prefix}tpw_stub_common:\\n"')
         w('    "    pushq %rbp\\n"')
         w('    "    movq %rsp, %rbp\\n"')
-        w('    "    movl %eax, %edi\\n"')
+        if WINDOWS:
+            # The Windows x64 convention: the first argument in %ecx, and 32 bytes of shadow space for the callee.
+            w('    "    movl %eax, %ecx\\n"')
+            w('    "    subq $32, %rsp\\n"')
+        else:
+            w('    "    movl %eax, %edi\\n"')
         w(f'    "    call {prefix}tpw_stub_hit\\n"')
         w('    "    xorl %eax, %eax\\n"')
         w('    "    xorl %edx, %edx\\n"')
         w('    "    xorps %xmm0, %xmm0\\n"')
         w('    "    xorps %xmm1, %xmm1\\n"')
+        w('    "    movq %rbp, %rsp\\n"')
         w('    "    popq %rbp\\n"')
         w('    "    ret\\n"')
         for i, (symbol, _, _) in enumerate(functions):

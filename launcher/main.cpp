@@ -17,10 +17,14 @@
 #include <algorithm>
 #include <vector>
 
+#ifdef _WIN32
+#include <io.h>   // write
+#else
 #include <dlfcn.h>
 #include <execinfo.h>
 #include <sys/ucontext.h>
 #include <unistd.h>
+#endif
 #if defined(__APPLE__)
 #include <objc/message.h>
 #include <objc/runtime.h>
@@ -133,13 +137,16 @@ void OnCrash(int signal) {
         const int more = std::snprintf(text, sizeof text, "launcher: inside the static initialiser %s\n", running);
         if (more > 0) (void)!write(2, text, static_cast<size_t>(more));
     }
-    // Where it happened (the launcher keeps its symbols).
+#ifndef _WIN32
+    // Where it happened (the launcher keeps its symbols). Windows has no backtrace(); a debugger has the stack.
     static void* frames[48];
     backtrace_symbols_fd(frames, backtrace(frames, 48), 2);
+#endif
     std::signal(signal, SIG_DFL);
     std::raise(signal);
 }
 
+#ifndef _WIN32
 // The faulting instruction and address first: the backtrace's frame after _sigtramp is the caller when the fault is in a
 // function without a frame record (a leaf), so it can name the wrong place.
 void OnCrashInfo(int signal, siginfo_t* info, void* context) {
@@ -158,6 +165,7 @@ void OnCrashInfo(int signal, siginfo_t* info, void* context) {
     if (length > 0) (void)!write(2, text, static_cast<size_t>(length));
     OnCrash(signal);
 }
+#endif
 
 void Usage(const char* program) {
     std::fprintf(stderr,
@@ -424,6 +432,9 @@ void tpw_stub_called(const char* name, bool platform, bool first) {
 int main(int argc, char** argv) {
     // a trap (a hardened library check), an illegal instruction and an abort (a failed stack check is a silent one) get
     // the backtrace too
+#ifdef _WIN32
+    for (int crash : {SIGSEGV, SIGILL, SIGABRT}) std::signal(crash, OnCrash);   // no sigaction, SIGBUS or SIGTRAP there
+#else
     for (int crash : {SIGSEGV, SIGBUS, SIGTRAP, SIGILL, SIGABRT}) {
         struct sigaction action{};
         action.sa_sigaction = OnCrashInfo;
@@ -431,6 +442,7 @@ int main(int argc, char** argv) {
         sigemptyset(&action.sa_mask);
         sigaction(crash, &action, nullptr);
     }
+#endif
     tpw::Config& config = tpw::config();
     int32_t resolution = kDefaultResolution;
     int aspectWide = kDefaultAspectWide;

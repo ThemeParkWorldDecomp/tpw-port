@@ -189,9 +189,15 @@ uint32_t IUnknown::Release() {
 }  // namespace NS_MacDoze
 
 // ---- DirectDraw ----------------------------------------------------------------------------
-const NS_MacDoze::_GUID IID_IDirectDraw2 = {{0xe0, 0xf3, 0xa6, 0xb3, 0x43, 0x2b, 0xcf, 0x11, 0xa2, 0xde, 0x00, 0xaa, 0x00,
+// On Windows, SDL's DirectInput code defines the same two IIDs (selectany, the same bytes): these must be selectany too.
+#ifdef _WIN32
+#define TPW_IID_SELECTANY __attribute__((selectany))
+#else
+#define TPW_IID_SELECTANY
+#endif
+TPW_IID_SELECTANY const NS_MacDoze::_GUID IID_IDirectDraw2 = {{0xe0, 0xf3, 0xa6, 0xb3, 0x43, 0x2b, 0xcf, 0x11, 0xa2, 0xde, 0x00, 0xaa, 0x00,
                                              0xb9, 0x33, 0x56}};
-const NS_MacDoze::_GUID IID_IDirectDraw4 = {{0x2a, 0x50, 0x59, 0x9c, 0xbd, 0x39, 0xd1, 0x11, 0x8c, 0x4a, 0x00, 0xc0, 0x4f,
+TPW_IID_SELECTANY const NS_MacDoze::_GUID IID_IDirectDraw4 = {{0x2a, 0x50, 0x59, 0x9c, 0xbd, 0x39, 0xd1, 0x11, 0x8c, 0x4a, 0x00, 0xc0, 0x4f,
                                              0xd9, 0x30, 0xc5}};
 
 // One device: the display (the NULL GUID, DirectDraw's primary display driver).

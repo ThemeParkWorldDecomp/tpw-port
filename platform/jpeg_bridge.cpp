@@ -22,7 +22,9 @@
 // The source of jpeg_stdio_src is a FILE* for the outbox, but the Bullfrog loaders (TbJPEGSaver.cpp: ReadHeaderInfo, ReadData,
 // ValidImage) pass their CFile where the Mac passes the stream; the bridge tells the two apart (a CFile starts with its vtable
 // pointer, inside a loaded image) and reads a CFile through its Read.
+#ifndef _WIN32
 #include <dlfcn.h>
+#endif
 
 #include <cstdint>
 #include <cstdio>
@@ -37,6 +39,7 @@
 #include "lobby.h"
 #include "platform/arena.h"
 #include "jpeg_native.h"
+#include "host_win32.h"
 
 namespace {
 
@@ -222,8 +225,12 @@ void PushImage(Bridge* b) {
 bool IsCFile(const void* file) {
     const void* first;
     std::memcpy(&first, file, sizeof first);
+#ifdef _WIN32
+    return first != nullptr && tpw::win32::InLoadedImage(first);
+#else
     Dl_info info;
     return first != nullptr && dladdr(first, &info) != 0;
+#endif
 }
 
 long ReadCFile(void* user, uint8_t* dest, size_t size) {

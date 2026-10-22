@@ -113,8 +113,13 @@ static bool IsDumpSideFile(const fs::path& path) {
 // A file's last write time as a Win32 FILETIME: the seconds since 1970 moved to the 1601 epoch, in 100 ns ticks (the game's
 // directory searches ask for it to find a player's newest park file).
 static uint64_t FileTimeOf(const fs::path& path) {
+#ifdef _WIN32
+    struct _stat64 info;   // a Windows path is wide
+    if (::_wstat64(path.c_str(), &info) != 0) return 0;
+#else
     struct stat info;
     if (::stat(path.c_str(), &info) != 0) return 0;
+#endif
     return (static_cast<uint64_t>(info.st_mtime) + 11644473600ull) * 10000000ull;
 }
 

@@ -8,11 +8,14 @@
 // are errors, and the game takes any error as failure, so they are defined here, ahead of the system library's, and
 // answer from the object's one colour buffer while the game's framebuffer is bound.
 #include <SDL3/SDL.h>
+#ifndef _WIN32
 #include <dlfcn.h>
+#endif
 
 #include <algorithm>
 #include <cstring>
 
+#include "host_win32.h"
 #include "offscreen.h"
 #include "platform.h"
 
@@ -255,8 +258,13 @@ bool NamesWindowBuffer(unsigned int mode) { return mode == kFront || mode == kBa
 // The system library's own glDrawBuffer (draw true) or glReadBuffer, found past this executable's.
 void CallSystem(bool draw, unsigned int mode) {
     using Function = void (*)(unsigned int);
+#ifdef _WIN32
+    static Function drawBuffer = reinterpret_cast<Function>(tpw::win32::SystemGLProc("glDrawBuffer"));
+    static Function readBuffer = reinterpret_cast<Function>(tpw::win32::SystemGLProc("glReadBuffer"));
+#else
     static Function drawBuffer = reinterpret_cast<Function>(dlsym(RTLD_NEXT, "glDrawBuffer"));
     static Function readBuffer = reinterpret_cast<Function>(dlsym(RTLD_NEXT, "glReadBuffer"));
+#endif
     Function target = draw ? drawBuffer : readBuffer;
     if (target != nullptr) target(mode);
 }

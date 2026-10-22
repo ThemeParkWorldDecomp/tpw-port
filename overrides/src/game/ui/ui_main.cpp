@@ -82,7 +82,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#ifndef _WIN32
 #include <dlfcn.h>
+#endif
 #include <new>
 
 // ui_main.cpp, main app 0x1017fdf8 and 0x101867f8.

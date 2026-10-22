@@ -108,6 +108,11 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   if(APPLE)
     # platform/gdi.cpp draws the signs' text with CoreText into a CoreGraphics bitmap.
     target_link_libraries(tpw_platform PUBLIC "-framework CoreText" "-framework CoreGraphics" "-framework CoreFoundation" objc)
+  elseif(WIN32)
+    # platform/gdi_text_stb.cpp draws the signs' text with stb_truetype (third_party/stb) in place of CoreText;
+    # platform/winsock.cpp is on Windows' own sockets.
+    target_include_directories(tpw_platform PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
+    target_link_libraries(tpw_platform PUBLIC ws2_32 glu32)   # gluBuild2DMipmaps is in the Mac's OpenGL framework
   endif()
 
   # The game's films (QuickTime, Sorenson video) play through FFmpeg (platform/quicktime.cpp), built from source here
@@ -134,6 +139,18 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   # generator must not stand in for them; nor for the launcher window's library and the importer under it.
   if(APPLE)
     set(TPW_STUB_SYSLIBS --syslib /System/Library/Frameworks/OpenGL.framework/OpenGL)
+  elseif(WIN32)
+    # MinGW's C runtime is partly static (libmingw32, libmingwex) and its DLLs are linked through import libraries, so
+    # the generator reads those as it reads the other static libraries. glLockArraysEXT and glUnlockArraysEXT are
+    # extensions opengl32.dll does not export: they stay stand-ins (they are only hints), declared as functions.
+    set(TPW_STUB_SYSLIBS --c-function glLockArraysEXT --c-function glUnlockArraysEXT)
+    foreach(lib mingw32 mingwex ucrt kernel32 user32 gdi32 opengl32 glu32 advapi32 shell32 ole32 oleaut32 imm32 winmm
+                version setupapi ws2_32 c++ unwind)
+      find_library(TPW_WIN_LIB_${lib} NAMES ${lib} HINTS ${CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES})
+      if(TPW_WIN_LIB_${lib})
+        list(APPEND TPW_STUB_SYSLIBS --provides ${TPW_WIN_LIB_${lib}})
+      endif()
+    endforeach()
   else()
     set(TPW_STUB_SYSLIBS --syslib libGL.so.1)
   endif()

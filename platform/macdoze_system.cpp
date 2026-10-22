@@ -13,7 +13,9 @@
 #include <thread>
 #include <utility>
 
+#ifndef _WIN32
 #include <sys/statvfs.h>
+#endif
 
 #include "platform.h"
 #include "platform/macdoze.h"
@@ -152,7 +154,11 @@ int32_t DayOfWeek(int32_t year, int32_t month, int32_t day) {
 _SYSTEMTIME NowLocal() {
     const std::time_t now = std::time(nullptr);
     std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local, &now);
+#else
     localtime_r(&now, &local);
+#endif
     _SYSTEMTIME time{};
     time.wYear = static_cast<uint16_t>(local.tm_year + 1900);
     time.wMonth = static_cast<uint16_t>(local.tm_mon + 1);
@@ -269,13 +275,23 @@ int32_t GetTimeFormatA(uint32_t, uint32_t, const _SYSTEMTIME* time, const char* 
 // free count is cut to what fits. Answers whether the volume could be asked.
 int32_t GetDiskFreeSpace(const char*, uint32_t* sectorsPerCluster, uint32_t* bytesPerSector, uint32_t* freeClusters,
                          uint32_t* totalClusters) {
-    struct statvfs info;
     std::error_code ec;
     const fs::path where = tpw::config().userDir.empty() ? fs::path("/") : tpw::config().userDir;
+#ifdef _WIN32
+    // No statvfs: the volume's space in 4 KB blocks, the cluster size NTFS uses by default.
+    fs::space_info space = fs::space(where, ec);
+    if (ec) space = fs::space(fs::current_path(), ec);
+    if (ec) return 0;
+    const uint64_t blockSize = 4096;
+    const uint64_t free = static_cast<uint64_t>(space.available) / blockSize;
+    const uint64_t total = static_cast<uint64_t>(space.capacity) / blockSize;
+#else
+    struct statvfs info;
     if (statvfs(where.c_str(), &info) != 0 && statvfs("/", &info) != 0) return 0;
     const uint64_t blockSize = info.f_frsize != 0 ? info.f_frsize : 512;
     const uint64_t free = static_cast<uint64_t>(info.f_bavail);
     const uint64_t total = static_cast<uint64_t>(info.f_blocks);
+#endif
     const uint64_t most = 0x7fffffffull / blockSize;
     if (sectorsPerCluster != nullptr) *sectorsPerCluster = 1;
     if (bytesPerSector != nullptr) *bytesPerSector = static_cast<uint32_t>(blockSize);
