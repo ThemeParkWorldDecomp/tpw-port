@@ -20,10 +20,14 @@
 
 namespace tpw::ui {
 
+// launcher.ini's key for the Settings box's "Skip the intro films" ("1" skips them).
+inline constexpr const char* kSkipIntroKey = "skip_intro";
+
 // What the player chose to start.
 struct LaunchChoice {
     assets::Edition edition = assets::kEditionEur;
-    bool gold = false;   // with the Gold bonus rides
+    bool gold = false;        // with the Gold bonus rides
+    bool skipIntro = false;   // without the logo and intro films (Settings)
 };
 
 class LauncherUi {
@@ -116,6 +120,7 @@ private:
     Input input_;              // gathered from events since the last frame
     Screen screen_ = Screen::Home;
     bool aboutOpen_ = false, settingsOpen_ = false;
+    bool skipIntro_ = false;   // the Settings box's "Skip the intro films", as launcher.ini keeps it
 
     // A drag over the window.
     bool dragging_ = false;

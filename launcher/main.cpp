@@ -342,6 +342,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, co
     tpw::ui::LaunchChoice choice;
     if (!play.empty()) {
         choice.edition = play == "us" ? tpw::assets::kEditionUs : tpw::assets::kEditionEur;
+        choice.skipIntro = backend.Setting(tpw::ui::kSkipIntroKey) == "1";
         const tpw::assets::EditionStatus status = backend.Status(choice.edition);
         if (!status.unlocked) {
             std::fprintf(stderr,
@@ -380,6 +381,17 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, co
                 return 1;
             case tpw::ui::WindowOutcome::Play: break;
         }
+    }
+    // The launcher's "Skip the intro films" (Settings): as --no-movies. It is written to launcher.ini again here, after the
+    // importer's last write of the file (the choice it saved on Play), which kept the importer's older copy of the key.
+    {
+        const std::string skip = backend.Setting(tpw::ui::kSkipIntroKey);
+        std::string ignored;
+        if (!skip.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, tpw::ui::kSkipIntroKey, skip, ignored);
+    }
+    if (choice.skipIntro) {
+        config.movies = false;
+        tpw::Log("intro films: skipped (the launcher's Settings)");
     }
     const bool us = choice.edition == tpw::assets::kEditionUs;
     const std::string edition = us ? "stp" : "tpw";
