@@ -25,6 +25,7 @@
 #include "LbDraw.h"
 #include "LbTime.h"
 #include "Light.h"
+#include "keytable_actions.h"
 #include "LLCellSystem.h"
 #include "LoansPanelMsg.h"
 #include "lobby.h"
@@ -1390,7 +1391,13 @@ int32_t Engine_GameWinMsg(InterfaceWindow* window, int32_t message, int32_t a, i
         // Message 0x10004: the right button is released. A press that is still watched gives the mouse a NEW default mode, made before the
         // mouse itself is checked.
         window->UnCaptureDevice();
-        if (gGameWinRightDown != 0) {
+        // TPW_PORT_FIX rmberase Engine_GameWinMsg | Mac: a right click always cancels the current mode, and with none to cancel does nothing | Port: with none to cancel (the default mouse mode, the cell system in mode 0, no panel) it does what Backspace does there (backtrack, keyboard.cpp): the path under the pointer is deleted, with its sound | Why: a right click to erase paths, which players asked for; the original's erase is Backspace alone
+        EnsureMouse();
+        const bool nothingToCancel = gGameWinRightDown != 0 && (gMouseMode == nullptr || gMouseMode->GetMode() <= 1) &&
+                                     LLCC_SystemIsMode(0) != 0 && gUIPanelWindow == nullptr;
+        if (nothingToCancel) {
+            backtrack();
+        } else if (gGameWinRightDown != 0) {
             CMMDefault* fresh = new (std::nothrow) CMMDefault;
             EnsureMouse();
             gMouse->AssignMouseMode(fresh);
