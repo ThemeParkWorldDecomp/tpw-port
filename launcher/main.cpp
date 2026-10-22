@@ -36,6 +36,7 @@
 #include "UI_Base.h"
 #include "platform.h"
 #include "handoff.h"
+#include "host_win32.h"
 #include "platform/game_tables.h"
 #include "startup.h"
 #include "static_init.h"
@@ -434,6 +435,7 @@ int main(int argc, char** argv) {
     // the backtrace too
 #ifdef _WIN32
     for (int crash : {SIGSEGV, SIGILL, SIGABRT}) std::signal(crash, OnCrash);   // no sigaction, SIGBUS or SIGTRAP there
+    tpw::win32::DivideLikeTheMac();   // x86 traps what the Mac divides (host_win32.h)
 #else
     for (int crash : {SIGSEGV, SIGBUS, SIGTRAP, SIGILL, SIGABRT}) {
         struct sigaction action{};

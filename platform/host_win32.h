@@ -12,6 +12,12 @@ bool InLoadedImage(const void* address);
 // The system OpenGL's own entry point of that name (opengl32.dll), past any the executable defines itself.
 void* SystemGLProc(const char* name);
 
+// Integer division as the Mac's processors do it, for the whole process: x86 traps a division by zero and INT_MIN / -1,
+// where AArch64 (and the PowerPC before it) answers a value and goes on, and the translation relies on that (the
+// mouse's position is divided by a screen size that is 0 while a park loads). A trapped div or idiv gets AArch64's
+// answer: by zero, a quotient of 0 and the dividend as the remainder; INT_MIN / -1, INT_MIN and a remainder of 0.
+void DivideLikeTheMac();
+
 }  // namespace tpw::win32
 
 #endif
