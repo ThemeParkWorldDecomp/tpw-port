@@ -8,6 +8,10 @@
 #include <cstdint>
 #include <cstdio>
 
+namespace tpw {
+void Log(const char* format, ...) __attribute__((format(printf, 1, 2)));   // platform.h
+}
+
 namespace tpw::win32 {
 
 bool InLoadedImage(const void* address) {
@@ -63,6 +67,12 @@ LONG CALLBACK OnIntegerTrap(EXCEPTION_POINTERS* info) {
     if (length == 0) return EXCEPTION_CONTINUE_SEARCH;
     // By zero: quotient 0, remainder the dividend. INT_MIN / -1: quotient INT_MIN (the dividend), remainder 0.
     const bool overflow = code == EXCEPTION_INT_OVERFLOW;
+    static bool told = false;   // where the game counts on it, once (the addresses name functions with llvm-symbolizer)
+    if (!told) {
+        told = true;
+        tpw::Log("%s at %p (exe base %p) answered as the Mac does", overflow ? "INT_MIN / -1" : "a division by zero",
+                 reinterpret_cast<void*>(c->Rip), static_cast<void*>(GetModuleHandleW(nullptr)));
+    }
     if (byte) {   // AX by r/m8: AL the quotient, AH the remainder
         const DWORD64 al = c->Rax & 0xFF;
         c->Rax = (c->Rax & ~DWORD64(0xFFFF)) | (overflow ? al : 0) | ((overflow ? 0 : al) << 8);

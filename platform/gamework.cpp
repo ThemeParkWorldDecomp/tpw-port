@@ -239,6 +239,11 @@ void UGamework::Run() {
             const int32_t index = (pass - typing.pass) / 2;
             if (pass < typing.pass || index >= static_cast<int32_t>(typing.text.size())) continue;
             const char character = typing.text[static_cast<size_t>(index)];
+            // A backtick holds Option (the PC's Alt) for the next character, as the game's Alt+S and Alt+L quick save and
+            // load want, and a caret holds Control, as its Ctrl+O and Ctrl+C open and close the park; neither sends a key.
+            if (character == '`' || character == '^') continue;
+            const char before = index > 0 ? typing.text[static_cast<size_t>(index) - 1] : '\0';
+            const bool option = before == '`', control = before == '^';
             const bool down = (pass - typing.pass) % 2 == 0;
             // Letters, digits and space are their own virtual keys; other punctuation is no key, only the character (as '@' always
             // was): its code is a navigation key's ('.' is 0x2e, VK_DELETE, which the edit boxes took as forward delete).
@@ -246,7 +251,9 @@ void UGamework::Run() {
             const int32_t windowsKey = character == '\r' ? 0x0d : std::isalnum(code) || character == ' ' ? std::toupper(code) : 0;
             const char macKey = static_cast<char>(tpw::MacKeyCodeFromScancode(
                 static_cast<SDL_Scancode>(tpw::ScancodeFromWindowsKey(windowsKey))));
-            const uint32_t modifiers = std::isupper(static_cast<unsigned char>(character)) ? 0x200u : 0u;
+            const uint32_t modifiers =
+                (std::isupper(static_cast<unsigned char>(character)) ? 0x200u : 0u) | (option ? 0x800u : 0u) |
+                (control ? 0x1000u : 0u);
             tpw::Log("scripted typing: '%c' %s (pass %d)", character, down ? "down" : "up", pass);
             HandleTyping(character, macKey, modifiers, down);
         }
