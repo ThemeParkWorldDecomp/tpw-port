@@ -6,7 +6,6 @@
 // the ascent is CoreText's rounded up and the average width is the 92-character reference string's
 // width truncated to whole pixels and divided by 92. A face with no bold or italic variant is
 // drawn regular (the Mac synthesized the style).
-#ifdef __APPLE__   // gdi_text_stb.cpp elsewhere
 #include "gdi_text.h"
 #include "resource_fork.h"
 
@@ -367,4 +366,3 @@ void Font::Draw(uint8_t* ink, int32_t width, int32_t height, int32_t x, int32_t 
 
 }  // namespace gdi_text
 }  // namespace tpw
-#endif

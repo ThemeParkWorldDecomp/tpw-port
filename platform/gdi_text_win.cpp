@@ -1,11 +1,11 @@
-// gdi_text_stb.cpp: gdi_text.h on stb_truetype, for hosts without CoreText (gdi_text.cpp is the Mac's). Fonts are found
-// among the files AddFontResource registered, then among the system's font files, and text is laid out without kerning
-// or ligatures, as on the Mac.
+// gdi_text_win.cpp: gdi_text.h on Windows, with stb_truetype (third_party/stb) where the Mac's gdi_text.cpp has CoreText,
+// which CMakeLists.txt leaves out of the Windows build. Fonts are found among the files AddFontResource registered, then
+// among the system's font files, and text is laid out without kerning or ligatures, as on the Mac.
 //
-// What differs from the CoreText side: the system fonts are the host's font folder read on the first miss; the fallback
+// What differs from the CoreText side: the system fonts are the Windows font folder read on the first miss; the fallback
 // for an unknown name is Arial (Helvetica's metric twin) or the first face found; and a pixel is ink when its glyph
 // coverage reaches one half, where CoreGraphics without antialiasing tests the pixel's centre.
-#ifndef __APPLE__
+#ifdef _WIN32
 #include "gdi_text.h"
 #include "resource_fork.h"
 
@@ -179,17 +179,12 @@ bool LooksLikeSfnt(const std::vector<uint8_t>& bytes) {
     return magic == 0x00010000 || magic == ForkType("true") || magic == ForkType("OTTO") || magic == ForkType("ttcf");
 }
 
-// The host's own fonts, read once, on the first name the game's files do not have.
+// Windows' own fonts, read once, on the first name the game's files do not have.
 const std::vector<Face>& SystemFaces() {
     static auto* faces = [] {
         auto* found = new std::vector<Face>;
-        std::vector<std::filesystem::path> folders;
-#ifdef _WIN32
         const char* windows = std::getenv("WINDIR");
-        folders.push_back(std::filesystem::path(windows != nullptr ? windows : "C:\\Windows") / "Fonts");
-#else
-        folders = {"/usr/share/fonts", "/usr/local/share/fonts"};
-#endif
+        const std::filesystem::path folders[] = {std::filesystem::path(windows != nullptr ? windows : "C:\\Windows") / "Fonts"};
         for (const auto& folder : folders) {
             std::error_code ec;
             for (auto it = std::filesystem::recursive_directory_iterator(folder, ec);

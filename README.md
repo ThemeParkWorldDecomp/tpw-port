@@ -8,7 +8,7 @@ respective owners.
 
 ## Quick start
 
-macOS on Apple Silicon only. In Terminal:
+macOS on Apple Silicon (for Windows, see [Windows](#windows) below). In Terminal:
 
     git clone --recurse-submodules https://gitlab.com/tpw-decomp/tpw-port.git
     cd tpw-port && make
@@ -38,6 +38,39 @@ changed and removes any that no longer match. Check again in Settings rehashes e
 Your checked game files and your saves live in `~/Library/Application Support/STP-TPW Launcher`. `make clean` never
 touches that folder.
 
+## Windows
+
+The port also builds and plays on 64-bit Windows with the llvm-mingw toolchain. The launcher is one .exe that
+needs nothing beside it; the build tools are all there is to install. It was built and tested with llvm-mingw 20261006
+(UCRT, x86-64, clang 23.1.3), CMake 4.4.4, Ninja 1.13.2, Python 3.14.7 and Git 2.55.0 on Windows 10 22H2.
+
+In PowerShell, the tools:
+
+    winget install Git.Git Kitware.CMake Ninja-build.Ninja Python.Python.3.14
+
+and llvm-mingw: download llvm-mingw-20261006-ucrt-x86_64.zip from
+https://github.com/mstorsjo/llvm-mingw/releases/tag/20261006 and extract it, for example to C:\llvm-mingw. Then, in a
+new PowerShell window (so that winget's tools are on the PATH):
+
+    git -c core.autocrlf=false clone --recurse-submodules https://gitlab.com/tpw-decomp/tpw-port.git
+    cd tpw-port
+    $env:PATH = "C:\llvm-mingw\bin;$env:PATH"
+    cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+    cmake --build build --target tpw_launcher
+    build\tpw_launcher.exe
+
+The launcher works as on the Mac (Quick start, above). Your checked game files, your saves and launcher.ini live in
+`%APPDATA%\STP-TPW Launcher`. The launcher is a Windows app without a console: its log goes to launcher.log in that
+folder, unless its output is redirected (`build\tpw_launcher.exe 2> log.txt`).
+
+What the Windows build does differently is all in the platform layer and the build: the signs' text is drawn with
+stb_truetype (platform/gdi_text_win.cpp) from the game's fonts and the Windows fonts folder; the POSIX calls MinGW lacks
+are in platform/win and platform/posix_win.cpp; a division the x86 traps (by zero, INT_MIN / -1) gets the answer the
+Mac's processor gives (platform/host_win.cpp); and the build makes its own copy of the one tpw-decomp file the game
+library builds sliced (devtools/slice_win.py), so it needs no libclang. tpw_platform_tests is not built on Windows: its
+sources are cut by tpw-decomp's slicer, which does need libclang. The overrides of unit win in [FIXES.md](FIXES.md) are
+the Windows build's.
+
 ## Where it stands
 
 Every function of the game is translated. Both editions play from the lobby into a park. 158 names are still generated
@@ -57,7 +90,7 @@ on the Mac, bugs included. This repository adds what it takes to play:
   names nothing defines yet.
 - platform/: the Mac Toolbox, Sound Sprockets, QuickTime and the game's Windows-style shims, done on SDL3, OpenGL and
   CoreText.
-- overrides/: the port's fixes, 53 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
+- overrides/: the port's fixes, 61 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
   the port does and why. Each file there is built in place of the tpw-decomp file of the same path. Headers are read
   from a copy of tpw-decomp's headers in the build folder with the overridden ones laid over it.
 

@@ -39,22 +39,12 @@ void glColorMask(unsigned char red, unsigned char green, unsigned char blue, uns
 void glClearColor(float red, float green, float blue, float alpha);
 void glClear(unsigned int mask);
 void glViewport(int x, int y, int width, int height);
-#ifndef _WIN32
 void glWindowPos2i(int x, int y);
-#endif
 void glPixelStorei(unsigned int name, int value);
 void glPixelZoom(float x, float y);
 void glDrawPixels(int width, int height, unsigned int format, unsigned int type, const void* pixels);
 void glDrawBuffer(unsigned int mode);
 }
-#ifdef _WIN32
-// opengl32.dll stops at OpenGL 1.1: glWindowPos2i (1.4) comes from the driver, through the current context.
-static void glWindowPos2i(int x, int y) {
-    using Function = void(__stdcall*)(int, int);
-    static const Function function = reinterpret_cast<Function>(SDL_GL_GetProcAddress("glWindowPos2i"));
-    if (function != nullptr) function(x, y);
-}
-#endif
 #endif
 
 namespace {

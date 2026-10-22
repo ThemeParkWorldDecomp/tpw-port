@@ -695,7 +695,7 @@ IdxDirectDraw* IdxMakeOpenGLImplementation(SamsUtilities::DeviceKind, GrafPort* 
             return nullptr;
         }
         SDL_GL_MakeCurrent(gWindow.sdl, static_cast<SDL_GLContext>(gWindow.glContext));
-        SDL_GL_SetSwapInterval(std::getenv("TPW_SPEED") != nullptr ? 0 : 1);   // a sped-up test run (sams_core.cpp) waits for no display
+        SDL_GL_SetSwapInterval(1);
         // The game's picture goes into a framebuffer of its own size from here on (see SwapBuffers).
         if (gFit.wanted && !tpw::offscreen::Create(gFit.gameWide, gFit.gameHigh)) DisableFit("no offscreen framebuffer");
     }

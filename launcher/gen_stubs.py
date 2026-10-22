@@ -32,7 +32,6 @@ import ctypes.util
 import pathlib
 import platform
 import re
-import shutil
 import subprocess
 import sys
 
@@ -113,14 +112,18 @@ def main():
     ap.add_argument("--provides", action="append", default=[], help="a static library the launcher links; the symbols it defines get no stand-in")
     ap.add_argument("--c-function", action="append", default=[], help="an unmangled name that is a function")
     ap.add_argument("--nm", default="nm")
-    ap.add_argument("--cxxfilt", default=None, help="default: c++filt, else llvm-cxxfilt beside --nm")
+    ap.add_argument("--cxxfilt", default="c++filt")
     ap.add_argument("inputs", nargs="+")
     args = ap.parse_args()
-    if args.cxxfilt is None:
-        beside = pathlib.Path(args.nm).with_name("llvm-cxxfilt" + pathlib.Path(args.nm).suffix)
-        args.cxxfilt = "c++filt" if shutil.which("c++filt") or not beside.is_file() else str(beside)
 
     undefined, defined = symbols(args.nm, args.inputs)
+    labels = []
+    if WINDOWS:
+        # An asm label in the Mach-O spelling (__asm__("__ZN..."), on a declaration, weak or not) names a C++ symbol
+        # with one underscore more than COFF gives it. Each gets a thunk to COFF's name (label_thunks), which is stood in
+        # for in turn when nothing defines it.
+        labels = sorted(s for s in undefined | defined if s.startswith("__Z"))
+        undefined = (undefined - set(labels)) | {s[1:] for s in labels}
     defined |= symbols(args.nm, args.provides)[1]
     needed = sorted(undefined - defined)
     system = SystemLibraries(args.syslib)
@@ -215,6 +218,8 @@ def main():
     w("}")
     w("")
     out.extend(trampolines(functions))
+    if labels:
+        out.extend(label_thunks(labels))
     text = "\n".join(out) + "\n"
     path = pathlib.Path(args.out)
     if not path.exists() or path.read_text() != text:
@@ -314,7 +319,8 @@ def trampolines(functions):
         w('    "    xorl %edx, %edx\\n"')
         w('    "    xorps %xmm0, %xmm0\\n"')
         w('    "    xorps %xmm1, %xmm1\\n"')
-        w('    "    movq %rbp, %rsp\\n"')
+        if WINDOWS:
+            w('    "    movq %rbp, %rsp\\n"')
         w('    "    popq %rbp\\n"')
         w('    "    ret\\n"')
         for i, (symbol, _, _) in enumerate(functions):
@@ -329,6 +335,15 @@ def trampolines(functions):
         for i, (symbol, _, _) in enumerate(functions):
             w(f'extern "C" long tpw_stub_fn_{i}() __asm__("{symbol}");')
             w(f'extern "C" long tpw_stub_fn_{i}() {{ tpw_stub_hit({i}); return 0; }}')
+    return lines
+
+
+def label_thunks(labels):
+    """Windows: a jump under each asm label in the Mach-O spelling to the symbol it means, under COFF's name."""
+    lines = ["__asm__(", '    ".text\\n"']
+    for label in labels:
+        lines += [f'    ".globl {label}\\n"', f'    "{label}:\\n"', f'    "    jmp {label[1:]}\\n"']
+    lines.append(");")
     return lines
 
 

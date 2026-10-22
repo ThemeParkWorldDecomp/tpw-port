@@ -11,10 +11,6 @@
 #include <system_error>
 #include <unordered_set>
 #include <vector>
-#ifdef _WIN32
-#define flockfile _lock_file   // the CRT names of the stdio stream lock
-#define funlockfile _unlock_file
-#endif
 
 #include "handoff.h"
 #include "platform.h"

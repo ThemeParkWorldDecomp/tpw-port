@@ -6,6 +6,14 @@
 // Winsock's conventions kept: a socket is a plain number (the host's file descriptor, the game
 // compares it to -1), the calls answer -1 when they fail, and an address is Windows' sockaddr_in:
 // a 16 bit family, the port as a plain number, the 4 address bytes in network order, 8 zero bytes.
+#ifndef _WIN32
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
+
 #include <cstdint>
 #include <cstring>
 #include <mutex>
@@ -14,18 +22,12 @@
 #include "email.h"
 #include "platform/macdoze_system.h"
 
-// The host's sockets, after the game's headers: Windows' headers define macros that would rename what those declare.
 #ifdef _WIN32
+// Windows' sockets, after the game's headers: Windows' headers define macros that would rename what those declare.
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#else
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
 #endif
 
 namespace {
@@ -45,8 +47,8 @@ static_assert(sizeof(GameAddress) == 16, "winsock's sockaddr_in is 16 bytes");
 sockaddr_in ToHost(const void* game, int32_t length) {
     sockaddr_in host;
     std::memset(&host, 0, sizeof host);
-#ifdef __APPLE__
-    host.sin_len = sizeof host;   // BSD's field; Linux and Windows have none
+#ifndef _WIN32   // BSD's field; Windows' has none
+    host.sin_len = sizeof host;
 #endif
     host.sin_family = AF_INET;
     if (game != nullptr && length >= static_cast<int32_t>(sizeof(GameAddress))) {
@@ -122,7 +124,7 @@ namespace ftp_callee {
 int32_t Socket(int32_t family, int32_t type, int32_t) {
     const int fd = ::socket(family == 2 ? AF_INET : family, type, 0);
     if (fd < 0) return -1;
-#ifdef SO_NOSIGPIPE
+#ifndef _WIN32   // Windows has no SIGPIPE
     const int on = 1;
     ::setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof on);
 #endif
@@ -167,7 +169,11 @@ int32_t SockConnect(int32_t sock, const void* addr, int32_t length) {
 
 // recv 0x1023a780: recvfrom with no address.
 int32_t Recv(int32_t sock, void* buffer, int32_t size, int32_t flags) {
+#ifdef _WIN32
     return static_cast<int32_t>(::recvfrom(sock, static_cast<char*>(buffer), size, flags & 3, nullptr, nullptr));
+#else
+    return static_cast<int32_t>(::recvfrom(sock, buffer, size, flags & 3, nullptr, nullptr));
+#endif
 }
 
 // shutdown 0x1023a7b0
@@ -198,7 +204,7 @@ int32_t Accept(int32_t sock, void* addr, int32_t* length) {
     socklen_t size = sizeof host;
     const int fd = ::accept(sock, reinterpret_cast<sockaddr*>(&host), &size);
     if (fd < 0) return -1;
-#ifdef SO_NOSIGPIPE
+#ifndef _WIN32   // Windows has no SIGPIPE
     const int on = 1;
     ::setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof on);
 #endif

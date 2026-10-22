@@ -1,6 +1,6 @@
-// host_win32.cpp: see host_win32.h.
+// host_win.cpp: see host_win.h.
 #ifdef _WIN32
-#include "host_win32.h"
+#include "host_win.h"
 
 #include <windows.h>
 
@@ -14,17 +14,6 @@ void Log(const char* format, ...) __attribute__((format(printf, 1, 2)));   // pl
 }
 
 namespace tpw::win32 {
-
-bool InLoadedImage(const void* address) {
-    HMODULE module = nullptr;
-    return GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                              static_cast<LPCWSTR>(address), &module) != 0;
-}
-
-void* SystemGLProc(const char* name) {
-    static HMODULE gl = LoadLibraryW(L"opengl32.dll");
-    return gl != nullptr ? reinterpret_cast<void*>(GetProcAddress(gl, name)) : nullptr;
-}
 
 namespace {
 
@@ -194,9 +183,10 @@ bool LogToFile(const std::string& path) {
 
 }  // namespace tpw::win32
 
-// GL_EXT_compiled_vertex_array (include/platform/opengl.h). opengl32.dll exports OpenGL 1.1 only, so the engine's calls go
-// to the driver's own entry points, asked of the current context at the first call (the engine makes them while drawing).
-// A driver without the extension leaves them doing nothing, which a hint allows.
+// The OpenGL calls past 1.1, the most opengl32.dll exports: GL_EXT_compiled_vertex_array's (include/platform/opengl.h) and
+// glWindowPos2i (OpenGL 1.4, platform/quicktime.cpp's films). They go to the driver's own entry points, asked of the
+// current context at the first call (both are made while drawing). A driver without them leaves them doing nothing: the
+// arrays' lock is a hint, and every driver of the last twenty years has glWindowPos2i.
 namespace {
 template <class Function> Function DriverGLProc(const char* name) {
     const PROC proc = wglGetProcAddress(name);
@@ -215,6 +205,11 @@ void glLockArraysEXT(int32_t first, int32_t count) {
 void glUnlockArraysEXT() {
     static const auto function = DriverGLProc<void(APIENTRY*)()>("glUnlockArraysEXT");
     if (function != nullptr) function();
+}
+
+void glWindowPos2i(int x, int y) {
+    static const auto function = DriverGLProc<void(APIENTRY*)(int, int)>("glWindowPos2i");
+    if (function != nullptr) function(x, y);
 }
 }
 #endif

@@ -2,9 +2,7 @@
 #include "handoff.h"
 
 #include <pthread.h>
-#ifdef __APPLE__
 #include <pthread/qos.h>
-#endif
 
 #include <algorithm>
 #include <atomic>
@@ -86,13 +84,7 @@ uint64_t SizeOf(const fs::path& path) {
     return ec ? 0 : static_cast<uint64_t>(size);
 }
 
-#ifdef __APPLE__
 void SetQos(qos_class_t qos) { pthread_set_qos_class_self_np(qos, 0); }
-#else
-// Elsewhere the preload thread keeps the default priority.
-enum { QOS_CLASS_BACKGROUND, QOS_CLASS_USER_INITIATED };
-void SetQos(int) {}
-#endif
 
 void RunPreload(Preload* p) {
     SetQos(QOS_CLASS_BACKGROUND);

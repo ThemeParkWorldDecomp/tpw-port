@@ -189,11 +189,7 @@ int32_t FileTimeToSystemTime(const tagFILETIME* fileTime, _SYSTEMTIME* time) {
 void GetLocalTime(_SYSTEMTIME* time) {
     const std::time_t now = std::time(nullptr);
     std::tm local;
-#ifdef _WIN32
-    localtime_s(&local, &now);
-#else
     localtime_r(&now, &local);
-#endif
     time->wYear = static_cast<uint16_t>(local.tm_year + 1900);
     time->wMonth = static_cast<uint16_t>(local.tm_mon + 1);
     time->wDayOfWeek = static_cast<uint16_t>(local.tm_wday + 1);

@@ -82,9 +82,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#ifndef _WIN32
 #include <dlfcn.h>
-#endif
 #include <new>
 
 // ui_main.cpp, main app 0x1017fdf8 and 0x101867f8.
@@ -745,7 +743,7 @@ void UIMain_AdvisorMessage(AdvisorMessage message) {
 
 // 0x1018227c, 68 bytes.
 void UIMain_CancelAdvisorMessage(AdvisorMessage message) {
-    // TPW_PORT_FIX win1 UIMain_CancelAdvisorMessage | Mac: asks the world for its advisor even when there is no world | Port: does nothing without one | Why: quitting with the 2D map open destroys the map's window after the world has gone, and its callback cancels its advisor message; Mac OS 9 read the world's field from low memory, a modern system faults
+    // TPW_PORT_FIX win UIMain_CancelAdvisorMessage | Mac: asks the world for its advisor even when there is no world (quitting with the 2D map open destroys the map's window after the world has gone; Mac OS 9 read the field from low memory) | Port: does nothing without a world, where a modern system would fault
     if (gGameWorld == nullptr) return;
     gGameWorld->GetAdvisor()->CancelMessage(message);
 }
