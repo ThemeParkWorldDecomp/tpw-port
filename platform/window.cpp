@@ -282,6 +282,23 @@ bool CursorPlacement(CursorPlace& place) {
     return true;
 }
 
+// The game moves some of its animations by a fixed step every frame (the water's and the flags' phases and the cursor
+// squares' blink, src/game/park/DynamicCell.cpp), as if a frame took as long as on the machines it was made for, so on a
+// screen refreshing faster than 60 times a second they ran too fast. Each frame is presented no sooner than a 60th of a
+// second after the one before, on a fixed schedule so that the waits of vsync and these average out; a frame that is late
+// by more than a frame starts the schedule again.
+static void PaceFrame() {
+    constexpr Uint64 kFrameNS = 1000000000ull / 60;
+    static Uint64 next = 0;
+    const Uint64 now = SDL_GetTicksNS();
+    if (next == 0 || now > next + kFrameNS) {
+        next = now;
+    } else if (now < next) {
+        SDL_DelayPrecise(next - now);
+    }
+    next += kFrameNS;
+}
+
 // The frame: with the fit, the game's framebuffer is copied (the cursor is drawn on the copy, so the game's own picture
 // never carries it, and the dump shows what the player sees), the copy is saved if frames are being dumped, then scaled
 // into the window; the game's framebuffer is bound again for its next frame.
@@ -299,12 +316,14 @@ void SwapBuffers() {
         // The swap presents nothing while a framebuffer object is bound (macOS, 2026-10-13); the game's is rebound after.
         offscreen::BindDefault();
         offscreen::DrainErrors("presenting a frame");
+        PaceFrame();
         SDL_GL_SwapWindow(gWindow.sdl);
         offscreen::BindGame();
         return;
     }
     DrawCursorOverlay();
     if (!config().dumpFramesDir.empty()) DumpFrame();
+    PaceFrame();
     SDL_GL_SwapWindow(gWindow.sdl);
 }
 
