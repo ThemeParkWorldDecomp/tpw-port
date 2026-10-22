@@ -470,7 +470,7 @@ int32_t TrueTypeRender::load_settings(bfl::FileSystem::CFile* file) {
     SamsUtilities::_USwapBlock32(reinterpret_cast<uint32_t*>(&mTextY), 1);
     TPFile_Read(&mLogFont, 0x3c, 1, file);
     // Only the five int32 words are swapped (the inline byte swaps); the flag bytes and the face name stay as read.
-    // TPW_PORT_FIX win TrueTypeRender::load_settings | Mac: swaps the five LOGFONT words always | Port: swaps them with _USwapBlock32, as the other settings words, so a little-endian host keeps the file's (little-endian) values
+    // TPW_PORT_FIX sign TrueTypeRender::load_settings | Mac: swaps the five LOGFONT words always | Port: swaps them with _USwapBlock32, as the other settings words, so a little-endian host keeps the file's (little-endian) values
     SamsUtilities::_USwapBlock32(reinterpret_cast<uint32_t*>(&mLogFont), 5);
     return 1;
 }
