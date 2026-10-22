@@ -20,6 +20,12 @@ void* SystemGLProc(const char* name);
 // answer: by zero, a quotient of 0 and the dividend as the remainder; INT_MIN / -1, INT_MIN and a remainder of 0.
 void DivideLikeTheMac();
 
+// Keeps a description of the last access violation, illegal instruction or stack overflow: its code, the address and the
+// call stack, each frame as a module and an offset (llvm-symbolizer --obj tpw_launcher.exe 0x140000000+offset names the
+// exe's). The crash report prints it (LastFatalException); Windows has no backtrace() and its own record never comes.
+void RecordFatalExceptions();
+const char* LastFatalException();
+
 // Whether whoever started the launcher gave it somewhere to write: a console, or a redirection. A Windows app started
 // from Explorer has neither, and its log would go nowhere.
 bool HasStandardError();

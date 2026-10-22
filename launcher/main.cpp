@@ -138,8 +138,15 @@ void OnCrash(int signal) {
         const int more = std::snprintf(text, sizeof text, "launcher: inside the static initialiser %s\n", running);
         if (more > 0) (void)!write(2, text, static_cast<size_t>(more));
     }
-#ifndef _WIN32
-    // Where it happened (the launcher keeps its symbols). Windows has no backtrace(); a debugger has the stack.
+#ifdef _WIN32
+    // Where it happened: the exception and the stack the handler kept (host_win32.h), as module offsets.
+    if (const char* fatal = tpw::win32::LastFatalException()) {
+        (void)!write(2, "launcher: ", 10);
+        (void)!write(2, fatal, static_cast<unsigned>(std::strlen(fatal)));
+        (void)!write(2, "\n", 1);
+    }
+#else
+    // Where it happened (the launcher keeps its symbols).
     static void* frames[48];
     backtrace_symbols_fd(frames, backtrace(frames, 48), 2);
 #endif
@@ -437,6 +444,7 @@ int main(int argc, char** argv) {
 #ifdef _WIN32
     for (int crash : {SIGSEGV, SIGILL, SIGABRT}) std::signal(crash, OnCrash);   // no sigaction, SIGBUS or SIGTRAP there
     tpw::win32::DivideLikeTheMac();   // x86 traps what the Mac divides (host_win32.h)
+    tpw::win32::RecordFatalExceptions();   // for the crash report (OnCrash)
     if (!tpw::win32::HasStandardError()) {
         // Started from Explorer (a Windows app has no console): the log goes to launcher.log beside launcher.ini.
         std::string folder;

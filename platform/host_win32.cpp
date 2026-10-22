@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 
 namespace tpw {
 void Log(const char* format, ...) __attribute__((format(printf, 1, 2)));   // platform.h
@@ -99,6 +100,78 @@ void DivideLikeTheMac() {
     static PVOID handler = AddVectoredExceptionHandler(1, OnIntegerTrap);
     (void)handler;
 }
+
+namespace {
+
+char gFatalText[4096];
+
+// "tpw_launcher.exe+0x1daed" for an address in a loaded image, else the address itself.
+void Describe(DWORD64 address, char* out, size_t size) {
+    HMODULE module = nullptr;
+    char path[MAX_PATH] = "";
+    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCWSTR>(address), &module) &&
+        GetModuleFileNameA(module, path, sizeof path) != 0) {
+        const char* name = path;
+        for (const char* p = path; *p != '\0'; ++p)
+            if (*p == '\\' || *p == '/') name = p + 1;
+        std::snprintf(out, size, "%s+0x%llx", name, static_cast<unsigned long long>(address - reinterpret_cast<DWORD64>(module)));
+    } else {
+        std::snprintf(out, size, "0x%llx", static_cast<unsigned long long>(address));
+    }
+}
+
+LONG CALLBACK OnFatalException(EXCEPTION_POINTERS* info) {
+    const EXCEPTION_RECORD* record = info->ExceptionRecord;
+    const DWORD code = record->ExceptionCode;
+    if (code != EXCEPTION_ACCESS_VIOLATION && code != EXCEPTION_ILLEGAL_INSTRUCTION && code != EXCEPTION_STACK_OVERFLOW &&
+        code != EXCEPTION_PRIV_INSTRUCTION && code != EXCEPTION_IN_PAGE_ERROR) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    size_t used = 0;
+    auto add = [&used](const char* text) {
+        const size_t length = std::strlen(text);
+        if (used + length + 1 >= sizeof gFatalText) return;
+        std::memcpy(gFatalText + used, text, length + 1);
+        used += length;
+    };
+    char line[256], where[160];
+    Describe(reinterpret_cast<DWORD64>(record->ExceptionAddress), where, sizeof where);
+    std::snprintf(line, sizeof line, "exception 0x%08lx at %s", static_cast<unsigned long>(code), where);
+    add(line);
+    if (code == EXCEPTION_ACCESS_VIOLATION && record->NumberParameters >= 2) {
+        std::snprintf(line, sizeof line, " %s 0x%llx", record->ExceptionInformation[0] == 1 ? "writing" : "reading",
+                      static_cast<unsigned long long>(record->ExceptionInformation[1]));
+        add(line);
+    }
+    add("\nstack:");
+    CONTEXT context = *info->ContextRecord;   // walked with the unwind tables, as a debugger would
+    for (int frame = 0; frame < 32 && context.Rip != 0; ++frame) {
+        Describe(context.Rip, where, sizeof where);
+        std::snprintf(line, sizeof line, "\n  %s", where);
+        add(line);
+        DWORD64 imageBase = 0;
+        PRUNTIME_FUNCTION function = RtlLookupFunctionEntry(context.Rip, &imageBase, nullptr);
+        if (function == nullptr) {   // a leaf: the return address is on top of the stack
+            context.Rip = *reinterpret_cast<const DWORD64*>(context.Rsp);
+            context.Rsp += 8;
+        } else {
+            void* handlerData = nullptr;
+            DWORD64 establisher = 0;
+            RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, context.Rip, function, &context, &handlerData, &establisher, nullptr);
+        }
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+}  // namespace
+
+void RecordFatalExceptions() {
+    static PVOID handler = AddVectoredExceptionHandler(0, OnFatalException);
+    (void)handler;
+}
+
+const char* LastFatalException() { return gFatalText[0] != '\0' ? gFatalText : nullptr; }
 
 bool HasStandardError() {
     const HANDLE handle = GetStdHandle(STD_ERROR_HANDLE);

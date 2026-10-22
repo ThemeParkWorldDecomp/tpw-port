@@ -745,6 +745,8 @@ void UIMain_AdvisorMessage(AdvisorMessage message) {
 
 // 0x1018227c, 68 bytes.
 void UIMain_CancelAdvisorMessage(AdvisorMessage message) {
+    // TPW_PORT_FIX win1 UIMain_CancelAdvisorMessage | Mac: asks the world for its advisor even when there is no world | Port: does nothing without one | Why: quitting with the 2D map open destroys the map's window after the world has gone, and its callback cancels its advisor message; Mac OS 9 read the world's field from low memory, a modern system faults
+    if (gGameWorld == nullptr) return;
     gGameWorld->GetAdvisor()->CancelMessage(message);
 }
 
