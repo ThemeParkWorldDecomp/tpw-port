@@ -15,6 +15,7 @@
 #include <string>
 #include <unordered_map>
 #include <algorithm>
+#include <numeric>
 #include <vector>
 
 #include <dlfcn.h>
@@ -44,7 +45,8 @@ namespace {
 // The largest preset, 4096 x 3072 (3840 x 2160 at 16:9), rendered offscreen and scaled to the window (the maintainer,
 // 2026-10-20; it was Resolution.sam's 2048 x 1536 preset, 7, from 2026-10-11). Presets 8 to 10 are the port's own.
 constexpr int32_t kDefaultResolution = 10;
-// The screen's shape: 16:9 unless --aspect asks otherwise (the maintainer, 2026-10-20). Presets 1 to 7 keep their
+// The screen's shape: the screen's own unless --aspect asks otherwise (ScreenAspect), and 16:9 when the screen cannot be
+// asked (the maintainer chose 16:9, 2026-10-20; a fixed shape left bars on other screens). Presets 1 to 7 keep their
 // height and take the width the shape gives them, so 2048 x 1536 becomes 2730 x 1536; presets 8 to 10 keep the width of
 // their 16:9 size (2560, 3200, 3840) and take the height. 4:3 is the original game's layout exactly.
 constexpr int kDefaultAspectWide = 16;
@@ -78,6 +80,26 @@ int ResolutionPreset(const char* size) {
     for (int i = 0; i < 10; ++i)
         if (std::strcmp(size, sizes[i]) == 0) return i + 1;
     return 0;
+}
+
+// The shape of the screen the game opens on (its desktop mode: --display's screen, else the main one) as W:H in lowest
+// terms, 4:3 for a screen narrower than that (5:4, or one turned upright); false when there is no screen to ask. Video is
+// started for it and stays started (the window and the game use it).
+bool ScreenAspect(int& wide, int& high) {
+    if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) return false;
+    SDL_DisplayID display = tpw::ChosenDisplay();
+    if (display == 0) display = SDL_GetPrimaryDisplay();
+    const SDL_DisplayMode* mode = display != 0 ? SDL_GetDesktopDisplayMode(display) : nullptr;
+    if (mode == nullptr || mode->w <= 0 || mode->h <= 0) return false;
+    if (mode->w * 3 < mode->h * 4) {
+        wide = 4;
+        high = 3;
+        return true;
+    }
+    const int divisor = std::gcd(mode->w, mode->h);
+    wide = mode->w / divisor;
+    high = mode->h / divisor;
+    return true;
 }
 
 // W:H with both whole and positive, no narrower than 4:3; 0 for anything else.
@@ -188,7 +210,8 @@ void Usage(const char* program) {
                  "                    640x480, 800x600, 1024x768, 1280x1024, 1600x1200, 2048x1536) or a larger one of the\n"
                  "                    port's (2560x1920, 3200x2400, 4096x3072; default: 4096x3072). The game renders at it\n"
                  "                    offscreen and the window shows it scaled\n"
-                 "  --aspect W:H   the screen's shape (default 16:9). The Resolution.sam presets keep their height and are\n"
+                 "  --aspect W:H   the screen's shape (default: the screen's own, 4:3 for a narrower one). The Resolution.sam\n"
+                 "                 presets keep their height and are\n"
                  "                 widened (2048x1536 becomes 2730x1536 at 16:9, 2458x1536 at 16:10); the larger ones keep\n"
                  "                 the width of their 16:9 size (2560x1440, 3200x1800, 3840x2160 at 16:9; 3840x2400 at\n"
                  "                 16:10). The park is seen further to the sides, the panels keep to the screen's edges\n"
@@ -435,6 +458,7 @@ int main(int argc, char** argv) {
     int32_t resolution = kDefaultResolution;
     int aspectWide = kDefaultAspectWide;
     int aspectHigh = kDefaultAspectHigh;
+    bool aspectGiven = false;   // --aspect; without it the screen's own shape (ScreenAspect)
     if (const char* dir = std::getenv("TPW_GAME_DIR")) config.gameDir = dir;
     std::filesystem::path program;   // the application the data tables are read from (platform/game_tables.cpp)
     std::string dataDir, play;       // --data, --play: the launcher's data folder (no --game)
@@ -496,6 +520,7 @@ int main(int argc, char** argv) {
                 std::fprintf(stderr, "launcher: --aspect wants W:H, no narrower than 4:3 (16:9, 16:10, 4:3): %s\n", shape);
                 return 2;
             }
+            aspectGiven = true;
         }
         else if (arg == "--no-intro") config.debugOptions[3] = 0;
         else if (arg == "--frames") config.maxFrames = std::atoi(value());
@@ -604,6 +629,10 @@ int main(int argc, char** argv) {
 
     // 4:3 leaves the game's own sizes alone (the 1280 x 1024 preset stays 5:4); anything wider widens the screen.
 #ifdef TPW_PORT_FIX
+    if (!aspectGiven && !ScreenAspect(aspectWide, aspectHigh)) {
+        aspectWide = kDefaultAspectWide;
+        aspectHigh = kDefaultAspectHigh;
+    }
     gUIWideAspect = aspectWide * 3 == aspectHigh * 4 ? 0.0f : static_cast<float>(aspectWide) / static_cast<float>(aspectHigh);
     tpw::Log("aspect: %d:%d%s", aspectWide, aspectHigh, gUIWideAspect == 0.0f ? " (the original 4:3 layout)" : "");
     gUIHighPresets = 1;
