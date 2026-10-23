@@ -1572,7 +1572,8 @@ void CPerson::SetState(PersonState state) {
                 gWorld->SeedRand(id);
                 int32_t sprites = ESP_GetRandomSpritesFrom(static_cast<ESP_Sprites>(10));
                 int32_t action = ESP_GetRandomActionFrom(static_cast<ESP_Sprites>(10), sprites);
-                Word(s, 0x210) = static_cast<uint32_t>(ESP_SpawnScript(ScriptCodeAt(0x1029fd48u) /* TPW_PORT_FIX balloon: the Mac's 0x1029fd48, not the host's copy */, static_cast<ESP_Sprites>(10), sprites,
+                // TPW_PORT_FIX balloon CPerson::SetState | Mac: spawns the balloon's script from the block at 0x1029fd48 | Port: from that place in the script code (ScriptCodeAt), not from the host's copy
+                Word(s, 0x210) = static_cast<uint32_t>(ESP_SpawnScript(ScriptCodeAt(0x1029fd48u), static_cast<ESP_Sprites>(10), sprites,
                                                                         static_cast<ACTS>(action), 0.0f, 0.0f, 0.0f));
             }
         }
