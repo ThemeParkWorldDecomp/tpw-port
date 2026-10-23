@@ -63,6 +63,9 @@ The Settings box has these rows:
   pitches. Off is the Mac's way, where each sound plays the same recording all through a launch.
 - Interface size: 100% by default, the original. 85% or 70% shrink the panels so the park shows more, with the panels
   still at the edges of the screen.
+- Visitor looks: how many kinds of visitor the game loads, the original's NUMKIDS option from low.sam, med.sam and
+  high.sam. Default keeps the game's detail level's own value (4 at low detail, 8 at medium and high); 4, 6, 8 and Max
+  are the files' four choices. It changes how varied the crowd looks, not how many visitors come.
 - Check again: rehashes every file.
 
 ## What you need

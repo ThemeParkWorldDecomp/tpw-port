@@ -34,6 +34,10 @@ inline constexpr const char* kInterfaceSizeKey = "interface_size";
 // launcher.ini's key for the Settings box's "Varied sounds" (absent or "1": each of the sounds' random draws moves the seed,
 // as on the PC, so a sound varies among its recordings; "0": the Mac's draws, one recording a sound each launch).
 inline constexpr const char* kPcSoundPicksKey = "pc_sound_picks";
+// launcher.ini's key for the Settings box's "Visitor looks": GameOptions.NUMKIDS of the original's options files (low.sam,
+// med.sam, high.sam), one of their choices 0 to 3 (4, 6, 8 or the most kid sprite looks); "default" or absent: the
+// detail level's own.
+inline constexpr const char* kNumKidsKey = "num_kids";
 
 // What the player chose to start.
 struct LaunchChoice {
@@ -156,6 +160,7 @@ private:
     bool pcSoundPicks_ = true;      // the Settings box's "Varied sounds", as launcher.ini keeps it (on when absent)
     bool smoothZoom_ = false;       // the Settings box's "Smooth wheel zoom", as launcher.ini keeps it
     int interfaceSize_ = 0;         // the Settings box's "Interface size": 0 100%, 1 85%, 2 70%
+    int numKids_ = 0;               // the Settings box's "Visitor looks": 0 the detail level's own, 1 to 4 NUMKIDS 0 to 3
 
     // A drag over the window.
     bool dragging_ = false;
