@@ -11,12 +11,15 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
+#include <cmath>
 #include <vector>
 
 #include "platform.h"
 #include "platform/opengl.h"
 #include "platform/macdoze.h"
 #include "platform/upixels.h"
+#include "TbIRLE4bitFont.h"   // gTbFontScale
 
 namespace SamsUtilities {
 void UPixelsReadRGBA(UPixels& pixels, uint8_t* out, int32_t width, int32_t height);   // platform/upixels.cpp
@@ -115,7 +118,9 @@ void UCursorOpenGL::Swap(UOpenGL&) { DrawOverlay(); }
 // With the mouse outside the window nothing is drawn, except in a frame-dumping run, where the
 // window's centre stands in so the saved pictures show the cursor. With the window fitted to the
 // screen the overlay is drawn in game pixels (tpw::CursorPlacement) onto the copy of the game's
-// picture that is then scaled into the window, so the cursor is as large as the game made it.
+// picture that is then scaled into the window. The cursors were drawn for 1024 x 768, so on a larger
+// game picture the cursor grows with the UI, as its fonts do (gTbFontScale, the UI's pixels per unit
+// over 1024 x 768's), by a whole number so that its pixels stay square.
 void UCursorOpenGL::DrawOverlay() {
     const auto count = static_cast<int32_t>(mPictures->frames.size());
     if (count == 0 || gShowCount <= 0) return;
@@ -126,10 +131,11 @@ void UCursorOpenGL::DrawOverlay() {
     if (!tpw::CursorPlacement(place)) return;
     const float mouseX = place.x, mouseY = place.y, scaleX = place.scaleX, scaleY = place.scaleY;
     const int pixelsWide = place.surfaceWide, pixelsHigh = place.surfaceHigh;
-    const float x0 = (mouseX - static_cast<float>(mHotX)) * scaleX;
-    const float y0 = (mouseY - static_cast<float>(mHotY)) * scaleY;
-    const float x1 = x0 + static_cast<float>(kFrameSize) * scaleX;
-    const float y1 = y0 + static_cast<float>(kFrameSize) * scaleY;
+    const float grow = std::max(1.0f, std::round(gTbFontScale));
+    const float x0 = (mouseX - static_cast<float>(mHotX) * grow) * scaleX;
+    const float y0 = (mouseY - static_cast<float>(mHotY) * grow) * scaleY;
+    const float x1 = x0 + static_cast<float>(kFrameSize) * grow * scaleX;
+    const float y1 = y0 + static_cast<float>(kFrameSize) * grow * scaleY;
 
     if (mPictures->textures.empty()) {
         mPictures->textures.assign(static_cast<size_t>(count), 0);
