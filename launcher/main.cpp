@@ -36,6 +36,7 @@
 #include "UI_Base.h"
 #include "lobby.h"
 #include "TPSettings.h"
+#include "TPOptions.h"
 #include "TPAdvisor.h"
 #include "TrueTypeRender.h"
 #include "analyser.h"
@@ -561,7 +562,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, co
     // --no-movies; "Back to the launcher after playing" opens the launcher again when a game started from its window
     // quits (ReopenLauncher). From tpw-port PRs #10, #20, #22 and #24 by samueleagle91.
     for (const char* key : {tpw::ui::kSkipIntroKey, tpw::ui::kBackToLauncherKey, tpw::ui::kSmoothZoomKey,
-                            tpw::ui::kInterfaceSizeKey}) {
+                            tpw::ui::kInterfaceSizeKey, tpw::ui::kNumKidsKey}) {
         const std::string value = backend.Setting(key);
         std::string ignored;
         if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, key, value, ignored);
@@ -584,6 +585,13 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, co
         const std::string size = backend.Setting(tpw::ui::kInterfaceSizeKey);
         gUIScale = size == "85" ? 0.85f : size == "70" ? 0.7f : 1.0f;
         if (gUIScale != 1.0f) tpw::Log("interface size: %s%%", size.c_str());
+    }
+    {   // the Settings box's "Visitor looks": GameOptions.NUMKIDS, one of the options files' choices 0 to 3 (COptions)
+        const std::string kids = backend.Setting(tpw::ui::kNumKidsKey);
+        if (kids.size() == 1 && kids[0] >= '0' && kids[0] <= '3') {
+            gPortNumKids = kids[0] - '0';
+            tpw::Log("visitor looks: NUMKIDS %d (the launcher's Settings)", gPortNumKids);
+        }
     }
 #endif
     if (choice.skipIntro) {

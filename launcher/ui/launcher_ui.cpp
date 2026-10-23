@@ -116,6 +116,10 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
         const std::string size = backend_.Setting(kInterfaceSizeKey);
         interfaceSize_ = size == "85" ? 1 : size == "70" ? 2 : 0;
     }
+    {
+        const std::string kids = backend_.Setting(kNumKidsKey);
+        numKids_ = kids.size() == 1 && kids[0] >= '0' && kids[0] <= '3' ? kids[0] - '0' + 1 : 0;
+    }
     // files the startup check (assets/importer.h) found changed and removed
     std::string startup = backend_.StartupNotice();
     if (!startup.empty()) {
@@ -820,7 +824,7 @@ void LauncherUi::DrawSettings(const Rect& w) {
     float titleH = text_.LineHeight(style::kHeadline) + 12;
     // Everything below the title, as drawn below.
     float bodyH = 2 * (text_.LineHeight(style::kBodyBold) + 4) + 40 + text_.LineHeight(style::kSmall) + 14 + 3 * rowH +
-                  4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + 4 * rowH;
+                  4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + 5 * rowH;
     float ph = std::min(w.h - 2 * metric::kMargin, titleH + bodyH + 40);
     Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
     ui_.Panel(panel, colour::kPaper, colour::kCream);
@@ -981,6 +985,25 @@ void LauncherUi::DrawSettings(const Rect& w) {
                           interfaceSize_)) {
             std::string err;
             if (!backend_.SaveSetting(kInterfaceSizeKey, kValues[interfaceSize_], err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
+        }
+        y += rowH;
+    }
+    {   // GameOptions.NUMKIDS of the original's options files, with their choices: "0->4, 1->6, 2->8, 3->MAX"
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+        const float segW = 380;
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, "Visitor looks", colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, "Kinds of visitor the game loads", row.w - 12 - segW - 24, false),
+                   colour::kInkSoft);
+        static const std::vector<std::string> kLooks = {"Default", "4", "6", "8", "Max"};
+        static const char* const kValues[] = {"default", "0", "1", "2", "3"};
+        if (ui_.Segmented("num-kids", {row.Right() - 12 - segW, row.CentreY() - 18, segW, 36}, kLooks,
+                          std::vector<bool>(kLooks.size(), true), numKids_)) {
+            std::string err;
+            if (!backend_.SaveSetting(kNumKidsKey, kValues[numKids_], err))
                 settingsMessage_ = "Cannot keep the setting: " + err;
         }
         y += rowH;
