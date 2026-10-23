@@ -33,6 +33,7 @@
 #include "TPMain.h"
 #include "tpw_probe.h"
 #include "ResolutionBalance.h"
+#include "OptionsBalance.h"
 #include "UI_Base.h"
 #include "lobby.h"
 #include "TPSettings.h"
@@ -566,6 +567,11 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, co
         std::string ignored;
         if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, key, value, ignored);
     }
+    for (const tpw::ui::SamOption& option : tpw::ui::SamOptions()) {   // the Graphics section's keys, as above
+        const std::string value = backend.Setting(option.key);
+        std::string ignored;
+        if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, option.key, value, ignored);
+    }
     gBackToLauncher = choice.backToLauncher;
     // The Park rules box (tpw-port PR #23: more visitors per bus, a higher visitor limit) left the port, which changes
     // only how the game is shown and driven, never how a park plays; it is to become a tpw-mods mod. A launcher.ini that
@@ -584,6 +590,18 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, co
         const std::string size = backend.Setting(tpw::ui::kInterfaceSizeKey);
         gUIScale = size == "85" ? 0.85f : size == "70" ? 0.7f : 1.0f;
         if (gUIScale != 1.0f) tpw::Log("interface size: %s%%", size.c_str());
+    }
+    // The Settings box's Graphics section: the original's options files' values the player chose (EngineStartup_OptionsFile).
+    for (const tpw::ui::SamOption& option : tpw::ui::SamOptions()) {
+        const std::string value = backend.Setting(option.key);
+        const int choice = tpw::ui::SamChoice(option, value);
+        if (choice >= 0) {
+            gPortSamOptions[option.slot] = option.values[static_cast<size_t>(choice)];
+            tpw::Log("graphics: %s %s (the launcher's Settings)", option.title, option.shown[static_cast<size_t>(choice)].c_str());
+        } else if (!value.empty() && value != "default") {
+            tpw::Log("graphics: launcher.ini's %s=%s is not one of its choices; the detail level's own is kept", option.key,
+                     value.c_str());
+        }
     }
 #endif
     if (choice.skipIntro) {

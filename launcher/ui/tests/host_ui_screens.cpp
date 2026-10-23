@@ -995,9 +995,10 @@ void CheckScroll(SDL_Renderer* renderer) {
     Check(click({0, 110, 320, 130}), "scroll: inside the clip it is");
 }
 
-// The Settings box in the smallest window: its last row (Interface size) starts below the box, the wheel over the box
-// brings it into view, a click on it there keeps the setting, and the wheel back up (or opening the box again) puts it
-// where it was. In a window tall enough for the box nothing scrolls.
+// The Settings box in the smallest window: its Interface size row starts below the box, the wheel over the box brings it
+// into view (a notch at a time, as the Graphics section follows it), a click on it there keeps the setting, and the wheel
+// back up (or opening the box again) puts it where it was. In a window tall enough for the box (the first height, a point
+// at a time, at which it stops scrolling) nothing scrolls.
 void CheckSettingsScroll(SDL_Renderer* renderer) {
     FakeBackend b;
     LauncherUi ui(renderer, b);
@@ -1018,11 +1019,13 @@ void CheckSettingsScroll(SDL_Renderer* renderer) {
     Check(ui.InterfaceSizeRect().y == start.y, "settings: the wheel beside the box does not scroll it");
 
     ui.HandleEvent(MotionEvent(width * 0.5f, height * 0.5f));
-    ui.HandleEvent(WheelEvent(-10));
-    frames(1);
+    const auto inBox = [&](const Rect& r) { return r.y > metric::kMargin && r.Bottom() <= height - metric::kMargin; };
+    for (int notch = 0; notch < 40 && !inBox(ui.InterfaceSizeRect()); ++notch) {
+        ui.HandleEvent(WheelEvent(-1));
+        frames(1);
+    }
     const Rect end = ui.InterfaceSizeRect();
-    Check(end.y < start.y && end.y > metric::kMargin && end.Bottom() <= height - metric::kMargin,
-          "settings: scrolled down, the last row is in the box");
+    Check(end.y < start.y && inBox(end), "settings: scrolled down, the Interface size row is in the box");
     std::printf("settings at %dx%d points: the Interface size switch at y %.0f, scrolled down %.0f\n",
                 metric::kMinWidth, metric::kMinHeight, start.y, end.y);
 
@@ -1036,7 +1039,7 @@ void CheckSettingsScroll(SDL_Renderer* renderer) {
     frames(1);
     CheckEq(b.Setting(kInterfaceSizeKey), "70", "settings: a click on the scrolled-in row keeps the setting");
 
-    ui.HandleEvent(WheelEvent(10));
+    ui.HandleEvent(WheelEvent(40));
     frames(1);
     Check(ui.InterfaceSizeRect().y == start.y, "settings: the wheel back up puts the row where it was");
     ui.HandleEvent(WheelEvent(-10));
@@ -1047,9 +1050,13 @@ void CheckSettingsScroll(SDL_Renderer* renderer) {
     frames(1);
     Check(ui.InterfaceSizeRect().y == start.y, "settings: opened again, the box starts at its top");
 
-    // Tall windows, the box only just fitting at some heights: no clip and no bar, whatever the rounding.
+    // Tall windows, the box only just fitting at some heights: no clip and no bar, whatever the rounding. The first height
+    // at which the box stops scrolling, found a point at a time, then a point and 40 points more.
     width = 1100;
-    for (const float tallHeight : {760.0f, 761.0f, 800.0f}) {
+    float fits = 700;
+    for (height = fits; height < 3000 && (frames(1), ui.SettingsScrolls()); height += 1) fits = height + 1;
+    std::printf("settings at %.0f points wide: the box fits from %.0f points tall\n", width, fits);
+    for (const float tallHeight : {fits, fits + 1, fits + 40}) {
         height = tallHeight;
         frames(1);
         const Rect tall = ui.InterfaceSizeRect();

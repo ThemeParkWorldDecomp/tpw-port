@@ -32,6 +32,22 @@ inline constexpr const char* kSmoothZoomKey = "smooth_wheel_zoom";
 // panels are laid out in (absent: 100, as the original). From tpw-port PR #24 by samueleagle91.
 inline constexpr const char* kInterfaceSizeKey = "interface_size";
 
+// An option of the original's options files (low.sam, med.sam, high.sam) that the Settings box's Graphics section offers:
+// launcher.ini's key, its slot in the game's options table (gPortSamOptions, OptionsBalance.h), the row's title and line,
+// and the choices the files' own comments list, as the control shows them and as the files write them. The key's value
+// is one of `values`, or "default" (or absent) for the detail level's own.
+struct SamOption {
+    const char* key;
+    int slot;
+    const char* title;
+    const char* line;
+    std::vector<std::string> shown;
+    std::vector<int> values;
+};
+const std::vector<SamOption>& SamOptions();
+// The index in `values` launcher.ini's value names, or -1 for the detail level's own (default, absent or not a choice).
+int SamChoice(const SamOption& option, const std::string& value);
+
 // What the player chose to start.
 struct LaunchChoice {
     assets::Edition edition = assets::kEditionEur;
@@ -152,6 +168,7 @@ private:
     bool backToLauncher_ = false;   // the Settings box's "Back to the launcher after playing", as launcher.ini keeps it
     bool smoothZoom_ = false;       // the Settings box's "Smooth wheel zoom", as launcher.ini keeps it
     int interfaceSize_ = 0;         // the Settings box's "Interface size": 0 100%, 1 85%, 2 70%
+    std::vector<int> samChoices_;   // the Graphics section: for each of SamOptions(), 0 the detail level's own, else 1 + its choice
 
     // A drag over the window.
     bool dragging_ = false;
