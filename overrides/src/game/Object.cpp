@@ -43,9 +43,6 @@
 #include <new>
 #include <string>
 
-// TPW_PORT_FIX upgrade ScriptCodeAt | Mac: (none: the blocks below are the Mac's own words) | Port: the host pointer to the script code word at a Mac address, which ESP_SpawnScript runs from | Why: gUpgradeSpawnBlock, the host's copy of the block at 0x1029fd30, lies outside the script code, so a ride's upgrade sprite was not drawn
-static void* ScriptCodeAt(uint32_t address) { return const_cast<uint32_t*>(gScriptCodeWords) + (address - kScriptCodeAddress) / 4; }
-
 // CObject::CObject, main app 0x10105d74 (1,800 bytes), and CObject::SetState, 0x1010dc94 (2,000 bytes), unit w126.
 // The Mac files them under Object.cpp. The constructor builds a ride, shop or other object of the park from its ride record; SetState
 // moves it to one of the five states and, for the three that interrupt it (broken down, wants an upgrade, condemned), sends the rider home
@@ -1578,8 +1575,9 @@ void CObject::RepairFully(tag_IDX_TYPE<IDXTYPEUniqueNameThingId, uint16_t> staff
         }
         RSSE_UpgradeRideEffect(static_cast<int32_t>(mF20));
         if (mF4C == 1 || mF4C == 2) {
-            // TPW_PORT_FIX upgrade CObject::RepairFully | Mac: spawns the upgrade's sprite script from its block at 0x1029fd30 | Port: from that place in the script code (ScriptCodeAt): the block's last word is its own address
-            mF50 = static_cast<uint32_t>(ESP_SpawnScript(ScriptCodeAt(gUpgradeSpawnBlock[5]), static_cast<ESP_Sprites>(0xc), 0, static_cast<ACTS>(0), x, 0.0f, z));
+            // TPW_PORT_FIX upgrade CObject::RepairFully | Mac: the upgrade's sprite script is spawned from its block at 0x1029fd30, inside the script code | Port: while gPortScriptCode (include/analyser.h) is set, it is spawned from that place in the script code (ScriptCodeAt) | Why: the host's copy of the block (gUpgradeSpawnBlock) lies outside the script code array, where a script never runs (src/game/Script.cpp), so the sprite shown when a ride's upgrade is fitted was not drawn
+            void* const block = gPortScriptCode ? ScriptCodeAt(0x1029fd30u) : static_cast<void*>(gUpgradeSpawnBlock);
+            mF50 = static_cast<uint32_t>(ESP_SpawnScript(block, static_cast<ESP_Sprites>(0xc), 0, static_cast<ACTS>(0), x, 0.0f, z));
         }
         RideInfo* info = InfoOf(*this);
         gWorld->GetBankAccount()->MakeWithdrawal(static_cast<uint32_t>(UpgradeValue(info, kRideSlot_Upgrades_CostOfUpgrade, mF4C)));
