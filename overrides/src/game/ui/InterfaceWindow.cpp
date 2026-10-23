@@ -73,14 +73,25 @@ int32_t ShiftedAbove(const InterfaceWindow* window) {
         ++count;
     return count;
 }
+
+// The login panel's root (the player menu), 0..2048 like the Options panel's and the lobby's, but a clear layer over the
+// whole screen whose windows belong at its edges: the players' rows and the quit row run to the right edge, the logo sits
+// in the lower left.
+constexpr int32_t kLoginPanelId = 0x7a13;
+
+// While gPortWidePanel is set (UI_Base.h), a window exactly 0x800 units across is a 4:3 panel, not a wide one, apart from
+// the login panel's root.
+bool FourThreePanel(int32_t id, int32_t across) {
+    return gPortWidePanel && across == 0x800 && id != kLoginPanelId;
+}
 }  // namespace
 
-// (widepanel, tpw-port PR #12 by samueleagle91: while gPortWidePanel is set, UI_Base.h, a window exactly 0x800 units
-// across, the Options root's 0..2048, is not wide)
+// (widepanel, tpw-port PRs #12 and #35 by samueleagle91: while gPortWidePanel is set, UI_Base.h, a window exactly 0x800
+// units across, the Options root's 0..2048, is not wide; the login panel's root is)
 bool UI_IsWideWindow(const InterfaceWindow* window) {
     if (window == nullptr || gUIUnitWidth <= 0x800) return false;
     const int32_t across = window->mRect.mRight - window->mRect.mLeft;
-    return gPortWidePanel ? across > 0x800 : across >= 0x800;
+    return across >= 0x800 && !FourThreePanel(window->mId, across);
 }
 
 int16_t UI_WideShift(const InterfaceWindow* window) {
@@ -161,8 +172,8 @@ InterfaceWindow::InterfaceWindow(InterfaceWindow* parent, int32_t attributes, in
         int16_t shift = 0;
         int16_t drop = 0;   // (the tall anchor: UI_TallAnchor, or the middle on a menu or a dialog's holder)
         if (UI_IsWideWindow(parent)) {
-            // TPW_PORT_FIX widepanel InterfaceWindow | Mac: (no wide windows: the 2048-unit layout spans the 4:3 screen) | Port: while gPortWidePanel (UI_Base.h) is set, a window exactly 0x800 units across is a 4:3 panel like the other full-screen ones (0..2047): anchored to the middle, and not wide (UI_IsWideWindow) | Why: the Options panel's root window is 0..2048, 2049 units against the other full-screen panels' 2048, so its right less its left is 0x800, which UI_IsWideWindow's old test (at least 0x800) called wide, and on a screen wider than 4:3 the panel stayed at the left and its rows were anchored to the screen's edges one by one, apart from their panel (the right column at the right edge, the volume buttons over their sliders); contributed by samueleagle91 (tpw-port PR #12)
-            if (gPortWidePanel ? right - left <= 0x800 : right - left < 0x800) shift = UI_WideAnchor(left, right, gUIUnitWidth);
+            // TPW_PORT_FIX widepanel InterfaceWindow | Mac: (no wide windows: the 2048-unit layout spans the 4:3 screen) | Port: while gPortWidePanel (UI_Base.h) is set, a window exactly 0x800 units across is a 4:3 panel like the other full-screen ones (0..2047): anchored to the middle, and not wide (UI_IsWideWindow); the login panel's root (0x7a13, the player menu) stays wide | Why: the Options panel's root window is 0..2048, 2049 units against the other full-screen panels' 2048, so its right less its left is 0x800, which UI_IsWideWindow's old test (at least 0x800) called wide, and on a screen wider than 4:3 the panel stayed at the left and its rows were anchored to the screen's edges one by one, apart from their panel (the right column at the right edge, the volume buttons over their sliders); the login panel's root is 0..2048 too, but its windows belong at the screen's edges, and as a 4:3 panel its players' rows stopped short of the right edge while the longer quit row reached it; contributed by samueleagle91 (tpw-port PRs #12 and #35)
+            if (right - left < 0x800 || FourThreePanel(id, right - left)) shift = UI_WideAnchor(left, right, gUIUnitWidth);
             if (bottom - top < gUIUnitHeight - 1)
                 drop = gCentredDown.count(parent) != 0 ? static_cast<int16_t>((gUIUnitHeight - 0x600) / 2)
                                                        : UI_TallAnchor(top, bottom, gUIUnitHeight);
