@@ -33,6 +33,7 @@
 #include "TPMain.h"
 #include "tpw_probe.h"
 #include "ResolutionBalance.h"
+#include "AudioPlaceHolder.h"
 #include "UI_Base.h"
 #include "lobby.h"
 #include "TPSettings.h"
@@ -562,7 +563,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, co
     // --no-movies; "Back to the launcher after playing" opens the launcher again when a game started from its window
     // quits (ReopenLauncher). From tpw-port PRs #10, #20, #22 and #24 by samueleagle91.
     for (const char* key : {tpw::ui::kSkipIntroKey, tpw::ui::kBackToLauncherKey, tpw::ui::kSmoothZoomKey,
-                            tpw::ui::kInterfaceSizeKey, tpw::ui::kNumKidsKey}) {
+                            tpw::ui::kInterfaceSizeKey, tpw::ui::kPcSoundPicksKey, tpw::ui::kNumKidsKey}) {
         const std::string value = backend.Setting(key);
         std::string ignored;
         if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, key, value, ignored);
@@ -586,6 +587,9 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, co
         gUIScale = size == "85" ? 0.85f : size == "70" ? 0.7f : 1.0f;
         if (gUIScale != 1.0f) tpw::Log("interface size: %s%%", size.c_str());
     }
+    // The Settings box's "Varied sounds" (SoundRandom, include/AudioPlaceHolder.h): on unless launcher.ini says 0.
+    gPortPcSoundPicks = backend.Setting(tpw::ui::kPcSoundPicksKey) != "0";
+    tpw::Log("sound picks: %s (the launcher's Settings)", gPortPcSoundPicks ? "varied, as on the PC" : "the Mac's");
     {   // the Settings box's "Visitor looks": GameOptions.NUMKIDS, one of the options files' choices 0 to 3 (COptions)
         const std::string kids = backend.Setting(tpw::ui::kNumKidsKey);
         if (kids.size() == 1 && kids[0] >= '0' && kids[0] <= '3') {

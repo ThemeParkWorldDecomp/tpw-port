@@ -80,6 +80,23 @@ static std::string Join(const std::vector<std::string>& parts) {
     return out;
 }
 
+// setenv and unsetenv, which Windows' C runtime has as _putenv_s (an empty value removes the variable there).
+static void SetEnv(const char* name, const char* value) {
+#ifdef _WIN32
+    _putenv_s(name, value);
+#else
+    setenv(name, value, 1);
+#endif
+}
+
+static void UnsetEnv(const char* name) {
+#ifdef _WIN32
+    _putenv_s(name, "");
+#else
+    unsetenv(name);
+#endif
+}
+
 static void TestPaths(const fs::path& scratch) {
     tpw::Config& config = tpw::config();
     config.gameDir = scratch / "game";
@@ -1195,7 +1212,7 @@ static void TestGdi() {
     const fs::path folder = folderName != nullptr ? fs::path(folderName) : fs::path();
     const fs::path blackFont = "/System/Library/Fonts/Supplemental/Arial Black.ttf";
     if (fs::exists(blackFont)) {
-        CHECK(AddFontResource(blackFont.c_str()) >= 1);
+        CHECK(AddFontResource(blackFont.string().c_str()) >= 1);
         RenderSignPicture("Arial Black", 40, 24, 700, "Create New Player", folder, "sign", "sign-dib.bmp", "sign-mask.bmp");
         RenderSignPicture("Arial Black", 40, 24, 700, "Quit Game", folder, "sign-quit", "sign-quit-dib.bmp", "sign-quit-mask.bmp");
     }
@@ -1401,7 +1418,7 @@ static void TestGdiForkFonts() {
     const fs::path bonusFonts = root / "extracted/Theme_Park_World_Bonus_Stuff/Theme Park World Bonus Stuff/tpwfnt";
     std::error_code ec;
     if (!fs::is_directory(dataFonts, ec) || !fs::is_directory(bonusFonts, ec)) {
-        std::printf("gdi: %s or %s is missing, the data disc font checks are skipped\n", dataFonts.c_str(), bonusFonts.c_str());
+        std::printf("gdi: %s or %s is missing, the data disc font checks are skipped\n", dataFonts.string().c_str(), bonusFonts.string().c_str());
         return;
     }
     const char* const names[] = {"BIGLA___.TTF", "BIGLOA__.TTF", "CLUNA___.TTF", "CLUNAB__.TTF", "EGGITAOE.TTF", "GARGA___.TTF",
@@ -1449,7 +1466,7 @@ static void TestGdiForkFonts() {
         CHECK(extra == " kern" || identical);
     }
     if (forks == 0) {
-        std::printf("gdi: no .rsrc files in %s, the data disc font checks are skipped\n", dataFonts.c_str());
+        std::printf("gdi: no .rsrc files in %s, the data disc font checks are skipped\n", dataFonts.string().c_str());
         return;
     }
 
@@ -2095,8 +2112,8 @@ bool TbSoundPipeChannel::StreamerCallback(void* buffer, uint32_t size, void* pip
 
 static void TestSound(const fs::path& scratch) {
     // No sound card is needed or wanted: SDL's dummy driver takes the samples and drops them.
-    setenv("SDL_AUDIO_DRIVER", "dummy", 1);
-    unsetenv("TPW_SOUND_CAPTURE");
+    SetEnv("SDL_AUDIO_DRIVER", "dummy");
+    UnsetEnv("TPW_SOUND_CAPTURE");
     const int baselineStreams = tpw::SoundDevice::LiveStreams();
     CHECK(baselineStreams == 0);
 
@@ -2527,7 +2544,7 @@ static void TestSound(const fs::path& scratch) {
     std::error_code gone;
     fs::remove(capture, gone);
     fs::remove(capture.string() + ".log", gone);
-    setenv("TPW_SOUND_CAPTURE", capture.string().c_str(), 1);
+    SetEnv("TPW_SOUND_CAPTURE", capture.string().c_str());
     systemInfo->mBuffersToUse = 2;
     CHECK(static_cast<int32_t>(module->Init(*systemInfo)) == 0);
     CHECK(module->mBuffers == 2);
@@ -2547,7 +2564,7 @@ static void TestSound(const fs::path& scratch) {
     }
     module->Close();
     CHECK(!tpw::SoundDevice::CaptureActive());
-    unsetenv("TPW_SOUND_CAPTURE");
+    UnsetEnv("TPW_SOUND_CAPTURE");
     {
         std::ifstream file(capture, std::ios::binary);
         std::vector<char> bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());

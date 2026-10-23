@@ -112,6 +112,7 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     skipIntro_ = backend_.Setting(kSkipIntroKey) == "1";
     backToLauncher_ = backend_.Setting(kBackToLauncherKey) == "1";
     smoothZoom_ = backend_.Setting(kSmoothZoomKey) == "1";   // tpw-port PR #20 by samueleagle91
+    pcSoundPicks_ = backend_.Setting(kPcSoundPicksKey) != "0";
     {   // tpw-port PR #24 by samueleagle91
         const std::string size = backend_.Setting(kInterfaceSizeKey);
         interfaceSize_ = size == "85" ? 1 : size == "70" ? 2 : 0;
@@ -824,7 +825,7 @@ void LauncherUi::DrawSettings(const Rect& w) {
     float titleH = text_.LineHeight(style::kHeadline) + 12;
     // Everything below the title, as drawn below.
     float bodyH = 2 * (text_.LineHeight(style::kBodyBold) + 4) + 40 + text_.LineHeight(style::kSmall) + 14 + 3 * rowH +
-                  4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + 5 * rowH;
+                  4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + 6 * rowH;
     float ph = std::min(w.h - 2 * metric::kMargin, titleH + bodyH + 40);
     Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
     ui_.Panel(panel, colour::kPaper, colour::kCream);
@@ -965,6 +966,22 @@ void LauncherUi::DrawSettings(const Rect& w) {
         if (ui_.Toggle("smooth-zoom", {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32}, smoothZoom_)) {
             std::string err;
             if (!backend_.SaveSetting(kSmoothZoomKey, smoothZoom_ ? "1" : "0", err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
+        }
+        y += rowH;
+    }
+    {
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, "Varied sounds", colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, "Sounds change between their recordings, as on the PC", row.w - 12 - 56 - 24,
+                             false),
+                   colour::kInkSoft);
+        if (ui_.Toggle("pc-sound-picks", {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32}, pcSoundPicks_)) {
+            std::string err;
+            if (!backend_.SaveSetting(kPcSoundPicksKey, pcSoundPicks_ ? "1" : "0", err))
                 settingsMessage_ = "Cannot keep the setting: " + err;
         }
         y += rowH;

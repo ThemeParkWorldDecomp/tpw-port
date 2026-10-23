@@ -31,6 +31,9 @@ inline constexpr const char* kSmoothZoomKey = "smooth_wheel_zoom";
 // launcher.ini's key for the Settings box's "Interface size": 100, 85 or 70, the share of the screen's height the game's
 // panels are laid out in (absent: 100, as the original). From tpw-port PR #24 by samueleagle91.
 inline constexpr const char* kInterfaceSizeKey = "interface_size";
+// launcher.ini's key for the Settings box's "Varied sounds" (absent or "1": each of the sounds' random draws moves the seed,
+// as on the PC, so a sound varies among its recordings; "0": the Mac's draws, one recording a sound each launch).
+inline constexpr const char* kPcSoundPicksKey = "pc_sound_picks";
 // launcher.ini's key for the Settings box's "Visitor looks": GameOptions.NUMKIDS of the original's options files (low.sam,
 // med.sam, high.sam), one of their choices 0 to 3 (4, 6, 8 or the most kid sprite looks); "default" or absent: the
 // detail level's own.
@@ -154,6 +157,7 @@ private:
     bool aboutOpen_ = false, settingsOpen_ = false;
     bool skipIntro_ = false;   // the Settings box's "Skip the intro films", as launcher.ini keeps it
     bool backToLauncher_ = false;   // the Settings box's "Back to the launcher after playing", as launcher.ini keeps it
+    bool pcSoundPicks_ = true;      // the Settings box's "Varied sounds", as launcher.ini keeps it (on when absent)
     bool smoothZoom_ = false;       // the Settings box's "Smooth wheel zoom", as launcher.ini keeps it
     int interfaceSize_ = 0;         // the Settings box's "Interface size": 0 100%, 1 85%, 2 70%
     int numKids_ = 0;               // the Settings box's "Visitor looks": 0 the detail level's own, 1 to 4 NUMKIDS 0 to 3

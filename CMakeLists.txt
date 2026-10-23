@@ -261,9 +261,27 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   target_link_libraries(tpw_platform_tests PRIVATE tpw_platform)
   add_test(NAME platform COMMAND tpw_platform_tests)
   if(WIN32)
-    # Not made on Windows: its src files are cut by tpw-decomp's slicer, which runs on libclang.
-    set_target_properties(tpw_platform_tests PROPERTIES EXCLUDE_FROM_ALL ON)
-    set_tests_properties(platform PROPERTIES DISABLED ON)
+    # Its src files are cut by tpw-decomp's slicer, which runs on libclang, and llvm-mingw ships none: on Windows the
+    # tests are made when TPW_LIBCLANG names one (an LLVM release's bin/libclang.dll), and the slicer runs through
+    # devtools/slicer_win.py, by way of a script written here that gives it that libclang. The script carries the
+    # wrapper's hash, so a change to the wrapper cuts the copies again.
+    set(TPW_LIBCLANG "$ENV{TPW_LIBCLANG}" CACHE FILEPATH "libclang.dll, for the platform tests' slicer on Windows")
+    if(EXISTS "${TPW_LIBCLANG}")
+      set(wrapper ${CMAKE_CURRENT_SOURCE_DIR}/devtools/slicer_win.py)
+      set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${wrapper})
+      file(SHA1 ${wrapper} wrapper_sha1)
+      set(runner ${CMAKE_CURRENT_BINARY_DIR}/slicer_win_run.py)
+      file(WRITE ${runner}.new "# Written by CMakeLists.txt: devtools/slicer_win.py (${wrapper_sha1}) with this build's libclang.\n"
+                               "import os, runpy\n"
+                               "os.environ[\"TPW_LIBCLANG\"] = r\"${TPW_LIBCLANG}\"\n"
+                               "runpy.run_path(r\"${wrapper}\", run_name=\"__main__\")\n")
+      configure_file(${runner}.new ${runner} COPYONLY)
+      set_property(GLOBAL PROPERTY TPW_SLICER ${runner})
+    else()
+      set_target_properties(tpw_platform_tests PROPERTIES EXCLUDE_FROM_ALL ON)
+      set_tests_properties(platform PROPERTIES DISABLED ON)
+      message(STATUS "tpw: platform tests not made (TPW_LIBCLANG names no libclang.dll)")
+    endif()
   endif()
   # The launcher's log file (platform/log_file.cpp): its header, its name and the ten-file rotation, in a temporary folder.
   add_executable(tpw_log_tests platform/tests/log_tests.cpp)

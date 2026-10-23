@@ -59,6 +59,8 @@ The Settings box has these rows:
 - Skip the intro films: off by default.
 - Back to the launcher: off by default.
 - Smooth wheel zoom: off by default, which keeps the original's step zoom. On, the wheel eases the zoom toward the pointer.
+- Varied sounds: on by default, as the PC release plays them: a sound changes between its recordings, volumes and
+  pitches. Off is the Mac's way, where each sound plays the same recording all through a launch.
 - Interface size: 100% by default, the original. 85% or 70% shrink the panels so the park shows more, with the panels
   still at the edges of the screen.
 - Visitor looks: how many kinds of visitor the game loads, the original's NUMKIDS option from low.sam, med.sam and
@@ -123,8 +125,10 @@ Windows system folders on PATH. What it does differently is all in the platform 
 is drawn with stb_truetype (platform/gdi_text_win.cpp) from the game's fonts and the Windows fonts folder; the POSIX
 calls MinGW lacks are in platform/win and platform/posix_win.cpp; a division the x86 traps (by zero, INT_MIN / -1) gets
 the answer the Mac's processor gives (platform/host_win.cpp); and the build makes its own copy of the one tpw-decomp file
-the game library builds sliced (devtools/slice_win.py), so it needs no libclang. tpw_platform_tests is not built on
-Windows: its sources are cut by tpw-decomp's slicer, which does need libclang. The overrides of unit win in
+the game library builds sliced (devtools/slice_win.py), so it needs no libclang. tpw_platform_tests does: its sources
+are cut by tpw-decomp's slicer, which runs on libclang, and llvm-mingw has none. Give the build one with
+-DTPW_LIBCLANG=<path>, such as bin\libclang.dll of an LLVM release (23.1.3 was used), and the slicer runs through
+devtools/slicer_win.py; without it the platform tests are left out. The overrides of units win and winnewline in
 [FIXES.md](FIXES.md) are the Windows build's.
 
 ### Building by hand
@@ -254,6 +258,10 @@ The project is three repositories, and every change belongs in exactly one of th
 The test for where a change goes: does a park play the same with it on and with it off? If it does, the change belongs in
 tpw-port. If it changes the rules, the money, the visitors, the staff, the rides, the advisor, the game's content, what a
 control does or the save files, it belongs in tpw-mods, even as a setting that is off by default.
+
+One exception: an option the original game already had in its .sam data files belongs in tpw-port, even when it
+changes how a park plays, as long as it offers only the values the original accepts and its default is the original's.
+Players set it in the launcher or a game menu, never by editing a .sam file.
 
 Pull requests are welcome here for anything that passes that test: fixes, other systems (Linux, for example), build
 changes, tools. [CONTRIBUTING.md](CONTRIBUTING.md) has the rules, including the three a setting must meet. An accepted
