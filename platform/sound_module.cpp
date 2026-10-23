@@ -14,9 +14,10 @@
 //    same end rule.
 //  - Commands the Mac sent to a channel are done at once on the stream (volume is the stream's gain, stop unbinds and clears,
 //    pause unbinds and keeps the queue, restart binds again). Sound Sprockets placed a 3D channel's sound from its position
-//    and the listener's; here that is the stream's pan (Pan, below): a fade with distance beyond the sound distance the
-//    Mac gave every channel, and a side for the two speakers. Velocity (Doppler) is kept and not used. The sound type, CPU
-//    load, listener scale, preroll and speaker type commands have nothing to do on SDL.
+//    and the listener's; here that is the stream's pan (Pan, below): a side for the two speakers. There is no fade with
+//    distance: the game drops a sound beyond its maximum distance itself (CAudioPlaceHolder::ProcessPositionAndPriority), so
+//    every sound that reaches a channel is near the listener. Velocity (Doppler) and the sound distance are kept and not
+//    used. The sound type, CPU load, listener scale, preroll and speaker type commands have nothing to do on SDL.
 //  - Bounds: the Mac indexed mChannels with whatever the pipe said; the host answers -1 (a NULL channel) for an index outside
 //    the array or a module that is not initialised.
 //  - Byte order: the translated decoders write native-endian 16-bit samples (notes/w71a.md: the host's frame buffer is native
@@ -154,12 +155,11 @@ void Copy3(float to[3], const TbSoundPosition& from) {
 }
 
 // What Sound Sprockets made of a channel's place, for two speakers: the stream's pan. A sound with no place (a 2D channel, or
-// a 3D one the game sent no position for) plays at 1 on both sides. A placed one plays at its own level up to the sound
-// distance (UCommandSoundDistance, 400 units: the distance it was recorded at) and at that distance over its distance
-// beyond (the inverse distance law). Its side is the share of its direction along the listener's right, top x front (the
-// camera's x axis, which is the screen's right), from -1 to 1; the speakers follow a quarter circle that keeps the centre
-// at full level on both, sqrt(2) cos and sqrt(2) sin of (side + 1) pi / 4, each at most 1, so that a sound straight ahead
-// is as loud as before and one at the side is silent in the far speaker.
+// a 3D one the game sent no position for) plays at 1 on both sides. A placed one keeps its own level (the game has already
+// dropped the sounds too far away to hear); its side is the share of its direction along the listener's right, top x front
+// (the camera's x axis, which is the screen's right), from -1 to 1; the speakers follow a quarter circle that keeps the
+// centre at full level on both, sqrt(2) cos and sqrt(2) sin of (side + 1) pi / 4, each at most 1, so that a sound straight
+// ahead is as loud as before and one at the side is silent in the far speaker.
 void Pan(Host& host, uint32_t index) {
     if (host.channels == nullptr || index >= host.placed.size() || host.channels[index] == nullptr) return;
     const CSprocketsChannel& channel = *host.channels[index];
@@ -170,8 +170,6 @@ void Pan(Host& host, uint32_t index) {
         const float* at = channel.Location();
         const float d[3] = {at[0] - listener.position[0], at[1] - listener.position[1], at[2] - listener.position[2]};
         const float distance = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
-        const float reference = static_cast<float>(listener.soundDistance);
-        const float level = distance > reference ? reference / distance : 1.0f;
         const float* f = listener.front;
         const float* u = listener.top;
         const float r[3] = {u[1] * f[2] - u[2] * f[1], u[2] * f[0] - u[0] * f[2], u[0] * f[1] - u[1] * f[0]};
@@ -180,8 +178,8 @@ void Pan(Host& host, uint32_t index) {
         if (length > 0.0f && distance > 0.0f) side = (d[0] * r[0] + d[1] * r[1] + d[2] * r[2]) / (length * distance);
         side = side < -1.0f ? -1.0f : side > 1.0f ? 1.0f : side;
         const float angle = (side + 1.0f) * 0.78539816f;
-        left = level * std::fmin(1.0f, 1.41421356f * std::cos(angle));
-        right = level * std::fmin(1.0f, 1.41421356f * std::sin(angle));
+        left = std::fmin(1.0f, 1.41421356f * std::cos(angle));
+        right = std::fmin(1.0f, 1.41421356f * std::sin(angle));
     }
     host.device.SetPan(index, left, right);
 }

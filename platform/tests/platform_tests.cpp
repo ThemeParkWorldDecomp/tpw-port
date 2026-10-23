@@ -2312,8 +2312,9 @@ static void TestSound(const fs::path& scratch) {
     }
 
     // ---- Placing (the stream's pan): a 3D channel's sound with a place is panned from the listener, whose right is top x
-    // front, and fades beyond the sound distance (400) as 400 over its distance. A sound with no place, or on a 2D channel,
-    // plays at 1 and 1, and so does a new sample until a position comes. A listener that turns pans the placed sounds again.
+    // front, at its own level however far it is (the game drops the sounds too far to hear before they reach a channel). A
+    // sound with no place, or on a 2D channel, plays at 1 and 1, and so does a new sample until a position comes. A listener
+    // that turns pans the placed sounds again.
     {
         CHECK(static_cast<int32_t>(module->SetListenerPosition(TbSoundPosition(0.0f, 0.0f, 0.0f))) == 0);
         CHECK(static_cast<int32_t>(module->SetListenerDirection(TbSoundPosition(0.0f, 0.0f, 1.0f), TbSoundPosition(0.0f, 1.0f, 0.0f))) == 0);
@@ -2326,8 +2327,8 @@ static void TestSound(const fs::path& scratch) {
             {100.0f, 0.0f, 0.0f, 0.0f, 1.0f},     // on the right: the left is silent
             {-100.0f, 0.0f, 0.0f, 1.0f, 0.0f},    // on the left
             {100.0f, 0.0f, 100.0f, 0.3229f, 1.0f},   // ahead and to the right
-            {0.0f, 0.0f, 800.0f, 0.5f, 0.5f},     // ahead at twice the sound distance: half
-            {0.0f, -400.0f, 0.0f, 1.0f, 1.0f},    // straight below at the sound distance
+            {0.0f, 0.0f, 800.0f, 1.0f, 1.0f},     // ahead and far: no fade
+            {0.0f, -400.0f, 0.0f, 1.0f, 1.0f},    // straight below: the centre
         };
         Zeroed<TbSoundSampleInfo> info;
         info->mField0C = 0x20;
@@ -2351,7 +2352,7 @@ static void TestSound(const fs::path& scratch) {
         CHECK(std::fabs(left - 1.0f) < 0.001f && std::fabs(right) < 0.001f);
         CHECK(static_cast<int32_t>(module->SetListenerPosition(TbSoundPosition(0.0f, 0.0f, -700.0f))) == 0);   // 800 away
         device.Pan(0, &left, &right);
-        CHECK(std::fabs(left - 0.5f) < 0.001f && std::fabs(right) < 0.001f);
+        CHECK(std::fabs(left - 1.0f) < 0.001f && std::fabs(right) < 0.001f);   // still on the left, at its own level
         // No place: sample flags without 0x20.
         info->mField0C = 0;
         info->mFlags = 1;
@@ -2368,7 +2369,7 @@ static void TestSound(const fs::path& scratch) {
         info->mFlags = 1;
         CHECK(static_cast<int32_t>(module->SetChannelInfo(0, AsPipe(&mono), *info)) == 0);
         device.Pan(0, &left, &right);
-        CHECK(left < 1.0f);
+        CHECK(right < 1.0f);   // panned to the left
         CHECK(static_cast<int32_t>(StartSample(*module, 0, mono)) == 0);
         device.Pan(0, &left, &right);
         CHECK(left == 1.0f && right == 1.0f);
