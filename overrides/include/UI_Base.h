@@ -180,6 +180,8 @@ extern int16_t gUIRealScreenHeight;   // 0x10395bba
 extern float gUIWideAspect;    // width over height the launcher asks for; 0 keeps the presets' sizes
 extern int16_t gUIUnitWidth;   // the UI's width in units: 2048 on a 4:3 screen, more on a wider one
 extern int8_t gUIHighPresets;  // nonzero: Resolution.sam values 8 to 10 are the launcher's larger presets (src/game/TPConfig.cpp)
+// TPW_PORT_FIX packs gPortPackPictures | Mac: (none: the logo and loading pictures are 4:3) | Port: true when the launcher lays asset packs over the game's files, whose pictures may be of another shape; false, the original's drawing, by default | Why: the splash draws a picture of another shape at its own shape only for packs, so without them it draws as the Mac's
+extern bool gPortPackPictures;
 bool UI_IsWideWindow(const InterfaceWindow* window);   // spans more than the 2048 units (the root and the game's view)
 int16_t UI_WideShift(const InterfaceWindow* window);   // how far the 2048-unit layout placed in `window` was moved across
 int16_t UI_WideShiftFor(const InterfaceWindow* window, bool relative);   // the same for a rectangle in its frame

@@ -969,7 +969,12 @@ int LauncherMain(int argc, char** argv) {
     tpw::Log("game folder: %s", config.gameDir.string().c_str());
     tpw::Log("edition: %s", config.edition == "stp" ? "SimTheme Park (stp)" : "Theme Park World (tpw)");
     tpw::Log("user folder: %s", config.userDir.string().c_str());
-    if (!packs.empty()) tpw::launcher::UsePacks(packs);
+    if (!packs.empty()) {
+        tpw::launcher::UsePacks(packs);
+#ifdef TPW_PORT_FIX
+        gPortPackPictures = true;   // a pack's logo or loading picture may be of another shape (src/engine/tb_splash.cpp)
+#endif
+    }
 
     // The original program's data tables (the advisor's, the window scripts, the ride templates and the save file's legal
     // texts) are not in the build: they come from the player's own copy of the game, before the static initialisers run.

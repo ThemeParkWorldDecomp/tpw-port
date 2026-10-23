@@ -86,14 +86,24 @@ An asset pack swaps some of the game's files for your own, such as a sharper Bul
 checked game files. A pack is a zip of files, each at its place in the game folder: `data/init/640/Splash_American.tga`
 is the Bullfrog logo shown before the films. A zip made of a folder works too, as one folder around `data` is ignored.
 
-Put packs in the `packs` folder next to your saves (the launcher makes it). When you press Play, the launcher unpacks a
-new or changed zip into `packs/.unpacked`, and the game looks in a pack before its own files. Your saves still come
-first. To stop using a pack, remove its zip. Packs are used in name order: when two hold the same file, the later
-name's copy is used. `--packs DIR` names another folder, and it also works with `--game`.
+Put packs in the `packs` folder beside `saves` and `assets`: `~/Library/Application Support/STP-TPW Launcher/packs`
+on a Mac and `%APPDATA%\STP-TPW Launcher\packs` on Windows (the launcher makes it). When you press Play, the launcher
+unpacks a new or changed zip into `packs/.unpacked`, and the game looks in a pack before its own files. Your saves
+still come first. To stop using a pack, remove its zip. Packs are used in name order: when two hold the same file, the
+later name's copy is used. `--packs DIR` names another folder, and it also works with `--game`.
+
+The launcher leaves out a zip whose name starts with a dot, a file in a zip whose name holds a drive or a colon
+(`C:/x`), and a pack that unpacks to more than 8 GB, and its log names each one. A name that climbs out of the zip (`..`
+or a leading `/`) is never read from it.
 
 A replacement must be in the format the game reads: the logo and the loading screens are uncompressed TGA. The game
 picks the logo by the screen's width, from the `640`, `800` or `1024` folder (`640` above 1024 pixels), so a pack
 replaces all three. A logo of another shape than 4:3 keeps its shape: a 16:9 logo fills a 16:9 screen.
+
+A loading screen is `welcome.tga` with `legal.tga` or `welcome_<language>.tga` copied onto its left edge, so keep a
+replacement `welcome.tga` at least as wide as those, or their right side is cut off. On a loading picture wider than
+4:3 they stay at its left edge, at the rows they have on a 4:3 one, and the progress bar stays in the screen's 4:3
+middle.
 
 ## Where it stands
 

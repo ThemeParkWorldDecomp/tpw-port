@@ -1,9 +1,11 @@
-// asset_packs.cpp: see asset_packs.h. The zips are read with the importer's reader (tpw-decomp/assets), which leaves out
-// names that climb out of the archive, so every file lands inside the pack's own folder.
+// asset_packs.cpp: see asset_packs.h. The zips are read with the importer's reader (tpw-decomp/assets). Every file
+// lands inside the pack's own folder: a name that would reach outside it is left out (PlaceInPack), and only a pack's
+// own folder, directly inside ".unpacked", is ever emptied (RemovePackFolder).
 #include "asset_packs.h"
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <cstdio>
 #include <fstream>
 #include <memory>
@@ -23,6 +25,9 @@ namespace fs = std::filesystem;
 constexpr char kUnpackedFolder[] = ".unpacked";
 // In each unpacked folder: the size and time of the zip it was unpacked from.
 constexpr char kStampFile[] = ".pack";
+// The most a pack may unpack to (8 GB, over 25 times the game folder), so a zip that expands without end cannot fill
+// the disk.
+constexpr uint64_t kMaxPackBytes = uint64_t{8} << 30;
 
 std::string Lower(std::string text) {
     for (char& c : text) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -54,6 +59,31 @@ bool IsDesktopClutter(const std::string& path) {
     return false;
 }
 
+// Whether a zip's name can name its unpacked folder: not empty and not starting with a dot. A stem of "." or ".."
+// ("..zip", "...zip") would name ".unpacked" or the packs folder itself, and a dot name a hidden folder.
+bool UsableStem(const std::string& stem) {
+    return !stem.empty() && stem[0] != '.';
+}
+
+// Empties and removes `folder` only when it is a pack's own folder, directly inside `unpacked`.
+void RemovePackFolder(const fs::path& unpacked, const fs::path& folder) {
+    if (folder.parent_path() != unpacked || !UsableStem(folder.filename().string())) return;
+    std::error_code ec;
+    fs::remove_all(folder, ec);
+}
+
+// Where an entry goes inside `out`, or empty when its name would reach outside it: a drive or a root ("C:/x", "C:x",
+// "/x"), a climb ("a/../../x") or a colon, which no game path can name, as it separates a game path's folders.
+fs::path PlaceInPack(const fs::path& out, const std::string& path) {
+    const fs::path name(path);
+    if (path.empty() || path.find(':') != std::string::npos || name.has_root_name() || name.has_root_directory())
+        return {};
+    const fs::path target = (out / name).lexically_normal();
+    const fs::path inside = target.lexically_relative(out.lexically_normal());
+    if (inside.empty() || *inside.begin() == "..") return {};
+    return target;
+}
+
 // A zip made of a folder holds everything under the folder's name: the length of one folder above "data" that every
 // entry shares, with its slash, or 0.
 size_t SharedFolderLength(const std::vector<const assets::Entry*>& entries) {
@@ -68,7 +98,7 @@ size_t SharedFolderLength(const std::vector<const assets::Entry*>& entries) {
 }
 
 // Unpacks the zip into `out` (emptied first) and writes the stamp last, so a folder without one is never used.
-bool Unpack(const fs::path& zip, const fs::path& out, size_t& files, std::string& err) {
+bool Unpack(const fs::path& zip, const fs::path& unpacked, const fs::path& out, size_t& files, std::string& err) {
     std::shared_ptr<assets::Blob> blob = assets::OpenFileBlob(zip.string(), err);
     if (!blob) return false;
     std::unique_ptr<assets::Source> source = assets::OpenZip(blob, err);
@@ -77,13 +107,29 @@ bool Unpack(const fs::path& zip, const fs::path& out, size_t& files, std::string
     for (const assets::Entry& entry : source->Entries())
         if (!IsDesktopClutter(entry.path)) entries.push_back(&entry);
     const size_t skip = SharedFolderLength(entries);
+    const std::string name = zip.filename().string();
+    uint64_t total = 0;
+    for (const assets::Entry* entry : entries) {
+        if (entry->size > kMaxPackBytes - total) {
+            err = "it unpacks to more than 8 GB";
+            return false;
+        }
+        total += entry->size;
+    }
     std::error_code ec;
-    fs::remove_all(out, ec);
+    RemovePackFolder(unpacked, out);
+    fs::create_directories(out, ec);
     std::vector<char> buffer(1 << 16);
+    uint64_t written = 0;
     for (const assets::Entry* entry : entries) {
         // A resource fork is kept as the game folder keeps one, in an ".rsrc" side file.
         const std::string path = entry->path.substr(skip) + (entry->kind == assets::EntryKind::Rsrc ? ".rsrc" : "");
-        const fs::path target = out / path;
+        const fs::path target = PlaceInPack(out, path);
+        if (target.empty()) {
+            tpw::Log("asset pack: %s: \"%s\" left out, as its name reaches outside the pack", name.c_str(),
+                     entry->path.c_str());
+            continue;
+        }
         fs::create_directories(target.parent_path(), ec);
         std::unique_ptr<assets::Stream> stream = source->Open(*entry, err);
         if (!stream) return false;
@@ -94,6 +140,12 @@ bool Unpack(const fs::path& zip, const fs::path& out, size_t& files, std::string
         }
         int64_t read;
         while ((read = stream->Read(buffer.data(), buffer.size(), err)) > 0) {
+            written += static_cast<uint64_t>(read);
+            if (written > kMaxPackBytes) {   // (more than the zip said)
+                read = -1;
+                err = "it unpacks to more than 8 GB";
+                break;
+            }
             if (std::fwrite(buffer.data(), 1, static_cast<size_t>(read), file) != static_cast<size_t>(read)) {
                 read = -1;
                 err = "cannot write " + target.string();
@@ -119,7 +171,9 @@ void UsePacks(const fs::path& folder) {
     std::vector<fs::path> zips;
     for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec)) {
         std::error_code kind;
-        if (it->is_regular_file(kind) && Lower(it->path().extension().string()) == ".zip") zips.push_back(it->path());
+        if (!it->is_regular_file(kind) || Lower(it->path().extension().string()) != ".zip") continue;
+        if (UsableStem(it->path().stem().string())) zips.push_back(it->path());
+        else tpw::Log("asset pack: %s left out, as its name starts with a dot", it->path().filename().string().c_str());
     }
     std::sort(zips.begin(), zips.end());
 
@@ -131,7 +185,7 @@ void UsePacks(const fs::path& folder) {
                                       [&](const fs::path& zip) { return zip.stem() == it->path().filename(); });
         if (!used) stale.push_back(it->path());
     }
-    for (const fs::path& path : stale) fs::remove_all(path, ec);
+    for (const fs::path& path : stale) RemovePackFolder(unpacked, path);
 
     std::vector<fs::path>& dirs = tpw::PackDirs();
     dirs.clear();
@@ -141,8 +195,8 @@ void UsePacks(const fs::path& folder) {
         if (ReadStamp(out) != StampOf(zip)) {
             size_t files = 0;
             std::string err;
-            if (!Unpack(zip, out, files, err)) {
-                fs::remove_all(out, ec);
+            if (!Unpack(zip, unpacked, out, files, err)) {
+                RemovePackFolder(unpacked, out);
                 tpw::Log("asset pack: %s left out: %s", name.c_str(), err.c_str());
                 continue;
             }

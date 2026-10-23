@@ -54,8 +54,8 @@ void DrawImage(const void* pixels, int32_t width, int32_t height) {
     glDisable(GL_BLEND);
     glDisable(GL_FOG);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    // TPW_PORT_FIX packs CSplash::InterpolateSplash | Mac: the logo and loading pictures are 4:3 and fill the screen | Port: a picture of another shape, which only an asset pack brings, is drawn at its own shape, as large as the screen holds it, in the middle, black around | Why: an asset pack can bring a widescreen picture, which the screen or its 4:3 box would squeeze
-    if (static_cast<int64_t>(width) * 3 != static_cast<int64_t>(height) * 4) {
+    // TPW_PORT_FIX packs CSplash::InterpolateSplash | Mac: the logo and loading pictures are 4:3 and fill the screen | Port: with gPortPackPictures (the launcher's asset packs), a picture of another shape, which only a pack brings, is drawn at its own shape, as large as the screen holds it, in the middle, black around | Why: an asset pack can bring a widescreen picture, which the screen or its 4:3 box would squeeze
+    if (gPortPackPictures && static_cast<int64_t>(width) * 3 != static_cast<int64_t>(height) * 4) {
         const double scale = std::min(static_cast<double>(gei_Display.mWidth) / static_cast<double>(width),
                                       static_cast<double>(gei_Display.mHeight) / static_cast<double>(height));
         const int32_t left = (gei_Display.mWidth - static_cast<int32_t>(width * scale)) / 2;
@@ -112,9 +112,11 @@ int32_t CDrawToBackBuffer::Overlay(char* name, int32_t x, int32_t y) {
     }
     uint8_t* dst = static_cast<uint8_t*>(mps_Data) + mBytesPerPixel * (row * mWidth);
     const uint8_t* src = static_cast<const uint8_t*>(image) + mBytesPerPixel * (skip * width);
+    // TPW_PORT_FIX packs CDrawToBackBuffer::Overlay | Mac: each of the overlay's rows is copied whole, as the original's overlays are no wider than the picture under them | Port: with gPortPackPictures (the launcher's asset packs), no more of a row than the picture is wide | Why: a pack's welcome.tga narrower than legal.tga would make each row's copy run into the next row, and the last one past the picture
+    const int32_t across = gPortPackPictures && width > mWidth ? mWidth : width;
     int32_t line = y;
     for (int32_t i = 0; i < height; i++) {
-        if (line < mHeight) std::memcpy(dst, src, static_cast<uint32_t>(mBytesPerPixel * width));
+        if (line < mHeight) std::memcpy(dst, src, static_cast<uint32_t>(mBytesPerPixel * across));
         line++;
         src += mBytesPerPixel * width;
         dst += mBytesPerPixel * mWidth;
