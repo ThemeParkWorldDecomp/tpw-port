@@ -208,6 +208,18 @@ char16_t* UIMain_ConvertMulti(unsigned char* text) { return UIMain_ConvertMulti(
 // ---- the two helpers
 
 const char16_t* UIMain_GetString(int32_t id) {
+    // TPW_PORT_FIX resolution UIMain_GetString | Mac: UI text 0x155 to 0x158 are " 512 x 384", " 640 x 480", " 800 x 600" and " 1024 x 768", the Options panel's screen resolutions | Port: with the launcher's larger presets on, the size the step renders at (UI_PlayerPreset), at the launcher's aspect | Why: the launcher forced its own size at every start, so the panel's choice never counted, and its 512 x 384 to 1024 x 768 are not sizes the port renders at
+    if (gUIHighPresets != 0 && id >= 0x155 && id <= 0x158) {
+        int32_t wide = 0;
+        int32_t high = 0;
+        UI_PresetSize(UI_PlayerPreset(id - 0x155), gUIWideAspect, wide, high);
+        char size[32];
+        std::snprintf(size, sizeof size, " %d x %d", static_cast<int>(wide), static_cast<int>(high));
+        size_t i = 0;
+        for (; size[i] != 0; ++i) gUIMainConvertBuffer[i] = static_cast<char16_t>(size[i]);
+        gUIMainConvertBuffer[i] = 0;
+        return gUIMainConvertBuffer;
+    }
     const unsigned char* text = static_cast<const TbITable*>(gText.mResourcePointers[6])->GetConstString(static_cast<uint32_t>(id));
     if (text == nullptr) return nullptr;
     // (converted only when the Unicode-to-multibyte converter is loaded too, as UIMain_ConvertMulti does)

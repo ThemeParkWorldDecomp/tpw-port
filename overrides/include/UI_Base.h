@@ -211,6 +211,14 @@ inline void UI_PresetSize(int32_t preset, float aspect, int32_t& width, int32_t&
         width = UI_WideScreenWidth(size[1], aspect);
     }
 }
+// TPW_PORT_FIX resolution UI_PlayerPreset | Mac: the Options panel's screen resolution (0 to 3) is 512 x 384, 640 x 480, 800 x 600 or 1024 x 768 | Port: with the launcher's larger presets on, its three steps (1 to 3; 0, which the slider cannot reach, is 1) are presets 4, 7 and 10, at most gUIPresetLimit | Why: the launcher forced its own size at every start, so the panel's choice never counted, and its 512 x 384 to 1024 x 768 are not sizes the port renders at
+extern int8_t gUIPresetLimit;   // the largest preset this machine's OpenGL renders at the launcher's aspect; 0: no limit
+// The preset the panel's resolution stands for: 1024 x 768, 2048 x 1536 and 4096 x 3072 at 4:3; 1366 x 768, 2730 x 1536 and
+// 3840 x 2160 at 16:9.
+inline int32_t UI_PlayerPreset(int32_t resolution) {
+    const int32_t preset = resolution <= 1 ? 4 : resolution == 2 ? 7 : 10;
+    return gUIPresetLimit > 0 && preset > gUIPresetLimit ? gUIPresetLimit : preset;
+}
 // The 4:3 box a screen's height gives, and where it starts on a screen of `width` (0 when the screen is not wider).
 inline int32_t UI_PillarboxWidth(int32_t height) { return height * 4 / 3; }
 inline int32_t UI_PillarboxLeft(int32_t width, int32_t height) {

@@ -148,6 +148,8 @@ int16_t gUIRealScreenHeight;
 float gUIWideAspect = 0.0f;
 int16_t gUIUnitWidth = 0x800;
 int8_t gUIHighPresets = 0;
+// TPW_PORT_FIX resolution UI_PlayerPreset | Mac: (none: the panel's sizes were the Mac's) | Port: the largest preset the launcher found this machine can render | Why: the panel's top step must not ask for more
+int8_t gUIPresetLimit = 0;
 
 // The UI's hash of a name: each character (as a signed char) is mixed in and the whole
 // multiplied, so the last characters weigh least.

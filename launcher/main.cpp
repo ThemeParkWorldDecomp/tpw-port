@@ -29,6 +29,7 @@
 #include "TPMain.h"
 #include "tpw_probe.h"
 #include "ResolutionBalance.h"
+#include "TPSettings.h"
 #include "UI_Base.h"
 #include "platform.h"
 #include "handoff.h"
@@ -42,7 +43,9 @@
 
 namespace {
 // The largest preset, 4096 x 3072 (3840 x 2160 at 16:9), rendered offscreen and scaled to the window (the maintainer,
-// 2026-10-20; it was Resolution.sam's 2048 x 1536 preset, 7, from 2026-10-11). Presets 8 to 10 are the port's own.
+// 2026-10-20; it was Resolution.sam's 2048 x 1536 preset, 7, from 2026-10-11). Presets 8 to 10 are the port's own. Without
+// --resolution the size is the player's choice in the game's Options panel (UI_PlayerPreset), whose top step and
+// default this is; a build without the port's fixes takes it as before.
 constexpr int32_t kDefaultResolution = 10;
 // The screen's shape: 16:9 unless --aspect asks otherwise (the maintainer, 2026-10-20). Presets 1 to 7 keep their
 // height and take the width the shape gives them, so 2048 x 1536 becomes 2730 x 1536; presets 8 to 10 keep the width of
@@ -59,13 +62,24 @@ std::unordered_map<const char*, long> gStubCallsByName;
 
 // Apply the native override after the game's balance files and saved settings load,
 // before the first Process call chooses fonts and the screen size. The translated
-// start-up and the original entry point remain unchanged.
+// start-up and the original entry point remain unchanged. A preset of -1 is the player's
+// choice in the Options panel, read from those saved settings.
 class ResolutionOverrideWorld final : public ThemeParkWorld {
 public:
     explicit ResolutionOverrideWorld(int32_t preset) : mPreset(preset) {}
     bool Initialise() override {
         if (!ThemeParkWorld::Initialise()) return false;
-        gResolutionBalance.mValues[1].mInteger = mPreset;
+        int32_t preset = mPreset;
+#ifdef TPW_PORT_FIX
+        if (preset < 0) {
+            preset = UI_PlayerPreset(static_cast<int32_t>(gPlayerSettings.mCurrent.mResolution));
+            int32_t wide = 0;
+            int32_t high = 0;
+            UI_PresetSize(preset, gUIWideAspect, wide, high);
+            tpw::Log("resolution: %dx%d (preset %d), the Options panel's choice", wide, high, preset);
+        }
+#endif
+        gResolutionBalance.mValues[1].mInteger = preset;
         return true;
     }
 private:
@@ -186,8 +200,9 @@ void Usage(const char* program) {
                  "                 hidden, as Cmd+Ctrl+F makes it; Cmd+Ctrl+F also leaves it)\n"
                  "  --resolution WxH  the game's resolution, named by its 4:3 size: a Resolution.sam preset (512x384,\n"
                  "                    640x480, 800x600, 1024x768, 1280x1024, 1600x1200, 2048x1536) or a larger one of the\n"
-                 "                    port's (2560x1920, 3200x2400, 4096x3072; default: 4096x3072). The game renders at it\n"
-                 "                    offscreen and the window shows it scaled\n"
+                 "                    port's (2560x1920, 3200x2400, 4096x3072). The game renders at it offscreen and the\n"
+                 "                    window shows it scaled. Default: the size chosen in the game's Options panel\n"
+                 "                    (1024x768, 2048x1536 or 4096x3072, at first 4096x3072)\n"
                  "  --aspect W:H   the screen's shape (default 16:9). The Resolution.sam presets keep their height and are\n"
                  "                 widened (2048x1536 becomes 2730x1536 at 16:9, 2458x1536 at 16:10); the larger ones keep\n"
                  "                 the width of their 16:9 size (2560x1440, 3200x1800, 3840x2160 at 16:9; 3840x2400 at\n"
@@ -433,6 +448,7 @@ int main(int argc, char** argv) {
     }
     tpw::Config& config = tpw::config();
     int32_t resolution = kDefaultResolution;
+    bool resolutionGiven = false;
     int aspectWide = kDefaultAspectWide;
     int aspectHigh = kDefaultAspectHigh;
     if (const char* dir = std::getenv("TPW_GAME_DIR")) config.gameDir = dir;
@@ -488,6 +504,7 @@ int main(int argc, char** argv) {
                 Usage(argv[0]);
                 return 2;
             }
+            resolutionGiven = true;
             tpw::Log("resolution override: %s", size);
         }
         else if (arg == "--aspect") {
@@ -611,7 +628,11 @@ int main(int argc, char** argv) {
     // largest preset that fits. TPW_LARGEST_GAME_SIZE stands in for the machine's limit, to check the fallback.
     if (resolution > 0) {
         const char* forced = std::getenv("TPW_LARGEST_GAME_SIZE");
-        resolution = FittingPreset(resolution, forced != nullptr ? std::atoi(forced) : tpw::LargestGameSize());
+        const int limit = forced != nullptr ? std::atoi(forced) : tpw::LargestGameSize();
+        // The Options panel's steps go no higher than the largest preset that fits; without --resolution its choice is
+        // the size (ResolutionOverrideWorld).
+        gUIPresetLimit = static_cast<int8_t>(FittingPreset(kDefaultResolution, limit));
+        resolution = resolutionGiven ? FittingPreset(resolution, limit) : -1;
     }
 #else
     tpw::Log("aspect: 4:3 (a build without the port's fixes has the original layout only)");
