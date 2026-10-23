@@ -443,8 +443,8 @@ void Will_HandleCameraMessages(int32_t message, int32_t a, int32_t b) {
         gCameraModeA |= ButtonBit(a);
         break;
     case kMsgWheel:
-        // TPW_PORT_FIX wheelzoom Will_HandleCameraMessages | Mac: each wheel step moves the zoom by 10 at once | Port: over the park each step moves the zoom's target by 10, and HandleCamera takes the zoom there smoothly, toward the pointer (WheelZoom); a first-person view keeps the Mac's step | Why: a step jumped a sixth of the zoom range, toward the middle of the screen
-        if ((gFirstPersonFlags & 0x16) == 0) {
+        // TPW_PORT_FIX wheelzoom Will_HandleCameraMessages | Mac: each wheel step moves the zoom by 10 at once | Port: with the launcher's "Smooth wheel zoom" on (gUISmoothWheelZoom), over the park each step moves the zoom's target by 10, and HandleCamera takes the zoom there smoothly, toward the pointer (WheelZoom); with it off, and in a first-person view, the Mac's step | Why: smooth wheel zoom toward the pointer, as an opt-in: the port keeps the original's controls by default; a step jumps a sixth of the zoom range, toward the middle of the screen
+        if (gUISmoothWheelZoom != 0 && (gFirstPersonFlags & 0x16) == 0) {
             if (!gWheelZooming) gWheelZoomTarget = gCameraF68;
             gWheelZoomTarget = a < 0 ? gWheelZoomTarget + 10.0f : gWheelZoomTarget - 10.0f;
             gWheelZooming = true;

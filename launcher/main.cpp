@@ -389,7 +389,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, co
     // --no-movies; "Back to the launcher after playing" opens the launcher again when a game started from its window
     // quits (ReopenLauncher).
     for (const char* key : {tpw::ui::kSkipIntroKey, tpw::ui::kBackToLauncherKey, tpw::ui::kVisitorArrivalsKey,
-                            tpw::ui::kVisitorLimitKey}) {
+                            tpw::ui::kVisitorLimitKey, tpw::ui::kSmoothZoomKey}) {
         const std::string value = backend.Setting(key);
         std::string ignored;
         if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, key, value, ignored);
@@ -405,6 +405,9 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, co
             tpw::Log("park rules: visitors arriving x%.1f, visitor limit %d", static_cast<double>(gArrivalScale),
                      static_cast<int>(gVisitorLimit));
     }
+    // The Settings box's "Smooth wheel zoom" (Will_HandleCameraMessages); off, the original's step, by default.
+    gUISmoothWheelZoom = backend.Setting(tpw::ui::kSmoothZoomKey) == "1" ? 1 : 0;
+    if (gUISmoothWheelZoom != 0) tpw::Log("smooth wheel zoom (the launcher's Settings)");
 #endif
     if (choice.skipIntro) {
         config.movies = false;
