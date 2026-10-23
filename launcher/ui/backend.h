@@ -3,6 +3,7 @@
 // Threading is the importer's: Start() runs a drop on its worker thread and the screen drains progress every frame;
 // VerifyEdition() rehashes a whole edition, so the screen calls it from a thread of its own.
 #pragma once
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -34,6 +35,10 @@ public:
     // What the startup check removed, as the home screen's notice ("3 files of the European edition had changed ..."),
     // or empty (assets/importer.h OpenCheck).
     virtual std::string StartupNotice() const { return ""; }
+    // One of the launcher's own settings in launcher.ini (kSkipIntroKey): its value, empty when it has none; and keeping
+    // a new value there.
+    virtual std::string Setting(const std::string& key) const { return std::string(); }
+    virtual bool SaveSetting(const std::string& key, const std::string& value, std::string& err) { return true; }
 };
 
 class ImporterBackend : public ImportBackend {
@@ -71,12 +76,16 @@ public:
     std::string LastChoice() const override;
     bool SetLastChoice(const std::string& choice, std::string& err) override;
     std::string StartupNotice() const override;
+    // Kept straight in the file (SaveIniExtra), and remembered here: the open importer's copy of the file does not see it.
+    std::string Setting(const std::string& key) const override;
+    bool SaveSetting(const std::string& key, const std::string& value, std::string& err) override;
 
 private:
     std::string IniPath() const;
     assets::EditionStatus WithProgram(assets::EditionStatus s) const;
     std::string prefPath_;
     std::unique_ptr<assets::Importer> importer_;
+    std::map<std::string, std::string> saved_;   // the settings SaveSetting wrote
 };
 
 }  // namespace tpw::ui

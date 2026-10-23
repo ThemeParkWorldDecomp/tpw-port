@@ -106,6 +106,14 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     RefreshStatus();
     std::string last = backend_.LastChoice();
     playIndex_ = last == "us" ? 0 : 1;
+    skipIntro_ = backend_.Setting(kSkipIntroKey) == "1";
+    backToLauncher_ = backend_.Setting(kBackToLauncherKey) == "1";
+    {
+        const std::string arrivals = backend_.Setting(kVisitorArrivalsKey);
+        arrivals_ = arrivals == "more" ? 1 : arrivals == "many" ? 2 : 0;
+        const std::string limit = backend_.Setting(kVisitorLimitKey);
+        visitorLimit_ = limit == "3000" ? 1 : limit == "5000" ? 2 : 0;
+    }
     // files the startup check (assets/importer.h) found changed and removed
     std::string startup = backend_.StartupNotice();
     if (!startup.empty()) {
@@ -202,6 +210,7 @@ void LauncherUi::HandleEvent(const SDL_Event& e) {
                 if (armedRemove_ >= 0) armedRemove_ = -1;
                 else if (aboutOpen_) aboutOpen_ = false;
                 else if (settingsOpen_) settingsOpen_ = false;
+                else if (rulesOpen_) rulesOpen_ = false;
                 else if (screen_ == Screen::Result || screen_ == Screen::Play) screen_ = Screen::Home;
             }
             break;
@@ -242,7 +251,7 @@ void LauncherUi::OfferPaths(const std::vector<std::string>& paths) {
         ShowNotice("Wait for the check of an edition to finish", true);
         return;
     }
-    aboutOpen_ = settingsOpen_ = false;
+    aboutOpen_ = settingsOpen_ = rulesOpen_ = false;
     armedRemove_ = -1;
     if (backend_.Running()) {
         queued_.push_back(paths);
@@ -450,8 +459,13 @@ float LauncherUi::DrawHeader(const Rect& w, bool buttons) {
             settingsOpen_ = true;
             armedRemove_ = -1;
         }
-        if (screen_ == Screen::Home && AnyPlayable()) {
-            float pw = ui_.ButtonWidth("Play") + 20;
+        float rw = ui_.ButtonWidth("Park rules");
+        x -= rw + 10;
+        if (ui_.Button("park-rules", {x, y, rw, h}, "Park rules", ButtonKind::Quiet)) rulesOpen_ = true;
+        // The header's Play only where it clears the title (the tiles have their own Play buttons).
+        float pw = ui_.ButtonWidth("Play") + 20;
+        bool fits = x - pw - 10 > metric::kMargin + 2 + text_.Width(style::kTitle, kProductName) + 16;
+        if (screen_ == Screen::Home && AnyPlayable() && fits) {
             x -= pw + 10;
             if (ui_.Button("header-play", {x, y, pw, h}, "Play", ButtonKind::Go)) OpenPlay();
         }
@@ -606,6 +620,8 @@ void LauncherUi::DrawReady(const Rect& w) {
             playIndex_ = i;
             choice_.edition = kEditions[i];
             choice_.gold = status_[2].unlocked;
+            choice_.skipIntro = skipIntro_;
+            choice_.backToLauncher = backToLauncher_;
             playChosen_ = true;
             std::string err;
             backend_.SetLastChoice(assets::EditionName(choice_.edition), err);
@@ -777,6 +793,8 @@ void LauncherUi::DrawPlay(const Rect& w) {
     if (ui_.Button("play", play, "Play", ButtonKind::Go, s.unlocked, style::kHeadline)) {
         choice_.edition = kEditions[playIndex_];
         choice_.gold = goldOn;
+        choice_.skipIntro = skipIntro_;
+        choice_.backToLauncher = backToLauncher_;
         playChosen_ = true;
         std::string err;
         backend_.SetLastChoice(assets::EditionName(choice_.edition), err);
@@ -790,7 +808,8 @@ void LauncherUi::DrawSettings(const Rect& w) {
     canvas_.FillRound(w, 0, colour::kDim);
     float pw = std::min(w.w - 2 * metric::kMargin, 640.0f);
     float contentH = text_.LineHeight(style::kHeadline) + 12 + 2 * (text_.LineHeight(style::kBodyBold) + 4) + 40 +
-                     text_.LineHeight(style::kSmall) + 14 + 3 * 50 + 4 + 2 * text_.LineHeight(style::kSmallBold);
+                     text_.LineHeight(style::kSmall) + 14 + 3 * 50 + 4 + 2 * text_.LineHeight(style::kSmallBold) +
+                     text_.LineHeight(style::kBodyBold) + 4 + 2 * 50;
     float ph = std::min(w.h - 2 * metric::kMargin, contentH + 40);
     Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
     ui_.Panel(panel, colour::kPaper, colour::kCream);
@@ -872,6 +891,40 @@ void LauncherUi::DrawSettings(const Rect& w) {
         }
         y += rowH;
     }
+
+    text_.Draw(style::kBodyBold, in.x, y, "Game", colour::kInk);
+    y += text_.LineHeight(style::kBodyBold) + 4;
+    {
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, "Skip the intro films", colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, "Play goes straight to the lobby, without the logos and the opening film",
+                             row.w - 12 - 56 - 24, false),
+                   colour::kInkSoft);
+        if (ui_.Toggle("skip-intro", {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32}, skipIntro_)) {
+            std::string err;
+            if (!backend_.SaveSetting(kSkipIntroKey, skipIntro_ ? "1" : "0", err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
+        }
+        y += rowH;
+    }
+    {
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, "Back to the launcher after playing", colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, "When the game quits, this window opens again", row.w - 12 - 56 - 24, false),
+                   colour::kInkSoft);
+        if (ui_.Toggle("back-to-launcher", {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32}, backToLauncher_)) {
+            std::string err;
+            if (!backend_.SaveSetting(kBackToLauncherKey, backToLauncher_ ? "1" : "0", err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
+        }
+        y += rowH;
+    }
     y += 4;
     if (verify_.valid() && verifyIndex_ >= 0) {
         std::string msg = std::string("Checking every file of the ") + EditionTitle(kEditions[verifyIndex_]) + " again";
@@ -879,6 +932,60 @@ void LauncherUi::DrawSettings(const Rect& w) {
         ui_.ProgressBar({in.x + text_.Width(style::kSmallBold, msg) + 14, y, 160, 18}, -1);
     } else if (!settingsMessage_.empty()) {
         text_.DrawWrapped(style::kSmallBold, in.x, y, in.w, settingsMessage_, colour::kInk);
+    }
+}
+
+// The Park rules box: how busy the parks get, kept in launcher.ini and given to the game on Play (launcher/main.cpp).
+void LauncherUi::DrawParkRules(const Rect& w) {
+    canvas_.FillRound(w, 0, colour::kDim);
+    const float rowH = 72;
+    float pw = std::min(w.w - 2 * metric::kMargin, 640.0f);
+    float contentH = text_.LineHeight(style::kHeadline) + 10 + text_.LineHeight(style::kSmall) + 14 + 2 * rowH;
+    float ph = std::min(w.h - 2 * metric::kMargin, contentH + 40);
+    Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
+    ui_.Panel(panel, colour::kPaper, colour::kCream);
+    Rect in = panel.Inset(20);
+    float y = in.y;
+    text_.Draw(style::kHeadline, in.x, y, "Park rules", colour::kInk);
+    float cw = ui_.ButtonWidth("Close");
+    if (ui_.Button("rules-close", {in.Right() - cw, y, cw, 36}, "Close", ButtonKind::Quiet)) rulesOpen_ = false;
+    y += text_.LineHeight(style::kHeadline) + 10;
+    text_.Draw(style::kSmall, in.x, y,
+               text_.Fit(style::kSmall, "For every park you play, from the next Play. Busier parks need a faster computer.", in.w,
+                         false),
+               colour::kInkSoft);
+    y += text_.LineHeight(style::kSmall) + 14;
+    struct Rule {
+        const char* id;
+        const char* title;
+        const char* detail;
+        std::vector<std::string> options;
+        int* selected;
+        const char* key;
+        std::vector<std::string> values;
+    };
+    const Rule rules[] = {
+        {"rules-arrivals", "Visitors arriving", "How many guests each bus brings", {"Normal", "More", "Many"}, &arrivals_,
+         kVisitorArrivalsKey, {"normal", "more", "many"}},
+        {"rules-limit", "Visitor limit", "The most guests in a park at once", {"1,500", "3,000", "5,000"},
+         &visitorLimit_, kVisitorLimitKey, {"1500", "3000", "5000"}},
+    };
+    const float segW = std::min(300.0f, in.w * 0.48f);
+    for (const Rule& rule : rules) {
+        Rect row{in.x, y, in.w, rowH - 8};
+        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, rule.title, colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, rule.detail, row.w - 12 - segW - 24, false), colour::kInkSoft);
+        const std::vector<bool> enabled(rule.options.size(), true);
+        if (ui_.Segmented(rule.id, {row.Right() - 12 - segW, row.CentreY() - 20, segW, 40}, rule.options, enabled,
+                          *rule.selected)) {
+            std::string err;
+            if (!backend_.SaveSetting(rule.key, rule.values[static_cast<size_t>(*rule.selected)], err))
+                ShowNotice("Cannot keep the setting: " + err, true);
+        }
+        y += rowH;
     }
 }
 
@@ -934,7 +1041,7 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
     input_.pressed = input_.released = false;
     input_.wheel = 0;
 
-    bool overlay = aboutOpen_ || settingsOpen_;
+    bool overlay = aboutOpen_ || settingsOpen_ || rulesOpen_;
     ui_.SetInteractive(!overlay && !dragging_);
     tilesShown_ = false;
     readyShown_ = false;
@@ -951,6 +1058,7 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
         readyShown_ = false;
         ui_.SetInteractive(!dragging_);
         if (settingsOpen_) DrawSettings(window);
+        if (rulesOpen_) DrawParkRules(window);
         if (aboutOpen_) DrawAbout(window);
     }
     if (noticeLeft_ > 0 && !notice_.empty())
