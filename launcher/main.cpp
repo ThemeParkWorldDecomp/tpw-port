@@ -50,6 +50,7 @@ constexpr int32_t kDefaultResolution = 10;
 constexpr int kDefaultAspectWide = 16;
 constexpr int kDefaultAspectHigh = 9;
 bool gAbortOnStub = false;
+bool gBackToLauncher = false;   // the launcher's "Back to the launcher after playing", for a game started from its window
 bool gTraceStubs = false;
 long gStubCalls = 0;
 const char* volatile gLastStub = nullptr;
@@ -382,13 +383,16 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, co
             case tpw::ui::WindowOutcome::Play: break;
         }
     }
-    // The launcher's "Skip the intro films" (Settings): as --no-movies. It is written to launcher.ini again here, after the
-    // importer's last write of the file (the choice it saved on Play), which kept the importer's older copy of the key.
-    {
-        const std::string skip = backend.Setting(tpw::ui::kSkipIntroKey);
+    // The launcher's settings are written to launcher.ini again here, after the importer's last write of the file (the
+    // choice it saved on Play), which kept the importer's older copy of the keys. "Skip the intro films" is as
+    // --no-movies; "Back to the launcher after playing" opens the launcher again when a game started from its window
+    // quits (ReopenLauncher).
+    for (const char* key : {tpw::ui::kSkipIntroKey, tpw::ui::kBackToLauncherKey}) {
+        const std::string value = backend.Setting(key);
         std::string ignored;
-        if (!skip.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, tpw::ui::kSkipIntroKey, skip, ignored);
+        if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, key, value, ignored);
     }
+    gBackToLauncher = choice.backToLauncher;
     if (choice.skipIntro) {
         config.movies = false;
         tpw::Log("intro films: skipped (the launcher's Settings)");
@@ -410,6 +414,24 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, co
     tpw::Log("data folder: %s", backend.DataFolder().c_str());
     if (choice.gold) tpw::Log("Gold rides: switched on, but this build does not add them to the game yet");
     return -1;
+}
+
+// "Back to the launcher after playing": the launcher starts again, with this run's arguments (which opened its window),
+// as a process of its own, since the game's state lasts for the whole process and cannot be started twice in one.
+void ReopenLauncher(int argc, char** argv) {
+    std::vector<const char*> args(argv, argv + argc);
+    args.push_back(nullptr);
+    const SDL_PropertiesID props = SDL_CreateProperties();
+    SDL_SetPointerProperty(props, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, args.data());
+    SDL_SetBooleanProperty(props, SDL_PROP_PROCESS_CREATE_BACKGROUND_BOOLEAN, true);
+    SDL_Process* process = SDL_CreateProcessWithProperties(props);
+    SDL_DestroyProperties(props);
+    if (process == nullptr) {
+        tpw::Log("launcher: cannot open the launcher again (%s)", SDL_GetError());
+        return;
+    }
+    tpw::Log("launcher: opened again (Settings: back to the launcher after playing)");
+    SDL_DestroyProcess(process);   // the launcher runs on
 }
 
 void Report() {
@@ -635,6 +657,7 @@ int main(int argc, char** argv) {
 
     const int result = RunGame(resolution);
     Report();
+    if (gBackToLauncher) ReopenLauncher(argc, argv);
     SDL_Quit();
     return result;
 }
