@@ -262,9 +262,10 @@ void UI_MainPanelDateChange(int32_t day, int32_t month, int32_t year) {
     ShowStatusTag dayTag(0x10, day);
     ShowStatusTag monthTag(0x11, month);
     ShowStatusTag yearTag(0x12, year + 0x76c);
-    char16_t text[0x20];
+    // TPW_PORT_FIX date UI_MainPanelDateChange | Mac: (as tpw-decomp has it) formats the date into a char16_t buffer and converts that as multibyte text, which reads only the first character's low byte before a zero: one stray glyph of the language's codepage | Port: formats it as multibyte text, as the Mac and PC programs do (a 32-byte buffer and FormatString's unsigned char overload), then converts it
+    unsigned char text[0x20];
     static_cast<TbITable*>(gText.mResourcePointers[6])->FormatString(text, 0x1f, 0x1c0, &dayTag, &monthTag, &yearTag);
-    title->SetClientDrawText(UIMain_ConvertMulti(reinterpret_cast<const unsigned char*>(text)));
+    title->SetClientDrawText(UIMain_ConvertMulti(text));
     InterfaceWindow* cash = gGameWindow->GetWindow(0x2f);
     InterfaceWindow* gauge = cash->GetWindow(0x31);
     uint8_t* analyser = reinterpret_cast<uint8_t*>(gGameWorldRef->GetParkAnalyser());
