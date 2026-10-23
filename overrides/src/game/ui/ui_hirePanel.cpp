@@ -75,10 +75,13 @@ void UpdateViewWindow(int32_t slot) {
     InterfaceWindow* window = gHirePanelWindow->GetWindow(0x2484);
     window->GetClientRect(&rect);
     int32_t left = rect.mLeft, top = rect.mTop, right = rect.mRight, bottom = rect.mBottom;
-    int32_t xi = left + ((right - left) >> 1) - 0x3f8;
-    int32_t yi = 0x300 - (bottom - ((bottom - top) >> 2));
-    float y = static_cast<float>(yi) / 768.0f;
-    float x = static_cast<float>(xi) * 0.0009765625f;
+    // TPW_PORT_FIX stafffigure UpdateViewWindow | Mac: the figure's place across the screen is out of 2048 units, from 1016, and down it out of 1536 units, from 768 | Port: out of the unit space's width, from 8 short of its middle, and out of its height, from its middle (the same on a 4:3 screen at full interface size), as UIMain_ShowSpritePreview places a guest's figure | Why: on a screen wider than 4:3, or with a smaller interface, the figure stood beside the hire panel's picture box instead of in it (at 16:9, to its right); contributed by samueleagle91
+    const int32_t half = gUIUnitWidth / 2;
+    const int32_t halfDown = gUIUnitHeight / 2;
+    int32_t xi = left + ((right - left) >> 1) - (half - 8);
+    int32_t yi = halfDown - (bottom - ((bottom - top) >> 2));
+    float y = static_cast<float>(yi) / static_cast<float>(halfDown);
+    float x = static_cast<float>(xi) / static_cast<float>(half);
     float z = CalcZTrans(static_cast<int32_t>(window->mZ) + 1);
     CStaffInfo* staff = gGameWorld->mStaffDB.GetStaff(static_cast<uint32_t>(slot));
     if (staff != nullptr) {

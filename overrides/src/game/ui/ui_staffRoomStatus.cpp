@@ -103,10 +103,13 @@ void StaffRoomStatusPanel::UpdateViewSprite(CStaff* staff) {
     InterfaceWindow* view = f->mWindow.get()->GetWindow(0x1e84);
     view->GetClientRect(&rect);
     int32_t left = rect.mLeft, top = rect.mTop, right = rect.mRight, bottom = rect.mBottom;
-    int32_t x = left + ((right - left) >> 1) - 0x3f8;
-    int32_t y = 0x300 - (bottom - ((bottom - top) >> 2));
-    float fy = static_cast<float>(y) / 768.0f;
-    float fx = static_cast<float>(x) * 0.0009765625f;
+    // TPW_PORT_FIX stafffigure StaffRoomStatusPanel::UpdateViewSprite | Mac: the figure's place across the screen is out of 2048 units, from 1016, and down it out of 1536 units, from 768 | Port: out of the unit space's width, from 8 short of its middle, and out of its height, from its middle (the same on a 4:3 screen at full interface size), as UIMain_ShowSpritePreview places a guest's figure | Why: the same sum as the hire panel's (UpdateViewWindow): on a screen wider than 4:3, or with a smaller interface, the figure stood beside the staff room panel's picture box instead of in it; contributed by samueleagle91
+    const int32_t half = gUIUnitWidth / 2;
+    const int32_t halfDown = gUIUnitHeight / 2;
+    int32_t x = left + ((right - left) >> 1) - (half - 8);
+    int32_t y = halfDown - (bottom - ((bottom - top) >> 2));
+    float fy = static_cast<float>(y) / static_cast<float>(halfDown);
+    float fx = static_cast<float>(x) / static_cast<float>(half);
     float fz = CalcZTrans(static_cast<int32_t>(view->mZ) + 1);
     int32_t sprite = WordAt(staff, 0x24);
     int32_t a = WordAt(staff, 0x20);
