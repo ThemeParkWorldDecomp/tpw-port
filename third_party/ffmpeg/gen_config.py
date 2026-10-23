@@ -12,8 +12,9 @@ are ever run. Its output is kept in the tree: building needs no Python.
 Every CONFIG_*, HAVE_* and ARCH_* name that the kept sources test is defined: to 1 when it is in ON below, else to 0.
 The settings are the conservative ones that hold on macOS (arm64 and x86_64) and on Linux with gcc or clang: no
 assembly or intrinsics of any architecture, no threads, no hardware decoding, no external library, and only the C99
-and POSIX functions every one of those systems has. Endianness comes from the compiler. Run it again after the kept
-file set changes (a new name is then defined as 0) and look at the list it prints.
+and POSIX functions every one of those systems has; on Windows, the Win32 ones in WINDOWS below. Endianness comes from
+the compiler. Run it again after the kept file set changes (a new name is then defined as 0) and look at the list it
+prints. The files are written with LF line ends on every host.
 """
 import pathlib
 import re
@@ -54,6 +55,18 @@ ON = {
 # Off, among others: every ARCH_* and every CPU extension (no assembly, no intrinsics), HAVE_THREADS and HAVE_PTHREADS
 # (the game decodes on one thread), CONFIG_NETWORK, every hardware API and every external library but zlib.
 # Names that are not settings (a define the sources make themselves) are found and left out below.
+
+# Where Windows (MinGW-w64 with the UCRT, as FFmpeg's configure finds it there) differs: the POSIX functions and headers
+# it lacks are off, and the Win32 ones FFmpeg uses in their place are on. config.h writes these names in an #ifdef _WIN32.
+WINDOWS = {
+    **{name: 0 for name in (
+        "HAVE_FCNTL", "HAVE_CLOCK_GETTIME", "HAVE_NANOSLEEP", "HAVE_POSIX_MEMALIGN", "HAVE_SYSCONF", "HAVE_GMTIME_R",
+        "HAVE_LOCALTIME_R", "HAVE_STRERROR_R", "HAVE_LSTAT", "HAVE_MKSTEMP", "HAVE_POLL_H",
+        "HAVE_MMAP")},
+    **{name: 1 for name in (
+        "HAVE_ALIGNED_MALLOC", "HAVE_IO_H", "HAVE_DIRECT_H", "HAVE_WINDOWS_H", "HAVE_DOS_PATHS", "HAVE_SETMODE",
+        "HAVE_GETSYSTEMTIMEASFILETIME", "HAVE_GETPROCESSAFFINITYMASK", "HAVE_VIRTUALALLOC", "HAVE_SLEEP")},
+}
 
 
 def tokens(root):
@@ -120,7 +133,12 @@ def main():
     components = [head, "#ifndef FFMPEG_CONFIG_COMPONENTS_H\n#define FFMPEG_CONFIG_COMPONENTS_H"]
     for name in sorted(names):
         value = 1 if name in ON or name in components_on else 0
-        (components if is_component(name) else config).append("#define %s %d" % (name, value))
+        lines = components if is_component(name) else config
+        if WINDOWS.get(name, value) != value:
+            lines += ["#ifdef _WIN32", "#define %s %d" % (name, WINDOWS[name]), "#else", "#define %s %d" % (name, value),
+                      "#endif"]
+        else:
+            lines.append("#define %s %d" % (name, value))
     config.append("#endif /* FFMPEG_CONFIG_H */")
     components.append("#endif /* FFMPEG_CONFIG_COMPONENTS_H */")
 
@@ -149,12 +167,15 @@ def main():
     for rel, lines in files.items():
         path = out / rel
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("\n".join(lines) + "\n")
+        path.write_bytes(("\n".join(lines) + "\n").encode())   # LF on every host
     on = sorted(n for n in names if n in ON or n in components_on)
     print("gen_config: %d names, %d on: %s" % (len(names), len(on), " ".join(on)))
     unused = sorted(ON - names)
     if unused:
         print("gen_config: on but not tested by any kept file: " + " ".join(unused))
+    unused = sorted(set(WINDOWS) - names)
+    if unused:
+        print("gen_config: set for Windows but not tested by any kept file: " + " ".join(unused))
 
 
 if __name__ == "__main__":

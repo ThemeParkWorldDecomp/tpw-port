@@ -143,8 +143,11 @@ void UGamework::Run() {
                 break;
             }
             case SDL_EVENT_MOUSE_WHEEL: {
+                // Whole steps only: SDL adds up a trackpad's or a fine wheel's fractions into integer_y. The float y of a
+                // small movement truncated to 0, which the camera took as a step forward.
+                if (sdl.wheel.integer_y == 0) break;
                 const tpw::Event event = MakeEventAtMouse();
-                HandleMouseWheel(event, static_cast<int32_t>(sdl.wheel.y));
+                HandleMouseWheel(event, static_cast<int32_t>(sdl.wheel.integer_y));
                 break;
             }
             case SDL_EVENT_KEY_DOWN: {

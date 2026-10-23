@@ -400,6 +400,11 @@ uint32_t ButtonBit(int32_t button) {
     if (button == 2) return 2;
     return 0;
 }
+
+// TPW_PORT_FIX wheelzoom gWheelZoomTarget, gWheelZooming, gWheelZoomLeft | Mac: (none: the wheel set the zoom at once) | Port: where the wheel is taking the zoom, whether the zoom is on its way there, and the zoom it left last frame (anything else that moves the zoom ends the way) | Why: smooth wheel zoom toward the pointer
+float gWheelZoomTarget = 0.0f;
+bool gWheelZooming = false;
+float gWheelZoomLeft = 0.0f;
 }  // namespace
 
 void Will_HandleCameraMessages(int32_t message, int32_t a, int32_t b) {
@@ -438,6 +443,14 @@ void Will_HandleCameraMessages(int32_t message, int32_t a, int32_t b) {
         gCameraModeA |= ButtonBit(a);
         break;
     case kMsgWheel:
+        // TPW_PORT_FIX wheelzoom Will_HandleCameraMessages | Mac: each wheel step moves the zoom by 10 at once | Port: with the launcher's "Smooth wheel zoom" on (gUISmoothWheelZoom), over the park each step moves the zoom's target by 10, and HandleCamera takes the zoom there smoothly, toward the pointer (WheelZoom); with it off, and in a first-person view, the Mac's step | Why: smooth wheel zoom toward the pointer, as an opt-in: the port keeps the original's controls by default; a step jumps a sixth of the zoom range, toward the middle of the screen
+        if (gUISmoothWheelZoom != 0 && (gFirstPersonFlags & 0x16) == 0) {
+            if (!gWheelZooming) gWheelZoomTarget = gCameraF68;
+            gWheelZoomTarget = a < 0 ? gWheelZoomTarget + 10.0f : gWheelZoomTarget - 10.0f;
+            gWheelZooming = true;
+            gWheelZoomLeft = gCameraF68;
+            break;
+        }
         // Wheel back (a negative delta) zooms out by 10, forward zooms in.
         if (a < 0) gCameraF68 = gCameraF68 + 10.0f;
         else gCameraF68 = gCameraF68 - 10.0f;
@@ -891,6 +904,49 @@ inline bool Key(int16_t id) { return gKeyTableCamera->GetState(id) != 0; }
 // The exact conversion of the listing: a 32-bit unsigned value through the 2^52 trick, rounded to single by the fsubs.
 inline float FromU32(uint32_t v) { return static_cast<float>(v); }
 
+// TPW_PORT_FIX wheelzoom WheelZoom | Mac: (none: the wheel set the zoom at once) | Port: this frame's share of the wheel's zoom, and the view's move toward the pointer | Why: smooth wheel zoom toward the pointer
+// The wheel's zoom for one frame of dt ms. Nothing unless the wheel is zooming and nothing else moved the zoom since the
+// last frame (the keys, a reset, a park loaded or a point of interest take over). The target stays within the zoom limits
+// HandleCamera applies; the zoom covers 1 - e^(-dt/60) of the way each frame (nearly all of it in a fifth of a second) and
+// stops within 0.01. The view moves toward the pointer's place on the ground by the share the zoom shrank (away from it as
+// the zoom grows), so that place stays near the pointer: only when the pointer is over the park and that place is on the
+// map and in view, and never off the map.
+void WheelZoom(float dt) {
+    if (!gWheelZooming) return;
+    if (gCameraF68 != gWheelZoomLeft || (gFirstPersonFlags & 0x16) != 0) {
+        gWheelZooming = false;
+        return;
+    }
+    if ((gCameraModeA & 0x80) != 0) {
+        const bool wide = (gCameraModeA & 0x200) != 0;
+        const float low = wide ? Bits(0x42200000u) : Bits(0x428c0000u);
+        const float high = wide ? Bits(0x43960000u) : Bits(0x43020000u);
+        gWheelZoomTarget = gWheelZoomTarget < low ? low : gWheelZoomTarget > high ? high : gWheelZoomTarget;
+    }
+    const float before = gCameraF68;
+    float after = before + (gWheelZoomTarget - before) * (1.0f - std::exp(-dt / 60.0f));
+    if (std::fabs(gWheelZoomTarget - after) < 0.01f) {
+        after = gWheelZoomTarget;
+        gWheelZooming = false;
+    }
+    gCameraF68 = after;
+    gWheelZoomLeft = after;
+    const sHField* field = gHeightfieldHeader != nullptr ? gHeightfieldHeader->mHField : nullptr;
+    if ((gFirstPersonFlags & 0x100) != 0 || field == nullptr || !(before > 0.0f)) return;
+    const float width = field->mF08[2] * static_cast<float>(field->mF18[0]);
+    const float depth = field->mF08[3] * static_cast<float>(field->mF18[1]);
+    const float px = gPointerWorldPosn.x;
+    const float pz = gPointerWorldPosn.z;
+    const float dx = px - gCameraPosition[0];
+    const float dz = pz - gCameraPosition[2];
+    if (px < 0.0f || px > width || pz < 0.0f || pz > depth || dx * dx + dz * dz > 9.0f * before * before) return;
+    const float share = 1.0f - after / before;
+    const float x = gCameraPosition[0] + dx * share;
+    const float z = gCameraPosition[2] + dz * share;
+    gCameraPosition[0] = std::fmax(std::fmin(x, std::fmax(width, gCameraPosition[0])), std::fmin(0.0f, gCameraPosition[0]));
+    gCameraPosition[2] = std::fmax(std::fmin(z, std::fmax(depth, gCameraPosition[2])), std::fmin(0.0f, gCameraPosition[2]));
+}
+
 }  // namespace
 
 void HandleCamera() {
@@ -1156,6 +1212,8 @@ void HandleCamera() {
         gCameraPosition[2] = ppc_fmadds(vel[2], dt, gCameraPosition[2]);
     }
 
+    // TPW_PORT_FIX wheelzoom HandleCamera | Mac: (none: the wheel set the zoom at once) | Port: the wheel's zoom moves on, before the zoom limits | Why: smooth wheel zoom toward the pointer
+    WheelZoom(dt);
     if ((gCameraModeA & 0x80) != 0) {
         if (gCameraWideZoomOnce == 0) {
             gCameraWideZoomMin = Bits(0x42200000u);

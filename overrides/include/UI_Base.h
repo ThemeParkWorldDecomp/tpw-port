@@ -195,6 +195,8 @@ int16_t UI_TallShiftFor(const InterfaceWindow* window, bool relative);   // the 
 // The windows placed on `window` (a menu's, a dialog's holder) move to the middle of the tall unit space together, not each
 // to its nearer edge.
 void UI_CentreDown(const InterfaceWindow* window);
+// TPW_PORT_FIX wheelzoom gUISmoothWheelZoom | Mac: (none: a wheel step moves the zoom at once) | Port: nonzero when the launcher's "Smooth wheel zoom" is on; 0, the original's step, by default | Why: smooth wheel zoom toward the pointer, as an opt-in: the port keeps the original's controls by default
+extern int8_t gUISmoothWheelZoom;
 bool UI_IsWideWindow(const InterfaceWindow* window);   // spans more than the 2048 units (the root and the game's view)
 int16_t UI_WideShift(const InterfaceWindow* window);   // how far the 2048-unit layout placed in `window` was moved across
 int16_t UI_WideShiftFor(const InterfaceWindow* window, bool relative);   // the same for a rectangle in its frame

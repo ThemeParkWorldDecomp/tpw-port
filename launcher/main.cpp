@@ -15,11 +15,14 @@
 #include <string>
 #include <unordered_map>
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 #include <dlfcn.h>
+#ifndef _WIN32
 #include <execinfo.h>
 #include <sys/ucontext.h>
+#endif
 #include <unistd.h>
 #if defined(__APPLE__)
 #include <objc/message.h>
@@ -33,6 +36,9 @@
 #include "UI_Base.h"
 #include "platform.h"
 #include "handoff.h"
+#ifdef _WIN32
+#include "host_win.h"
+#endif
 #include "platform/game_tables.h"
 #include "startup.h"
 #include "static_init.h"
@@ -45,7 +51,9 @@ namespace {
 // The largest preset, 4096 x 3072 (3840 x 2160 at 16:9), rendered offscreen and scaled to the window (the maintainer,
 // 2026-10-20; it was Resolution.sam's 2048 x 1536 preset, 7, from 2026-10-11). Presets 8 to 10 are the port's own.
 constexpr int32_t kDefaultResolution = 10;
-// The screen's shape: 16:9 unless --aspect asks otherwise (the maintainer, 2026-10-20). Presets 1 to 7 keep their
+// The screen's shape: the nearest of 4:3, 16:10 and 16:9 to the screen's own unless --aspect asks otherwise
+// (ScreenAspect), and 16:9 when the screen cannot be asked (the maintainer chose 16:9, 2026-10-20; a fixed shape left
+// bars on other screens). Presets 1 to 7 keep their
 // height and take the width the shape gives them, so 2048 x 1536 becomes 2730 x 1536; presets 8 to 10 keep the width of
 // their 16:9 size (2560, 3200, 3840) and take the height. 4:3 is the original game's layout exactly.
 constexpr int kDefaultAspectWide = 16;
@@ -80,6 +88,29 @@ int ResolutionPreset(const char* size) {
     for (int i = 0; i < 10; ++i)
         if (std::strcmp(size, sizes[i]) == 0) return i + 1;
     return 0;
+}
+
+// The shape of the screen the game opens on (its desktop mode: --display's screen, else the main one), as the nearest of
+// the three the UI was laid out for: 4:3, 16:10 and 16:9 (a MacBook's 2056 x 1329 is 16:10, a 21:9 screen 16:9, a 5:4
+// or upright one 4:3). False when there is no screen to ask. Video is started for it and stays started (the window and
+// the game use it).
+bool ScreenAspect(int& wide, int& high) {
+    if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) return false;
+    SDL_DisplayID display = tpw::ChosenDisplay();
+    if (display == 0) display = SDL_GetPrimaryDisplay();
+    const SDL_DisplayMode* mode = display != 0 ? SDL_GetDesktopDisplayMode(display) : nullptr;
+    if (mode == nullptr || mode->w <= 0 || mode->h <= 0) return false;
+    static const int kShapes[3][2] = {{4, 3}, {16, 10}, {16, 9}};
+    const float shape = static_cast<float>(mode->w) / static_cast<float>(mode->h);
+    int nearest = 0;
+    for (int i = 1; i < 3; ++i) {
+        const float distance = std::fabs(shape - static_cast<float>(kShapes[i][0]) / static_cast<float>(kShapes[i][1]));
+        const float best = std::fabs(shape - static_cast<float>(kShapes[nearest][0]) / static_cast<float>(kShapes[nearest][1]));
+        if (distance < best) nearest = i;
+    }
+    wide = kShapes[nearest][0];
+    high = kShapes[nearest][1];
+    return true;
 }
 
 // W:H with both whole and positive, no narrower than 4:3; 0 for anything else.
@@ -135,13 +166,23 @@ void OnCrash(int signal) {
         const int more = std::snprintf(text, sizeof text, "launcher: inside the static initialiser %s\n", running);
         if (more > 0) (void)!write(2, text, static_cast<size_t>(more));
     }
+#ifdef _WIN32
+    // Where it happened: the exception and the stack that host_win.cpp kept, as module offsets.
+    if (const char* fatal = tpw::win32::LastFatalException()) {
+        (void)!write(2, "launcher: ", 10);
+        (void)!write(2, fatal, static_cast<unsigned>(std::strlen(fatal)));
+        (void)!write(2, "\n", 1);
+    }
+#else
     // Where it happened (the launcher keeps its symbols).
     static void* frames[48];
     backtrace_symbols_fd(frames, backtrace(frames, 48), 2);
+#endif
     std::signal(signal, SIG_DFL);
     std::raise(signal);
 }
 
+#ifndef _WIN32   // Windows has no sigaction: host_win.cpp records the fault itself
 // The faulting instruction and address first: the backtrace's frame after _sigtramp is the caller when the fault is in a
 // function without a frame record (a leaf), so it can name the wrong place.
 void OnCrashInfo(int signal, siginfo_t* info, void* context) {
@@ -160,6 +201,7 @@ void OnCrashInfo(int signal, siginfo_t* info, void* context) {
     if (length > 0) (void)!write(2, text, static_cast<size_t>(length));
     OnCrash(signal);
 }
+#endif
 
 void Usage(const char* program) {
     std::fprintf(stderr,
@@ -190,7 +232,8 @@ void Usage(const char* program) {
                  "                    640x480, 800x600, 1024x768, 1280x1024, 1600x1200, 2048x1536) or a larger one of the\n"
                  "                    port's (2560x1920, 3200x2400, 4096x3072; default: 4096x3072). The game renders at it\n"
                  "                    offscreen and the window shows it scaled\n"
-                 "  --aspect W:H   the screen's shape (default 16:9). The Resolution.sam presets keep their height and are\n"
+                 "  --aspect W:H   the screen's shape (default: the nearest of 4:3, 16:10 and 16:9 to the screen's own).\n"
+                 "                 The Resolution.sam presets keep their height and are\n"
                  "                 widened (2048x1536 becomes 2730x1536 at 16:9, 2458x1536 at 16:10); the larger ones keep\n"
                  "                 the width of their 16:9 size (2560x1440, 3200x1800, 3840x2160 at 16:9; 3840x2400 at\n"
                  "                 16:10). The park is seen further to the sides, the panels keep to the screen's edges\n"
@@ -389,7 +432,8 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, co
     // --no-movies; "Back to the launcher after playing" opens the launcher again when a game started from its window
     // quits (ReopenLauncher).
     for (const char* key : {tpw::ui::kSkipIntroKey, tpw::ui::kBackToLauncherKey, tpw::ui::kVisitorArrivalsKey,
-                            tpw::ui::kVisitorLimitKey, tpw::ui::kInterfaceSizeKey}) {
+                            tpw::ui::kVisitorLimitKey, tpw::ui::kSmoothZoomKey,
+                            tpw::ui::kInterfaceSizeKey}) {
         const std::string value = backend.Setting(key);
         std::string ignored;
         if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, key, value, ignored);
@@ -405,6 +449,9 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, co
             tpw::Log("park rules: visitors arriving x%.1f, visitor limit %d", static_cast<double>(gArrivalScale),
                      static_cast<int>(gVisitorLimit));
     }
+    // The Settings box's "Smooth wheel zoom" (Will_HandleCameraMessages); off, the original's step, by default.
+    gUISmoothWheelZoom = backend.Setting(tpw::ui::kSmoothZoomKey) == "1" ? 1 : 0;
+    if (gUISmoothWheelZoom != 0) tpw::Log("smooth wheel zoom (the launcher's Settings)");
     {   // the Settings box's interface size (UI_SetRealScreenRez)
         const std::string size = backend.Setting(tpw::ui::kInterfaceSizeKey);
         gUIScale = size == "85" ? 0.85f : size == "70" ? 0.7f : 1.0f;
@@ -476,6 +523,24 @@ void tpw_stub_called(const char* name, bool platform, bool first) {
 int main(int argc, char** argv) {
     // a trap (a hardened library check), an illegal instruction and an abort (a failed stack check is a silent one) get
     // the backtrace too
+#ifdef _WIN32
+    for (int crash : {SIGSEGV, SIGILL, SIGABRT}) std::signal(crash, OnCrash);   // Windows has no SIGBUS or SIGTRAP
+    tpw::win32::DivideLikeTheMac();        // x86 traps what the Mac divides (host_win.h)
+    tpw::win32::RecordFatalExceptions();   // for the crash report (OnCrash)
+    if (!tpw::win32::HasStandardError()) {
+        // Started from Explorer (a Windows app has no console): the log goes to launcher.log beside launcher.ini.
+        std::string folder;
+        for (int i = 1; i + 1 < argc; ++i)
+            if (std::strcmp(argv[i], "--data") == 0) folder = argv[i + 1];
+        if (folder.empty()) {
+            if (char* pref = SDL_GetPrefPath("", tpw::ui::kDataFolderName)) {
+                folder = pref;
+                SDL_free(pref);
+            }
+        }
+        if (!folder.empty()) tpw::win32::LogToFile((std::filesystem::u8path(folder) / "launcher.log").u8string());
+    }
+#else
     for (int crash : {SIGSEGV, SIGBUS, SIGTRAP, SIGILL, SIGABRT}) {
         struct sigaction action{};
         action.sa_sigaction = OnCrashInfo;
@@ -483,10 +548,12 @@ int main(int argc, char** argv) {
         sigemptyset(&action.sa_mask);
         sigaction(crash, &action, nullptr);
     }
+#endif
     tpw::Config& config = tpw::config();
     int32_t resolution = kDefaultResolution;
     int aspectWide = kDefaultAspectWide;
     int aspectHigh = kDefaultAspectHigh;
+    bool aspectGiven = false;   // --aspect; without it the screen's own shape (ScreenAspect)
     if (const char* dir = std::getenv("TPW_GAME_DIR")) config.gameDir = dir;
     std::filesystem::path program;   // the application the data tables are read from (platform/game_tables.cpp)
     std::string dataDir, play;       // --data, --play: the launcher's data folder (no --game)
@@ -548,6 +615,7 @@ int main(int argc, char** argv) {
                 std::fprintf(stderr, "launcher: --aspect wants W:H, no narrower than 4:3 (16:9, 16:10, 4:3): %s\n", shape);
                 return 2;
             }
+            aspectGiven = true;
         }
         else if (arg == "--no-intro") config.debugOptions[3] = 0;
         else if (arg == "--frames") config.maxFrames = std::atoi(value());
@@ -656,6 +724,10 @@ int main(int argc, char** argv) {
 
     // 4:3 leaves the game's own sizes alone (the 1280 x 1024 preset stays 5:4); anything wider widens the screen.
 #ifdef TPW_PORT_FIX
+    if (!aspectGiven && !ScreenAspect(aspectWide, aspectHigh)) {
+        aspectWide = kDefaultAspectWide;
+        aspectHigh = kDefaultAspectHigh;
+    }
     gUIWideAspect = aspectWide * 3 == aspectHigh * 4 ? 0.0f : static_cast<float>(aspectWide) / static_cast<float>(aspectHigh);
     tpw::Log("aspect: %d:%d%s", aspectWide, aspectHigh, gUIWideAspect == 0.0f ? " (the original 4:3 layout)" : "");
     gUIHighPresets = 1;

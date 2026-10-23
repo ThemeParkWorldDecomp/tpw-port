@@ -155,6 +155,8 @@ float gUIScale = 1.0f;
 // TPW_PORT_FIX uiscale gUIInterfaceSizeOn | Mac: (none) | Port: whether gUIScale applies now; the front end comes first, at full size | Why: the front end's panels are whole-screen 4:3 layouts (the player menu's rows run to the right edge, the lobby's panel sits in the corner), which a smaller interface would shrink into the middle
 int8_t gUIInterfaceSizeOn = 0;
 int16_t gUIUnitHeight = 0x600;
+// TPW_PORT_FIX wheelzoom gUISmoothWheelZoom | Mac: (none) | Port: the launcher's "Smooth wheel zoom", off until it says otherwise | Why: smooth wheel zoom toward the pointer, as an opt-in: the port keeps the original's controls by default
+int8_t gUISmoothWheelZoom = 0;
 
 // The UI's hash of a name: each character (as a signed char) is mixed in and the whole
 // multiplied, so the last characters weigh least.
