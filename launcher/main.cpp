@@ -15,7 +15,7 @@
 #include <string>
 #include <unordered_map>
 #include <algorithm>
-#include <numeric>
+#include <cmath>
 #include <vector>
 
 #include <dlfcn.h>
@@ -45,8 +45,9 @@ namespace {
 // The largest preset, 4096 x 3072 (3840 x 2160 at 16:9), rendered offscreen and scaled to the window (the maintainer,
 // 2026-10-20; it was Resolution.sam's 2048 x 1536 preset, 7, from 2026-10-11). Presets 8 to 10 are the port's own.
 constexpr int32_t kDefaultResolution = 10;
-// The screen's shape: the screen's own unless --aspect asks otherwise (ScreenAspect), and 16:9 when the screen cannot be
-// asked (the maintainer chose 16:9, 2026-10-20; a fixed shape left bars on other screens). Presets 1 to 7 keep their
+// The screen's shape: the nearest of 4:3, 16:10 and 16:9 to the screen's own unless --aspect asks otherwise
+// (ScreenAspect), and 16:9 when the screen cannot be asked (the maintainer chose 16:9, 2026-10-20; a fixed shape left
+// bars on other screens). Presets 1 to 7 keep their
 // height and take the width the shape gives them, so 2048 x 1536 becomes 2730 x 1536; presets 8 to 10 keep the width of
 // their 16:9 size (2560, 3200, 3840) and take the height. 4:3 is the original game's layout exactly.
 constexpr int kDefaultAspectWide = 16;
@@ -82,23 +83,26 @@ int ResolutionPreset(const char* size) {
     return 0;
 }
 
-// The shape of the screen the game opens on (its desktop mode: --display's screen, else the main one) as W:H in lowest
-// terms, 4:3 for a screen narrower than that (5:4, or one turned upright); false when there is no screen to ask. Video is
-// started for it and stays started (the window and the game use it).
+// The shape of the screen the game opens on (its desktop mode: --display's screen, else the main one), as the nearest of
+// the three the UI was laid out for: 4:3, 16:10 and 16:9 (a MacBook's 2056 x 1329 is 16:10, a 21:9 screen 16:9, a 5:4
+// or upright one 4:3). False when there is no screen to ask. Video is started for it and stays started (the window and
+// the game use it).
 bool ScreenAspect(int& wide, int& high) {
     if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) return false;
     SDL_DisplayID display = tpw::ChosenDisplay();
     if (display == 0) display = SDL_GetPrimaryDisplay();
     const SDL_DisplayMode* mode = display != 0 ? SDL_GetDesktopDisplayMode(display) : nullptr;
     if (mode == nullptr || mode->w <= 0 || mode->h <= 0) return false;
-    if (mode->w * 3 < mode->h * 4) {
-        wide = 4;
-        high = 3;
-        return true;
+    static const int kShapes[3][2] = {{4, 3}, {16, 10}, {16, 9}};
+    const float shape = static_cast<float>(mode->w) / static_cast<float>(mode->h);
+    int nearest = 0;
+    for (int i = 1; i < 3; ++i) {
+        const float distance = std::fabs(shape - static_cast<float>(kShapes[i][0]) / static_cast<float>(kShapes[i][1]));
+        const float best = std::fabs(shape - static_cast<float>(kShapes[nearest][0]) / static_cast<float>(kShapes[nearest][1]));
+        if (distance < best) nearest = i;
     }
-    const int divisor = std::gcd(mode->w, mode->h);
-    wide = mode->w / divisor;
-    high = mode->h / divisor;
+    wide = kShapes[nearest][0];
+    high = kShapes[nearest][1];
     return true;
 }
 
@@ -210,8 +214,8 @@ void Usage(const char* program) {
                  "                    640x480, 800x600, 1024x768, 1280x1024, 1600x1200, 2048x1536) or a larger one of the\n"
                  "                    port's (2560x1920, 3200x2400, 4096x3072; default: 4096x3072). The game renders at it\n"
                  "                    offscreen and the window shows it scaled\n"
-                 "  --aspect W:H   the screen's shape (default: the screen's own, 4:3 for a narrower one). The Resolution.sam\n"
-                 "                 presets keep their height and are\n"
+                 "  --aspect W:H   the screen's shape (default: the nearest of 4:3, 16:10 and 16:9 to the screen's own).\n"
+                 "                 The Resolution.sam presets keep their height and are\n"
                  "                 widened (2048x1536 becomes 2730x1536 at 16:9, 2458x1536 at 16:10); the larger ones keep\n"
                  "                 the width of their 16:9 size (2560x1440, 3200x1800, 3840x2160 at 16:9; 3840x2400 at\n"
                  "                 16:10). The park is seen further to the sides, the panels keep to the screen's edges\n"
