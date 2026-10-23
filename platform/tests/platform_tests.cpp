@@ -2286,6 +2286,97 @@ static void TestSound(const fs::path& scratch) {
         CHECK(static_cast<int32_t>(module->SetChannelInfo(9, AsPipe(&mono), *info)) == -1);
     }
 
+    // ---- Placing (the stream's pan): a 3D channel's sound with a place is panned from the listener, whose right is top x
+    // front, and fades beyond the sound distance (400) as 400 over its distance. A sound with no place, or on a 2D channel,
+    // plays at 1 and 1, and so does a new sample until a position comes. A listener that turns pans the placed sounds again.
+    {
+        CHECK(static_cast<int32_t>(module->SetListenerPosition(TbSoundPosition(0.0f, 0.0f, 0.0f))) == 0);
+        CHECK(static_cast<int32_t>(module->SetListenerDirection(TbSoundPosition(0.0f, 0.0f, 1.0f), TbSoundPosition(0.0f, 1.0f, 0.0f))) == 0);
+        struct Case {
+            float x, y, z;
+            float left, right;
+        };
+        const Case cases[] = {
+            {0.0f, 0.0f, 100.0f, 1.0f, 1.0f},     // straight ahead and near: its own level on both
+            {100.0f, 0.0f, 0.0f, 0.0f, 1.0f},     // on the right: the left is silent
+            {-100.0f, 0.0f, 0.0f, 1.0f, 0.0f},    // on the left
+            {100.0f, 0.0f, 100.0f, 0.3229f, 1.0f},   // ahead and to the right
+            {0.0f, 0.0f, 800.0f, 0.5f, 0.5f},     // ahead at twice the sound distance: half
+            {0.0f, -400.0f, 0.0f, 1.0f, 1.0f},    // straight below at the sound distance
+        };
+        Zeroed<TbSoundSampleInfo> info;
+        info->mField0C = 0x20;
+        float left = 0.0f;
+        float right = 0.0f;
+        for (const Case& c : cases) {
+            const TbSoundPosition position(c.x, c.y, c.z);
+            info->mPosition = &position;
+            info->mFlags = 1;
+            CHECK(static_cast<int32_t>(module->SetChannelInfo(0, AsPipe(&mono), *info)) == 0);
+            device.Pan(0, &left, &right);
+            CHECK(std::fabs(left - c.left) < 0.001f && std::fabs(right - c.right) < 0.001f);
+        }
+        // The listener turns to face +x: its right is -z, so a sound ahead of it before (+z) is now on its left.
+        const TbSoundPosition ahead(0.0f, 0.0f, 100.0f);
+        info->mPosition = &ahead;
+        info->mFlags = 1;
+        CHECK(static_cast<int32_t>(module->SetChannelInfo(0, AsPipe(&mono), *info)) == 0);
+        CHECK(static_cast<int32_t>(module->SetListenerDirection(TbSoundPosition(1.0f, 0.0f, 0.0f), TbSoundPosition(0.0f, 1.0f, 0.0f))) == 0);
+        device.Pan(0, &left, &right);
+        CHECK(std::fabs(left - 1.0f) < 0.001f && std::fabs(right) < 0.001f);
+        CHECK(static_cast<int32_t>(module->SetListenerPosition(TbSoundPosition(0.0f, 0.0f, -700.0f))) == 0);   // 800 away
+        device.Pan(0, &left, &right);
+        CHECK(std::fabs(left - 0.5f) < 0.001f && std::fabs(right) < 0.001f);
+        // No place: sample flags without 0x20.
+        info->mField0C = 0;
+        info->mFlags = 1;
+        CHECK(static_cast<int32_t>(module->SetChannelInfo(0, AsPipe(&mono), *info)) == 0);
+        device.Pan(0, &left, &right);
+        CHECK(left == 1.0f && right == 1.0f);
+        // A 2D channel (1) is never panned.
+        info->mField0C = 0x20;
+        info->mFlags = 1;
+        CHECK(static_cast<int32_t>(module->SetChannelInfo(1, AsPipe(&stereo), *info)) == 0);
+        device.Pan(1, &left, &right);
+        CHECK(left == 1.0f && right == 1.0f);
+        // A new sample starts at 1 and 1.
+        info->mFlags = 1;
+        CHECK(static_cast<int32_t>(module->SetChannelInfo(0, AsPipe(&mono), *info)) == 0);
+        device.Pan(0, &left, &right);
+        CHECK(left < 1.0f);
+        CHECK(static_cast<int32_t>(StartSample(*module, 0, mono)) == 0);
+        device.Pan(0, &left, &right);
+        CHECK(left == 1.0f && right == 1.0f);
+        CHECK(static_cast<int32_t>(module->SetListenerPosition(TbSoundPosition(0.0f, 0.0f, 0.0f))) == 0);
+        CHECK(static_cast<int32_t>(module->SetListenerDirection(TbSoundPosition(0.0f, 0.0f, 1.0f), TbSoundPosition(0.0f, 1.0f, 0.0f))) == 0);
+    }
+
+    // ---- SoundToStereo: the chunks go into the streams as 16-bit stereo, the gains moving in a line from the last chunk's to
+    // the new ones and reaching them on the last frame; a mono sample plays on both sides, 8 bits are widened as SDL does.
+    {
+        const int16_t mono16[4] = {1000, -1000, 2000, 32767};
+        const float from[2] = {1.0f, 0.0f};
+        const float to[2] = {0.0f, 1.0f};
+        std::vector<int16_t> out;
+        tpw::SoundSource source;
+        source.rate = 22050;
+        source.bits = 16;
+        source.channels = 1;
+        tpw::SoundToStereo(mono16, sizeof mono16, source, from, to, out);
+        CHECK(out.size() == 8);
+        CHECK(out[0] == 750 && out[1] == 250);
+        CHECK(out[2] == -500 && out[3] == -500);
+        CHECK(out[4] == 500 && out[5] == 1500);
+        CHECK(out[6] == 0 && out[7] == 32767);
+        const uint8_t stereo8[4] = {0x80, 0xff, 0x00, 0x81};
+        const float level[2] = {1.0f, 1.0f};
+        source.bits = 8;
+        source.channels = 2;
+        tpw::SoundToStereo(stereo8, sizeof stereo8, source, level, level, out);
+        CHECK(out.size() == 4);
+        CHECK(out[0] == 0 && out[1] == 0x7f00 && out[2] == -0x8000 && out[3] == 0x100);
+    }
+
     // ---- StreamData pulls exactly one chunk at once and queues it; the stream is bound.
     CHECK(static_cast<int32_t>(StartSample(*module, 0, mono)) == 0);
     CHECK(static_cast<int32_t>(module->StreamData(AsPipe(&mono))) == 0);

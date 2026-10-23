@@ -13,18 +13,21 @@
 //    device, and SDL's get callback (on its audio thread) pulls and queues further chunks while the device needs data, with the
 //    same end rule.
 //  - Commands the Mac sent to a channel are done at once on the stream (volume is the stream's gain, stop unbinds and clears,
-//    pause unbinds and keeps the queue, restart binds again). The 3D commands (position, velocity, listener) are only kept:
-//    the first version plays every 3D sound centred, at its volume. The sound type, CPU load, listener scale, sound distance,
-//    preroll and speaker type commands have nothing to do on SDL.
+//    pause unbinds and keeps the queue, restart binds again). Sound Sprockets placed a 3D channel's sound from its position
+//    and the listener's; here that is the stream's pan (Pan, below): a fade with distance beyond the sound distance the
+//    Mac gave every channel, and a side for the two speakers. Velocity (Doppler) is kept and not used. The sound type, CPU
+//    load, listener scale, preroll and speaker type commands have nothing to do on SDL.
 //  - Bounds: the Mac indexed mChannels with whatever the pipe said; the host answers -1 (a NULL channel) for an index outside
 //    the array or a module that is not initialised.
 //  - Byte order: the translated decoders write native-endian 16-bit samples (notes/w71a.md: the host's frame buffer is native
 //    shorts), so a 16-bit sample is SDL_AUDIO_S16 (little-endian on this host), 8-bit is unsigned.
+#include <cmath>
 #include <cstring>
 #include <memory>
 #include <mutex>
 #include <new>
 #include <unordered_map>
+#include <vector>
 
 #include "CMpegBase.h"
 #include "CSprocketsModule.h"
@@ -122,6 +125,7 @@ struct Host {
     tpw::SoundDevice device;
     CSprocketsListener listener;
     const TbSpeaker::Config* speakerConfig = nullptr;   // SetSpeakerConfig's last argument (the Mac sent its type to channel 0)
+    std::vector<uint8_t> placed;   // per channel: its last position command gave the sound a place (a 3D channel, flag 0x20)
 };
 
 // Never destroyed: a module still alive at exit must not close SDL streams from a static destructor after SDL_Quit.
@@ -147,6 +151,46 @@ void Copy3(float to[3], const TbSoundPosition& from) {
     to[0] = from.mX;
     to[1] = from.mY;
     to[2] = from.mZ;
+}
+
+// What Sound Sprockets made of a channel's place, for two speakers: the stream's pan. A sound with no place (a 2D channel, or
+// a 3D one the game sent no position for) plays at 1 on both sides. A placed one plays at its own level up to the sound
+// distance (UCommandSoundDistance, 400 units: the distance it was recorded at) and at that distance over its distance
+// beyond (the inverse distance law). Its side is the share of its direction along the listener's right, top x front (the
+// camera's x axis, which is the screen's right), from -1 to 1; the speakers follow a quarter circle that keeps the centre
+// at full level on both, sqrt(2) cos and sqrt(2) sin of (side + 1) pi / 4, each at most 1, so that a sound straight ahead
+// is as loud as before and one at the side is silent in the far speaker.
+void Pan(Host& host, uint32_t index) {
+    if (host.channels == nullptr || index >= host.placed.size() || host.channels[index] == nullptr) return;
+    const CSprocketsChannel& channel = *host.channels[index];
+    float left = 1.0f;
+    float right = 1.0f;
+    if (channel.Is3D() != 0 && host.placed[index] != 0) {
+        const CSprocketsListener& listener = host.listener;
+        const float* at = channel.Location();
+        const float d[3] = {at[0] - listener.position[0], at[1] - listener.position[1], at[2] - listener.position[2]};
+        const float distance = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        const float reference = static_cast<float>(listener.soundDistance);
+        const float level = distance > reference ? reference / distance : 1.0f;
+        const float* f = listener.front;
+        const float* u = listener.top;
+        const float r[3] = {u[1] * f[2] - u[2] * f[1], u[2] * f[0] - u[0] * f[2], u[0] * f[1] - u[1] * f[0]};
+        const float length = std::sqrt(r[0] * r[0] + r[1] * r[1] + r[2] * r[2]);
+        float side = 0.0f;
+        if (length > 0.0f && distance > 0.0f) side = (d[0] * r[0] + d[1] * r[1] + d[2] * r[2]) / (length * distance);
+        side = side < -1.0f ? -1.0f : side > 1.0f ? 1.0f : side;
+        const float angle = (side + 1.0f) * 0.78539816f;
+        left = level * std::fmin(1.0f, 1.41421356f * std::cos(angle));
+        right = level * std::fmin(1.0f, 1.41421356f * std::sin(angle));
+    }
+    host.device.SetPan(index, left, right);
+}
+
+// The listener moved or turned: every placed sound is panned again.
+void PanAll(Host& host) {
+    for (uint32_t i = 0; i < host.placed.size(); ++i) {
+        if (host.placed[i] != 0) Pan(host, i);
+    }
 }
 
 }  // namespace
@@ -210,6 +254,7 @@ TbError CSprocketsModule::Init(const TbSoundSystemInfo& info) {
         return TbError(-1);
     }
     host.listener = CSprocketsListener();
+    host.placed.assign(mBuffers, 0);
     for (uint32_t i = 0; i < mBuffers; ++i) host.channels[i] = new CSprocketsChannel(&host.device, i);
     host.speakerConfig = nullptr;   // TbSpeaker::Stereo
     SamsUtilities::UPooled<CMpegMacFilePlayerUnpooled, 10>::SetPoolKeepFull(1);
@@ -253,6 +298,7 @@ void CSprocketsModule::Close() {
         delete[] host.channels;
         host.channels = nullptr;
     }
+    host.placed.clear();
     host.device.Close();
 }
 
@@ -329,6 +375,7 @@ TbError CSprocketsModule::SetChannelInfo(uint32_t index, TbSoundPipeChannel* pip
             failed = true;
         } else {
             const uint32_t sampleFlags = pipe->GetSampleFlags();
+            HostOf(this).placed[index] = 0;   // a new sample has no place until a position comes (its pan is 1 and 1)
             channel->SetPipe(pipe);
             channel->SetDescription(*pipe->GetSampleHeader());
             channel->Set3D((sampleFlags & 1) == 0 ? 1 : 0);
@@ -348,6 +395,7 @@ TbError CSprocketsModule::SetChannelInfo(uint32_t index, TbSoundPipeChannel* pip
         float location[3] = {0.0f, 0.0f, 0.0f};
         float velocity[3] = {0.0f, 0.0f, 0.0f};
         const bool wanted = channel->Is3D() != 0 && (info.mField0C & 0x20) != 0;
+        bool placed = false;
         if ((info.mFlags & 0x800000) != 0) {
             if (wanted && info.mVelocity != nullptr) Copy3(velocity, *info.mVelocity);
             info.mFlags &= ~0x800000u;
@@ -355,11 +403,14 @@ TbError CSprocketsModule::SetChannelInfo(uint32_t index, TbSoundPipeChannel* pip
         if ((info.mFlags & 1) != 0) {
             if (wanted) {
                 if (info.mPosition != nullptr) Copy3(location, *info.mPosition);
+                placed = info.mPosition != nullptr;
                 velocity[0] = velocity[1] = velocity[2] = 0.0f;
             }
             info.mFlags &= ~1u;
         }
         channel->SetPosition(location, velocity);
+        HostOf(this).placed[index] = placed ? 1 : 0;
+        Pan(HostOf(this), index);
         failed = false;
     }
     if ((info.mFlags & 0x200) != 0) info.mFlags &= ~0x200u;   // distance: nothing done
@@ -372,11 +423,13 @@ TbError CSprocketsModule::GetPosition(uint32_t index, TbSoundPosition&) {
     return TbError(ChannelAt(index) == nullptr ? -1 : 0);
 }
 
-// 0x1002d090, 0x1002d220, 0x1002d4a4: a UCommandListenerPosition sent to channel 0 (NULL: -1). Kept for a later panning pass.
+// 0x1002d090, 0x1002d220, 0x1002d4a4: a UCommandListenerPosition sent to channel 0 (NULL: -1). A new position or direction
+// pans the placed sounds again.
 TbError CSprocketsModule::SetListenerPosition(const TbSoundPosition& position) {
     if (ChannelAt(0) == nullptr) return TbError(-1);
     Copy3(HostOf(this).listener.position, position);
     ++HostOf(this).listener.calls;
+    PanAll(HostOf(this));
     return TbError(0);
 }
 
@@ -385,6 +438,7 @@ TbError CSprocketsModule::SetListenerDirection(const TbSoundPosition& front, con
     Copy3(HostOf(this).listener.front, front);
     Copy3(HostOf(this).listener.top, top);
     ++HostOf(this).listener.calls;
+    PanAll(HostOf(this));
     return TbError(0);
 }
 

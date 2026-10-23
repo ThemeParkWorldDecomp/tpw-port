@@ -7,7 +7,8 @@
 // device until a sample plays; SDL pulls from it, and the stream's get callback calls the channel's
 // pull function (the game's TbSoundPipeChannel::StreamerCallback) for one chunk at a time, so the
 // game's pipes are drained exactly as fast as the speakers play. The callback runs on SDL's audio
-// thread.
+// thread. Each chunk goes into its stream as 16-bit stereo at the sample's rate, with the stream's
+// pan applied (SetPan); the counts below (Feed, Queued) are still in the sample's own format.
 #pragma once
 #include <atomic>
 #include <cstdint>
@@ -74,6 +75,12 @@ public:
     bool SetGain(uint32_t stream, float gain);
     float Gain(uint32_t stream) const;
 
+    // How much of the sample each speaker plays (0..1), for a sound placed in the park; 1 and 1
+    // at first and after SetSource. A pull plays its chunk moving from the last chunk's pair to
+    // this one, so a sound that moves does not click.
+    void SetPan(uint32_t stream, float left, float right);
+    void Pan(uint32_t stream, float* left, float* right) const;
+
     // State, for the tests and the log.
     bool IsBound(uint32_t stream) const;       // the stream is bound to the device
     bool IsEnded(uint32_t stream) const;       // a pull answered false: nothing more is pulled
@@ -99,5 +106,12 @@ private:
 // The bytes of one sample in the formats the stream takes: 1 for 8 bits, 2 for 16, 4 for 32, 0 for
 // a width SDL cannot play.
 uint32_t SoundBytesPerSample(uint32_t bits);
+
+// `bytes` of `source` samples as 16-bit stereo frames in `out`, each frame's left and right scaled
+// by gains that move in a straight line from `from` (left, right) to `to` over the chunk, reaching
+// `to` on its last frame. 8 bits become 16 as SDL widens them; 32 keep their top 16. A mono sample
+// plays the same sample on both sides.
+void SoundToStereo(const void* in, uint32_t bytes, const SoundSource& source, const float from[2], const float to[2],
+                   std::vector<int16_t>& out);
 
 }  // namespace tpw
