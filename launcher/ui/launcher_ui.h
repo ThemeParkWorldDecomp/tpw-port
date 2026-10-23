@@ -25,6 +25,10 @@ inline constexpr const char* kSkipIntroKey = "skip_intro";
 // launcher.ini's key for the Settings box's "Back to the launcher after playing" ("1": the launcher opens again when the
 // game quits).
 inline constexpr const char* kBackToLauncherKey = "back_to_launcher";
+// launcher.ini's keys for the Park rules box: "Visitors arriving" (normal, more or many: each bus brings 1, 1.5 or 2 times
+// the people) and "Visitor limit" (1500, 3000 or 5000 in an offline park). Absent: normal and 1500, as the original.
+inline constexpr const char* kVisitorArrivalsKey = "visitor_arrivals";
+inline constexpr const char* kVisitorLimitKey = "visitor_limit";
 
 // What the player chose to start.
 struct LaunchChoice {
@@ -112,6 +116,7 @@ private:
     void DrawResult(const Rect& window);
     void DrawPlay(const Rect& window);
     void DrawSettings(const Rect& window);
+    void DrawParkRules(const Rect& window);
     void DrawAbout(const Rect& window);
     void DrawStarting(const Rect& window);
 
@@ -123,7 +128,9 @@ private:
 
     Input input_;              // gathered from events since the last frame
     Screen screen_ = Screen::Home;
-    bool aboutOpen_ = false, settingsOpen_ = false;
+    bool aboutOpen_ = false, settingsOpen_ = false, rulesOpen_ = false;
+    int arrivals_ = 0;       // the Park rules box's "Visitors arriving": 0 normal, 1 more, 2 many
+    int visitorLimit_ = 0;   // its "Visitor limit": 0 1500, 1 3000, 2 5000
     bool skipIntro_ = false;   // the Settings box's "Skip the intro films", as launcher.ini keeps it
     bool backToLauncher_ = false;   // the Settings box's "Back to the launcher after playing", as launcher.ini keeps it
 

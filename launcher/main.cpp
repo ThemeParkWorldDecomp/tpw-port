@@ -28,6 +28,7 @@
 
 #include "TPMain.h"
 #include "tpw_probe.h"
+#include "Arrival.h"
 #include "ResolutionBalance.h"
 #include "UI_Base.h"
 #include "platform.h"
@@ -387,12 +388,24 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, co
     // choice it saved on Play), which kept the importer's older copy of the keys. "Skip the intro films" is as
     // --no-movies; "Back to the launcher after playing" opens the launcher again when a game started from its window
     // quits (ReopenLauncher).
-    for (const char* key : {tpw::ui::kSkipIntroKey, tpw::ui::kBackToLauncherKey}) {
+    for (const char* key : {tpw::ui::kSkipIntroKey, tpw::ui::kBackToLauncherKey, tpw::ui::kVisitorArrivalsKey,
+                            tpw::ui::kVisitorLimitKey}) {
         const std::string value = backend.Setting(key);
         std::string ignored;
         if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, key, value, ignored);
     }
     gBackToLauncher = choice.backToLauncher;
+#ifdef TPW_PORT_FIX
+    {   // the Park rules box (CArrival::HowManyPeople)
+        const std::string arrivals = backend.Setting(tpw::ui::kVisitorArrivalsKey);
+        gArrivalScale = arrivals == "more" ? 1.5f : arrivals == "many" ? 2.0f : 1.0f;
+        const std::string limit = backend.Setting(tpw::ui::kVisitorLimitKey);
+        gVisitorLimit = limit == "3000" ? 3000 : limit == "5000" ? 5000 : 1500;
+        if (gArrivalScale != 1.0f || gVisitorLimit != 1500)
+            tpw::Log("park rules: visitors arriving x%.1f, visitor limit %d", static_cast<double>(gArrivalScale),
+                     static_cast<int>(gVisitorLimit));
+    }
+#endif
     if (choice.skipIntro) {
         config.movies = false;
         tpw::Log("intro films: skipped (the launcher's Settings)");
