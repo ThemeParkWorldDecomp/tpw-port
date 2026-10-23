@@ -75,7 +75,7 @@ void UpdateViewWindow(int32_t slot) {
     InterfaceWindow* window = gHirePanelWindow->GetWindow(0x2484);
     window->GetClientRect(&rect);
     int32_t left = rect.mLeft, top = rect.mTop, right = rect.mRight, bottom = rect.mBottom;
-    // TPW_PORT_FIX stafffigure UpdateViewWindow | Mac: the figure's place across the screen is out of 2048 units, from 1016, and down it out of 1536 units, from 768 | Port: out of the unit space's width, from 8 short of its middle, and out of its height, from its middle (the same on a 4:3 screen at full interface size), as UIMain_ShowSpritePreview places a guest's figure | Why: on a screen wider than 4:3, or with a smaller interface, the figure stood beside the hire panel's picture box instead of in it (at 16:9, to its right); contributed by samueleagle91
+    // TPW_PORT_FIX stafffigure UpdateViewWindow | Mac: the figure's place across the screen is out of 2048 units, from 1016, and down it out of 1536 units, from 768 | Port: out of the unit space's width, from 8 short of its middle, and out of its height, from its middle (the same on a 4:3 screen at full interface size), as UIMain_ShowSpritePreview places a guest's figure | Why: on a screen wider than 4:3, or with a smaller interface, the figure stood beside the hire panel's picture box instead of in it (at 16:9, to its right); contributed by samueleagle91 (tpw-port PR #39)
     const int32_t half = gUIUnitWidth / 2;
     const int32_t halfDown = gUIUnitHeight / 2;
     int32_t xi = left + ((right - left) >> 1) - (half - 8);
