@@ -185,8 +185,11 @@ bool ModeArm(int32_t mode) {
         return true;
     }
     if (mode == 0x15 || mode == 0x16) {
-        // The Mac passes the word at 0x102ddb6c as a pointer; here the int32 is widened without sign extension (the unit's log keeps 32 bits).
-        SetCoasterEdit(reinterpret_cast<void*>(static_cast<uintptr_t>(static_cast<uint32_t>(gLLCCDB6C))), 1);
+        // The Mac passes the word at 0x102ddb6c as a pointer.
+        // TPW_PORT_FIX coaster64 ModeArm | Mac: the current object's word passed as the coaster | Port: the whole pointer, gLLCMCurrentObject, while its low half is the word (as LLCellMouse.cpp's Current reads it), else the word widened | Why: a 64-bit build; the word holds only the pointer's low half, so the coaster panel's track button crashed in SetCoasterEdit
+        void* coaster = reinterpret_cast<void*>(static_cast<uintptr_t>(static_cast<uint32_t>(gLLCCDB6C)));
+        if (static_cast<uint32_t>(reinterpret_cast<uintptr_t>(gLLCMCurrentObject)) == static_cast<uint32_t>(gLLCCDB6C)) coaster = gLLCMCurrentObject;
+        SetCoasterEdit(coaster, 1);
         return true;
     }
     if (mode == 1) {
