@@ -18,8 +18,10 @@
 #include <vector>
 
 #include <dlfcn.h>
+#ifndef _WIN32
 #include <execinfo.h>
 #include <sys/ucontext.h>
+#endif
 #include <unistd.h>
 #if defined(__APPLE__)
 #include <objc/message.h>
@@ -33,6 +35,9 @@
 #include "UI_Base.h"
 #include "platform.h"
 #include "handoff.h"
+#ifdef _WIN32
+#include "host_win.h"
+#endif
 #include "platform/game_tables.h"
 #include "startup.h"
 #include "static_init.h"
@@ -135,13 +140,23 @@ void OnCrash(int signal) {
         const int more = std::snprintf(text, sizeof text, "launcher: inside the static initialiser %s\n", running);
         if (more > 0) (void)!write(2, text, static_cast<size_t>(more));
     }
+#ifdef _WIN32
+    // Where it happened: the exception and the stack that host_win.cpp kept, as module offsets.
+    if (const char* fatal = tpw::win32::LastFatalException()) {
+        (void)!write(2, "launcher: ", 10);
+        (void)!write(2, fatal, static_cast<unsigned>(std::strlen(fatal)));
+        (void)!write(2, "\n", 1);
+    }
+#else
     // Where it happened (the launcher keeps its symbols).
     static void* frames[48];
     backtrace_symbols_fd(frames, backtrace(frames, 48), 2);
+#endif
     std::signal(signal, SIG_DFL);
     std::raise(signal);
 }
 
+#ifndef _WIN32   // Windows has no sigaction: host_win.cpp records the fault itself
 // The faulting instruction and address first: the backtrace's frame after _sigtramp is the caller when the fault is in a
 // function without a frame record (a leaf), so it can name the wrong place.
 void OnCrashInfo(int signal, siginfo_t* info, void* context) {
@@ -160,6 +175,7 @@ void OnCrashInfo(int signal, siginfo_t* info, void* context) {
     if (length > 0) (void)!write(2, text, static_cast<size_t>(length));
     OnCrash(signal);
 }
+#endif
 
 void Usage(const char* program) {
     std::fprintf(stderr,
@@ -474,6 +490,24 @@ void tpw_stub_called(const char* name, bool platform, bool first) {
 int main(int argc, char** argv) {
     // a trap (a hardened library check), an illegal instruction and an abort (a failed stack check is a silent one) get
     // the backtrace too
+#ifdef _WIN32
+    for (int crash : {SIGSEGV, SIGILL, SIGABRT}) std::signal(crash, OnCrash);   // Windows has no SIGBUS or SIGTRAP
+    tpw::win32::DivideLikeTheMac();        // x86 traps what the Mac divides (host_win.h)
+    tpw::win32::RecordFatalExceptions();   // for the crash report (OnCrash)
+    if (!tpw::win32::HasStandardError()) {
+        // Started from Explorer (a Windows app has no console): the log goes to launcher.log beside launcher.ini.
+        std::string folder;
+        for (int i = 1; i + 1 < argc; ++i)
+            if (std::strcmp(argv[i], "--data") == 0) folder = argv[i + 1];
+        if (folder.empty()) {
+            if (char* pref = SDL_GetPrefPath("", tpw::ui::kDataFolderName)) {
+                folder = pref;
+                SDL_free(pref);
+            }
+        }
+        if (!folder.empty()) tpw::win32::LogToFile((std::filesystem::u8path(folder) / "launcher.log").u8string());
+    }
+#else
     for (int crash : {SIGSEGV, SIGBUS, SIGTRAP, SIGILL, SIGABRT}) {
         struct sigaction action{};
         action.sa_sigaction = OnCrashInfo;
@@ -481,6 +515,7 @@ int main(int argc, char** argv) {
         sigemptyset(&action.sa_mask);
         sigaction(crash, &action, nullptr);
     }
+#endif
     tpw::Config& config = tpw::config();
     int32_t resolution = kDefaultResolution;
     int aspectWide = kDefaultAspectWide;

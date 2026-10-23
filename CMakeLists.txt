@@ -12,6 +12,11 @@ endif()
 
 add_compile_options(-Wall -Wextra -Wno-unused-parameter -ffp-contract=off -fwrapv)
 add_compile_definitions(TPW_PORT_FIX)
+if(WIN32)
+  # The C++ runtime (libc++, libunwind) and winpthreads are linked into each program: a player's machine has none of the
+  # toolchain's DLLs. Windows' own C runtime (the UCRT) is part of the system.
+  add_link_options(-static)
+endif()
 
 set(TPW_DECOMP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tpw-decomp)
 if(NOT EXISTS ${TPW_DECOMP_DIR}/CMakeLists.txt)
@@ -59,6 +64,44 @@ foreach(header ${TPW_OVERLAY_HEADERS})
 endforeach()
 
 add_subdirectory(${TPW_DECOMP_DIR} tpw-decomp)
+
+if(WIN32)
+  # The Windows build of the game library: tpw-decomp as it is, with what Windows lacks provided here. The POSIX headers
+  # MinGW has no copy of (dlfcn.h, sys/statvfs.h, pthread/qos.h) are in platform/win, over platform/posix_win.cpp.
+  target_include_directories(tpw PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/platform/win)
+  # tpw-decomp builds src/sound/CSprocketsModule.cpp without the methods platform/sound_module.cpp defines, with its
+  # slicer (tpw_slice in its CMakeLists.txt), which runs on libclang; devtools/slice_win.py makes the copy from the same
+  # list, without libclang. The destructor goes too: it is the class's key function, so the file emits the vtable, which
+  # its Mach-O directive makes weak and COFF cannot; the vtable is then platform/sound_module.cpp's.
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  get_property(TPW_WIN_SLICE_DROP GLOBAL PROPERTY TPW_SLICE_tpw_LIST)
+  list(APPEND TPW_WIN_SLICE_DROP __ZN16CSprocketsModuleD1Ev)   # CSprocketsModule::~CSprocketsModule()
+  get_target_property(TPW_WIN_SOURCES tpw SOURCES)
+  set(TPW_WIN_NEW_SOURCES)
+  set(TPW_WIN_COPIES)
+  foreach(source ${TPW_WIN_SOURCES})
+    if(source MATCHES "/slice/tpw/src/(.+)$")
+      set(rel ${CMAKE_MATCH_1})
+      set(copy ${CMAKE_CURRENT_BINARY_DIR}/slice-win/src/${rel})
+      add_custom_command(OUTPUT ${copy}
+        COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/devtools/slice_win.py
+                --src ${TPW_DECOMP_DIR}/src/${rel} --out ${copy} --drop ${TPW_WIN_SLICE_DROP}
+        DEPENDS ${TPW_DECOMP_DIR}/src/${rel} ${CMAKE_CURRENT_SOURCE_DIR}/devtools/slice_win.py
+        COMMENT "Slicing src/${rel} for tpw (Windows)"
+        VERBATIM)
+      # Compiled as tpw-decomp's copy would be (its quoted includes are found beside the original).
+      get_source_file_property(options ${source} TARGET_DIRECTORY tpw COMPILE_OPTIONS)
+      set_source_files_properties(${copy} TARGET_DIRECTORY tpw PROPERTIES COMPILE_OPTIONS "${options}" GENERATED ON)
+      list(APPEND TPW_WIN_COPIES ${copy})
+      set(source ${copy})
+    endif()
+    list(APPEND TPW_WIN_NEW_SOURCES ${source})
+  endforeach()
+  set_property(TARGET tpw PROPERTY SOURCES ${TPW_WIN_NEW_SOURCES})
+  # The commands run in this folder, and tpw is tpw-decomp's: it waits for them through a target of this folder.
+  add_custom_target(tpw_slice_win DEPENDS ${TPW_WIN_COPIES})
+  add_dependencies(tpw tpw_slice_win)
+endif()
 
 # The native launcher (Milestone 1 unit 9): the translated game code, the platform layer
 # (platform/: the Elegant Chaos shims and Mac Toolbox calls on SDL3 and OpenGL) and
@@ -108,6 +151,18 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   if(APPLE)
     # platform/gdi.cpp draws the signs' text with CoreText into a CoreGraphics bitmap.
     target_link_libraries(tpw_platform PUBLIC "-framework CoreText" "-framework CoreGraphics" "-framework CoreFoundation" objc)
+  elseif(WIN32)
+    # The signs' text is drawn with stb_truetype (third_party/stb, platform/gdi_text_win.cpp) in place of CoreText
+    # (platform/gdi_text.cpp). The POSIX calls MinGW lacks come from platform/win: its headers, and posix_win.h ahead of
+    # every file. The sockets are Windows' (platform/winsock.cpp), and gluBuild2DMipmaps, in the Mac's OpenGL framework,
+    # is glu32's.
+    get_target_property(platform_sources tpw_platform SOURCES)
+    list(REMOVE_ITEM platform_sources ${CMAKE_CURRENT_SOURCE_DIR}/platform/gdi_text.cpp)
+    set_property(TARGET tpw_platform PROPERTY SOURCES ${platform_sources})
+    target_include_directories(tpw_platform PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
+    target_include_directories(tpw_platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/platform/win)
+    target_compile_options(tpw_platform PRIVATE "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/platform/win/posix_win.h")
+    target_link_libraries(tpw_platform PUBLIC ws2_32 glu32)
   endif()
 
   # The game's films (QuickTime, Sorenson video) play through FFmpeg (platform/quicktime.cpp), built from source here
@@ -129,11 +184,27 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   target_include_directories(tpw_launcher_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
   # main.cpp opens the launcher's own window (tpw_launcher_ui, below) when no --game is given.
   target_link_libraries(tpw_launcher_objects PRIVATE SDL3::SDL3 tpw_launcher_ui)
+  if(WIN32)
+    target_include_directories(tpw_launcher_objects PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/platform/win)   # dlfcn.h
+  endif()
 
   # SDL3 and zlib's inflate (src/bullfrog/LbZLib.cpp) come from the static libraries built here (--provides), so the
   # generator must not stand in for them; nor for the launcher window's library and the importer under it.
   if(APPLE)
     set(TPW_STUB_SYSLIBS --syslib /System/Library/Frameworks/OpenGL.framework/OpenGL)
+  elseif(WIN32)
+    # MinGW's C runtime is partly static (libmingw32, libmingwex) and its DLLs are linked through import libraries, so
+    # the generator reads those as it reads the other static libraries. The toolchain's demangler is llvm-cxxfilt.
+    get_filename_component(nm_dir ${CMAKE_NM} DIRECTORY)
+    find_program(TPW_CXXFILT NAMES c++filt llvm-cxxfilt HINTS ${nm_dir} REQUIRED)
+    set(TPW_STUB_SYSLIBS --cxxfilt ${TPW_CXXFILT})
+    foreach(lib mingw32 mingwex ucrt kernel32 user32 gdi32 opengl32 glu32 advapi32 shell32 ole32 oleaut32 imm32 winmm
+                version setupapi ws2_32 c++ unwind)
+      find_library(TPW_WIN_LIB_${lib} NAMES ${lib} HINTS ${CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES})
+      if(TPW_WIN_LIB_${lib})
+        list(APPEND TPW_STUB_SYSLIBS --provides ${TPW_WIN_LIB_${lib}})
+      endif()
+    endforeach()
   else()
     set(TPW_STUB_SYSLIBS --syslib libGL.so.1)
   endif()
@@ -152,6 +223,13 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   add_executable(tpw_launcher $<TARGET_OBJECTS:tpw_launcher_objects> ${TPW_STUBS})
   target_include_directories(tpw_launcher PRIVATE ${TPW_INCLUDE_DIR} launcher)
   target_link_libraries(tpw_launcher PRIVATE tpw tpw_platform tpw_launcher_ui)
+  if(WIN32)
+    # A Windows app, not a console one: started from Explorer it opens no console window, and its log goes to
+    # launcher.log beside launcher.ini (launcher/main.cpp). Its symbols are exported, so that the game's
+    # dlsym(RTLD_DEFAULT, ...) of its own functions finds them (platform/win/dlfcn.h).
+    set_target_properties(tpw_launcher PROPERTIES WIN32_EXECUTABLE ON)
+    target_link_options(tpw_launcher PRIVATE -Wl,--export-all-symbols)
+  endif()
 
   # What can be checked of the platform layer without a display (path mapping, key
   # tables, string helpers): ctest runs it.
@@ -168,6 +246,11 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   tpw_slice(TARGET tpw_platform_tests NAME platform_tests KEEP ${TPW_PLATFORM_TESTS_KEEP})
   target_link_libraries(tpw_platform_tests PRIVATE tpw_platform)
   add_test(NAME platform COMMAND tpw_platform_tests)
+  if(WIN32)
+    # Not made on Windows: its src files are cut by tpw-decomp's slicer, which runs on libclang.
+    set_target_properties(tpw_platform_tests PROPERTIES EXCLUDE_FROM_ALL ON)
+    set_tests_properties(platform PROPERTIES DISABLED ON)
+  endif()
 
   # Where the intro films are drawn (include/platform/filmbox.h): pure arithmetic, no game or window.
   add_executable(tpw_host_filmbox ${TPW_DECOMP_DIR}/tests/host_filmbox.cpp)

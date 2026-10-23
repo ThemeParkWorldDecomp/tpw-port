@@ -189,10 +189,19 @@ uint32_t IUnknown::Release() {
 }  // namespace NS_MacDoze
 
 // ---- DirectDraw ----------------------------------------------------------------------------
+#ifdef _WIN32
+// SDL's DirectInput joystick code (SDL_windowsjoystick.c) defines the same two IIDs, with the same bytes, as selectany,
+// and COFF takes a selectany definition only beside other selectany ones.
+__attribute__((selectany)) const NS_MacDoze::_GUID IID_IDirectDraw2 = {
+    {0xe0, 0xf3, 0xa6, 0xb3, 0x43, 0x2b, 0xcf, 0x11, 0xa2, 0xde, 0x00, 0xaa, 0x00, 0xb9, 0x33, 0x56}};
+__attribute__((selectany)) const NS_MacDoze::_GUID IID_IDirectDraw4 = {
+    {0x2a, 0x50, 0x59, 0x9c, 0xbd, 0x39, 0xd1, 0x11, 0x8c, 0x4a, 0x00, 0xc0, 0x4f, 0xd9, 0x30, 0xc5}};
+#else
 const NS_MacDoze::_GUID IID_IDirectDraw2 = {{0xe0, 0xf3, 0xa6, 0xb3, 0x43, 0x2b, 0xcf, 0x11, 0xa2, 0xde, 0x00, 0xaa, 0x00,
                                              0xb9, 0x33, 0x56}};
 const NS_MacDoze::_GUID IID_IDirectDraw4 = {{0x2a, 0x50, 0x59, 0x9c, 0xbd, 0x39, 0xd1, 0x11, 0x8c, 0x4a, 0x00, 0xc0, 0x4f,
                                              0xd9, 0x30, 0xc5}};
+#endif
 
 // One device: the display (the NULL GUID, DirectDraw's primary display driver).
 int32_t DirectDrawEnumerateA(int32_t (*callback)(NS_MacDoze::_GUID*, char*, char*, void*), void* context) {
