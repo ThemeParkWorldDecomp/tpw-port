@@ -12,6 +12,10 @@ The test for where a change goes: does a park play the same with it on and with 
 tpw-port. If it changes the rules, the money, the visitors, the staff, the rides, the advisor, the game's content, what a
 control does or the save files, it belongs in tpw-mods, even as a setting that is off by default.
 
+One exception: an option the original game already had in its .sam data files belongs in tpw-port, even when it
+changes how a park plays, as long as it offers only the values the original accepts and its default is the original's.
+Players set it in the launcher or a game menu, never by editing a .sam file.
+
 ## What belongs here
 
 - Running the game: other systems (Linux, for example), builds, the launcher, tools.
@@ -24,6 +28,14 @@ control does or the save files, it belongs in tpw-mods, even as a setting that i
      content, what a control does or the save format.
   3. The launcher's Settings box sets it, and the game's code reads it from a flag the launcher sets: with the flag off,
      the game runs the original code.
+- An option the original game already had in its .sam data files, even one that changes how a park plays, when all
+  three hold:
+  1. It offers only the values the original accepts for it (NUMKIDS: 0 to 3), and its default is the original's.
+  2. Players set it in the launcher's Settings box or in a game menu drawn like the game's own, never by editing a
+     .sam file.
+  3. Its FIXES.md row names the .sam file and key it comes from.
+
+  A value fixed in the game's code is not an option: changing the 1,500 visitor limit, for example, is a mod.
 
 ## How to make a change
 
