@@ -106,6 +106,7 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     RefreshStatus();
     std::string last = backend_.LastChoice();
     playIndex_ = last == "us" ? 0 : 1;
+    skipIntro_ = backend_.Setting(kSkipIntroKey) == "1";
     // files the startup check (assets/importer.h) found changed and removed
     std::string startup = backend_.StartupNotice();
     if (!startup.empty()) {
@@ -606,6 +607,7 @@ void LauncherUi::DrawReady(const Rect& w) {
             playIndex_ = i;
             choice_.edition = kEditions[i];
             choice_.gold = status_[2].unlocked;
+            choice_.skipIntro = skipIntro_;
             playChosen_ = true;
             std::string err;
             backend_.SetLastChoice(assets::EditionName(choice_.edition), err);
@@ -777,6 +779,7 @@ void LauncherUi::DrawPlay(const Rect& w) {
     if (ui_.Button("play", play, "Play", ButtonKind::Go, s.unlocked, style::kHeadline)) {
         choice_.edition = kEditions[playIndex_];
         choice_.gold = goldOn;
+        choice_.skipIntro = skipIntro_;
         playChosen_ = true;
         std::string err;
         backend_.SetLastChoice(assets::EditionName(choice_.edition), err);
@@ -790,7 +793,8 @@ void LauncherUi::DrawSettings(const Rect& w) {
     canvas_.FillRound(w, 0, colour::kDim);
     float pw = std::min(w.w - 2 * metric::kMargin, 640.0f);
     float contentH = text_.LineHeight(style::kHeadline) + 12 + 2 * (text_.LineHeight(style::kBodyBold) + 4) + 40 +
-                     text_.LineHeight(style::kSmall) + 14 + 3 * 50 + 4 + 2 * text_.LineHeight(style::kSmallBold);
+                     text_.LineHeight(style::kSmall) + 14 + 3 * 50 + 4 + 2 * text_.LineHeight(style::kSmallBold) +
+                     text_.LineHeight(style::kBodyBold) + 4 + 50;
     float ph = std::min(w.h - 2 * metric::kMargin, contentH + 40);
     Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
     ui_.Panel(panel, colour::kPaper, colour::kCream);
@@ -869,6 +873,25 @@ void LauncherUi::DrawSettings(const Rect& w) {
                     return r;
                 });
             }
+        }
+        y += rowH;
+    }
+
+    text_.Draw(style::kBodyBold, in.x, y, "Game", colour::kInk);
+    y += text_.LineHeight(style::kBodyBold) + 4;
+    {
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, "Skip the intro films", colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, "Play goes straight to the lobby, without the logos and the opening film",
+                             row.w - 12 - 56 - 24, false),
+                   colour::kInkSoft);
+        if (ui_.Toggle("skip-intro", {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32}, skipIntro_)) {
+            std::string err;
+            if (!backend_.SaveSetting(kSkipIntroKey, skipIntro_ ? "1" : "0", err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
         }
         y += rowH;
     }
