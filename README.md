@@ -94,8 +94,10 @@ and Git 2.55.0 on Windows 10 22H2. What it does differently is all in the platfo
 is drawn with stb_truetype (platform/gdi_text_win.cpp) from the game's fonts and the Windows fonts folder; the POSIX
 calls MinGW lacks are in platform/win and platform/posix_win.cpp; a division the x86 traps (by zero, INT_MIN / -1) gets
 the answer the Mac's processor gives (platform/host_win.cpp); and the build makes its own copy of the one tpw-decomp file
-the game library builds sliced (devtools/slice_win.py), so it needs no libclang. tpw_platform_tests is not built on
-Windows: its sources are cut by tpw-decomp's slicer, which does need libclang. The overrides of unit win in
+the game library builds sliced (devtools/slice_win.py), so it needs no libclang. tpw_platform_tests does: its sources
+are cut by tpw-decomp's slicer, which runs on libclang, and llvm-mingw has none. Give the build one with
+-DTPW_LIBCLANG=<path>, such as bin\libclang.dll of an LLVM release (23.1.3 was used), and the slicer runs through
+devtools/slicer_win.py; without it the platform tests are left out. The overrides of units win and winnewline in
 [FIXES.md](FIXES.md) are the Windows build's.
 
 ### Building by hand
