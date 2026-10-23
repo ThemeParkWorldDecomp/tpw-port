@@ -16,6 +16,9 @@ On a Mac with Apple Silicon, in Terminal:
     cd tpw-port && make
     make run
 
+For an app that opens with a double click, run `make app` and drag build/Theme Park World.app to Applications or the
+Dock.
+
 If macOS asks to install the command line developer tools, click Install, wait, then run the first line again. The first
 build takes a few minutes. If your Mac has no CMake, `make` fetches it into the build
 folder. Nothing else is installed.

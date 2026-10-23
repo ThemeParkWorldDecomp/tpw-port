@@ -1,4 +1,5 @@
-# Builds the launcher on an Apple Silicon Mac. `make` builds build/tpw_launcher; `make run` starts it.
+# Builds the launcher on an Apple Silicon Mac. `make` builds build/tpw_launcher; `make run` starts it; `make app` wraps it
+# in build/Theme Park World.app, which opens with a double click (drag it to Applications or the Dock).
 #
 # The CMake release fetched when this Mac has no CMake 3.20 or newer (the macOS universal tarball, its SHA-256):
 CMAKE_VERSION := 4.4.4
@@ -15,13 +16,16 @@ CMAKE_SHA256  := 4b7b73704b1db9b374e5c9ab8e17ac6148b817b6396ee75cd94a852cbac9d30
 #   CMAKE     the cmake program to use (default: as above)
 #   JOBS      how many files compile at once (default: the Mac's cores)
 #   RUN_ARGS  options for the launcher on `make run` (build/tpw_launcher --help lists them)
+#   APP_NAME  the name of the app `make app` makes (default: Theme Park World)
 #
 # Apple's make is GNU make 3.81: nothing here needs a newer one.
 
 BUILD    := build
 JOBS     := $(shell sysctl -n hw.ncpu 2>/dev/null || echo 4)
 RUN_ARGS :=
+APP_NAME := Theme Park World
 LAUNCHER  = $(BUILD)/tpw_launcher
+APP       = $(BUILD)/$(APP_NAME).app
 FETCHED   = $(BUILD)/cmake/CMake.app/Contents/bin/cmake
 
 # CMAKE given on the command line is used as it is. Otherwise: cmake on the PATH when it is 3.20 or newer, else the
@@ -38,7 +42,7 @@ endif
 # The build runs make again (CMake's Makefiles): it must not see this make's settings (BUILD=..., CMAKE=...).
 CLEAN_ENV := MAKEFLAGS= MFLAGS=
 
-.PHONY: all run clean check-mac check-tools find-cmake launcher
+.PHONY: all run app clean check-mac check-tools find-cmake launcher
 
 all: launcher
 	@echo "==> Done. The launcher is $(LAUNCHER). Start it with: make run"
@@ -118,6 +122,33 @@ launcher: find-cmake
 run: all
 	@echo "==> Starting $(LAUNCHER) $(RUN_ARGS)"
 	@"$(LAUNCHER)" $(RUN_ARGS)
+
+# The launcher needs nothing beside it, so the app is the launcher plus an Info.plist. It is signed ad hoc (no developer
+# account): on another Mac, the first open is refused until Open Anyway is clicked in System Settings > Privacy &
+# Security.
+app: all
+	@echo "==> Making $(APP)"
+	@rm -rf "$(APP)"
+	@mkdir -p "$(APP)/Contents/MacOS"
+	@cp "$(LAUNCHER)" "$(APP)/Contents/MacOS/tpw_launcher"
+	@minos=`otool -l "$(LAUNCHER)" | sed -n '/LC_BUILD_VERSION/,/minos/s/^ *minos //p' | head -n 1`; \
+	printf '%s\n' \
+	  '<?xml version="1.0" encoding="UTF-8"?>' \
+	  '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+	  '<plist version="1.0"><dict>' \
+	  '  <key>CFBundleName</key><string>$(APP_NAME)</string>' \
+	  '  <key>CFBundleDisplayName</key><string>$(APP_NAME)</string>' \
+	  '  <key>CFBundleIdentifier</key><string>io.github.themeparkworlddecomp.tpw-launcher</string>' \
+	  '  <key>CFBundleExecutable</key><string>tpw_launcher</string>' \
+	  '  <key>CFBundlePackageType</key><string>APPL</string>' \
+	  '  <key>CFBundleVersion</key><string>1</string>' \
+	  '  <key>CFBundleShortVersionString</key><string>1.0</string>' \
+	  "  <key>LSMinimumSystemVersion</key><string>$$minos</string>" \
+	  '  <key>LSApplicationCategoryType</key><string>public.app-category.simulation-games</string>' \
+	  '  <key>NSHighResolutionCapable</key><true/>' \
+	  '</dict></plist>' > "$(APP)/Contents/Info.plist"
+	@codesign --force --sign - "$(APP)" 2>/dev/null
+	@echo "==> Done. Double-click $(APP) to start it, or drag it to Applications."
 
 # Deletes the build folder and nothing else: the launcher, and CMake when it was fetched. The launcher's data folder
 # (~/Library/Application Support/STP-TPW Launcher: your checked game files, your saves) is never touched.
