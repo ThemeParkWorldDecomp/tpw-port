@@ -29,6 +29,9 @@ inline constexpr const char* kBackToLauncherKey = "back_to_launcher";
 // the people) and "Visitor limit" (1500, 3000 or 5000 in an offline park). Absent: normal and 1500, as the original.
 inline constexpr const char* kVisitorArrivalsKey = "visitor_arrivals";
 inline constexpr const char* kVisitorLimitKey = "visitor_limit";
+// launcher.ini's note that the game's saved screen resolution (config.tcf) is one of the Options panel's steps: absent on
+// the first start since the steps came in, when an older config's setting is put on the top step (launcher/main.cpp).
+inline constexpr const char* kResolutionStepsKey = "resolution_steps";
 
 // What the player chose to start.
 struct LaunchChoice {

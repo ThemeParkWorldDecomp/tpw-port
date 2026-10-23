@@ -55,6 +55,9 @@ constexpr int kDefaultAspectWide = 16;
 constexpr int kDefaultAspectHigh = 9;
 bool gAbortOnStub = false;
 bool gBackToLauncher = false;   // the launcher's "Back to the launcher after playing", for a game started from its window
+// The first start since the Options panel's resolution steps came in (launcher.ini has no kResolutionStepsKey): the saved
+// setting is put on the top step (ResolutionOverrideWorld).
+bool gRaiseSavedResolution = false;
 bool gTraceStubs = false;
 long gStubCalls = 0;
 const char* volatile gLastStub = nullptr;
@@ -73,6 +76,16 @@ public:
         if (!ThemeParkWorld::Initialise()) return false;
         int32_t preset = mPreset;
 #ifdef TPW_PORT_FIX
+        // A config.tcf saved before the steps holds the Mac's first-run default (640 x 480 or 800 x 600) or a size the
+        // launcher overrode at every start, never a step the player chose. The first start that sees it puts it on the
+        // top step, the size the launcher used to force, and saves it at once.
+        if (gRaiseSavedResolution && gNoSavedSettings == 0) {
+            gPlayerSettings.mCurrent.mResolution = CPlayerSettings::eRESOLUTION(3);
+            gPlayerSettings.mStored.mResolution = CPlayerSettings::eRESOLUTION(3);
+            TbDynamicStringTemplate<char> config("save:config.tcf");
+            gPlayerSettings.SaveGlobal(config);
+            tpw::Log("resolution: the saved setting predates the Options panel's steps; the top step");
+        }
         if (preset < 0) {
             preset = UI_PlayerPreset(static_cast<int32_t>(gPlayerSettings.mCurrent.mResolution));
             int32_t wide = 0;
@@ -410,6 +423,11 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, co
         if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, key, value, ignored);
     }
     gBackToLauncher = choice.backToLauncher;
+    if (backend.Setting(tpw::ui::kResolutionStepsKey).empty()) {
+        gRaiseSavedResolution = true;
+        std::string ignored;
+        backend.SaveSetting(tpw::ui::kResolutionStepsKey, "1", ignored);
+    }
 #ifdef TPW_PORT_FIX
     {   // the Park rules box (CArrival::HowManyPeople)
         const std::string arrivals = backend.Setting(tpw::ui::kVisitorArrivalsKey);
