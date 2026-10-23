@@ -539,6 +539,9 @@ int __fpclassifyf(float x);  // glue 0x10239268
 // +0x7c u32 flags per node), +0x10 int rotation, +0x28 embedded data (+0 flags, +4 params array), +0x2c node, +0x30 s3DPoint array.
 Ptr32<uint8_t> gRideCtxRef;  // 0x102c1e10
 static inline uint8_t* RideCtx() { return gRideCtxRef.get(); }
+// TPW_PORT_FIX ridectx RideMesh | Mac: the ride context is read by offset: +0x04 the header, +0x10 the rotation, +0x28 the embedded data, +0x2c the root node, +0x30 its points | Port: the context is the tag_sMesh SetRideSpritePosnFocus stored, read by its fields (mHeader, mF10, mF28, mRootNode, mF30) | Why: the context is a tag_sMesh, whose pointers are native here (8 bytes), so on a 64-bit host the Mac's offsets fall on other fields: the header was read from the padding at +4 as null, and a ride with bumper cars crashed as soon as it first ran (BMP_DrawCarsForRide)
+static inline const tag_sMesh* RideMesh() { return reinterpret_cast<const tag_sMesh*>(gRideCtxRef.get()); }
+static inline uint8_t* RideHeader() { return reinterpret_cast<uint8_t*>(RideMesh()->mHeader); }
 // 0x102c1e14: bit 0 height field, bit 3 flat, bit 1 and bit 2 polygon search variants.
 uint32_t gRideFlags;  // 0x102c1e14
 
@@ -617,7 +620,8 @@ float DoNodePolySearch(tag_sNode* nodeP, sEmbeddedDataNodeParams* paramsP, float
             }
             if (skip) continue;
             loc[1] = F32(nrm, 4);
-            switch (static_cast<int32_t>(U32(RideCtx(), 0x10))) {
+            // TPW_PORT_FIX ridectx DoNodePolySearch | Mac: the rotation is the context's word at +0x10 | Port: its mF10 (RideMesh) | Why: the context is a tag_sMesh, whose pointers are native here (8 bytes), so on a 64-bit host the Mac's offsets fall on other fields: the header was read from the padding at +4 as null, and a ride with bumper cars crashed as soon as it first ran (BMP_DrawCarsForRide)
+            switch (static_cast<int32_t>(RideMesh()->mF10)) {
             case 0xb4:
                 loc[0] = -F32(nrm, 0);
                 loc[2] = -F32(nrm, 8);
@@ -654,17 +658,17 @@ float DoNodePolySearch(tag_sNode* nodeP, sEmbeddedDataNodeParams* paramsP, float
 
 // 0x1005d000 (356 bytes).
 float GetHeightFromPolySearch(float x, float z, int a, int b) {
-    const uint8_t* ctx = RideCtx();
-    const uint8_t* world = Ptr(ctx, 4);
-    const uint8_t* embed = Ptr(ctx, 0x28);
+    // TPW_PORT_FIX ridectx GetHeightFromPolySearch | Mac: the header, the embedded data, the root node and its points at the context's +0x04, +0x28, +0x2c and +0x30 | Port: its fields (RideMesh) | Why: the context is a tag_sMesh, whose pointers are native here (8 bytes), so on a 64-bit host the Mac's offsets fall on other fields: the header was read from the padding at +4 as null, and a ride with bumper cars crashed as soon as it first ran (BMP_DrawCarsForRide)
+    const tag_sMesh* mesh = RideMesh();
+    const uint8_t* world = RideHeader();
+    const uint8_t* embed = static_cast<const uint8_t*>(mesh->mF28);
     float best = -100.0f;
-    if (b == 0 && U32(ctx, 0x2c) != 0) {
-        best = DoNodePolySearch(reinterpret_cast<tag_sNode*>(Ptr(ctx, 0x2c)), nullptr, x, z,
-                                reinterpret_cast<s3DPoint*>(Ptr(ctx, 0x30)), 1);
+    if (b == 0 && mesh->mRootNode != nullptr) {
+        best = DoNodePolySearch(mesh->mRootNode, nullptr, x, z, mesh->mF30, 1);
         if (best == -100.0f) best = F32(Ptr(world, 0x78), 0x44);
     }
     if (a == 0 && embed != nullptr && (U32(embed, 0) & 8) != 0) {
-        const uint8_t* params = Ptr(RideCtx(), 0x28);
+        const uint8_t* params = embed;
         params = Ptr(params, 4);
         uint8_t* node = Ptr(world, 0x70) + U16(world, 0x46) * 0xa0;
         const uint8_t* flags = Ptr(world, 0x7c);
@@ -689,21 +693,22 @@ float GetHeightFromPolySearch(float x, float z, int a, int b) {
 
 // 0x1005d198 (316 bytes).
 void GetRideHeightAtPoint(float x, float z, float& y) {
-    uint8_t* world = Ptr(RideCtx(), 4);
+    // TPW_PORT_FIX ridectx GetRideHeightAtPoint | Mac: the header is the context's word at +0x04 | Port: its mHeader (RideHeader) | Why: the context is a tag_sMesh, whose pointers are native here (8 bytes), so on a 64-bit host the Mac's offsets fall on other fields: the header was read from the padding at +4 as null, and a ride with bumper cars crashed as soon as it first ran (BMP_DrawCarsForRide)
+    uint8_t* world = RideHeader();
     float* offset = reinterpret_cast<float*>(world + 0xa0);
     if (MathLib::__fpclassifyf(*offset) == 1) *offset = 0.0f;
     uint32_t flags = gRideFlags;
     if ((flags & 1) != 0) {
         float h = DetermineHFieldHeightQuick(x, z);
-        y = *reinterpret_cast<float*>(Ptr(RideCtx(), 4) + 0xa0) + h;
+        y = *reinterpret_cast<float*>(RideHeader() + 0xa0) + h;
     } else if ((flags & 8) != 0) {
-        y = *reinterpret_cast<float*>(Ptr(RideCtx(), 4) + 0xa0);
+        y = *reinterpret_cast<float*>(RideHeader() + 0xa0);
     } else if ((flags & 2) != 0) {
         float h = GetHeightFromPolySearch(x, z, 0, 1);
-        y = *reinterpret_cast<float*>(Ptr(RideCtx(), 4) + 0xa0) + h;
+        y = *reinterpret_cast<float*>(RideHeader() + 0xa0) + h;
     } else if ((flags & 4) != 0) {
         float h = GetHeightFromPolySearch(x, z, 1, 0);
-        y = *reinterpret_cast<float*>(Ptr(RideCtx(), 4) + 0xa0) + h;
+        y = *reinterpret_cast<float*>(RideHeader() + 0xa0) + h;
     } else {
         y = 0.0f;
     }

@@ -3,6 +3,7 @@
 // (FindFirstFile), and the Mac File and Resource Manager calls the game makes itself (the
 // CD check and the "debug options" resource).
 #include <algorithm>
+#include <ctime>
 #include <cstdlib>
 #include <cstring>
 #include <map>
@@ -110,12 +111,27 @@ static bool IsDumpSideFile(const fs::path& path) {
     return fs::exists(base, ec);
 }
 
-// A file's last write time as a Win32 FILETIME: the seconds since 1970 moved to the 1601 epoch, in 100 ns ticks (the game's
-// directory searches ask for it to find a player's newest park file).
+// A file's last write time as the game's FILETIME, made as the Mac's glue made it: the local date and time of the write in
+// seconds since 1904, in 100 ns ticks with the constant added that FileTimeToSystemTime takes off again (SystemTimeToFileTime,
+// macdoze_misc.cpp). The Load and Save panels show it as the time the park was saved, and the game's directory searches
+// compare it to find a player's newest park file. (A true Win32 FILETIME, UTC from 1601, showed as UTC plus 6 minutes 17
+// seconds: the glue's constant is 377.0368 s short of 1601 to 1904.)
 static uint64_t FileTimeOf(const fs::path& path) {
     struct stat info;
     if (::stat(path.c_str(), &info) != 0) return 0;
-    return (static_cast<uint64_t>(info.st_mtime) + 11644473600ull) * 10000000ull;
+    const std::time_t written = info.st_mtime;
+    std::tm local{};
+    if (localtime_r(&written, &local) == nullptr) return 0;
+    NS_MacDoze::_SYSTEMTIME time{};
+    time.wYear = static_cast<uint16_t>(local.tm_year + 1900);
+    time.wMonth = static_cast<uint16_t>(local.tm_mon + 1);
+    time.wDay = static_cast<uint16_t>(local.tm_mday);
+    time.wHour = static_cast<uint16_t>(local.tm_hour);
+    time.wMinute = static_cast<uint16_t>(local.tm_min);
+    time.wSecond = static_cast<uint16_t>(local.tm_sec);
+    NS_MacDoze::tagFILETIME fileTime{};
+    NS_MacDoze::SystemTimeToFileTime(&time, &fileTime);
+    return (static_cast<uint64_t>(fileTime.dwHighDateTime) << 32) | fileTime.dwLowDateTime;
 }
 
 std::vector<DirEntry> ListGameFolder(const std::string& gamePath) {

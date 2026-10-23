@@ -76,8 +76,9 @@ int32_t ShiftedAbove(const InterfaceWindow* window) {
 }
 }  // namespace
 
+// TPW_PORT_FIX widepanel UI_IsWideWindow | Mac: (no wide windows) | Port: a window wider than the 2048 units of the 4:3 layout; one exactly that wide (the Options panel's 0..2048) is a 4:3 panel like the others' 0..2047 | Why: the Options panel counted as wide, so it stayed at the left and its rows were anchored to the screen's edges one by one, apart from their panel
 bool UI_IsWideWindow(const InterfaceWindow* window) {
-    return window != nullptr && gUIUnitWidth > 0x800 && window->mRect.mRight - window->mRect.mLeft >= 0x800;
+    return window != nullptr && gUIUnitWidth > 0x800 && window->mRect.mRight - window->mRect.mLeft > 0x800;
 }
 
 int16_t UI_WideShift(const InterfaceWindow* window) {
@@ -159,7 +160,8 @@ InterfaceWindow::InterfaceWindow(InterfaceWindow* parent, int32_t attributes, in
         // TPW_PORT_FIX uiscale InterfaceWindow | Mac: (none) | Port: a window on the tall unit space is anchored down as it is across (UI_TallAnchor); one further in takes its anchor's | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
         int16_t drop = 0;
         if (UI_IsWideWindow(parent)) {
-            if (right - left < 0x800) shift = UI_WideAnchor(left, right, gUIUnitWidth);
+            // TPW_PORT_FIX widepanel InterfaceWindow::InterfaceWindow | Mac: (no anchoring) | Port: a window up to 2048 units wide is anchored, the full-width ones (0..2047 and 0..2048) to the middle | Why: the Options panel (0..2048) is pillarboxed as the other full-screen panels are
+            if (right - left <= 0x800) shift = UI_WideAnchor(left, right, gUIUnitWidth);
             if (bottom - top < gUIUnitHeight - 1)
                 drop = gCentredDown.count(parent) != 0 ? static_cast<int16_t>((gUIUnitHeight - 0x600) / 2)
                                                        : UI_TallAnchor(top, bottom, gUIUnitHeight);
