@@ -86,7 +86,9 @@ void UI_InitTimerSystem(int32_t count);
 void UI_InitSystem(int32_t, int32_t queueSize, bool hebrew) {
     // TPW_PORT_FIX v5L26 UI_InitSystem | Mac: the root is 2048 x 1536 units | Port: as wide as the unit space (wider on a wide screen) | Why: a widescreen port; the pointer reaches the whole screen and the windows on the root are anchored to its edges
     InterfaceWindow* root =
-        new InterfaceWindow(nullptr, static_cast<int32_t>(0xf0000001u), -0x29a, 0, 0, static_cast<int16_t>(gUIUnitWidth - 1), 0x5ff);
+        // TPW_PORT_FIX uiscale UI_InitSystem | Mac: the root is 1536 units high | Port: as high as the unit space | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+        new InterfaceWindow(nullptr, static_cast<int32_t>(0xf0000001u), -0x29a, 0, 0, static_cast<int16_t>(gUIUnitWidth - 1),
+                            static_cast<int16_t>(gUIUnitHeight - 1));
     gUIRootWindow = root;
     if (root == nullptr) return;
     gUIStarted = 1;
@@ -148,6 +150,9 @@ int16_t gUIRealScreenHeight;
 float gUIWideAspect = 0.0f;
 int16_t gUIUnitWidth = 0x800;
 int8_t gUIHighPresets = 0;
+// TPW_PORT_FIX uiscale gUIScale, gUIUnitHeight | Mac: (none: the UI fills the height) | Port: the launcher's interface size and the unit space's height | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+float gUIScale = 1.0f;
+int16_t gUIUnitHeight = 0x600;
 
 // The UI's hash of a name: each character (as a signed char) is mixed in and the whole
 // multiplied, so the last characters weigh least.
@@ -347,7 +352,15 @@ void UI_SetRealScreenRez(int16_t width, int16_t height) {
     gUIRealScreenHeight = height;
     // (the unit space follows the screen's width; the units stay square)
     gUIUnitWidth = 0x800;
-    if (gUIWideAspect > 0.0f && height > 0 && width * 3 > height * 4) {
+    gUIUnitHeight = 0x600;
+    // TPW_PORT_FIX uiscale UI_SetRealScreenRez | Mac: the UI spans the screen | Port: a smaller interface spans gUIScale of the height, and its 4:3 box's width; the unit space grows to the whole screen both ways | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+    const int32_t scaled = UI_ScaledHeight(height, gUIScale);
+    if (height > 0 && scaled < height) {
+        gUIRealScreenHeight = static_cast<int16_t>(scaled);
+        gUIRealScreenWidth = static_cast<int16_t>(UI_PillarboxWidth(scaled));
+        gUIUnitWidth = static_cast<int16_t>(width * 0x800 / gUIRealScreenWidth);
+        gUIUnitHeight = UI_UnitHeightFor(height, scaled);
+    } else if (gUIWideAspect > 0.0f && height > 0 && width * 3 > height * 4) {
         gUIRealScreenWidth = static_cast<int16_t>(UI_PillarboxWidth(height));
         gUIUnitWidth = UI_UnitWidthFor(width, height);
     }

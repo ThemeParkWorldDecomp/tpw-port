@@ -180,6 +180,15 @@ extern int16_t gUIRealScreenHeight;   // 0x10395bba
 extern float gUIWideAspect;    // width over height the launcher asks for; 0 keeps the presets' sizes
 extern int16_t gUIUnitWidth;   // the UI's width in units: 2048 on a 4:3 screen, more on a wider one
 extern int8_t gUIHighPresets;  // nonzero: Resolution.sam values 8 to 10 are the launcher's larger presets (src/game/TPConfig.cpp)
+// TPW_PORT_FIX uiscale gUIScale, gUIUnitHeight | Mac: the UI's 1536 units span the screen's height | Port: they span gUIScale of it (the launcher's interface size, 1 for all of it) and the unit space grows to gUIUnitHeight units, as it grows wider on a wide screen | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+extern float gUIScale;         // the share of the screen's height the UI's 1536 units span: 1, or less for a smaller interface
+extern int16_t gUIUnitHeight;  // the UI's height in units: 1536, more with a smaller interface
+int16_t UI_TallShift(const InterfaceWindow* window);   // how far the 1536-unit layout placed in `window` was moved down
+int16_t UI_TallShiftFor(const InterfaceWindow* window, bool relative);   // the same for a rectangle in its frame
+// TPW_PORT_FIX uiscale UI_CentreDown | Mac: (none) | Port: the windows placed on a menu or a dialog's holder move down together | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+// The windows placed on `window` (a menu's, a dialog's holder) move to the middle of the tall unit space together, not each
+// to its nearer edge.
+void UI_CentreDown(const InterfaceWindow* window);
 bool UI_IsWideWindow(const InterfaceWindow* window);   // spans more than the 2048 units (the root and the game's view)
 int16_t UI_WideShift(const InterfaceWindow* window);   // how far the 2048-unit layout placed in `window` was moved across
 int16_t UI_WideShiftFor(const InterfaceWindow* window, bool relative);   // the same for a rectangle in its frame
@@ -231,6 +240,24 @@ inline int16_t UI_WideAnchor(int32_t left, int32_t right, int32_t unitWidth) {
     if (middle < 0x800 / 3) return 0;
     if (middle > 0x800 * 2 / 3) return static_cast<int16_t>(extra);
     return static_cast<int16_t>(extra / 2);
+}
+// TPW_PORT_FIX uiscale UI_TallAnchor | Mac: (none: the layout fills the screen's height) | Port: how far a window of the 1536-unit layout placed in the tall unit space moves down: one wholly in the lower half to the bottom edge, one wholly in the upper half not at all, one across the middle (a full-height one too) to the middle | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+inline int16_t UI_TallAnchor(int32_t top, int32_t bottom, int32_t unitHeight) {
+    const int32_t extra = unitHeight - 0x600;
+    if (extra <= 0) return 0;
+    if (top >= 0x300) return static_cast<int16_t>(extra);
+    if (bottom <= 0x300) return 0;
+    return static_cast<int16_t>(extra / 2);
+}
+// The pixel height the UI's 1536 units span on a screen `height` pixels high at an interface size `scale` (1: all of it),
+// even, and the unit space's height then: 1536 units span the 4:3 box of that height, so the units stay square.
+inline int32_t UI_ScaledHeight(int32_t height, float scale) {
+    if (!(scale > 0.0f) || scale >= 1.0f) return height;
+    return 2 * static_cast<int32_t>(static_cast<float>(height) * scale * 0.5f + 0.5f);
+}
+inline int16_t UI_UnitHeightFor(int32_t height, int32_t scaledHeight) {
+    if (scaledHeight <= 0 || scaledHeight >= height) return 0x600;
+    return static_cast<int16_t>(height * 0x600 / scaledHeight);
 }
 // TPW_PORT_FIX v5L51 CalculatePointerWorldPosn | Mac: the pointer's ray spans a 4:3 view (the corners' atan(0.75)) | Port: its across reach is scaled by how much wider than 4:3 the view is | Why: the 3D view keeps its height's angle and widens with the screen (Matrix_Init scales x by height over width), so on a 16:9 screen the 4:3 ray picked a block nearer the middle than the one under the pointer, more so towards the edges
 // The scale for a view centreX by centreY pixels (gViewCentreX, gViewCentreY): 1 on a 4:3 view, 4/3 at 16:9.

@@ -109,6 +109,10 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     skipIntro_ = backend_.Setting(kSkipIntroKey) == "1";
     backToLauncher_ = backend_.Setting(kBackToLauncherKey) == "1";
     {
+        const std::string size = backend_.Setting(kInterfaceSizeKey);
+        interfaceSize_ = size == "85" ? 1 : size == "70" ? 2 : 0;
+    }
+    {
         const std::string arrivals = backend_.Setting(kVisitorArrivalsKey);
         arrivals_ = arrivals == "more" ? 1 : arrivals == "many" ? 2 : 0;
         const std::string limit = backend_.Setting(kVisitorLimitKey);
@@ -809,7 +813,7 @@ void LauncherUi::DrawSettings(const Rect& w) {
     float pw = std::min(w.w - 2 * metric::kMargin, 640.0f);
     float contentH = text_.LineHeight(style::kHeadline) + 12 + 2 * (text_.LineHeight(style::kBodyBold) + 4) + 40 +
                      text_.LineHeight(style::kSmall) + 14 + 3 * 50 + 4 + 2 * text_.LineHeight(style::kSmallBold) +
-                     text_.LineHeight(style::kBodyBold) + 4 + 2 * 50;
+                     text_.LineHeight(style::kBodyBold) + 4 + 3 * 50;
     float ph = std::min(w.h - 2 * metric::kMargin, contentH + 40);
     Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
     ui_.Panel(panel, colour::kPaper, colour::kCream);
@@ -921,6 +925,25 @@ void LauncherUi::DrawSettings(const Rect& w) {
         if (ui_.Toggle("back-to-launcher", {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32}, backToLauncher_)) {
             std::string err;
             if (!backend_.SaveSetting(kBackToLauncherKey, backToLauncher_ ? "1" : "0", err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
+        }
+        y += rowH;
+    }
+    {
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+        const float segW = 210;
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, "Interface size", colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, "Smaller panels show more of the park", row.w - 12 - segW - 24, false),
+                   colour::kInkSoft);
+        static const std::vector<std::string> kSizes = {"100%", "85%", "70%"};
+        static const char* const kValues[] = {"100", "85", "70"};
+        if (ui_.Segmented("interface-size", {row.Right() - 12 - segW, row.CentreY() - 18, segW, 36}, kSizes,
+                          std::vector<bool>(kSizes.size(), true), interfaceSize_)) {
+            std::string err;
+            if (!backend_.SaveSetting(kInterfaceSizeKey, kValues[interfaceSize_], err))
                 settingsMessage_ = "Cannot keep the setting: " + err;
         }
         y += rowH;

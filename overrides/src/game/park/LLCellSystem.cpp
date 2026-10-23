@@ -1692,7 +1692,8 @@ CThing* LLCC_SystemGetPointedPeepThing() {
     UI_GetMouseXY(mouseX, mouseY);
     // TPW_PORT_FIX v5L51 LLCC_SystemGetPointedPeepThing | Mac: x / 1024 - 1 | Port: UI_UnitToViewX, x over half the unit space less 1 (the same on a 4:3 screen) | Why: on a widescreen the unit space is wider than 2048, and the hot sprite test needs the pointer in the view's -1..1 (include/UI_Base.h)
     gSpriteHotX = UI_UnitToViewX(mouseX, gUIUnitWidth);
-    gSpriteHotY = static_cast<float>(mouseY) / 767.5f - 1.0f;
+    // TPW_PORT_FIX uiscale LLCC_SystemGetPointedPeepThing | Mac: y / 767.5 - 1 | Port: y over half the unit space's height less a half, less 1 (the same with the whole height) | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+    gSpriteHotY = static_cast<float>(mouseY) / (static_cast<float>(gUIUnitHeight - 1) * 0.5f) - 1.0f;
     SSpriteGameData* sprite = gHotSprite;
     if (sprite == nullptr) return nullptr;
     CTRACE(6, "Found sprite %lx\n", sprite);

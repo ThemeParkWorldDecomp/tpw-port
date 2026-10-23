@@ -29,6 +29,9 @@ inline constexpr const char* kBackToLauncherKey = "back_to_launcher";
 // the people) and "Visitor limit" (1500, 3000 or 5000 in an offline park). Absent: normal and 1500, as the original.
 inline constexpr const char* kVisitorArrivalsKey = "visitor_arrivals";
 inline constexpr const char* kVisitorLimitKey = "visitor_limit";
+// launcher.ini's key for the Settings box's "Interface size": 100, 85 or 70, the share of the screen's height the game's
+// panels are laid out in (absent: 100, as the original).
+inline constexpr const char* kInterfaceSizeKey = "interface_size";
 
 // What the player chose to start.
 struct LaunchChoice {
@@ -133,6 +136,7 @@ private:
     int visitorLimit_ = 0;   // its "Visitor limit": 0 1500, 1 3000, 2 5000
     bool skipIntro_ = false;   // the Settings box's "Skip the intro films", as launcher.ini keeps it
     bool backToLauncher_ = false;   // the Settings box's "Back to the launcher after playing", as launcher.ini keeps it
+    int interfaceSize_ = 0;         // the Settings box's "Interface size": 0 100%, 1 85%, 2 70%
 
     // A drag over the window.
     bool dragging_ = false;

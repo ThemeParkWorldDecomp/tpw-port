@@ -116,10 +116,12 @@ int32_t EffectPeekMsg(InterfaceWindow* window, int32_t message, int32_t a, int32
                 // TPW_PORT_FIX v5L26 EffectPeekMsg | Mac: the button's place across the screen is out of 2048 units | Port: out of the unit space's width (2048 on a 4:3 screen) | Why: a widescreen port; the highlight sparkles over the button wherever the anchoring put it
                 const int32_t half = gUIUnitWidth / 2;
                 const float x = static_cast<float>(rect.mLeft + width / 2 - half) * (1.0f / static_cast<float>(half));
-                const float y = static_cast<float>(rect.mTop + height / 2 - 768) / 768.0f;
+                // TPW_PORT_FIX uiscale EffectPeekMsg | Mac: the button's place down the screen is out of 1536 units | Port: out of the unit space's height | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+                const int32_t halfDown = gUIUnitHeight / 2;
+                const float y = static_cast<float>(rect.mTop + height / 2 - halfDown) / static_cast<float>(halfDown);
                 if (message == 0x10001)
                     BTN_HighLight_On(x, y, static_cast<float>(width) / static_cast<float>(gUIUnitWidth),
-                                     static_cast<float>(height) / 1536.0f);
+                                     static_cast<float>(height) / static_cast<float>(gUIUnitHeight));
                 else
                     BTN_HighLight_Move(x, y);
             }
@@ -507,8 +509,10 @@ static const char* const kColumnButtonAssert = kStringPool + 6;
 
 // 0x10181400
 void UIMain_ShowRidePreview(CoolRect& rect, uint32_t id, int32_t z) {
-    float bottom = static_cast<float>(0x300 - static_cast<int32_t>(rect.mBottom)) / 768.0f;
-    float top = static_cast<float>(0x300 - static_cast<int32_t>(rect.mTop)) / 768.0f;
+    // TPW_PORT_FIX uiscale UIMain_ShowRidePreview | Mac: the rectangle's place down the screen is out of 1536 units, from 768 | Port: out of the unit space's height, from its middle | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+    const int32_t halfDown = gUIUnitHeight / 2;
+    float bottom = static_cast<float>(halfDown - static_cast<int32_t>(rect.mBottom)) / static_cast<float>(halfDown);
+    float top = static_cast<float>(halfDown - static_cast<int32_t>(rect.mTop)) / static_cast<float>(halfDown);
     // TPW_PORT_FIX v5L26 UIMain_ShowRidePreview | Mac: the rectangle's place across the screen is out of 2048 units, from 1024 | Port: out of the unit space's width, from its middle (2048 and 1024 on a 4:3 screen) | Why: a widescreen port; the turning ride sits in its picture box wherever the anchoring put the panel
     const int32_t half = gUIUnitWidth / 2;
     float right = static_cast<float>(static_cast<int32_t>(rect.mRight) - half) / static_cast<float>(half);
@@ -557,11 +561,13 @@ void UIMain_ShowSpritePreview(CoolRect& rect, CPeep* peep, int32_t z, float scal
     int32_t halfWidth = (right - left) >> 1;
     int32_t quarterHeight = (bottom - top) >> 2;
     int32_t centre = left + halfWidth;
-    int32_t y = 0x300 - ((bottom - quarterHeight) - offset);
+    // TPW_PORT_FIX uiscale UIMain_ShowSpritePreview | Mac: the sprite's place down the screen is out of 1536 units, from 768 | Port: out of the unit space's height, from its middle | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+    const int32_t halfDown = gUIUnitHeight / 2;
+    int32_t y = halfDown - ((bottom - quarterHeight) - offset);
     // TPW_PORT_FIX v5L26 UIMain_ShowSpritePreview | Mac: the sprite's place across the screen is out of 2048 units, from 1016 | Port: out of the unit space's width, from 8 short of its middle (the same on a 4:3 screen) | Why: a widescreen port; the person stands in their panel wherever the anchoring put it
     const int32_t half = gUIUnitWidth / 2;
     float x = static_cast<float>(centre - (half - 8)) / static_cast<float>(half);
-    float yy = static_cast<float>(y) / 768.0f;
+    float yy = static_cast<float>(y) / static_cast<float>(halfDown);
     float depth = CalcZTrans(z);
     gSpritePreviewHandle = ESP_Spawn2DCopyOfScriptAt(script, x, yy, depth, scale);
 }
@@ -1834,7 +1840,9 @@ void InitGameUI() {
     gei_MapWho->Link(static_cast<CMapLinkBase*>(light), 0x20);
 
     // TPW_PORT_FIX v5L26 InitGameUI | Mac: the game's view and first-person windows are 2048 units wide | Port: as wide as the unit space | Why: a widescreen port; the park is picked and scrolled across the whole width and the panels on the view are anchored to its edges
-    InterfaceWindow* window = gUIRootWindow->CreateObject(1, 0, 0, 0, 0, static_cast<int16_t>(gUIUnitWidth - 1), 0x5ff);
+    // TPW_PORT_FIX uiscale InitGameUI | Mac: the game's view and first-person windows are 1536 units high | Port: as high as the unit space | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+    InterfaceWindow* window = gUIRootWindow->CreateObject(1, 0, 0, 0, 0, static_cast<int16_t>(gUIUnitWidth - 1),
+                                                          static_cast<int16_t>(gUIUnitHeight - 1));
     if (window != nullptr) {
         window->Show(1);
         window->SetCallbackFunction(Engine_GameWinMsg);
@@ -1854,7 +1862,8 @@ void InitGameUI() {
         gGameWindowHalfWidth = static_cast<float>(scaledHalfWidth / 2048);
         gGameWindowHalfHeight = static_cast<float>((height * halfHeight) / 1536);
     }
-    window = gUIRootWindow->CreateObject(1, 0, 1, 0, 0, static_cast<int16_t>(gUIUnitWidth - 1), 0x5ff);
+    window = gUIRootWindow->CreateObject(1, 0, 1, 0, 0, static_cast<int16_t>(gUIUnitWidth - 1),
+                                         static_cast<int16_t>(gUIUnitHeight - 1));
     if (window != nullptr) {
         window->SetCallbackFunction(Engine_GameFirstPersonMsg);
         gFirstPersonWindow = window;

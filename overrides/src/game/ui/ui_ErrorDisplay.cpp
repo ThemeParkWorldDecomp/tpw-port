@@ -50,8 +50,12 @@ char kDimDrawObject[] = "lolight";   // the draw object of the dimmed background
 InterfaceWindow* Dialog(int16_t* description, InterfaceWindowCallback callback, int32_t modal) {
     InterfaceWindow* dialog = nullptr;
     // TPW_PORT_FIX v5L26 Dialog | Mac: the holder (and the dimmed background of a modal dialog) is 2048 units wide | Port: as wide as the unit space, the dialog anchored in it by its centre | Why: a widescreen port; a modal dialog dims and blocks the whole screen, not a 4:3 box in the middle of it
-    InterfaceWindow* holder = gUIRootWindow->CreateObject(1, 1, 1, 0, 0, static_cast<int16_t>(gUIUnitWidth - 1), 0x5ff);
+    // TPW_PORT_FIX uiscale Dialog | Mac: the holder is 1536 units high | Port: as high as the unit space | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+    InterfaceWindow* holder = gUIRootWindow->CreateObject(1, 1, 1, 0, 0, static_cast<int16_t>(gUIUnitWidth - 1),
+                                                          static_cast<int16_t>(gUIUnitHeight - 1));
     if (holder != nullptr) {
+        // TPW_PORT_FIX uiscale Dialog | Mac: (none) | Port: the dialog moves down to the middle | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+        UI_CentreDown(holder);
         dialog = holder->Build(description, callback);
         if (dialog != nullptr) {
             int32_t highest;
