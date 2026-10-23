@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <string>
 
+#include "log_file.h"
 #include "platform.h"
 
 namespace tpw {
@@ -14,6 +15,7 @@ Config& config() {
 }
 
 void LogLine(const char* prefix, const char* text) {
+    LogToFile(prefix, text);   // the log file takes every line, whatever logToStderr says (log_file.h)
     if (!config().logToStderr) return;
     std::fprintf(stderr, "%s%s\n", prefix, text);
 }

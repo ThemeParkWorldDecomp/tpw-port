@@ -1,0 +1,31 @@
+// The launcher's Windows version resource: Explorer's Properties > Details and the Task Manager show these. CMakeLists.txt
+// fills the @...@ names (under if(WIN32)): the version from launcher/VERSION.txt, the name from the same words as
+// launcher/ui/theme.h.
+#include <winver.h>
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION @TPW_LAUNCHER_VERSION_COMMAS@,0
+PRODUCTVERSION @TPW_LAUNCHER_VERSION_COMMAS@,0
+FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+FILEFLAGS 0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription", "@TPW_BUNDLE_NAME@ v@TPW_LAUNCHER_VERSION@"
+            VALUE "FileVersion", "@TPW_LAUNCHER_VERSION@"
+            VALUE "InternalName", "tpw_launcher"
+            VALUE "OriginalFilename", "tpw_launcher.exe"
+            VALUE "ProductName", "@TPW_BUNDLE_NAME@"
+            VALUE "ProductVersion", "@TPW_LAUNCHER_VERSION@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

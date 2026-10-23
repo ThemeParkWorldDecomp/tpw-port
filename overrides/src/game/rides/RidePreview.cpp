@@ -218,7 +218,8 @@ void TickRidePreview(sRidePreviewInfo* info) {
     float t12 = ppc_fmadds(nF5C, cosA, t1);
     float f9 = ppc_fneg(nF5C);
     // TPW_PORT_FIX v5L26 TickRidePreview | Mac: the ride is narrowed by 0.75 across, the 4:3 screen's height over its width | Port: by 1536 over the unit space's width (0.75 on a 4:3 screen) | Why: a widescreen port; the UI space's x spans the whole wider screen, so the ride keeps its shape
-    const float across = 1536.0f / static_cast<float>(gUIUnitWidth);
+    // TPW_PORT_FIX uiscale TickRidePreview | Mac: the ride is narrowed by 1536 over the unit space's width | Port: by the unit space's height over its width | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
+    const float across = static_cast<float>(gUIUnitHeight) / static_cast<float>(gUIUnitWidth);
     float t12b = ppc_fmadds(across, t12, t4);
     float t8 = nF60 * cosA;
     float t4b = 0.699999988079071f * t3;

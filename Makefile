@@ -1,4 +1,5 @@
-# Builds the launcher on an Apple Silicon Mac. `make` builds build/tpw_launcher; `make run` starts it.
+# Builds the launcher on an Apple Silicon or Intel Mac. `make` builds build/tpw_launcher; `make run` starts it; `make test`
+# builds everything and runs the tests.
 #
 # The CMake release fetched when this Mac has no CMake 3.20 or newer (the macOS universal tarball, its SHA-256):
 CMAKE_VERSION := 4.4.4
@@ -38,21 +39,22 @@ endif
 # The build runs make again (CMake's Makefiles): it must not see this make's settings (BUILD=..., CMAKE=...).
 CLEAN_ENV := MAKEFLAGS= MFLAGS=
 
-.PHONY: all run clean check-mac check-tools find-cmake launcher
+# ctest comes with cmake: beside it, or on the PATH when CMAKE is a bare name.
+CTEST = $(if $(findstring /,$(CMAKE)),$(dir $(CMAKE))ctest,ctest)
+
+.PHONY: all run test clean check-mac check-tools find-cmake launcher
 
 all: launcher
 	@echo "==> Done. The launcher is $(LAUNCHER). Start it with: make run"
 
 # Each step needs the one before it, so the order holds under make -j too.
 check-mac:
-	@if [ "`uname -s`" != Darwin ] || [ "`uname -m`" != arm64 ]; then \
-	  echo "This build is for Apple Silicon Macs only."; \
-	  if [ "`sysctl -n sysctl.proc_translated 2>/dev/null`" = 1 ]; then \
-	    echo "This Terminal runs under Rosetta. Turn off \"Open using Rosetta\" in Terminal's Get Info window and try again."; \
-	  fi; \
+	@if [ "`uname -s`" != Darwin ]; then \
+	  echo "This build is for macOS. On Windows, use build.cmd."; \
 	  exit 1; \
 	fi
-	@echo "==> Apple Silicon Mac, macOS `sw_vers -productVersion`"
+	@case "`uname -m`" in arm64|x86_64) ;; *) echo "This build needs an Apple Silicon or Intel Mac."; exit 1 ;; esac
+	@echo "==> macOS `sw_vers -productVersion`, `uname -m`"
 
 check-tools: check-mac
 	@if ! xcode-select -p >/dev/null 2>&1; then \
@@ -118,6 +120,13 @@ launcher: find-cmake
 run: all
 	@echo "==> Starting $(LAUNCHER) $(RUN_ARGS)"
 	@"$(LAUNCHER)" $(RUN_ARGS)
+
+# Builds the launcher, then everything else (the test programs), then runs the tests.
+test: launcher
+	@echo "==> Building the tests ($(JOBS) jobs at once)"
+	@$(CLEAN_ENV) "$(CMAKE)" --build "$(BUILD)" -j $(JOBS)
+	@echo "==> Running the tests"
+	@$(CLEAN_ENV) "$(CTEST)" --test-dir "$(BUILD)" --output-on-failure
 
 # Deletes the build folder and nothing else: the launcher, and CMake when it was fetched. The launcher's data folder
 # (~/Library/Application Support/STP-TPW Launcher: your checked game files, your saves) is never touched.

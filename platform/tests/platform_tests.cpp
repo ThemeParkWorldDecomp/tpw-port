@@ -626,6 +626,14 @@ static void TestKeyboard() {
     CHECK(keyboard->IsOptionDown() == 1 && keyboard->IsCommandDown() == 1);
     SDL_SetModState(static_cast<SDL_Keymod>(SDL_KMOD_CTRL | SDL_KMOD_SHIFT | SDL_KMOD_CAPS));
     CHECK(keyboard->IsOptionDown() == 0 && keyboard->IsCommandDown() == 0);
+    // GetModifiers answers the Mac's word from GetKeys: control 0x1000, command 0x100, shift 0x200, option 0x800, no Caps Lock.
+    CHECK(keyboard->GetModifiers() == 0x1200);
+    SDL_SetModState(SDL_KMOD_NONE);
+    CHECK(keyboard->GetModifiers() == 0);
+    SDL_SetModState(SDL_KMOD_LGUI);
+    CHECK(keyboard->GetModifiers() == 0x100);
+    SDL_SetModState(static_cast<SDL_Keymod>(SDL_KMOD_RGUI | SDL_KMOD_LALT | SDL_KMOD_RSHIFT | SDL_KMOD_LCTRL));
+    CHECK(keyboard->GetModifiers() == 0x1b00);
     SDL_SetModState(SDL_KMOD_NONE);
     delete keyboard;
 }

@@ -47,6 +47,7 @@ public:
 
     float Width(Style s, std::string_view utf8);
     float LineHeight(Style s);   // ascent + descent + line gap, in points
+    float Ascent(Style s);       // top of the line box to the baseline, in points (baseline-aligns two styles)
     // Draws one line with the top of its line box at y; returns its width.
     float Draw(Style s, float x, float y, std::string_view utf8, Rgba colour);
     void DrawCentred(Style s, const Rect& box, std::string_view utf8, Rgba colour);

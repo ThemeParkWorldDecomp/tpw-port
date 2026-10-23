@@ -283,6 +283,11 @@ float Text::LineHeight(Style s) {
     return a ? a->lineHeightPx / a->scale : s.size * 1.3f;
 }
 
+float Text::Ascent(Style s) {
+    Atlas* a = Get(s);
+    return a ? a->ascentPx / a->scale : s.size;
+}
+
 float Text::Width(Style s, std::string_view utf8) {
     Atlas* a = Get(s);
     if (!a) return 0;

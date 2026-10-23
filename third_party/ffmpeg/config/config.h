@@ -68,7 +68,11 @@
 #define HAVE_AESNI 0
 #define HAVE_AESNI_EXTERNAL 0
 #define HAVE_AESNI_INLINE 0
+#ifdef _WIN32
+#define HAVE_ALIGNED_MALLOC 1
+#else
 #define HAVE_ALIGNED_MALLOC 0
+#endif
 #define HAVE_ALTIVEC 0
 #define HAVE_ALTIVEC_EXTERNAL 0
 #define HAVE_ALTIVEC_INLINE 0
@@ -99,13 +103,25 @@
 #define HAVE_CLMUL 0
 #define HAVE_CLMUL_EXTERNAL 0
 #define HAVE_CLMUL_INLINE 0
+#ifdef _WIN32
+#define HAVE_CLOCK_GETTIME 0
+#else
 #define HAVE_CLOCK_GETTIME 1
+#endif
 #define HAVE_CLOSESOCKET 0
 #define HAVE_COPYSIGN 1
 #define HAVE_COSF 1
+#ifdef _WIN32
+#define HAVE_DIRECT_H 1
+#else
 #define HAVE_DIRECT_H 0
+#endif
 #define HAVE_DIRENT_H 1
+#ifdef _WIN32
+#define HAVE_DOS_PATHS 1
+#else
 #define HAVE_DOS_PATHS 0
+#endif
 #define HAVE_DOTPROD 0
 #define HAVE_DOTPROD_EXTERNAL 0
 #define HAVE_DOTPROD_INLINE 0
@@ -123,7 +139,11 @@
 #define HAVE_FAST_CLZ 0
 #define HAVE_FAST_FLOAT16 0
 #define HAVE_FAST_UNALIGNED 0
+#ifdef _WIN32
+#define HAVE_FCNTL 0
+#else
 #define HAVE_FCNTL 1
+#endif
 #define HAVE_FMA3 0
 #define HAVE_FMA3_EXTERNAL 0
 #define HAVE_FMA3_INLINE 0
@@ -132,11 +152,23 @@
 #define HAVE_FMA4_INLINE 0
 #define HAVE_GETAUXVAL 0
 #define HAVE_GETHRTIME 0
+#ifdef _WIN32
+#define HAVE_GETPROCESSAFFINITYMASK 1
+#else
 #define HAVE_GETPROCESSAFFINITYMASK 0
+#endif
 #define HAVE_GETSTDHANDLE 0
+#ifdef _WIN32
+#define HAVE_GETSYSTEMTIMEASFILETIME 1
+#else
 #define HAVE_GETSYSTEMTIMEASFILETIME 0
+#endif
 #define HAVE_GETTIMEOFDAY 1
+#ifdef _WIN32
+#define HAVE_GMTIME_R 0
+#else
 #define HAVE_GMTIME_R 1
+#endif
 #define HAVE_HYPOT 1
 #define HAVE_I8MM 0
 #define HAVE_I8MM_EXTERNAL 0
@@ -144,7 +176,11 @@
 #define HAVE_INLINE_ASM 0
 #define HAVE_INLINE_ASM_DIRECT_SYMBOL_REFS 0
 #define HAVE_INT128 0
+#ifdef _WIN32
+#define HAVE_IO_H 1
+#else
 #define HAVE_IO_H 0
+#endif
 #define HAVE_ISATTY 1
 #define HAVE_ISFINITE 1
 #define HAVE_ISINF 1
@@ -156,13 +192,21 @@
 #define HAVE_LIBC_MSVCRT 0
 #define HAVE_LLRINT 1
 #define HAVE_LLRINTF 1
+#ifdef _WIN32
+#define HAVE_LOCALTIME_R 0
+#else
 #define HAVE_LOCALTIME_R 1
+#endif
 #define HAVE_LOG10F 1
 #define HAVE_LOG2 1
 #define HAVE_LOG2F 1
 #define HAVE_LRINT 1
 #define HAVE_LRINTF 1
+#ifdef _WIN32
+#define HAVE_LSTAT 0
+#else
 #define HAVE_LSTAT 1
+#endif
 #define HAVE_LSX 0
 #define HAVE_LSX_EXTERNAL 0
 #define HAVE_LSX_INLINE 0
@@ -170,8 +214,16 @@
 #define HAVE_MALLOC_H 0
 #define HAVE_MEMALIGN 0
 #define HAVE_MIPSFPU 0
+#ifdef _WIN32
+#define HAVE_MKSTEMP 0
+#else
 #define HAVE_MKSTEMP 1
+#endif
+#ifdef _WIN32
+#define HAVE_MMAP 0
+#else
 #define HAVE_MMAP 1
+#endif
 #define HAVE_MMX 0
 #define HAVE_MMXEXT 0
 #define HAVE_MMXEXT_EXTERNAL 0
@@ -180,7 +232,11 @@
 #define HAVE_MMX_INLINE 0
 #define HAVE_MM_EMPTY 0
 #define HAVE_MPROTECT 0
+#ifdef _WIN32
+#define HAVE_NANOSLEEP 0
+#else
 #define HAVE_NANOSLEEP 1
+#endif
 #define HAVE_NEON 0
 #define HAVE_NEON_EXTERNAL 0
 #define HAVE_NEON_INLINE 0
@@ -189,8 +245,16 @@
 #define HAVE_PMULL 0
 #define HAVE_PMULL_EXTERNAL 0
 #define HAVE_PMULL_INLINE 0
+#ifdef _WIN32
+#define HAVE_POLL_H 0
+#else
 #define HAVE_POLL_H 1
+#endif
+#ifdef _WIN32
+#define HAVE_POSIX_MEMALIGN 0
+#else
 #define HAVE_POSIX_MEMALIGN 1
+#endif
 #define HAVE_POWER8 0
 #define HAVE_POWER8_EXTERNAL 0
 #define HAVE_POWER8_INLINE 0
@@ -206,12 +270,20 @@
 #define HAVE_ROUNDF 1
 #define HAVE_SCHED_GETAFFINITY 0
 #define HAVE_SETCONSOLETEXTATTRIBUTE 0
+#ifdef _WIN32
+#define HAVE_SETMODE 1
+#else
 #define HAVE_SETMODE 0
+#endif
 #define HAVE_SIMD_ALIGN_16 0
 #define HAVE_SIMD_ALIGN_32 0
 #define HAVE_SIMD_ALIGN_64 0
 #define HAVE_SINF 1
+#ifdef _WIN32
+#define HAVE_SLEEP 1
+#else
 #define HAVE_SLEEP 0
+#endif
 #define HAVE_SME 0
 #define HAVE_SME2 0
 #define HAVE_SME2_EXTERNAL 0
@@ -242,7 +314,11 @@
 #define HAVE_SSSE3 0
 #define HAVE_SSSE3_EXTERNAL 0
 #define HAVE_SSSE3_INLINE 0
+#ifdef _WIN32
+#define HAVE_STRERROR_R 0
+#else
 #define HAVE_STRERROR_R 1
+#endif
 #define HAVE_STRUCT_POLLFD 0
 #define HAVE_SVE 0
 #define HAVE_SVE2 0
@@ -250,7 +326,11 @@
 #define HAVE_SVE2_INLINE 0
 #define HAVE_SVE_EXTERNAL 0
 #define HAVE_SVE_INLINE 0
+#ifdef _WIN32
+#define HAVE_SYSCONF 0
+#else
 #define HAVE_SYSCONF 1
+#endif
 #define HAVE_SYSCTL 0
 #define HAVE_SYS_PARAM_H 1
 #define HAVE_TEMPNAM 0
@@ -264,12 +344,20 @@
 #define HAVE_VFP 0
 #define HAVE_VFP_EXTERNAL 0
 #define HAVE_VFP_INLINE 0
+#ifdef _WIN32
+#define HAVE_VIRTUALALLOC 1
+#else
 #define HAVE_VIRTUALALLOC 0
+#endif
 #define HAVE_VSX 0
 #define HAVE_VSX_EXTERNAL 0
 #define HAVE_VSX_INLINE 0
 #define HAVE_W32THREADS 0
+#ifdef _WIN32
+#define HAVE_WINDOWS_H 1
+#else
 #define HAVE_WINDOWS_H 0
+#endif
 #define HAVE_WINRT 0
 #define HAVE_WINSOCK2_H 0
 #define HAVE_X86ASM 0

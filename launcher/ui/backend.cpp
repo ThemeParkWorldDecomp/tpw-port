@@ -173,6 +173,17 @@ bool ImporterBackend::SaveIniExtra(const std::string& prefPath, const std::strin
     return assets::SaveLauncherIni(path, ini, err);
 }
 
+std::string ImporterBackend::Setting(const std::string& key) const {
+    const auto it = saved_.find(key);
+    return it != saved_.end() ? it->second : IniExtra(key);
+}
+
+bool ImporterBackend::SaveSetting(const std::string& key, const std::string& value, std::string& err) {
+    if (!SaveIniExtra(prefPath_, key, value, err)) return false;
+    saved_[key] = value;
+    return true;
+}
+
 std::string ImporterBackend::StartupNotice() const {
     return importer_ ? importer_->LastOpenCheck().Notice() : std::string();
 }
