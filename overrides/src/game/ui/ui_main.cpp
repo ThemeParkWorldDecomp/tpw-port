@@ -1810,8 +1810,19 @@ float gGameWindowCentreY;              // 0x102b2b58
 float gGameWindowHalfWidth = 1.0f;     // 0x10278a28
 float gGameWindowHalfHeight = 1.0f;    // 0x10278a2c
 
+// TPW_PORT_FIX uiscale UseInterfaceSize | Mac: (none) | Port: the interface size on (a park) or off (the lobby); after a switch the tooltip window, made at start-up and kept, is made again at the new size, enabled as it was | Why: the front end's panels are whole-screen 4:3 layouts (the player menu's rows run to the right edge, the lobby's panel sits in the corner), which a smaller interface would shrink into the middle
+static void UseInterfaceSize(bool on) {
+    if (!UI_UseInterfaceSize(on) || gUIHelpWindow.mHelpWindow == nullptr) return;
+    const bool enabled = gUIHelpWindow.mEnabled != 0;
+    delete gUIHelpWindow.mHelpWindow;   // message 0x14 forgets it (CUIHelpWindow::DeInit)
+    InitHelpText();
+    if (enabled) UI_EnableHelpText();
+}
+
 void InitGameUI() {
     UI_FlushAllMessages();
+    // TPW_PORT_FIX uiscale InitGameUI | Mac: (none) | Port: the park's UI is laid out at the interface size | Why: the front end's panels are whole-screen 4:3 layouts (the player menu's rows run to the right edge, the lobby's panel sits in the corner), which a smaller interface would shrink into the middle
+    UseInterfaceSize(true);
     gText.InitThemeSpecific();
     CreateStaticTags();
     if (gMouse == nullptr) {
@@ -1904,6 +1915,8 @@ void DeInitGameUI() {
 // into the map's light list 0x20 and turns the help text on or off by the player's tooltips setting.
 void InitLobbyUI() {
     UI_FlushAllMessages();
+    // TPW_PORT_FIX uiscale InitLobbyUI | Mac: (none) | Port: the lobby's UI is laid out at full size | Why: the front end's panels are whole-screen 4:3 layouts (the player menu's rows run to the right edge, the lobby's panel sits in the corner), which a smaller interface would shrink into the middle
+    UseInterfaceSize(false);
     CLight* light = &gUILight;
     gei_System.UpdateLights();
     light->mColorWord = 0xffffffffu;
@@ -1944,6 +1957,8 @@ void CreateOnlinePanel();   // 0x101e8f08
 // Engine_GameFirstPersonMsg, cursor 0x15, script gFirstPersonWindowScript), then sets the help text by the tooltips setting.
 void InitOnlineUI() {
     UI_FlushAllMessages();
+    // TPW_PORT_FIX uiscale InitOnlineUI | Mac: (none) | Port: an online park's UI is laid out at the interface size, as a park's is | Why: the front end's panels are whole-screen 4:3 layouts (the player menu's rows run to the right edge, the lobby's panel sits in the corner), which a smaller interface would shrink into the middle
+    UseInterfaceSize(true);
     gei_System.UpdateLights();
     gUILight.mColorWord = 0xffffffffu;
     gUILight.mColor[0] = 1.0f;

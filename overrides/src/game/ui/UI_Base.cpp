@@ -152,6 +152,8 @@ int16_t gUIUnitWidth = 0x800;
 int8_t gUIHighPresets = 0;
 // TPW_PORT_FIX uiscale gUIScale, gUIUnitHeight | Mac: (none: the UI fills the height) | Port: the launcher's interface size and the unit space's height | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
 float gUIScale = 1.0f;
+// TPW_PORT_FIX uiscale gUIInterfaceSizeOn | Mac: (none) | Port: whether gUIScale applies now; the front end comes first, at full size | Why: the front end's panels are whole-screen 4:3 layouts (the player menu's rows run to the right edge, the lobby's panel sits in the corner), which a smaller interface would shrink into the middle
+int8_t gUIInterfaceSizeOn = 0;
 int16_t gUIUnitHeight = 0x600;
 
 // The UI's hash of a name: each character (as a signed char) is mixed in and the whole
@@ -347,23 +349,60 @@ void UI_FlushAllMessages() {
     if (gUIMessageQueue != nullptr) gUIMessageQueue->Flush();
 }
 
-void UI_SetRealScreenRez(int16_t width, int16_t height) {
-    gUIRealScreenWidth = width;
-    gUIRealScreenHeight = height;
+namespace {
+int16_t gUIScreenWidth = 0;    // the screen UI_SetRealScreenRez was given, for UI_UseInterfaceSize
+int16_t gUIScreenHeight = 0;
+
+// The UI's pixel box and unit space on a screen of width x height at an interface size `scale` (1: all of the height).
+void UnitsFor(int16_t width, int16_t height, float scale, int16_t& realWidth, int16_t& realHeight, int16_t& unitWidth,
+              int16_t& unitHeight) {
+    realWidth = width;
+    realHeight = height;
     // (the unit space follows the screen's width; the units stay square)
-    gUIUnitWidth = 0x800;
-    gUIUnitHeight = 0x600;
+    unitWidth = 0x800;
+    unitHeight = 0x600;
     // TPW_PORT_FIX uiscale UI_SetRealScreenRez | Mac: the UI spans the screen | Port: a smaller interface spans gUIScale of the height, and its 4:3 box's width; the unit space grows to the whole screen both ways | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
-    const int32_t scaled = UI_ScaledHeight(height, gUIScale);
+    const int32_t scaled = UI_ScaledHeight(height, scale);
     if (height > 0 && scaled < height) {
-        gUIRealScreenHeight = static_cast<int16_t>(scaled);
-        gUIRealScreenWidth = static_cast<int16_t>(UI_PillarboxWidth(scaled));
-        gUIUnitWidth = static_cast<int16_t>(width * 0x800 / gUIRealScreenWidth);
-        gUIUnitHeight = UI_UnitHeightFor(height, scaled);
+        realHeight = static_cast<int16_t>(scaled);
+        realWidth = static_cast<int16_t>(UI_PillarboxWidth(scaled));
+        unitWidth = static_cast<int16_t>(width * 0x800 / realWidth);
+        unitHeight = UI_UnitHeightFor(height, scaled);
     } else if (gUIWideAspect > 0.0f && height > 0 && width * 3 > height * 4) {
-        gUIRealScreenWidth = static_cast<int16_t>(UI_PillarboxWidth(height));
-        gUIUnitWidth = UI_UnitWidthFor(width, height);
+        realWidth = static_cast<int16_t>(UI_PillarboxWidth(height));
+        unitWidth = UI_UnitWidthFor(width, height);
     }
+}
+}  // namespace
+
+float UI_InterfaceSize() { return gUIInterfaceSizeOn != 0 ? gUIScale : 1.0f; }
+
+void UI_InterfaceUnits(bool on, int16_t& realWidth, int16_t& realHeight, int16_t& unitWidth, int16_t& unitHeight) {
+    UnitsFor(gUIScreenWidth, gUIScreenHeight, on ? gUIScale : 1.0f, realWidth, realHeight, unitWidth, unitHeight);
+}
+
+// The unit space is set again for the screen, the root window takes its new size, and nothing else is moved: the caller
+// rebuilds what it keeps across the switch (the windows of the lobby and the park are made after it).
+bool UI_UseInterfaceSize(bool on) {
+    if ((gUIInterfaceSizeOn != 0) == on) return false;
+    gUIInterfaceSizeOn = on ? 1 : 0;
+    if (gUIScreenWidth == 0 || !(gUIScale < 1.0f)) return false;
+    const int16_t wide = gUIUnitWidth;
+    const int16_t high = gUIUnitHeight;
+    UI_SetRealScreenRez(gUIScreenWidth, gUIScreenHeight);
+    if (gUIUnitWidth == wide && gUIUnitHeight == high) return false;
+    if (gUIRootWindow != nullptr) {
+        gUIRootWindow->mRect.mRight = static_cast<int16_t>(gUIUnitWidth - 1);
+        gUIRootWindow->mRect.mBottom = static_cast<int16_t>(gUIUnitHeight - 1);
+        gUIRootWindow->CalcClientArea();
+    }
+    return true;
+}
+
+void UI_SetRealScreenRez(int16_t width, int16_t height) {
+    gUIScreenWidth = width;
+    gUIScreenHeight = height;
+    UnitsFor(width, height, UI_InterfaceSize(), gUIRealScreenWidth, gUIRealScreenHeight, gUIUnitWidth, gUIUnitHeight);
     // TPW_PORT_FIX v5L34 UI_SetRealScreenRez | Mac: no font scale; the fonts of the largest set were drawn for 1024 x 768, where the UI's 2048 x 1536 units take half a pixel each | Port: sets gTbFontScale (include/TbIRLE4bitFont.h) to the UI's pixels per unit over that, at least 1 | Why: text keeps the size the layout gives it at every resolution
     const float across = static_cast<float>(gUIRealScreenWidth) / 1024.0f;
     const float down = static_cast<float>(gUIRealScreenHeight) / 768.0f;

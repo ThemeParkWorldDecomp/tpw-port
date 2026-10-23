@@ -182,6 +182,12 @@ extern int16_t gUIUnitWidth;   // the UI's width in units: 2048 on a 4:3 screen,
 extern int8_t gUIHighPresets;  // nonzero: Resolution.sam values 8 to 10 are the launcher's larger presets (src/game/TPConfig.cpp)
 // TPW_PORT_FIX uiscale gUIScale, gUIUnitHeight | Mac: the UI's 1536 units span the screen's height | Port: they span gUIScale of it (the launcher's interface size, 1 for all of it) and the unit space grows to gUIUnitHeight units, as it grows wider on a wide screen | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
 extern float gUIScale;         // the share of the screen's height the UI's 1536 units span: 1, or less for a smaller interface
+// TPW_PORT_FIX uiscale UI_UseInterfaceSize | Mac: (none) | Port: the interface size applies in a park only: the park's UI set-up turns it on and the lobby's turns it off, and the unit space, the root window and the pixel sizes follow | Why: the front end's panels are whole-screen 4:3 layouts (the player menu's rows run to the right edge, the lobby's panel sits in the corner), which a smaller interface would shrink into the middle
+extern int8_t gUIInterfaceSizeOn;   // 1 while gUIScale applies (in a park); 0 in the front end, which is always full size
+bool UI_UseInterfaceSize(bool on);  // true when the unit space changed (the caller rebuilds what was made at the old size)
+float UI_InterfaceSize();           // gUIScale while it applies, else 1
+// The pixel and unit sizes the screen gives with the interface size on or off (for what is made before the switch).
+void UI_InterfaceUnits(bool on, int16_t& realWidth, int16_t& realHeight, int16_t& unitWidth, int16_t& unitHeight);
 extern int16_t gUIUnitHeight;  // the UI's height in units: 1536, more with a smaller interface
 int16_t UI_TallShift(const InterfaceWindow* window);   // how far the 1536-unit layout placed in `window` was moved down
 int16_t UI_TallShiftFor(const InterfaceWindow* window, bool relative);   // the same for a rectangle in its frame
