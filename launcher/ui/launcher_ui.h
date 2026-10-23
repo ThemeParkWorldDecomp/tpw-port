@@ -22,12 +22,16 @@ namespace tpw::ui {
 
 // launcher.ini's key for the Settings box's "Skip the intro films" ("1" skips them).
 inline constexpr const char* kSkipIntroKey = "skip_intro";
+// launcher.ini's key for the Settings box's "Back to the launcher after playing" ("1": the launcher opens again when the
+// game quits).
+inline constexpr const char* kBackToLauncherKey = "back_to_launcher";
 
 // What the player chose to start.
 struct LaunchChoice {
     assets::Edition edition = assets::kEditionEur;
     bool gold = false;        // with the Gold bonus rides
     bool skipIntro = false;   // without the logo and intro films (Settings)
+    bool backToLauncher = false;   // the launcher opens again when the game quits (Settings)
 };
 
 class LauncherUi {
@@ -121,6 +125,7 @@ private:
     Screen screen_ = Screen::Home;
     bool aboutOpen_ = false, settingsOpen_ = false;
     bool skipIntro_ = false;   // the Settings box's "Skip the intro films", as launcher.ini keeps it
+    bool backToLauncher_ = false;   // the Settings box's "Back to the launcher after playing", as launcher.ini keeps it
 
     // A drag over the window.
     bool dragging_ = false;
