@@ -22,12 +22,16 @@ namespace tpw::ui {
 
 // launcher.ini's key for the Settings box's "Skip the intro films" ("1" skips them).
 inline constexpr const char* kSkipIntroKey = "skip_intro";
+// launcher.ini's key for the Settings box's "Right click erases paths" ("1": a right click with nothing to cancel erases the
+// path under the pointer, as Backspace does; absent or "0": the original's controls).
+inline constexpr const char* kRightClickEraseKey = "right_click_erase";
 
 // What the player chose to start.
 struct LaunchChoice {
     assets::Edition edition = assets::kEditionEur;
     bool gold = false;        // with the Gold bonus rides
     bool skipIntro = false;   // without the logo and intro films (Settings)
+    bool rightClickErase = false;   // a right click erases paths (Settings)
 };
 
 class LauncherUi {
@@ -121,6 +125,7 @@ private:
     Screen screen_ = Screen::Home;
     bool aboutOpen_ = false, settingsOpen_ = false;
     bool skipIntro_ = false;   // the Settings box's "Skip the intro films", as launcher.ini keeps it
+    bool rightClickErase_ = false;   // the Settings box's "Right click erases paths", as launcher.ini keeps it
 
     // A drag over the window.
     bool dragging_ = false;

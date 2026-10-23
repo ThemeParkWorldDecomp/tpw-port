@@ -148,6 +148,8 @@ int16_t gUIRealScreenHeight;
 float gUIWideAspect = 0.0f;
 int16_t gUIUnitWidth = 0x800;
 int8_t gUIHighPresets = 0;
+// TPW_PORT_FIX rmberase gUIRightClickErase | Mac: (none) | Port: the launcher's "Right click erases paths", off until it says otherwise | Why: a right click to erase paths, which players asked for, as an opt-in: the original's erase is Backspace alone
+int8_t gUIRightClickErase = 0;
 
 // The UI's hash of a name: each character (as a signed char) is mixed in and the whole
 // multiplied, so the last characters weigh least.

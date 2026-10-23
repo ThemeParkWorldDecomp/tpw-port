@@ -343,6 +343,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, co
     if (!play.empty()) {
         choice.edition = play == "us" ? tpw::assets::kEditionUs : tpw::assets::kEditionEur;
         choice.skipIntro = backend.Setting(tpw::ui::kSkipIntroKey) == "1";
+        choice.rightClickErase = backend.Setting(tpw::ui::kRightClickEraseKey) == "1";
         const tpw::assets::EditionStatus status = backend.Status(choice.edition);
         if (!status.unlocked) {
             std::fprintf(stderr,
@@ -384,11 +385,16 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, co
     }
     // The launcher's "Skip the intro films" (Settings): as --no-movies. It is written to launcher.ini again here, after the
     // importer's last write of the file (the choice it saved on Play), which kept the importer's older copy of the key.
-    {
-        const std::string skip = backend.Setting(tpw::ui::kSkipIntroKey);
+    for (const char* key : {tpw::ui::kSkipIntroKey, tpw::ui::kRightClickEraseKey}) {
+        const std::string value = backend.Setting(key);
         std::string ignored;
-        if (!skip.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, tpw::ui::kSkipIntroKey, skip, ignored);
+        if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, key, value, ignored);
     }
+#ifdef TPW_PORT_FIX
+    // The Settings box's "Right click erases paths" (Engine_GameWinMsg); off, the original's controls, by default.
+    gUIRightClickErase = choice.rightClickErase ? 1 : 0;
+    if (choice.rightClickErase) tpw::Log("right click erases paths (the launcher's Settings)");
+#endif
     if (choice.skipIntro) {
         config.movies = false;
         tpw::Log("intro films: skipped (the launcher's Settings)");
