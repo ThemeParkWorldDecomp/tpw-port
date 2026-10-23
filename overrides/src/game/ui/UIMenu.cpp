@@ -114,11 +114,14 @@ void UIMenu::Init(int32_t (*handler)(InterfaceWindow*, int32_t, int32_t, int32_t
         uint32_t product = second * first;
         uint32_t third = static_cast<uint32_t>(menu_callee::Rand());
         // TPW_PORT_FIX v5L26 UIMenu::Init | Mac: the menu's dimmed window is 2048 units wide | Port: as wide as the unit space, its items laid out in the 2048-unit frame and anchored to the middle | Why: a widescreen port; the menu dims the whole screen and sits in its middle, not in a 4:3 box at the left
+        // TPW_PORT_FIX uiscale UIMenu::Init | Mac: the menu's dimmed window is 1536 units high | Port: as high as the unit space | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
         lender_callee::WindowCtor(memory, nullptr, 1, static_cast<int32_t>(third + product), 0, 0,
-                                  static_cast<int16_t>(gUIUnitWidth - 1), 0x5ff);
+                                  static_cast<int16_t>(gUIUnitWidth - 1), static_cast<int16_t>(gUIUnitHeight - 1));
     }
     mWindow = static_cast<InterfaceWindow*>(memory);
     if (mWindow == nullptr) return;
+    // TPW_PORT_FIX uiscale UIMenu::Init | Mac: (none) | Port: the menu's items move down together, to the middle | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+    UI_CentreDown(mWindow);
     mWindow->SetCallbackFunction(handler);
     mWindow->SetDrawObject(DrawObjectLibrary::FindDrawObject(kLolight));
     mWindow->setExtraParam(0, this);

@@ -36,6 +36,7 @@ import subprocess
 import sys
 
 DARWIN = sys.platform == "darwin"
+WINDOWS = sys.platform == "win32"
 # Scopes whose functions belong to the platform layer rather than to the game.
 PLATFORM_SCOPES = ("NS_MacDoze::", "SamsUtilities::", "IDirectDraw", "IdxDirectDraw::", "IDirect3D")
 SPECIAL_PREFIXES = ("vtable for ", "typeinfo for ", "typeinfo name for ", "VTT for ", "guard variable for ",
@@ -56,6 +57,8 @@ def symbols(nm, files):
                 undefined.add(parts[1])
             elif len(parts) == 3 and parts[1] not in "Uu":
                 defined.add(parts[2])
+                if WINDOWS and parts[2].startswith("__imp_"):
+                    defined.add(parts[2][6:])   # an import library's data: the linker auto-imports the plain name
     return undefined, defined
 
 
@@ -69,6 +72,10 @@ class SystemLibraries:
 
     def __init__(self, extra):
         names = [None]
+        if WINDOWS:
+            # Nothing is dlsym'ed: the C runtime and the Win32 import libraries come as --provides (CMakeLists.txt).
+            self.handles = []
+            return
         if DARWIN:
             names += ["/usr/lib/libSystem.B.dylib", "/usr/lib/libc++.1.dylib", "/usr/lib/libc++abi.dylib"]
         else:
@@ -110,6 +117,13 @@ def main():
     args = ap.parse_args()
 
     undefined, defined = symbols(args.nm, args.inputs)
+    labels = []
+    if WINDOWS:
+        # An asm label in the Mach-O spelling (__asm__("__ZN..."), on a declaration, weak or not) names a C++ symbol
+        # with one underscore more than COFF gives it. Each gets a thunk to COFF's name (label_thunks), which is stood in
+        # for in turn when nothing defines it.
+        labels = sorted(s for s in undefined | defined if s.startswith("__Z"))
+        undefined = (undefined - set(labels)) | {s[1:] for s in labels}
     defined |= symbols(args.nm, args.provides)[1]
     needed = sorted(undefined - defined)
     system = SystemLibraries(args.syslib)
@@ -204,6 +218,8 @@ def main():
     w("}")
     w("")
     out.extend(trampolines(functions))
+    if labels:
+        out.extend(label_thunks(labels))
     text = "\n".join(out) + "\n"
     path = pathlib.Path(args.out)
     if not path.exists() or path.read_text() != text:
@@ -292,12 +308,19 @@ def trampolines(functions):
         w(f'    "{prefix}tpw_stub_common:\\n"')
         w('    "    pushq %rbp\\n"')
         w('    "    movq %rsp, %rbp\\n"')
-        w('    "    movl %eax, %edi\\n"')
+        if WINDOWS:
+            # The Windows x64 convention: the first argument in %ecx, and 32 bytes of shadow space for the callee.
+            w('    "    movl %eax, %ecx\\n"')
+            w('    "    subq $32, %rsp\\n"')
+        else:
+            w('    "    movl %eax, %edi\\n"')
         w(f'    "    call {prefix}tpw_stub_hit\\n"')
         w('    "    xorl %eax, %eax\\n"')
         w('    "    xorl %edx, %edx\\n"')
         w('    "    xorps %xmm0, %xmm0\\n"')
         w('    "    xorps %xmm1, %xmm1\\n"')
+        if WINDOWS:
+            w('    "    movq %rbp, %rsp\\n"')
         w('    "    popq %rbp\\n"')
         w('    "    ret\\n"')
         for i, (symbol, _, _) in enumerate(functions):
@@ -312,6 +335,15 @@ def trampolines(functions):
         for i, (symbol, _, _) in enumerate(functions):
             w(f'extern "C" long tpw_stub_fn_{i}() __asm__("{symbol}");')
             w(f'extern "C" long tpw_stub_fn_{i}() {{ tpw_stub_hit({i}); return 0; }}')
+    return lines
+
+
+def label_thunks(labels):
+    """Windows: a jump under each asm label in the Mach-O spelling to the symbol it means, under COFF's name."""
+    lines = ["__asm__(", '    ".text\\n"']
+    for label in labels:
+        lines += [f'    ".globl {label}\\n"', f'    "{label}:\\n"', f'    "    jmp {label[1:]}\\n"']
+    lines.append(");")
     return lines
 
 

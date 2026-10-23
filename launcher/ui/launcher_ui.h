@@ -25,13 +25,16 @@ inline constexpr const char* kSkipIntroKey = "skip_intro";
 // launcher.ini's key for the Settings box's "Back to the launcher after playing" ("1": the launcher opens again when the
 // game quits).
 inline constexpr const char* kBackToLauncherKey = "back_to_launcher";
+// launcher.ini's key for the Settings box's "Smooth wheel zoom" ("1": the wheel eases the zoom toward the pointer; absent
+// or "0": the original's step toward the middle of the screen).
+inline constexpr const char* kSmoothZoomKey = "smooth_wheel_zoom";
 // launcher.ini's keys for the Park rules box: "Visitors arriving" (normal, more or many: each bus brings 1, 1.5 or 2 times
 // the people) and "Visitor limit" (1500, 3000 or 5000 in an offline park). Absent: normal and 1500, as the original.
 inline constexpr const char* kVisitorArrivalsKey = "visitor_arrivals";
 inline constexpr const char* kVisitorLimitKey = "visitor_limit";
-// launcher.ini's note that the game's saved screen resolution (config.tcf) is one of the Options panel's steps: absent on
-// the first start since the steps came in, when an older config's setting is put on the top step (launcher/main.cpp).
-inline constexpr const char* kResolutionStepsKey = "resolution_steps";
+// launcher.ini's key for the Settings box's "Interface size": 100, 85 or 70, the share of the screen's height the game's
+// panels are laid out in (absent: 100, as the original).
+inline constexpr const char* kInterfaceSizeKey = "interface_size";
 
 // What the player chose to start.
 struct LaunchChoice {
@@ -136,6 +139,8 @@ private:
     int visitorLimit_ = 0;   // its "Visitor limit": 0 1500, 1 3000, 2 5000
     bool skipIntro_ = false;   // the Settings box's "Skip the intro films", as launcher.ini keeps it
     bool backToLauncher_ = false;   // the Settings box's "Back to the launcher after playing", as launcher.ini keeps it
+    bool smoothZoom_ = false;       // the Settings box's "Smooth wheel zoom", as launcher.ini keeps it
+    int interfaceSize_ = 0;         // the Settings box's "Interface size": 0 100%, 1 85%, 2 70%
 
     // A drag over the window.
     bool dragging_ = false;

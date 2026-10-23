@@ -15,6 +15,7 @@
 #endif
 
 #include <algorithm>
+#include <cmath>
 #include <cctype>
 #include <cstdlib>
 #include <cstdio>
@@ -282,6 +283,33 @@ bool CursorPlacement(CursorPlace& place) {
     return true;
 }
 
+// The game moves some of its animations by a fixed step every frame (the water's and the flags' phases and the cursor
+// squares' blink, src/game/park/DynamicCell.cpp), as if a frame took as long as on the machines it was made for, so on a
+// screen refreshing faster than 60 times a second they ran too fast. The swap waits for as many of the screen's refreshes
+// as come nearest a 60th of a second: 1 at 60 Hz or less, 2 at 120 Hz and 144 Hz, 4 at 240 Hz. vsync alone sets the pace,
+// so no clock of the port's own adds its waits to it. The interval is set again whenever the window is on a screen with
+// another refresh rate (one unknown counts as 60 Hz).
+static void MatchSwapIntervalToRefresh() {
+    static float applied = -1.0f;
+    const SDL_DisplayID display = SDL_GetDisplayForWindow(gWindow.sdl);
+    const SDL_DisplayMode* mode = display != 0 ? SDL_GetCurrentDisplayMode(display) : nullptr;
+    const float refresh = mode != nullptr ? mode->refresh_rate : 0.0f;
+    if (refresh == applied) return;
+    applied = refresh;
+    int interval = 1;
+    for (int i = 2; i <= 8; ++i) {
+        if (std::fabs(refresh / static_cast<float>(i) - 60.0f) < std::fabs(refresh / static_cast<float>(interval) - 60.0f))
+            interval = i;
+    }
+    if (!SDL_GL_SetSwapInterval(interval)) {
+        tpw::Log("vsync: every %d refreshes of %.2f Hz refused (%s); every refresh", interval, static_cast<double>(refresh),
+                 SDL_GetError());
+        interval = 1;
+        SDL_GL_SetSwapInterval(1);
+    }
+    tpw::Log("vsync: every %d refresh%s of %.2f Hz", interval, interval == 1 ? "" : "es", static_cast<double>(refresh));
+}
+
 // The frame: with the fit, the game's framebuffer is copied (the cursor is drawn on the copy, so the game's own picture
 // never carries it, and the dump shows what the player sees), the copy is saved if frames are being dumped, then scaled
 // into the window; the game's framebuffer is bound again for its next frame.
@@ -299,12 +327,14 @@ void SwapBuffers() {
         // The swap presents nothing while a framebuffer object is bound (macOS, 2026-10-13); the game's is rebound after.
         offscreen::BindDefault();
         offscreen::DrainErrors("presenting a frame");
+        MatchSwapIntervalToRefresh();
         SDL_GL_SwapWindow(gWindow.sdl);
         offscreen::BindGame();
         return;
     }
     DrawCursorOverlay();
     if (!config().dumpFramesDir.empty()) DumpFrame();
+    MatchSwapIntervalToRefresh();
     SDL_GL_SwapWindow(gWindow.sdl);
 }
 

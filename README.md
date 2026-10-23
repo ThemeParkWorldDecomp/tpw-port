@@ -1,16 +1,18 @@
 # tpw-port
 
-An unofficial port of Sim Theme Park (AKA Theme Park World, 1999) for Apple Silicon Macs. You need your own copy of the
-game. Nothing from the game is in here.
+An unofficial port of Sim Theme Park (AKA Theme Park World, 1999) for Apple Silicon Macs and 64-bit Windows. You need your
+own copy of the game. Nothing from the game is in here.
 
 Not affiliated with or endorsed by Electronic Arts. Sim Theme Park and Theme Park World are trademarks of their
 respective owners.
 
 ## Quick start
 
-macOS on Apple Silicon only. In Terminal:
+### macOS
 
-    git clone --recurse-submodules https://gitlab.com/tpw-decomp/tpw-port.git
+On a Mac with Apple Silicon, in Terminal:
+
+    git clone --recurse-submodules https://github.com/ThemeParkWorldDecomp/tpw-port.git
     cd tpw-port && make
     make run
 
@@ -18,16 +20,38 @@ If macOS asks to install the command line developer tools, click Install, wait, 
 build takes a few minutes. If your Mac has no CMake, `make` fetches it into the build
 folder. Nothing else is installed.
 
-`make run` opens the launcher. Drop your game disc on its window: the Mac CD, the PC CD, or a zip or disc image of
-either. The launcher checks every file and ticks off the editions it finds. Press Play: a progress bar shows while the
-game starts, and the launcher's window closes when the game's window appears. Once the US, European and Gold discs are
-all checked, the window shows just two tiles, Theme Park World and Sim Theme Park, each with its own Play button. At
-every start the launcher compares each file's size and date with what it recorded, rehashes only the files that
-changed and removes any that no longer match. Check again in Settings rehashes every file.
+### Windows
+
+On 64-bit Windows 10 or 11, in PowerShell, the build tools:
+
+    winget install Git.Git Kitware.CMake Ninja-build.Ninja Python.Python.3.14
+
+and llvm-mingw: download llvm-mingw-20261006-ucrt-x86_64.zip from
+https://github.com/mstorsjo/llvm-mingw/releases/tag/20261006 and extract it, for example to C:\llvm-mingw. Then, in a
+new PowerShell window (so that winget's tools are on the PATH):
+
+    git -c core.autocrlf=false clone --recurse-submodules https://github.com/ThemeParkWorldDecomp/tpw-port.git
+    cd tpw-port
+    $env:PATH = "C:\llvm-mingw\bin;$env:PATH"
+    cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+    cmake --build build --target tpw_launcher
+    build\tpw_launcher.exe
+
+The clone keeps the files' line endings as they are (core.autocrlf=false). The first build takes a few minutes. The
+launcher is one .exe that needs nothing beside it.
+
+### Playing
+
+`make run` (on Windows, `build\tpw_launcher.exe`) opens the launcher. Drop your game disc on its window: the Mac CD, the
+PC CD, or a zip or disc image of either. The launcher checks every file and ticks off the editions it finds. Press Play:
+a progress bar shows while the game starts, and the launcher's window closes when the game's window appears. Once the
+US, European and Gold discs are all checked, the window shows just two tiles, Theme Park World and Sim Theme Park, each
+with its own Play button. At every start the launcher compares each file's size and date with what it recorded,
+rehashes only the files that changed and removes any that no longer match. Check again in Settings rehashes every file.
 
 ## What you need
 
-- A Mac with Apple Silicon (M1 or later) and about 2.5 GB of free space.
+- A Mac with Apple Silicon (M1 or later), or a PC with 64-bit Windows 10 or 11, and about 2.5 GB of free space.
 - Your own copy of the game:
   - The US Mac CD gives Sim Theme Park.
   - The Mac CD plus the European PC CD give Theme Park World too. Only the 2000 pressings of the PC CD work (Redump
@@ -35,8 +59,10 @@ changed and removes any that no longer match. Check again in Settings rehashes e
   - The PC Gold bonus CD unlocks the Gold bonus rides in the launcher. This build does not add them to the game yet.
 - No patches. The port is built from the last Mac patch (2.04b3) and reads only the game's data files.
 
-Your checked game files and your saves live in `~/Library/Application Support/STP-TPW Launcher`. `make clean` never
-touches that folder.
+Your checked game files and your saves live in `~/Library/Application Support/STP-TPW Launcher` on a Mac and in
+`%APPDATA%\STP-TPW Launcher` on Windows. `make clean` never touches that folder. On Windows the launcher has no
+console: its log goes to launcher.log in that folder, unless its output is redirected
+(`build\tpw_launcher.exe 2> log.txt`).
 
 ## Where it stands
 
@@ -50,16 +76,27 @@ Known problem: clicking the globe in the lobby crashes the game.
 
 ### The code
 
-The translation is the [tpw-decomp](https://gitlab.com/tpw-decomp/tpw-decomp) submodule: the game's own functions, each behaving exactly as
+The translation is the [tpw-decomp](https://github.com/ThemeParkWorldDecomp/tpw-decomp) submodule: the game's own functions, each behaving exactly as
 on the Mac, bugs included. This repository adds what it takes to play:
 
 - launcher/: the program (the launcher's window, the options, the game's start-up) and the generated stand-ins for the
   names nothing defines yet.
 - platform/: the Mac Toolbox, Sound Sprockets, QuickTime and the game's Windows-style shims, done on SDL3, OpenGL and
   CoreText.
-- overrides/: the port's fixes, 53 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
+- overrides/: the port's fixes, 60 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
   the port does and why. Each file there is built in place of the tpw-decomp file of the same path. Headers are read
   from a copy of tpw-decomp's headers in the build folder with the overridden ones laid over it.
+
+### The Windows build
+
+It was built and tested with llvm-mingw 20261006 (UCRT, x86-64, clang 23.1.3), CMake 4.4.4, Ninja 1.13.2, Python 3.14.7
+and Git 2.55.0 on Windows 10 22H2. What it does differently is all in the platform layer and the build: the signs' text
+is drawn with stb_truetype (platform/gdi_text_win.cpp) from the game's fonts and the Windows fonts folder; the POSIX
+calls MinGW lacks are in platform/win and platform/posix_win.cpp; a division the x86 traps (by zero, INT_MIN / -1) gets
+the answer the Mac's processor gives (platform/host_win.cpp); and the build makes its own copy of the one tpw-decomp file
+the game library builds sliced (devtools/slice_win.py), so it needs no libclang. tpw_platform_tests is not built on
+Windows: its sources are cut by tpw-decomp's slicer, which does need libclang. The overrides of unit win in
+[FIXES.md](FIXES.md) are the Windows build's.
 
 ### Building by hand
 
@@ -67,7 +104,7 @@ on the Mac, bugs included. This repository adds what it takes to play:
 fetched. To run the steps yourself you need CMake 3.20 or newer, a C++17 compiler and Python 3. SDL3, zlib, libjpeg and
 a trimmed FFmpeg are built from source with the port (third_party/).
 
-    git clone --recurse-submodules https://gitlab.com/tpw-decomp/tpw-port.git
+    git clone --recurse-submodules https://github.com/ThemeParkWorldDecomp/tpw-port.git
     cd tpw-port
     cmake -S . -B build
     cmake --build build -j8 --target tpw_launcher
@@ -161,7 +198,7 @@ moves its clicks on right-anchored and centred panels (the script's header has t
 
 ## See also
 
-- [tpw-decomp](https://gitlab.com/tpw-decomp/tpw-decomp): the translation and its differential tests.
+- [tpw-decomp](https://github.com/ThemeParkWorldDecomp/tpw-decomp): the translation and its differential tests.
 - [FIXES.md](FIXES.md): every place the port behaves differently from the Mac.
 
 No license has been chosen yet for the port's own code. third_party/ffmpeg is FFmpeg 9.0.2 (trimmed), under the GNU LGPL

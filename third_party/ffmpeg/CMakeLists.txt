@@ -1,7 +1,7 @@
 # FFmpeg 9.0.2, trimmed to what the game's films need and built as one static library from the sources in this folder
 # (see NOTE.md). Ours, not FFmpeg's: FFmpeg's configure and makefiles are not here and never run. config/ (written by
 # gen_config.py, kept in the tree) stands in for what configure writes: no assembly, no intrinsics, no threads, no
-# hardware decoding, no external library but zlib, so the same C builds on macOS (arm64, x86_64) and Linux.
+# hardware decoding, no external library but zlib, so the same C builds on macOS (arm64, x86_64), Linux and Windows.
 cmake_minimum_required(VERSION 3.20)
 
 # The films are QuickTime movies (the mov demuxer, read through the file protocol) with Sorenson Video 1 (svq1) pictures
