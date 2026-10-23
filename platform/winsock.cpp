@@ -6,6 +6,7 @@
 // Winsock's conventions kept: a socket is a plain number (the host's file descriptor, the game
 // compares it to -1), the calls answer -1 when they fail, and an address is Windows' sockaddr_in:
 // a 16 bit family, the port as a plain number, the 4 address bytes in network order, 8 zero bytes.
+// The _WIN32 parts of this file: Windows port contributed by samueleagle91 (tpw-port PR #1).
 #ifndef _WIN32
 #include <arpa/inet.h>
 #include <netdb.h>

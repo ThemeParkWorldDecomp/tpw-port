@@ -1,0 +1,4 @@
+# Windows batch files are checked out with CRLF line endings whatever core.autocrlf says (cmd.exe misreads some
+# LF-only batch files); they are stored with LF like every other file.
+*.cmd text eol=crlf
+*.bat text eol=crlf

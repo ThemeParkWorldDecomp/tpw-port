@@ -116,8 +116,6 @@ namespace {
 // 0x10266a50, 6, 0x10266a60, 0, 0x10266a60, 1 ...: pointers into the TOC area and small numbers, meaning unknown). The host gives it an opaque
 // block of the same first words under an invented name; ESP_SpawnScript is untranslated.
 uint32_t gStaffSpawnBlock[12] = {0x102669d8, 0x10, 0x1200, 0x10266a50, 6, 0x10266a60, 0, 0x10266a60, 1, 0x10266a60, 2, 0x10266a60};
-// TPW_PORT_FIX staffscript CMMPlaceStaff::OnAssign, CMMPickUpStaff::OnAssign | Mac: spawn the staff member's script from the block at 0x1029f768 | Port: from that place in gScriptCodeWords, the script code array the block lies in: gStaffSpawnBlock, the host's copy, is outside the array, where a script never runs (src/game/Script.cpp), so nothing was drawn under the pointer
-void* StaffSpawnCode() { return const_cast<uint32_t*>(gScriptCodeWords) + (0x1029f768u - kScriptCodeAddress) / 4; }
 
 constexpr const char* kUnknownStaffPlace = "CMMPlaceStaff: placing unknown staff type";                 // 0x1023df1b
 constexpr const char* kUnknownStaffClick = "CMMPlaceStaff::OnLeftClick() - unknown staff type";       // 0x1023df45
@@ -340,8 +338,9 @@ void CMMPlaceStaff::OnAssign() {
             GAME_ASSERTMSG(0, kUnknownStaffPlace);
             return;
     }
-    // TPW_PORT_FIX staffscript CMMPlaceStaff::OnAssign | Mac: gStaffSpawnBlock | Port: StaffSpawnCode(), the block's place in the script code
-    const int32_t handle = ESP_SpawnScript(StaffSpawnCode(), static_cast<ESP_Sprites>(sprite), mF11, static_cast<ACTS>(0), 0.0f, 0.0f, 0.0f);
+    // TPW_PORT_FIX staffscript CMMPlaceStaff::OnAssign | Mac: the script of the staff member in the hand is spawned from the block at 0x1029f768, inside the script code | Port: while gPortScriptCode (include/analyser.h) is set, it is spawned from that place in the script code (ScriptCodeAt), here and in CMMPickUpStaff::OnAssign | Why: the host's copy of the block (gStaffSpawnBlock) lies outside the script code array, where a script never runs (src/game/Script.cpp), so a staff member being hired or moved was not drawn under the pointer; contributed by samueleagle91 (tpw-port PR #2)
+    void* const block = gPortScriptCode ? ScriptCodeAt(0x1029f768u) : static_cast<void*>(gStaffSpawnBlock);
+    const int32_t handle = ESP_SpawnScript(block, static_cast<ESP_Sprites>(sprite), mF11, static_cast<ACTS>(0), 0.0f, 0.0f, 0.0f);
     ReplaceScript(mScript, handle);
 }
 
@@ -398,8 +397,8 @@ CMMPickUpStaff::CMMPickUpStaff(ESP_Sprites sprite, uint8_t flag) : mSprite(sprit
 // 0x1007f4d8
 void CMMPickUpStaff::OnAssign() {
     gUIInterface.SetGameWindowCursor(kCursorPlace);
-    // TPW_PORT_FIX staffscript CMMPickUpStaff::OnAssign | Mac: gStaffSpawnBlock | Port: StaffSpawnCode(), the block's place in the script code
-    const int32_t handle = ESP_SpawnScript(StaffSpawnCode(), mSprite, mF10, static_cast<ACTS>(0), 0.0f, 0.0f, 0.0f);
+    void* const block = gPortScriptCode ? ScriptCodeAt(0x1029f768u) : static_cast<void*>(gStaffSpawnBlock);
+    const int32_t handle = ESP_SpawnScript(block, mSprite, mF10, static_cast<ACTS>(0), 0.0f, 0.0f, 0.0f);
     ReplaceScript(mScript, handle);
 }
 

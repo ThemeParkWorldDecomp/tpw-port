@@ -29,6 +29,7 @@ struct ScriptedState {
     float x = 0;
     float y = 0;
     bool down = false;
+    bool rightDown = false;
 };
 ScriptedState gScripted;
 
@@ -66,7 +67,7 @@ tpw::Event MakeGameEvent(int32_t gameX, int32_t gameY) {
     tpw::WindowOrigin(originX, originY);
     event.globalX = originX + gameX;
     event.globalY = originY + gameY;
-    event.modifiers = tpw::MacModifiersFromSDL(static_cast<uint16_t>(SDL_GetModState()));
+    event.modifiers = tpw::MacModifiersFromSDL(static_cast<uint16_t>(SDL_GetModState() | tpw::ScriptedSDLModifiers()));
     return event;
 }
 
@@ -144,7 +145,8 @@ void UGamework::Run() {
             }
             case SDL_EVENT_MOUSE_WHEEL: {
                 // Whole steps only: SDL adds up a trackpad's or a fine wheel's fractions into integer_y. The float y of a
-                // small movement truncated to 0, which the camera took as a step forward.
+                // small movement truncated to 0, which the camera took as a step forward. From tpw-port PR #20 by
+                // samueleagle91.
                 if (sdl.wheel.integer_y == 0) break;
                 const tpw::Event event = MakeEventAtMouse();
                 HandleMouseWheel(event, static_cast<int32_t>(sdl.wheel.integer_y));
@@ -209,6 +211,61 @@ void UGamework::Run() {
                 gScripted.down = false;
                 tpw::Log("scripted click: button up (pass %d)", pass);
                 HandleMouseUp(event, kMouseButton0);
+            }
+        }
+        // The scripted moves (--move): the pointer only.
+        for (const tpw::Config::ScriptedMove& move : tpw::config().moves) {
+            if (move.pass != gFrames + 1) continue;
+            gScripted.active = true;
+            gScripted.x = static_cast<float>(move.x);
+            gScripted.y = static_cast<float>(move.y);
+            tpw::Log("scripted move: pointer to (%d, %d) (pass %d)", move.x, move.y, gFrames + 1);
+            HandleMouseMoved(MakeGameEvent(move.x, move.y));
+        }
+        // The scripted right clicks (--rclick): as the clicks, with the right button.
+        for (const tpw::Config::ScriptedClick& click : tpw::config().rightClicks) {
+            const int32_t pass = gFrames + 1;
+            if (click.pass != pass && click.pass + 1 != pass) continue;
+            const tpw::Event event = MakeGameEvent(click.x, click.y);
+            if (click.pass == pass) {
+                gScripted.active = true;
+                gScripted.x = static_cast<float>(click.x);
+                gScripted.y = static_cast<float>(click.y);
+                gScripted.rightDown = true;
+                tpw::Log("scripted right click: pointer to (%d, %d), button down (pass %d)", click.x, click.y, pass);
+                HandleMouseMoved(event);
+                HandleMouseDown(event, kMouseButton1);
+            } else {
+                gScripted.rightDown = false;
+                tpw::Log("scripted right click: button up (pass %d)", pass);
+                HandleMouseUp(event, kMouseButton1);
+            }
+        }
+        // The scripted keys (--key, --hold): down and up as the SDL key events above send them.
+        for (const tpw::Config::ScriptedKey& key : tpw::config().keys) {
+            const int32_t pass = gFrames + 1;
+            if (key.down != pass && key.up != pass) continue;
+            SDL_KeyboardEvent sdlKey{};
+            sdlKey.scancode = static_cast<SDL_Scancode>(key.scancode);
+            sdlKey.mod = static_cast<SDL_Keymod>(tpw::ScriptedSDLModifiers());
+            if (key.down == pass) {
+                if (gKey.keyCode != 0) {
+                    HandleTyping(gKey.character, gKey.keyCode, gKey.modifiers, false);
+                    gKey = KeyState();
+                }
+                const uint8_t macKey = tpw::MacKeyCodeFromScancode(key.scancode);
+                tpw::Log("scripted key: %s down (pass %d)", SDL_GetScancodeName(sdlKey.scancode), pass);
+                if (macKey == 0xff) continue;
+                gKey.character = MacCharacter(sdlKey);
+                gKey.keyCode = static_cast<char>(macKey);
+                gKey.modifiers = tpw::MacModifiersFromSDL(sdlKey.mod);
+                HandleTyping(gKey.character, gKey.keyCode, gKey.modifiers, true);
+            } else {
+                tpw::Log("scripted key: %s up (pass %d)", SDL_GetScancodeName(sdlKey.scancode), pass);
+                if (gKey.character != 0 || gKey.keyCode != 0) {
+                    HandleTyping(gKey.character, gKey.keyCode, gKey.modifiers, false);
+                    gKey = KeyState();
+                }
             }
         }
         // The scripted drags (--drag): hover, press, move in steps, release.
@@ -299,6 +356,38 @@ bool ScriptedPointer(float& gameX, float& gameY, bool& buttonDown) {
     buttonDown = s.down;
     return true;
 }
+
+bool ScriptedRightButton() { return SamsUtilities::gScripted.active && SamsUtilities::gScripted.rightDown; }
+
+bool ScriptedKeyDown(int32_t sdlScancode) {
+    const int32_t pass = CurrentPass();
+    for (const Config::ScriptedKey& key : config().keys)
+        if (key.scancode == sdlScancode && pass >= key.down && pass < key.up) return true;
+    return false;
+}
+
+uint16_t ScriptedSDLModifiers() {
+    uint16_t modifiers = 0;
+    if (ScriptedKeyDown(SDL_SCANCODE_LGUI)) modifiers |= SDL_KMOD_LGUI;
+    if (ScriptedKeyDown(SDL_SCANCODE_LCTRL)) modifiers |= SDL_KMOD_LCTRL;
+    if (ScriptedKeyDown(SDL_SCANCODE_LSHIFT)) modifiers |= SDL_KMOD_LSHIFT;
+    if (ScriptedKeyDown(SDL_SCANCODE_LALT)) modifiers |= SDL_KMOD_LALT;
+    return modifiers;
+}
+
+int32_t ScancodeFromKeyName(const char* name) {
+    const std::string n = name;
+    if (n == "esc" || n == "escape") return SDL_SCANCODE_ESCAPE;
+    if (n == "return") return SDL_SCANCODE_RETURN;
+    if (n == "space") return SDL_SCANCODE_SPACE;
+    if (n == "tab") return SDL_SCANCODE_TAB;
+    if (n == "cmd" || n == "command") return SDL_SCANCODE_LGUI;
+    if (n == "ctrl" || n == "control") return SDL_SCANCODE_LCTRL;
+    if (n == "shift") return SDL_SCANCODE_LSHIFT;
+    if (n == "option" || n == "alt") return SDL_SCANCODE_LALT;
+    const SDL_Scancode code = SDL_GetScancodeFromName(name);
+    return code == SDL_SCANCODE_UNKNOWN ? 0 : static_cast<int32_t>(code);
+}
 }  // namespace tpw
 
 namespace SamsUtilities {
@@ -310,8 +399,13 @@ UDialog::UDialog(const UResourceId&, bool) : mDefaultItem(1) {}
 UDialog::~UDialog() {}
 bool UDialog::Filter(const UEvent&, int16_t&) { return false; }
 void UDialog::Show() { tpw::Log("UDialog::Show: a Mac dialog was requested and skipped"); }
-void UDialog::SetParamText(const UString& p0, const UString&, const UString&, const UString&) {
-    tpw::Log("UDialog text: %s", p0.mText);
+// The dialog's text is the game's missing-CD message, set at every start before the CD check; the
+// check passes on the game folder, so the text is not logged, only (once a run) what is true.
+void UDialog::SetParamText(const UString&, const UString&, const UString&, const UString&) {
+    static bool logged = false;
+    if (logged) return;
+    logged = true;
+    tpw::Log("cd check: the game folder counts as the CD; the game's CD dialog is not shown");
 }
 void UDialog::SetItemTitle(int32_t, const UString&) {}
 

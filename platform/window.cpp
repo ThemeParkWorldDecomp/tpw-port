@@ -73,6 +73,7 @@ bool StartVideo() {
         return false;
     }
     gVideoStarted = true;
+    tpw::LogDisplayOnce();   // the log's display line, unless the launcher's window started video first and said it
     return true;
 }
 
@@ -288,7 +289,10 @@ bool CursorPlacement(CursorPlace& place) {
 // screen refreshing faster than 60 times a second they ran too fast. The swap waits for as many of the screen's refreshes
 // as come nearest a 60th of a second: 1 at 60 Hz or less, 2 at 120 Hz and 144 Hz, 4 at 240 Hz. vsync alone sets the pace,
 // so no clock of the port's own adds its waits to it. The interval is set again whenever the window is on a screen with
-// another refresh rate (one unknown counts as 60 Hz).
+// another refresh rate (one unknown counts as 60 Hz). From tpw-port PR #8 by samueleagle91.
+// TPW_VSYNC_EVERY_REFRESH set (to anything) keeps the interval of 1, the swap at every refresh as before the pacing: a
+// test-only way back for devtools/run_launcher.sh, whose recipes click at pass numbers timed without the pacing (5000
+// passes took 105 s instead of 66 to 69 s with it).
 static void MatchSwapIntervalToRefresh() {
     static float applied = -1.0f;
     const SDL_DisplayID display = SDL_GetDisplayForWindow(gWindow.sdl);
@@ -296,6 +300,11 @@ static void MatchSwapIntervalToRefresh() {
     const float refresh = mode != nullptr ? mode->refresh_rate : 0.0f;
     if (refresh == applied) return;
     applied = refresh;
+    if (std::getenv("TPW_VSYNC_EVERY_REFRESH") != nullptr) {
+        SDL_GL_SetSwapInterval(1);
+        tpw::Log("vsync: every refresh of %.2f Hz (TPW_VSYNC_EVERY_REFRESH, a test run)", static_cast<double>(refresh));
+        return;
+    }
     int interval = 1;
     for (int i = 2; i <= 8; ++i) {
         if (std::fabs(refresh / static_cast<float>(i) - 60.0f) < std::fabs(refresh / static_cast<float>(interval) - 60.0f))

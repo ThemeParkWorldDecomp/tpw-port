@@ -2,6 +2,7 @@
 #include "window.h"
 
 #include <algorithm>
+#include <cstdarg>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -14,6 +15,20 @@
 namespace tpw::ui {
 
 namespace {
+
+// WindowPlacement::log of the window running (null: stderr).
+void (*gLog)(const char* line) = nullptr;
+
+// One report line of the window, printf style, to WindowPlacement::log or stderr.
+__attribute__((format(printf, 1, 2))) void Report(const char* format, ...) {
+    char text[1024];
+    va_list args;
+    va_start(args, format);
+    std::vsnprintf(text, sizeof text, format, args);
+    va_end(args);
+    if (gLog != nullptr) gLog(text);
+    else std::fprintf(stderr, "%s\n", text);
+}
 
 // The frame just drawn (before it is presented), saved as frame-NNNN.bmp when it differs from the one before it, as the
 // game's window does (platform/window.cpp DumpFrame): every `every`'th of the differing frames, at most `limit` pictures.
@@ -40,9 +55,9 @@ public:
             std::error_code ec;
             std::filesystem::create_directories(dir_, ec);
             if (SDL_SaveBMP(rgb, (std::filesystem::path(dir_) / name).string().c_str()))
-                std::fprintf(stderr, "launcher: dumped %s (frame %d)\n", name, frames_);
+                Report("launcher: dumped %s (frame %d)", name, frames_);
             else
-                std::fprintf(stderr, "launcher: could not save %s: %s\n", name, SDL_GetError());
+                Report("launcher: could not save %s: %s", name, SDL_GetError());
         }
         last_ = std::move(bytes);
         SDL_DestroySurface(rgb);
@@ -139,8 +154,8 @@ void PushClicks(SDL_Window* window, const WindowPlacement& placement, int frame)
         e.button.x = click.x;
         e.button.y = click.y;
         SDL_PushEvent(&e);
-        std::fprintf(stderr, "launcher: scripted click %s at %.0f,%.0f (frame %d)\n", e.button.down ? "down" : "up",
-                     click.x, click.y, frame);
+        Report("launcher: scripted click %s at %.0f,%.0f (frame %d)", e.button.down ? "down" : "up", click.x, click.y,
+               frame);
     }
 }
 
@@ -148,17 +163,21 @@ void PushClicks(SDL_Window* window, const WindowPlacement& placement, int frame)
 
 WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, std::string& err,
                                 const WindowPlacement& placement) {
+    gLog = placement.log;
     if (placement.background) {
         // Shown without becoming the key window (as the game's own window does with --background).
         SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
         SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_RAISED, "0");
     }
-    if (!(SDL_WasInit(SDL_INIT_VIDEO) & SDL_INIT_VIDEO) && !SDL_InitSubSystem(SDL_INIT_VIDEO)) {
-        err = std::string("cannot start SDL video: ") + SDL_GetError();
-        return WindowOutcome::Failed;
+    if (!(SDL_WasInit(SDL_INIT_VIDEO) & SDL_INIT_VIDEO)) {
+        if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+            err = std::string("cannot start SDL video: ") + SDL_GetError();
+            return WindowOutcome::Failed;
+        }
+        if (placement.videoStarted != nullptr) placement.videoStarted();
     }
     // Made hidden, placed, then shown, so it never appears on another screen first.
-    SDL_Window* window = SDL_CreateWindow(kProductName, metric::kStartWidth, metric::kStartHeight,
+    SDL_Window* window = SDL_CreateWindow(kProductNameWithVersion, metric::kStartWidth, metric::kStartHeight,
                                           SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN);
     if (!window) {
         err = std::string("cannot open the launcher window: ") + SDL_GetError();
@@ -169,6 +188,7 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
         SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED_DISPLAY(placement.display),
                               SDL_WINDOWPOS_CENTERED_DISPLAY(placement.display));
     SDL_ShowWindow(window);
+    if (placement.windowShown != nullptr) placement.windowShown();
     SDL_Renderer* renderer = SDL_CreateRenderer(window, nullptr);
     if (!renderer) {
         err = std::string("cannot draw in the launcher window: ") + SDL_GetError();
@@ -186,6 +206,7 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
         auto owned = std::make_unique<LauncherUi>(renderer, backend);
         LauncherUi& ui = *owned;
         ui.SetWindow(window);
+        ui.SetLogsFolder(placement.logsFolder);
         if (!ui.Ok()) {
             err = ui.Error();
             outcome = WindowOutcome::Failed;
@@ -245,8 +266,7 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
         SDL_SetRenderVSync(renderer, 0);
         delete gKept;
         gKept = new Kept{window, renderer, behind, std::move(kept), std::move(keptDumper), last};
-        std::fprintf(stderr, "launcher: Play; the window stays open on the Starting screen (renderer %s)\n",
-                     SDL_GetRendererName(renderer));
+        Report("launcher: Play; the window stays open on the Starting screen (renderer %s)", SDL_GetRendererName(renderer));
         return outcome;
     }
     SDL_DestroyRenderer(renderer);

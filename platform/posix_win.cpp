@@ -1,3 +1,4 @@
+// Windows port contributed by samueleagle91 (tpw-port PR #1)
 // posix_win.cpp: the POSIX calls the platform layer and the game make that Windows lacks, declared by the headers in
 // platform/win/ (dlfcn.h, sys/statvfs.h, pthread/qos.h, posix_win.h).
 #ifdef _WIN32

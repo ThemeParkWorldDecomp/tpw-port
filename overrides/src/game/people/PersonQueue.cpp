@@ -26,9 +26,6 @@
 #include <cstdio>
 #include <cstdlib>
 
-// TPW_PORT_FIX balloon ScriptCodeAt | Mac: (none: the blocks below are the Mac's own words) | Port: the host pointer to the script code word at a Mac address, which ESP_SpawnScript runs from | Why: gWinningBalloonBlock and gPersonScriptBlock, the host's copies of the block at 0x1029fd48, lie outside the script code, so no balloon was drawn
-static void* ScriptCodeAt(uint32_t address) { return const_cast<uint32_t*>(gScriptCodeWords) + (address - kScriptCodeAddress) / 4; }
-
 // CPerson::ProcessStateIdle (0x1011baa8, 2,796 bytes; unit v5098): what an idle person does in a turn: look bored or sulk, drop litter, look for a
 // bin, walk out of the park when unhappy, turn to fireworks or an entertainer, burst balloons or drop litter on purpose, then wander or decide.
 // The person is reached by Mac offset (the host class has no members).
@@ -1572,8 +1569,9 @@ void CPerson::SetState(PersonState state) {
                 gWorld->SeedRand(id);
                 int32_t sprites = ESP_GetRandomSpritesFrom(static_cast<ESP_Sprites>(10));
                 int32_t action = ESP_GetRandomActionFrom(static_cast<ESP_Sprites>(10), sprites);
-                // TPW_PORT_FIX balloon CPerson::SetState | Mac: spawns the balloon's script from the block at 0x1029fd48 | Port: from that place in the script code (ScriptCodeAt), not from the host's copy
-                Word(s, 0x210) = static_cast<uint32_t>(ESP_SpawnScript(ScriptCodeAt(0x1029fd48u), static_cast<ESP_Sprites>(10), sprites,
+                // TPW_PORT_FIX balloon CPerson::SetState | Mac: the balloon's script is spawned from the block at 0x1029fd48, inside the script code | Port: while gPortScriptCode (include/analyser.h) is set, it is spawned from that place in the script code (ScriptCodeAt) | Why: the host's copy (gPersonScriptBlock) lies outside the script code array, where a script never runs, so no balloon was drawn; contributed by samueleagle91 (tpw-port PR #15)
+                void* const block = gPortScriptCode ? ScriptCodeAt(0x1029fd48u) : static_cast<void*>(&gPersonScriptBlock);
+                Word(s, 0x210) = static_cast<uint32_t>(ESP_SpawnScript(block, static_cast<ESP_Sprites>(10), sprites,
                                                                         static_cast<ACTS>(action), 0.0f, 0.0f, 0.0f));
             }
         }

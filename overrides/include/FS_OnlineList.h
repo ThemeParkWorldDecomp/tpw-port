@@ -195,9 +195,11 @@ public:
     // Unit v51039: 0x10178bb0 (116, stand-in): one CFSOnlinePark (0xc0 bytes) per 0x66-byte info; the parks are not kept (a leak).
     void StoreReceivedList(const ccParkList* list) override;
 };
-// TPW_PORT_FIX win CFSOnlineSystemParkList::StoreReceivedList | Mac: a weak inline default, which the src file's definition replaces | Port: left out on Windows, where COFF refuses the inline copy beside the definition (the default serves only the unit test libraries, which the Windows build does not make)
-#if !defined(TPW_V51039_STRONG) && !defined(_WIN32)
+#ifndef TPW_V51039_STRONG
+// TPW_PORT_FIX win CFSOnlineSystem*List::RequestListFromServer/StoreReceivedList | Mac: a weak inline default, which src/game/online/FS_OnlineList.cpp's definition replaces | Port: left out on Windows | Why: COFF refuses an inline copy beside the definition (a duplicate symbol); the defaults serve only the unit test libraries, which the Windows build does not make; contributed by samueleagle91 (tpw-port PR #1)
+#ifndef _WIN32
 __attribute__((weak)) inline void CFSOnlineSystemParkList::StoreReceivedList(const ccParkList*) {}
+#endif
 #endif
 // Callee the host cannot call as the Mac does (operator new(0xc0) then the constructor 0x1017c0d8): a weak definition in
 // src/Serialise_basic_std_list_std_basic_string_std_allocator_std_basi_4_callees.cpp, faked by the test library.
@@ -258,20 +260,23 @@ public:
     int32_t mF34;            // 0x34
 };
 // Unit v5532: a weak default so other units' libraries (which build this vtable but not the src file) link; the src file defines it for real.
-// TPW_PORT_FIX win CFSOnlineSystemParkList_InCity::RequestListFromServer | Mac: a weak inline default, which the src file's definition replaces | Port: left out on Windows, where COFF refuses the inline copy beside the definition (the default serves only the unit test libraries, which the Windows build does not make)
-#if !defined(TPW_V5532_STRONG) && !defined(_WIN32)
+#ifndef TPW_V5532_STRONG
+#ifndef _WIN32
 __attribute__((weak)) inline int32_t CFSOnlineSystemParkList_InCity::RequestListFromServer(City*, uint32_t) { return 0; }
 #endif
+#endif
 // Unit v5928: the same weak default for the by-park-id, top-10 and theme lists.
-// TPW_PORT_FIX win CFSOnlineSystemParkList_InWorldByParkID::RequestListFromServer, CFSOnlineSystemParkList_InCityTop10::RequestListFromServer | Mac: a weak inline default, which the src file's definition replaces | Port: left out on Windows, where COFF refuses the inline copy beside the definition (the default serves only the unit test libraries, which the Windows build does not make)
-#if !defined(TPW_V5928_STRONG) && !defined(_WIN32)
+#ifndef TPW_V5928_STRONG
+#ifndef _WIN32
 __attribute__((weak)) inline int32_t CFSOnlineSystemParkList_InWorldByParkID::RequestListFromServer(City*, uint32_t) { return 0; }
 __attribute__((weak)) inline int32_t CFSOnlineSystemParkList_InCityTop10::RequestListFromServer(City*, uint32_t) { return 0; }
 #endif
+#endif
 // Unit v5762: the same weak default for the player-name list.
-// TPW_PORT_FIX win CFSOnlineSystemParkList_InWorldByPlayerName::RequestListFromServer | Mac: a weak inline default, which the src file's definition replaces | Port: left out on Windows, where COFF refuses the inline copy beside the definition (the default serves only the unit test libraries, which the Windows build does not make)
-#if !defined(TPW_V5762_STRONG) && !defined(_WIN32)
+#ifndef TPW_V5762_STRONG
+#ifndef _WIN32
 __attribute__((weak)) inline int32_t CFSOnlineSystemParkList_InWorldByPlayerName::RequestListFromServer(City*, uint32_t) { return 0; }
+#endif
 #endif
 
 // The theme, server and ride lists keep their own out-of-line constructors (FS_OnlineList.cpp) and add nothing to the base.
@@ -287,10 +292,11 @@ public:
     int32_t RequestListFromServer(City* city, uint32_t arg) override;   // 0x1017a354 (88)
     void StoreReceivedList(const ccThemeList* list) override;           // 0x1017a3fc (116): one CFSOnlineTheme (0x48 bytes) per 0x10-byte info
 };
-// TPW_PORT_FIX win CFSOnlineSystemThemeList::RequestListFromServer, CFSOnlineSystemThemeList::StoreReceivedList | Mac: a weak inline default, which the src file's definition replaces | Port: left out on Windows, where COFF refuses the inline copy beside the definition (the default serves only the unit test libraries, which the Windows build does not make)
-#if !defined(TPW_V5928_STRONG) && !defined(_WIN32)
+#ifndef TPW_V5928_STRONG
+#ifndef _WIN32
 __attribute__((weak)) inline int32_t CFSOnlineSystemThemeList::RequestListFromServer(City*, uint32_t) { return 0; }
 __attribute__((weak)) inline void CFSOnlineSystemThemeList::StoreReceivedList(const ccThemeList*) {}
+#endif
 #endif
 // Unit v5928: the theme instances (fakes in the test) and the login callback (0x10179e8c, 140).
 template<> void CFSOnlineSystemList<TbPtrList<CFSOnlineTheme>, ccThemeList>::LoggedInGetList();     // 0x10179f50 (412)
@@ -325,10 +331,11 @@ template<> void CFSOnlineSystemList<TbPtrList<CFSOnlineServer>, ccServerList>::C
 // else LoggedInGetList. The context is unused.
 // Weak fallbacks (the base placeholders) so unit libraries that do not link
 // src/game/online/FS_OnlineList.cpp still resolve the vtable; the real bodies there are strong.
-// TPW_PORT_FIX win CFSOnlineSystemServerList::RequestListFromServer, CFSOnlineSystemServerList::StoreReceivedList | Mac: a weak inline default, which the src file's definition replaces | Port: left out on Windows, where COFF refuses the inline copy beside the definition (the default serves only the unit test libraries, which the Windows build does not make)
-#if !defined(TPW_SERVERLIST_STRONG) && !defined(_WIN32)
+#ifndef TPW_SERVERLIST_STRONG
+#ifndef _WIN32
 __attribute__((weak)) inline int32_t CFSOnlineSystemServerList::RequestListFromServer(City*, uint32_t) { return 0; }
 __attribute__((weak)) inline void CFSOnlineSystemServerList::StoreReceivedList(const ccServerList*) {}
+#endif
 #endif
 void ServerListPostLoginCallbackFn(int32_t error, const void* context);
 // Unit v51110 (src/game/online/FS_OnlineList.cpp): the callees of the
@@ -354,10 +361,11 @@ public:
     void StoreReceivedList(const ccRideList* list) override;           // 0x1017bbf0 (116): one CFSOnlineRide (0x6c bytes) per 0x34-byte info
 };
 // Unit v5718: weak defaults so other units' libraries (which build this vtable but not the src file) link; the src file defines them for real.
-// TPW_PORT_FIX win CFSOnlineSystemRideList::RequestListFromServer, CFSOnlineSystemRideList::StoreReceivedList | Mac: a weak inline default, which the src file's definition replaces | Port: left out on Windows, where COFF refuses the inline copy beside the definition (the default serves only the unit test libraries, which the Windows build does not make)
-#if !defined(TPW_V5718_STRONG) && !defined(_WIN32)
+#ifndef TPW_V5718_STRONG
+#ifndef _WIN32
 __attribute__((weak)) inline int32_t CFSOnlineSystemRideList::RequestListFromServer(City*, uint32_t) { return 0; }
 __attribute__((weak)) inline void CFSOnlineSystemRideList::StoreReceivedList(const ccRideList*) {}
+#endif
 #endif
 
 // One park of an online list (0xc0 bytes). Names invented; the second constructor (0x1017c0d8, from a ccParkInfo, adds the park to its

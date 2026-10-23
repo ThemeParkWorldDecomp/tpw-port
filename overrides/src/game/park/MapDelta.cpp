@@ -26,9 +26,6 @@
 #include <initializer_list>
 #include <new>
 
-// TPW_PORT_FIX litter ScriptCodeAt | Mac: (none: the blocks below are the Mac's own words) | Port: the host pointer to the script code word at a Mac address, which ESP_SpawnScript runs from | Why: gLitterSpawnBlock1 to 8, the host's copies of the blocks at 0x1029fa00 to 0x1029fafc, lie outside the script code, so no litter, vomit or stink bomb was drawn
-static void* ScriptCodeAt(uint32_t address) { return const_cast<uint32_t*>(gScriptCodeWords) + (address - kScriptCodeAddress) / 4; }
-
 // The world's cells (main app of SimTheme Park 2.04b3; the inventory's file names for these are unreliable; unit w113): the three
 // cell constructors and the two grid registrations. The six grid globals are defined by the unit's test file and, in the launcher,
 // by the generated zero definitions (nothing else reads them).
@@ -236,8 +233,9 @@ void CMapCell::PlaceLitter(LitterType type) {
         block = gLitterSpawnBlock6;
         break;
     }
-    // TPW_PORT_FIX litter CMapCell::PlaceLitter | Mac: spawns the litter's script from its block | Port: from the block's place in the script code: each block's last word is its own Mac address (0x1029fa00 to 0x1029fafc)
-    mLitterScript = ESP_SpawnScript(ScriptCodeAt(block[8]), static_cast<ESP_Sprites>(0xb), 0, static_cast<ACTS>(0), 0.0f, 0.0f, 0.0f);
+    // TPW_PORT_FIX litter CMapCell::PlaceLitter | Mac: the litter's script is spawned from its block (gLitterSpawnBlock1 to 8: 0x1029fa00 to 0x1029fafc), inside the script code | Port: while gPortScriptCode (include/analyser.h) is set, it is spawned from the block's place in the script code (ScriptCodeAt): each block's last word is its own Mac address | Why: the host's copies of the blocks lie outside the script code array, where a script never runs, so no litter, vomit or stink bomb was drawn; contributed by samueleagle91 (tpw-port PR #14)
+    void* const spawn = gPortScriptCode ? ScriptCodeAt(block[8]) : static_cast<void*>(block);
+    mLitterScript = ESP_SpawnScript(spawn, static_cast<ESP_Sprites>(0xb), 0, static_cast<ACTS>(0), 0.0f, 0.0f, 0.0f);
     gWorld->SeedRand(mCellId);
     const uint32_t cellX = (static_cast<uint32_t>(mCellId) - 1u) & 0x7fu;
     const uint32_t first = gWorld->GetRand();

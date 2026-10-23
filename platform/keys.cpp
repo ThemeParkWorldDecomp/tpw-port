@@ -100,8 +100,8 @@ int16_t GetAsyncKeyState(int32_t virtualKey) {
     if (virtualKey == 1 || virtualKey == 2 || virtualKey == 4) {
         float scriptedX, scriptedY;
         bool scriptedDown;
-        if (tpw::ScriptedPointer(scriptedX, scriptedY, scriptedDown))   // a scripted click holds the left button
-            return virtualKey == 1 && scriptedDown ? static_cast<int16_t>(0x8000) : 0;
+        if (tpw::ScriptedPointer(scriptedX, scriptedY, scriptedDown))   // a scripted click holds the left or the right button
+            return (virtualKey == 1 && scriptedDown) || (virtualKey == 2 && tpw::ScriptedRightButton()) ? static_cast<int16_t>(0x8000) : 0;
         const SDL_MouseButtonFlags buttons = SDL_GetMouseState(nullptr, nullptr);
         const SDL_MouseButtonFlags mask =
             virtualKey == 1 ? SDL_BUTTON_LMASK : virtualKey == 2 ? SDL_BUTTON_RMASK : SDL_BUTTON_MMASK;
@@ -112,7 +112,7 @@ int16_t GetAsyncKeyState(int32_t virtualKey) {
     int count = 0;
     const bool* keys = SDL_GetKeyboardState(&count);
     if (keys == nullptr || scancode >= count) return 0;
-    bool down = keys[scancode];
+    bool down = keys[scancode] || tpw::ScriptedKeyDown(scancode);
     // Either key of a pair counts for the modifiers.
     if (scancode == SDL_SCANCODE_LSHIFT) down = down || keys[SDL_SCANCODE_RSHIFT];
     if (scancode == SDL_SCANCODE_LCTRL) down = down || keys[SDL_SCANCODE_RCTRL];

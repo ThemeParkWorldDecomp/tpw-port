@@ -329,9 +329,9 @@ int32_t CUI2DMap::MapCallback(InterfaceWindow* window, int32_t message, int32_t 
             }
             return r;
         };
-        // TPW_PORT_FIX uiscale CUI2DMap | Mac: the pointer's units over 2048 x 1536 | Port: over the unit space's width and height (the same on a 4:3 screen at full size) | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; on a wide screen too the map's pointer, its edge scrolling and its drag ran past the right side of the screen
-        float fx = unit(W(self, 0x10), static_cast<float>(gUIUnitWidth));
-        float fy = unit(W(self, 0x14), static_cast<float>(gUIUnitHeight));
+        // TPW_PORT_FIX uiscale CUI2DMap | Mac: the map's picture is the zoom times its pixels and shows as much as the screen holds; the pointer's units are over 2048 x 1536 | Port: while gPortWideMap (UI_Base.h) is set, times gUIScale too, as much as the UI's 4:3 box holds (its frame); the pointer's units over the unit space's width and height | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; on a wide screen too the map no longer runs past its frame's sides, and its pointer, edge scrolling and drag no longer run past the right of the screen; contributed by samueleagle91 (tpw-port PR #24)
+        float fx = unit(W(self, 0x10), gPortWideMap ? static_cast<float>(gUIUnitWidth) : 2048.0f);
+        float fy = unit(W(self, 0x14), gPortWideMap ? static_cast<float>(gUIUnitHeight) : 1536.0f);
         if (fx < 0.01f) {
             move(0, 250.0f * (0.01f - fx));
         } else if (fx > 0.99f) {
@@ -461,11 +461,11 @@ int32_t CUI2DMap::MapAreaCallbackResult(InterfaceWindow* window, int32_t message
         const float screenW = static_cast<float>(static_cast<uint32_t>(gScreenWidth));
         const float screenH = static_cast<float>(static_cast<uint32_t>(gScreenHeight));
         CUI2DMapSprite* const oldHover = HoverOf(map);
-        // TPW_PORT_FIX uiscale CUI2DMap | Mac: the pointer's units over 2048 x 1536 | Port: over the unit space's width and height (the same on a 4:3 screen at full size) | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; on a wide screen too the map's pointer, its edge scrolling and its drag ran past the right side of the screen
-        const float unitsX = static_cast<float>(gUIUnitWidth);
-        const float unitsY = static_cast<float>(gUIUnitHeight);
+        const float unitsX = gPortWideMap ? static_cast<float>(gUIUnitWidth) : 2048.0f;
+        const float unitsY = gPortWideMap ? static_cast<float>(gUIUnitHeight) : 1536.0f;
         const float mouseX = (static_cast<float>(Field<int32_t>(map, 0x10)) * screenW) / unitsX;
-        const float mouseY = (static_cast<float>(gUIUnitHeight - Field<int32_t>(map, 0x14)) * screenH) / unitsY;
+        const float mouseY =
+            (static_cast<float>((gPortWideMap ? gUIUnitHeight : 0x600) - Field<int32_t>(map, 0x14)) * screenH) / unitsY;
         HoverOf(map) = nullptr;
         auto* list = Field<TbTList<CUI2DMapSprite*, CUI2DMapSprite*>*>(map, 0x20080);
         auto* node = list->mHead;
@@ -502,8 +502,7 @@ int32_t CUI2DMap::MapAreaCallbackResult(InterfaceWindow* window, int32_t message
         const float mapH = static_cast<float>(Field<int32_t>(map, 0x28));
         const float offsetX = ppc_fnmsubs(0.5f, screenW, mouseX);
         const float offsetY = ppc_fnmsubs(0.5f, screenH, mouseY);
-        // TPW_PORT_FIX uiscale CUI2DMap | Mac: the map's picture is the zoom times its pixels | Port: times the interface size too (UI_InterfaceSize) | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; the map stays inside its frame
-        const float zoom = Field<float>(map, 0x5c) * UI_InterfaceSize();
+        const float zoom = Field<float>(map, 0x5c) * (gPortWideMap ? UI_InterfaceSize() : 1.0f);
         const float gridX = Field<float>(map, 0x54) + offsetX / (zoom * (480.0f / mapW));
         const float gridY = Field<float>(map, 0x58) + offsetY / (zoom * (425.0f / mapH));
         const int32_t cellX = ppc_fctiwz(static_cast<double>(gridX));
@@ -548,28 +547,28 @@ int32_t CUI2DMap::MapAreaCallbackResult(InterfaceWindow* window, int32_t message
         }
     } else if (message == 0x1e) {
         if (reinterpret_cast<const uint8_t*>(&gPlayerSettings)[0x38] != 0 && Field<int32_t>(map, kDragOffset) != 0) {
-            // TPW_PORT_FIX uiscale CUI2DMap | Mac: the pointer's units over 2048 x 1536 | Port: over the unit space's width and height (the same on a 4:3 screen at full size) | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; on a wide screen too the map's pointer, its edge scrolling and its drag ran past the right side of the screen
-            const float stepX = (5.0f * static_cast<float>(Field<int32_t>(map, 0x10) - gUIUnitWidth / 2)) / static_cast<float>(gUIUnitWidth);
+            const int32_t across = gPortWideMap ? gUIUnitWidth : 0x800;
+            const int32_t down = gPortWideMap ? gUIUnitHeight : 0x600;
+            const float stepX = (5.0f * static_cast<float>(Field<int32_t>(map, 0x10) - across / 2)) / static_cast<float>(across);
             MoveCentre(static_cast<EUI2DMapMoveDirection>(1), stepX);
-            const float stepY =
-                (5.0f * static_cast<float>(Field<int32_t>(map, 0x14) - gUIUnitHeight / 2)) / static_cast<float>(gUIUnitHeight);
+            const float stepY = (5.0f * static_cast<float>(Field<int32_t>(map, 0x14) - down / 2)) / static_cast<float>(down);
             MoveCentre(static_cast<EUI2DMapMoveDirection>(3), stepY);
         }
     } else if (message == 0x10006) {
         if (a == 0) {
             const float screenW = static_cast<float>(static_cast<uint32_t>(gScreenWidth));
             const float screenH = static_cast<float>(static_cast<uint32_t>(gScreenHeight));
-            // TPW_PORT_FIX uiscale CUI2DMap | Mac: the pointer's units over 2048 x 1536 | Port: over the unit space's width and height (the same on a 4:3 screen at full size) | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; on a wide screen too the map's pointer, its edge scrolling and its drag ran past the right side of the screen
-            const float mouseX = (static_cast<float>(Field<int32_t>(map, 0x10)) * screenW) / static_cast<float>(gUIUnitWidth);
-            const float mouseY =
-                (static_cast<float>(gUIUnitHeight - Field<int32_t>(map, 0x14)) * screenH) / static_cast<float>(gUIUnitHeight);
+            const int32_t across = gPortWideMap ? gUIUnitWidth : 0x800;
+            const int32_t down = gPortWideMap ? gUIUnitHeight : 0x600;
+            const float mouseX = (static_cast<float>(Field<int32_t>(map, 0x10)) * screenW) / static_cast<float>(across);
+            const float mouseY = (static_cast<float>(down - Field<int32_t>(map, 0x14)) * screenH) / static_cast<float>(down);
             const float mapW = static_cast<float>(Field<int32_t>(map, 0x24));
             const float mapH = static_cast<float>(Field<int32_t>(map, 0x28));
             const float offsetX = ppc_fnmsubs(0.5f, screenW, mouseX);
             const float offsetY = ppc_fnmsubs(0.5f, screenH, mouseY);
-            // TPW_PORT_FIX uiscale CUI2DMap | Mac: the map's picture is the zoom times its pixels | Port: times the interface size too (UI_InterfaceSize) | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; the map stays inside its frame
-            Field<float>(map, 0x54) = Field<float>(map, 0x54) + offsetX / (Field<float>(map, 0x5c) * UI_InterfaceSize() * (480.0f / mapW));
-            Field<float>(map, 0x58) = Field<float>(map, 0x58) + offsetY / (Field<float>(map, 0x5c) * UI_InterfaceSize() * (425.0f / mapH));
+            const float size = gPortWideMap ? UI_InterfaceSize() : 1.0f;
+            Field<float>(map, 0x54) = Field<float>(map, 0x54) + offsetX / (Field<float>(map, 0x5c) * size * (480.0f / mapW));
+            Field<float>(map, 0x58) = Field<float>(map, 0x58) + offsetY / (Field<float>(map, 0x5c) * size * (425.0f / mapH));
             void* target = nullptr;
             const CUI2DMapSprite* hoverSprite = HoverOf(map);
             if (hoverSprite != nullptr && hoverSprite->mThing != nullptr) {
@@ -1079,11 +1078,9 @@ void CUI2DMap::UpdateMapZoom() {
     const float mapH = static_cast<float>(Field_2<int32_t>(this, 0x28));
     const float screenW = FromU32(static_cast<uint32_t>(gScreenWidth));
     const float screenH = FromU32(static_cast<uint32_t>(gScreenHeight));
-    // TPW_PORT_FIX uiscale CUI2DMap | Mac: the map's picture is the zoom times its pixels | Port: times the interface size too (UI_InterfaceSize) | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; the map stays inside its frame
-    const float zoom = Field_2<float>(this, 0x5c) * UI_InterfaceSize();
-    // TPW_PORT_FIX uiscale CUI2DMap::UpdateMapZoom | Mac: the map shows as much of itself as the screen holds | Port: as much as the UI's 4:3 box holds (the screen on a 4:3 screen at full size), the box its frame fills | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; the map stays inside its frame, and on a wide screen it no longer runs past the frame's sides
-    const float viewW = static_cast<float>(gUIRealScreenWidth) / zoom;
-    const float viewH = static_cast<float>(gUIRealScreenHeight) / zoom;
+    const float zoom = Field_2<float>(this, 0x5c) * (gPortWideMap ? UI_InterfaceSize() : 1.0f);
+    const float viewW = (gPortWideMap ? static_cast<float>(gUIRealScreenWidth) : screenW) / zoom;
+    const float viewH = (gPortWideMap ? static_cast<float>(gUIRealScreenHeight) : screenH) / zoom;
     const float centreX = ppc_fmadds(Field_2<float>(this, 0x54), 480.0f / mapW, 15.0f);
     const float centreY = ppc_fmadds(Field_2<float>(this, 0x58), 425.0f / mapH, 42.0f);
     const float halfW = 0.5f * viewW;
@@ -1105,7 +1102,7 @@ void CUI2DMap::UpdateMapZoom() {
     gei_MapZoom.Use(static_cast<float>(ppc_fctiwz(static_cast<double>(x0))), static_cast<float>(ppc_fctiwz(static_cast<double>(y0))),
                     static_cast<float>(ppc_fctiwz(static_cast<double>(x1))), static_cast<float>(ppc_fctiwz(static_cast<double>(y1))));
 
-    const float zoom2 = Field_2<float>(this, 0x5c) * UI_InterfaceSize();
+    const float zoom2 = Field_2<float>(this, 0x5c) * (gPortWideMap ? UI_InterfaceSize() : 1.0f);
     float left = ppc_fnmsubs(zoom2, centreX - x0, 0.5f * width);
     float top = ppc_fnmsubs(zoom2, centreY - y0, 0.5f * height);
     float right = ppc_fmadds(zoom2, x1 - centreX, 0.5f * width);
@@ -1367,9 +1364,8 @@ void CUI2DMap::UpdateSpritePosition(CUI2DMapSprite* sprite) {
     const float perX = 480.0f / mapW;   // f7
     const float perY = 425.0f / mapH;   // f8
     const float half = 0.5f;
+    const float zoom = At_2<float>(self, 0x5c) * (gPortWideMap ? UI_InterfaceSize() : 1.0f);
 
-    // TPW_PORT_FIX uiscale CUI2DMap | Mac: the map's picture is the zoom times its pixels | Port: times the interface size too (UI_InterfaceSize) | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; the map stays inside its frame
-    const float zoom = At_2<float>(self, 0x5c) * UI_InterfaceSize();
     float t = At_2<float>(sp, 4) - At_2<float>(self, 0x54);
     t = zoom * t;
     t = perX * t;

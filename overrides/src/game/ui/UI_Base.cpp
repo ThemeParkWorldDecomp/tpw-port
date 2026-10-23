@@ -86,7 +86,7 @@ void UI_InitTimerSystem(int32_t count);
 void UI_InitSystem(int32_t, int32_t queueSize, bool hebrew) {
     // TPW_PORT_FIX v5L26 UI_InitSystem | Mac: the root is 2048 x 1536 units | Port: as wide as the unit space (wider on a wide screen) | Why: a widescreen port; the pointer reaches the whole screen and the windows on the root are anchored to its edges
     InterfaceWindow* root =
-        // TPW_PORT_FIX uiscale UI_InitSystem | Mac: the root is 1536 units high | Port: as high as the unit space | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+        // TPW_PORT_FIX uiscale UI_InitSystem/UI_SetRealScreenRez | Mac: the UI spans the screen and the root is 1536 units high | Port: a smaller interface spans gUIScale of the height and the 4:3 box of that, the unit space grows to the whole screen both ways, and the root is as high as it | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
         new InterfaceWindow(nullptr, static_cast<int32_t>(0xf0000001u), -0x29a, 0, 0, static_cast<int16_t>(gUIUnitWidth - 1),
                             static_cast<int16_t>(gUIUnitHeight - 1));
     gUIRootWindow = root;
@@ -150,12 +150,12 @@ int16_t gUIRealScreenHeight;
 float gUIWideAspect = 0.0f;
 int16_t gUIUnitWidth = 0x800;
 int8_t gUIHighPresets = 0;
-// TPW_PORT_FIX uiscale gUIScale, gUIUnitHeight | Mac: (none: the UI fills the height) | Port: the launcher's interface size and the unit space's height | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+// TPW_PORT_FIX uiscale gUIScale/gUIUnitHeight | Mac: (none: the UI fills the height) | Port: the launcher's interface size and the unit space's height | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
 float gUIScale = 1.0f;
-// TPW_PORT_FIX uiscale gUIInterfaceSizeOn | Mac: (none) | Port: whether gUIScale applies now; the front end comes first, at full size | Why: the front end's panels are whole-screen 4:3 layouts (the player menu's rows run to the right edge, the lobby's panel sits in the corner), which a smaller interface would shrink into the middle
+// TPW_PORT_FIX uiscale gUIInterfaceSizeOn | Mac: (none) | Port: whether gUIScale applies now; the front end comes first, at full size | Why: the front end's panels are whole-screen 4:3 layouts (the player menu's rows run to the right edge, the lobby's panel sits in the corner), which a smaller interface would shrink into the middle; contributed by samueleagle91 (tpw-port PR #24)
 int8_t gUIInterfaceSizeOn = 0;
 int16_t gUIUnitHeight = 0x600;
-// TPW_PORT_FIX wheelzoom gUISmoothWheelZoom | Mac: (none) | Port: the launcher's "Smooth wheel zoom", off until it says otherwise | Why: smooth wheel zoom toward the pointer, as an opt-in: the port keeps the original's controls by default
+// TPW_PORT_FIX smoothzoom gUISmoothWheelZoom | Mac: (none) | Port: the launcher's "Smooth wheel zoom", off until it says otherwise | Why: smooth wheel zoom toward the pointer, as an opt-in: the port keeps the original's controls by default; contributed by samueleagle91 (tpw-port PR #20)
 int8_t gUISmoothWheelZoom = 0;
 
 // The UI's hash of a name: each character (as a signed char) is mixed in and the whole
@@ -351,6 +351,7 @@ void UI_FlushAllMessages() {
     if (gUIMessageQueue != nullptr) gUIMessageQueue->Flush();
 }
 
+// TPW_PORT_FIX uiscale UI_SetRealScreenRez | Mac: the UI spans the screen | Port: a smaller interface spans gUIScale of the height, and its 4:3 box's width; the unit space grows to the whole screen both ways | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
 namespace {
 int16_t gUIScreenWidth = 0;    // the screen UI_SetRealScreenRez was given, for UI_UseInterfaceSize
 int16_t gUIScreenHeight = 0;
@@ -363,7 +364,6 @@ void UnitsFor(int16_t width, int16_t height, float scale, int16_t& realWidth, in
     // (the unit space follows the screen's width; the units stay square)
     unitWidth = 0x800;
     unitHeight = 0x600;
-    // TPW_PORT_FIX uiscale UI_SetRealScreenRez | Mac: the UI spans the screen | Port: a smaller interface spans gUIScale of the height, and its 4:3 box's width; the unit space grows to the whole screen both ways | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
     const int32_t scaled = UI_ScaledHeight(height, scale);
     if (height > 0 && scaled < height) {
         realHeight = static_cast<int16_t>(scaled);
@@ -376,6 +376,7 @@ void UnitsFor(int16_t width, int16_t height, float scale, int16_t& realWidth, in
     }
 }
 }  // namespace
+// TPW_PORT_FIX uiscale UI_UseInterfaceSize/UI_InterfaceSize/UI_InterfaceUnits | Mac: (none) | Port: the switch: the unit space set again for the screen and the root window resized; the front end comes first, at full size | Why: the front end's panels are whole-screen 4:3 layouts (the player menu's rows run to the right edge, the lobby's panel sits in the corner), which a smaller interface would shrink into the middle; contributed by samueleagle91 (tpw-port PR #24)
 
 float UI_InterfaceSize() { return gUIInterfaceSizeOn != 0 ? gUIScale : 1.0f; }
 
@@ -402,6 +403,7 @@ bool UI_UseInterfaceSize(bool on) {
 }
 
 void UI_SetRealScreenRez(int16_t width, int16_t height) {
+    // TPW_PORT_FIX uiscale UI_SetRealScreenRez | Mac: the UI's pixel box is the screen | Port: the screen is kept for UI_UseInterfaceSize, and UnitsFor sets the UI's pixel box and unit space for it at the interface size in use (the 4:3 box of a wide screen's height, or of gUIScale of it) | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
     gUIScreenWidth = width;
     gUIScreenHeight = height;
     UnitsFor(width, height, UI_InterfaceSize(), gUIRealScreenWidth, gUIRealScreenHeight, gUIUnitWidth, gUIUnitHeight);

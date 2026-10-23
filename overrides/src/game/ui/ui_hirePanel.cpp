@@ -41,9 +41,6 @@
 #include <cstdint>
 #include <new>
 
-// TPW_PORT_FIX staffscript UpdateViewWindow | Mac: spawns the staff figure's script from the block at 0x1029ff70 | Port: from that place in gScriptCodeWords, the script code array the block lies in: gStaffRoomSpawnBlock, the host's copy, is outside the array, where a script never runs (src/game/Script.cpp), so the figure was not drawn
-static void* StaffRoomSpawnCode() { return const_cast<uint32_t*>(gScriptCodeWords) + (0x1029ff70u - kScriptCodeAddress) / 4; }
-
 // Unit v5984: the hire panel's functions in ui_FinancePanel.cpp / ui_mainpanel2.cpp's neighbourhood:
 //   UI_FinancePanelPanelDateChange 0x101a0cf4, FillHireList 0x101a0fc8, UpdateViewWindow 0x101a10f4, HirePanelMsg 0x101a1314,
 //   HireListLCFormat (LCFormat) 0x101a1798.
@@ -97,8 +94,9 @@ void UpdateViewWindow(int32_t slot) {
             else if (type == 1) sprite = 6;
             else if (type == 3) sprite = 7;
             else if (type == 4) sprite = 8;
-            // TPW_PORT_FIX staffscript UpdateViewWindow | Mac: gStaffRoomSpawnBlock | Port: StaffRoomSpawnCode()
-            gHireListScript = ESP_SpawnScript(StaffRoomSpawnCode(), static_cast<ESP_Sprites>(sprite), sub, static_cast<ACTS>(1), x, y, z);
+            // TPW_PORT_FIX staffscript UpdateViewWindow | Mac: the candidate's figure is spawned from the block at 0x1029ff70, inside the script code | Port: while gPortScriptCode (include/analyser.h) is set, it is spawned from that place in the script code (ScriptCodeAt) | Why: the host's copy of the block (gStaffRoomSpawnBlock) lies outside the script code array, where a script never runs, so the hire panel's picture of the candidate stayed empty; contributed by samueleagle91 (tpw-port PR #2)
+            void* const block = gPortScriptCode ? ScriptCodeAt(0x1029ff70u) : static_cast<void*>(gStaffRoomSpawnBlock);
+            gHireListScript = ESP_SpawnScript(block, static_cast<ESP_Sprites>(sprite), sub, static_cast<ACTS>(1), x, y, z);
             SCR_SetFloatVariable(gHireListScript, 8, 8.0f);
         }
     }

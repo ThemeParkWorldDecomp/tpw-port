@@ -56,13 +56,12 @@ InterfaceWindow* gUILastWindow;   // 0x10395c18, the window the last constructor
 namespace {
 // The shift each window placed straight on a wide window was given; looked up only for such windows, whose entry the
 // constructor always writes, so an entry left by a window that has gone is never read.
-// TPW_PORT_FIX uiscale gWideShifts | Mac: (none) | Port: the shift down beside the shift across | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+// TPW_PORT_FIX uiscale InterfaceWindow/UI_CentreDown/ShiftDown/ReadRegion/ProcessLevel | Mac: a window, its client rectangle, its region and a list's rectangle sit where the 1536-unit layout puts them | Port: they move down with the window's tall anchor (UI_TallAnchor) as they move across with its wide one; a menu's or a dialog's holder's windows move to the middle together | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
 struct AnchorShift {
     int16_t across;
     int16_t down;
 };
 std::unordered_map<const InterfaceWindow*, AnchorShift> gWideShifts;
-// TPW_PORT_FIX uiscale UI_CentreDown | Mac: (none) | Port: the windows whose children move down together, to the middle | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
 // The wide windows whose children are centred down (UI_CentreDown). A window's constructor takes its own address out, so an
 // entry left by a window that has gone never reaches the next one made there.
 std::unordered_set<const InterfaceWindow*> gCentredDown;
@@ -76,9 +75,12 @@ int32_t ShiftedAbove(const InterfaceWindow* window) {
 }
 }  // namespace
 
-// TPW_PORT_FIX widepanel UI_IsWideWindow | Mac: (no wide windows) | Port: a window wider than the 2048 units of the 4:3 layout; one exactly that wide (the Options panel's 0..2048) is a 4:3 panel like the others' 0..2047 | Why: the Options panel counted as wide, so it stayed at the left and its rows were anchored to the screen's edges one by one, apart from their panel
+// (widepanel, tpw-port PR #12 by samueleagle91: while gPortWidePanel is set, UI_Base.h, a window exactly 0x800 units
+// across, the Options root's 0..2048, is not wide)
 bool UI_IsWideWindow(const InterfaceWindow* window) {
-    return window != nullptr && gUIUnitWidth > 0x800 && window->mRect.mRight - window->mRect.mLeft > 0x800;
+    if (window == nullptr || gUIUnitWidth <= 0x800) return false;
+    const int32_t across = window->mRect.mRight - window->mRect.mLeft;
+    return gPortWidePanel ? across > 0x800 : across >= 0x800;
 }
 
 int16_t UI_WideShift(const InterfaceWindow* window) {
@@ -157,11 +159,10 @@ InterfaceWindow::InterfaceWindow(InterfaceWindow* parent, int32_t attributes, in
     // (the anchoring: a window on a wide one is given its shift; one further in takes its anchor's)
     if (gUIUnitWidth > 0x800 && parent != nullptr) {
         int16_t shift = 0;
-        // TPW_PORT_FIX uiscale InterfaceWindow | Mac: (none) | Port: a window on the tall unit space is anchored down as it is across (UI_TallAnchor); one further in takes its anchor's | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
-        int16_t drop = 0;
+        int16_t drop = 0;   // (the tall anchor: UI_TallAnchor, or the middle on a menu or a dialog's holder)
         if (UI_IsWideWindow(parent)) {
-            // TPW_PORT_FIX widepanel InterfaceWindow::InterfaceWindow | Mac: (no anchoring) | Port: a window up to 2048 units wide is anchored, the full-width ones (0..2047 and 0..2048) to the middle | Why: the Options panel (0..2048) is pillarboxed as the other full-screen panels are
-            if (right - left <= 0x800) shift = UI_WideAnchor(left, right, gUIUnitWidth);
+            // TPW_PORT_FIX widepanel InterfaceWindow | Mac: (no wide windows: the 2048-unit layout spans the 4:3 screen) | Port: while gPortWidePanel (UI_Base.h) is set, a window exactly 0x800 units across is a 4:3 panel like the other full-screen ones (0..2047): anchored to the middle, and not wide (UI_IsWideWindow) | Why: the Options panel's root window is 0..2048, 2049 units against the other full-screen panels' 2048, so its right less its left is 0x800, which UI_IsWideWindow's old test (at least 0x800) called wide, and on a screen wider than 4:3 the panel stayed at the left and its rows were anchored to the screen's edges one by one, apart from their panel (the right column at the right edge, the volume buttons over their sliders); contributed by samueleagle91 (tpw-port PR #12)
+            if (gPortWidePanel ? right - left <= 0x800 : right - left < 0x800) shift = UI_WideAnchor(left, right, gUIUnitWidth);
             if (bottom - top < gUIUnitHeight - 1)
                 drop = gCentredDown.count(parent) != 0 ? static_cast<int16_t>((gUIUnitHeight - 0x600) / 2)
                                                        : UI_TallAnchor(top, bottom, gUIUnitHeight);
@@ -679,7 +680,7 @@ void ShiftAcross(ScriptRect& rect, int16_t shift) {
     rect.left = static_cast<int16_t>(rect.left + shift);
     rect.right = static_cast<int16_t>(rect.right + shift);
 }
-// TPW_PORT_FIX uiscale ShiftDown | Mac: no such helper | Port: moves a script rectangle down by the window's tall shift | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+// TPW_PORT_FIX uiscale ShiftDown | Mac: no such helper | Port: moves a script rectangle down by the window's tall shift | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
 void ShiftDown(ScriptRect& rect, int16_t shift) {
     rect.top = static_cast<int16_t>(rect.top + shift);
     rect.bottom = static_cast<int16_t>(rect.bottom + shift);
@@ -742,7 +743,7 @@ void ReadRegion(InterfaceWindow* window, const int16_t* script) {
         delete[] points;
     }
     // TPW_PORT_FIX v5L26 ProcessLevel | Mac: a script's client rectangle and region are where the 2048-unit layout puts them | Port: on a wide screen they move with the window's anchor, as the window did | Why: a widescreen port; the window, its client area and its hit region stay together
-    // TPW_PORT_FIX uiscale ReadRegion | Mac: (none) | Port: and down with its tall anchor | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+    // TPW_PORT_FIX uiscale ReadRegion | Mac: (none) | Port: and down with its tall anchor | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
     if (gUIUnitWidth > 0x800 && window->mRegion != &window->mRect)
         window->mRegion->Shift(UI_WideShift(window), UI_TallShift(window));
 }
@@ -777,7 +778,7 @@ InterfaceWindow* ProcessLevel(InterfaceWindow* window, int16_t* script) {
         case 3: {
             const ScriptRect rect = NextRect(script);
             window->mClientRect.Set(rect.left, rect.top, rect.right, rect.bottom);
-            // TPW_PORT_FIX uiscale ProcessLevel | Mac: (none) | Port: the client rectangle moves down with the window's tall anchor too | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+            // TPW_PORT_FIX uiscale ProcessLevel | Mac: (none) | Port: the client rectangle moves down with the window's tall anchor too | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
             if (gUIUnitWidth > 0x800)
                 window->mClientRect.Shift(UI_WideShiftFor(window, (window->mAttributes & 0x400) != 0),
                                           UI_TallShiftFor(window, (window->mAttributes & 0x400) != 0));
@@ -843,7 +844,7 @@ InterfaceWindow* ProcessLevel(InterfaceWindow* window, int16_t* script) {
                 // TPW_PORT_FIX v5L26 ProcessLevel | Mac: a list's rectangle and its columns are where the 2048-unit layout puts them | Port: on a wide screen they move with the list's anchor, as the list did | Why: a widescreen port; the rows of a list sat where a 4:3 screen has the list, not where its panel went
                 ScriptRect rect = NextRect(script);
                 if (gUIUnitWidth > 0x800) ShiftAcross(rect, UI_WideShift(window));
-                // TPW_PORT_FIX uiscale ProcessLevel | Mac: (none) | Port: a list's rectangle moves down with its tall anchor too | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+                // TPW_PORT_FIX uiscale ProcessLevel | Mac: (none) | Port: a list's rectangle moves down with its tall anchor too | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
                 if (gUIUnitHeight > 0x600) ShiftDown(rect, UI_TallShift(window));
                 static_cast<InterfaceListBox*>(window)->SetListRect(rect.left, rect.top, rect.right, rect.bottom);
             } else if (window->WhatAmI() == kListControl) {
@@ -860,6 +861,7 @@ InterfaceWindow* ProcessLevel(InterfaceWindow* window, int16_t* script) {
             const int16_t count = NextWord(script);
             list->SetColumns(count);
             for (int32_t column = 0; static_cast<int16_t>(column) < count; ++column) {
+                // TPW_PORT_FIX v5L26 ProcessLevel | Mac: a list's columns are where the 2048-unit layout puts them | Port: on a wide screen they move with the list's anchor, as the list did | Why: a widescreen port; the rows of a list sat where a 4:3 screen has the list, not where its panel went
                 const int16_t shift = gUIUnitWidth > 0x800 ? UI_WideShift(window) : static_cast<int16_t>(0);
                 const int16_t left = static_cast<int16_t>(NextWord(script) + shift);
                 const int16_t right = static_cast<int16_t>(NextWord(script) + shift);

@@ -180,23 +180,6 @@ extern int16_t gUIRealScreenHeight;   // 0x10395bba
 extern float gUIWideAspect;    // width over height the launcher asks for; 0 keeps the presets' sizes
 extern int16_t gUIUnitWidth;   // the UI's width in units: 2048 on a 4:3 screen, more on a wider one
 extern int8_t gUIHighPresets;  // nonzero: Resolution.sam values 8 to 10 are the launcher's larger presets (src/game/TPConfig.cpp)
-// TPW_PORT_FIX uiscale gUIScale, gUIUnitHeight | Mac: the UI's 1536 units span the screen's height | Port: they span gUIScale of it (the launcher's interface size, 1 for all of it) and the unit space grows to gUIUnitHeight units, as it grows wider on a wide screen | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
-extern float gUIScale;         // the share of the screen's height the UI's 1536 units span: 1, or less for a smaller interface
-// TPW_PORT_FIX uiscale UI_UseInterfaceSize | Mac: (none) | Port: the interface size applies in a park only: the park's UI set-up turns it on and the lobby's turns it off, and the unit space, the root window and the pixel sizes follow | Why: the front end's panels are whole-screen 4:3 layouts (the player menu's rows run to the right edge, the lobby's panel sits in the corner), which a smaller interface would shrink into the middle
-extern int8_t gUIInterfaceSizeOn;   // 1 while gUIScale applies (in a park); 0 in the front end, which is always full size
-bool UI_UseInterfaceSize(bool on);  // true when the unit space changed (the caller rebuilds what was made at the old size)
-float UI_InterfaceSize();           // gUIScale while it applies, else 1
-// The pixel and unit sizes the screen gives with the interface size on or off (for what is made before the switch).
-void UI_InterfaceUnits(bool on, int16_t& realWidth, int16_t& realHeight, int16_t& unitWidth, int16_t& unitHeight);
-extern int16_t gUIUnitHeight;  // the UI's height in units: 1536, more with a smaller interface
-int16_t UI_TallShift(const InterfaceWindow* window);   // how far the 1536-unit layout placed in `window` was moved down
-int16_t UI_TallShiftFor(const InterfaceWindow* window, bool relative);   // the same for a rectangle in its frame
-// TPW_PORT_FIX uiscale UI_CentreDown | Mac: (none) | Port: the windows placed on a menu or a dialog's holder move down together | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
-// The windows placed on `window` (a menu's, a dialog's holder) move to the middle of the tall unit space together, not each
-// to its nearer edge.
-void UI_CentreDown(const InterfaceWindow* window);
-// TPW_PORT_FIX wheelzoom gUISmoothWheelZoom | Mac: (none: a wheel step moves the zoom at once) | Port: nonzero when the launcher's "Smooth wheel zoom" is on; 0, the original's step, by default | Why: smooth wheel zoom toward the pointer, as an opt-in: the port keeps the original's controls by default
-extern int8_t gUISmoothWheelZoom;
 bool UI_IsWideWindow(const InterfaceWindow* window);   // spans more than the 2048 units (the root and the game's view)
 int16_t UI_WideShift(const InterfaceWindow* window);   // how far the 2048-unit layout placed in `window` was moved across
 int16_t UI_WideShiftFor(const InterfaceWindow* window, bool relative);   // the same for a rectangle in its frame
@@ -249,7 +232,16 @@ inline int16_t UI_WideAnchor(int32_t left, int32_t right, int32_t unitWidth) {
     if (middle > 0x800 * 2 / 3) return static_cast<int16_t>(extra);
     return static_cast<int16_t>(extra / 2);
 }
-// TPW_PORT_FIX uiscale UI_TallAnchor | Mac: (none: the layout fills the screen's height) | Port: how far a window of the 1536-unit layout placed in the tall unit space moves down: one wholly in the lower half to the bottom edge, one wholly in the upper half not at all, one across the middle (a full-height one too) to the middle | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+// TPW_PORT_FIX uiscale gUIScale/gUIUnitHeight/UI_TallAnchor/UI_CentreDown | Mac: the UI's 1536 units span the screen's height | Port: they span gUIScale of it (the launcher's Interface size, 1 for all of it) and the unit space grows to gUIUnitHeight units; a window on it moves down as on a wide screen it moves across: one wholly in the lower half to the bottom edge, one wholly in the upper half not at all, the rest (and the windows on a menu or a dialog's holder) to the middle | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
+extern float gUIScale;         // the share of the screen's height the UI's 1536 units span: 1, or less for a smaller interface
+extern int16_t gUIUnitHeight;  // the UI's height in units: 1536, more with a smaller interface
+int16_t UI_TallShift(const InterfaceWindow* window);   // how far the 1536-unit layout placed in `window` was moved down
+int16_t UI_TallShiftFor(const InterfaceWindow* window, bool relative);   // the same for a rectangle in its frame
+// The windows placed on `window` (a menu's, a dialog's holder) move to the middle of the tall unit space together, not each
+// to its nearer edge.
+void UI_CentreDown(const InterfaceWindow* window);
+// How far a window of the 1536-unit layout placed in the tall unit space moves down: one wholly in the lower half to the
+// bottom edge, one wholly in the upper half not at all, one across the middle (a full-height one too) to the middle.
 inline int16_t UI_TallAnchor(int32_t top, int32_t bottom, int32_t unitHeight) {
     const int32_t extra = unitHeight - 0x600;
     if (extra <= 0) return 0;
@@ -267,6 +259,20 @@ inline int16_t UI_UnitHeightFor(int32_t height, int32_t scaledHeight) {
     if (scaledHeight <= 0 || scaledHeight >= height) return 0x600;
     return static_cast<int16_t>(height * 0x600 / scaledHeight);
 }
+// TPW_PORT_FIX uiscale gUIInterfaceSizeOn/UI_UseInterfaceSize/UI_InterfaceSize/UI_InterfaceUnits | Mac: (none: the UI is one size) | Port: the interface size applies in a park only: the park's UI set-up turns it on and the lobby's turns it off; the unit space and the root window follow | Why: the front end's panels are whole-screen 4:3 layouts (the player menu's rows run to the right edge, the lobby's panel sits in the corner), which a smaller interface would shrink into the middle; contributed by samueleagle91 (tpw-port PR #24)
+extern int8_t gUIInterfaceSizeOn;   // 1 while gUIScale applies (in a park); 0 in the front end, which is always full size
+bool UI_UseInterfaceSize(bool on);  // true when the unit space changed (the caller rebuilds what was made at the old size)
+float UI_InterfaceSize();           // gUIScale while it applies, else 1
+// The pixel and unit sizes the screen gives with the interface size on or off (for what is made before the switch).
+void UI_InterfaceUnits(bool on, int16_t& realWidth, int16_t& realHeight, int16_t& unitWidth, int16_t& unitHeight);
+// TPW_PORT_FIX smoothzoom gUISmoothWheelZoom | Mac: (none: a wheel step moves the zoom at once) | Port: nonzero when the launcher's "Smooth wheel zoom" is on; 0, the original's step, by default | Why: smooth wheel zoom toward the pointer, as an opt-in: the port keeps the original's controls by default; contributed by samueleagle91 (tpw-port PR #20)
+extern int8_t gUISmoothWheelZoom;
+// TPW_PORT_FIX widepanel gPortWidePanel | Mac: no such flag (no wide windows) | Port: a flag the launcher sets (launcher/main.cpp); while it is set a window exactly 0x800 units across is a 4:3 panel, not a wide one (UI_IsWideWindow, the InterfaceWindow constructor) | Why: the Options panel's root window is 0..2048, which the wide test called wide, so on a screen wider than 4:3 its rows were anchored apart from their panel; contributed by samueleagle91 (tpw-port PR #12)
+// False unless the launcher sets it, so a program that does not (the differential tests) keeps the wide test as it was.
+inline bool gPortWidePanel = false;
+// TPW_PORT_FIX uiscale gPortWideMap | Mac: no such flag (the 2D map's sums are in 2048 x 1536 units over the whole screen) | Port: a flag the launcher sets (launcher/main.cpp); while it is set the 2D map's pointer, edge scrolling, drag, zoom and view follow the unit space and the interface size (src/game/ui/ui_2dmap.cpp, CUI2DMap) | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; on a wide screen too the map no longer runs past its frame's sides, and its pointer, edge scrolling and drag no longer run past the right of the screen; contributed by samueleagle91 (tpw-port PR #24)
+// False unless the launcher sets it, so a program that does not (the differential tests) keeps the map's sums as they were.
+inline bool gPortWideMap = false;
 // TPW_PORT_FIX v5L51 CalculatePointerWorldPosn | Mac: the pointer's ray spans a 4:3 view (the corners' atan(0.75)) | Port: its across reach is scaled by how much wider than 4:3 the view is | Why: the 3D view keeps its height's angle and widens with the screen (Matrix_Init scales x by height over width), so on a 16:9 screen the 4:3 ray picked a block nearer the middle than the one under the pointer, more so towards the edges
 // The scale for a view centreX by centreY pixels (gViewCentreX, gViewCentreY): 1 on a 4:3 view, 4/3 at 16:9.
 inline float UI_PickAcrossScale(float centreX, float centreY) { return 0.75f * centreX / centreY; }

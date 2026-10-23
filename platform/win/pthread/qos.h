@@ -1,3 +1,4 @@
+// Windows port contributed by samueleagle91 (tpw-port PR #1)
 // pthread/qos.h for Windows: the two classes platform/handoff.cpp gives its preload thread, as Windows thread modes
 // (platform/posix_win.cpp). Background lowers the thread's CPU and disk priority, as the Mac's class does; user-initiated
 // gives it back the normal ones.

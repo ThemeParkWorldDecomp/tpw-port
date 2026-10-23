@@ -1,3 +1,4 @@
+// Windows port contributed by samueleagle91 (tpw-port PR #1)
 // host_win.h: the Win32 calls the launcher needs, behind standard types. <windows.h> stays in host_win.cpp because the
 // game's headers define many of its names themselves (the MacDoze shims: GetLocalTime, _SYSTEMTIME, the Winsock calls).
 // host_win.cpp also defines the OpenGL extension calls that opengl32.dll does not export.

@@ -15,6 +15,7 @@ int32_t gStaffRoomMsg406 = 1;    // 0x102aed68
 
 // 0x102b56c0, gColList of BMP_InsideArea.h: the bump world is 0x3c bytes on the Mac (src/game/rides/BumperRide.cpp's view;
 // BMP_Load takes link nodes from its free list at 0x34) where the header's tabCOLLIST covers 0x20, the size a generated stand-in has.
+// The _WIN32 parts of this file: Windows port contributed by samueleagle91 (tpw-port PR #1).
 #ifdef _WIN32
 alignas(16) unsigned char gColListStorage[0x40] __asm__("gColList");   // COFF on x86-64 puts no underscore before a name
 #else

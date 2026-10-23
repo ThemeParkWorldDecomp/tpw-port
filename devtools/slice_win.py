@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Windows port contributed by samueleagle91 (tpw-port PR #1)
 """Windows: a copy of a tpw-decomp src file without some of its definitions, for the game library (CMakeLists.txt).
 
 usage: slice_win.py --src FILE --out FILE [--drop SYMBOL ...]

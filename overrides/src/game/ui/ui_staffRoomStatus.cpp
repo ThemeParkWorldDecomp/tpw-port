@@ -22,9 +22,6 @@
 #include <cstdint>
 #include <new>
 
-// TPW_PORT_FIX staffscript StaffRoomStatusPanel::UpdateViewSprite | Mac: spawns the staff figure's script from the block at 0x1029ff70 | Port: from that place in gScriptCodeWords, the script code array the block lies in: gStaffRoomSpawnBlock, the host's copy, is outside the array, where a script never runs (src/game/Script.cpp), so the figure was not drawn
-static void* StaffRoomSpawnCode() { return const_cast<uint32_t*>(gScriptCodeWords) + (0x1029ff70u - kScriptCodeAddress) / 4; }
-
 // The staff, show and upgrade status panels' view-window functions and the small free functions around them (unit v51051), main app.
 
 // ---- StaffRoomStatusPanel
@@ -117,8 +114,9 @@ void StaffRoomStatusPanel::UpdateViewSprite(CStaff* staff) {
         f->mF28 = sprite;
         f->mF2c = a;
         if (f->mScript != 0) SCR_KillScript(f->mScript);
-        // TPW_PORT_FIX staffscript StaffRoomStatusPanel::UpdateViewSprite | Mac: gStaffRoomSpawnBlock | Port: StaffRoomSpawnCode()
-        f->mScript = ESP_SpawnScript(StaffRoomSpawnCode(), static_cast<ESP_Sprites>(sprite), a, static_cast<ACTS>(1), fx, fy, fz);
+        // TPW_PORT_FIX staffscript StaffRoomStatusPanel::UpdateViewSprite | Mac: the staff member's figure is spawned from the block at 0x1029ff70, inside the script code | Port: while gPortScriptCode (include/analyser.h) is set, it is spawned from that place in the script code (ScriptCodeAt) | Why: the host's copy of the block (gStaffRoomSpawnBlock) lies outside the script code array, where a script never runs, so the staff room panel's figure was not drawn; contributed by samueleagle91 (tpw-port PR #2)
+        void* const block = gPortScriptCode ? ScriptCodeAt(0x1029ff70u) : static_cast<void*>(gStaffRoomSpawnBlock);
+        f->mScript = ESP_SpawnScript(block, static_cast<ESP_Sprites>(sprite), a, static_cast<ACTS>(1), fx, fy, fz);
         SCR_SetFloatVariable(f->mScript, 8, 8.0f);
     }
 }

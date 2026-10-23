@@ -39,9 +39,6 @@
 #include <cstring>
 #include <new>
 
-// TPW_PORT_FIX balloon ScriptCodeAt | Mac: (none: the blocks below are the Mac's own words) | Port: the host pointer to the script code word at a Mac address, which ESP_SpawnScript runs from | Why: gWinningBalloonBlock and gPersonScriptBlock, the host's copies of the block at 0x1029fd48, lie outside the script code, so no balloon was drawn
-static void* ScriptCodeAt(uint32_t address) { return const_cast<uint32_t*>(gScriptCodeWords) + (address - kScriptCodeAddress) / 4; }
-
 // CPerson::CPerson (0x10116634, 1488 bytes) and CPerson::ReceiveMessage (0x10116e24, 604 bytes). The person's fields are reached by Mac
 // offset (see the comment in ThingReceivers.h); every field is a 32-bit scalar, so the host layout of that memory is the Mac's.
 
@@ -1285,8 +1282,9 @@ void CPerson::WinningMods(CObject* object) {
         gWorld->SeedRand(id.mIndex);
         int32_t sprites = ESP_GetRandomSpritesFrom(static_cast<ESP_Sprites>(10));
         int32_t action = ESP_GetRandomActionFrom(static_cast<ESP_Sprites>(10), sprites);
-        // TPW_PORT_FIX balloon CPerson::WinningMods | Mac: spawns the balloon's script from the block at 0x1029fd48 | Port: from that place in the script code (ScriptCodeAt), not from the host's copy
-        Wd(self, 0x210) = static_cast<uint32_t>(ESP_SpawnScript(ScriptCodeAt(0x1029fd48u), static_cast<ESP_Sprites>(10), sprites,
+        // TPW_PORT_FIX balloon CPerson::WinningMods | Mac: the balloon's script is spawned from the block at 0x1029fd48, inside the script code | Port: while gPortScriptCode (include/analyser.h) is set, it is spawned from that place in the script code (ScriptCodeAt) | Why: the host's copy (gWinningBalloonBlock) lies outside the script code array, where a script never runs, so no balloon was drawn; contributed by samueleagle91 (tpw-port PR #15)
+        void* const block = gPortScriptCode ? ScriptCodeAt(0x1029fd48u) : static_cast<void*>(&gWinningBalloonBlock);
+        Wd(self, 0x210) = static_cast<uint32_t>(ESP_SpawnScript(block, static_cast<ESP_Sprites>(10), sprites,
                                                                 static_cast<ACTS>(action), 0.0f, 0.0f, 0.0f));
         uint32_t quality = object->GetProductQuality() & 0xffu;
         uint32_t life = (gBalloonLifeMax * quality) / 100u;
