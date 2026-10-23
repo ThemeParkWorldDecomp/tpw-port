@@ -80,6 +80,21 @@ Your checked game files and your saves live in `~/Library/Application Support/ST
 `tpw_launcher --version` prints the launcher's version. On Windows the launcher has no console: what it prints goes to
 launcher.log in that folder too, unless its output is redirected (`build\tpw_launcher.exe 2> log.txt`).
 
+## Asset packs
+
+An asset pack swaps some of the game's files for your own, such as a sharper Bullfrog logo, without changing the
+checked game files. A pack is a zip of files, each at its place in the game folder: `data/init/640/Splash_American.tga`
+is the Bullfrog logo shown before the films. A zip made of a folder works too, as one folder around `data` is ignored.
+
+Put packs in the `packs` folder next to your saves (the launcher makes it). When you press Play, the launcher unpacks a
+new or changed zip into `packs/.unpacked`, and the game looks in a pack before its own files. Your saves still come
+first. To stop using a pack, remove its zip. Packs are used in name order: when two hold the same file, the later
+name's copy is used. `--packs DIR` names another folder, and it also works with `--game`.
+
+A replacement must be in the format the game reads: the logo and the loading screens are uncompressed TGA. The game
+picks the logo by the screen's width, from the `640`, `800` or `1024` folder (`640` above 1024 pixels), so a pack
+replaces all three. A logo of another shape than 4:3 keeps its shape: a 16:9 logo fills a 16:9 screen.
+
 ## Where it stands
 
 Every function of the game is translated. Both editions play from the lobby into a park. 158 names are still generated

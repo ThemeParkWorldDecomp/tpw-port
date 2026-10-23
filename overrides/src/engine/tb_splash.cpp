@@ -11,6 +11,7 @@
 #include "tb_resource_system.h"
 #include "tb_splash.h"
 #include "Wavelet.h"
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -34,6 +35,15 @@ uint32_t NowMs() {
     return static_cast<uint32_t>(SamsUtilities::UTimer::GetAbsolute() / 1000);
 }
 
+// (the whole screen black, around an image that does not fill it)
+void ClearToBlack() {
+    glPushAttrib(0x84000);   // (the colour buffer and scissor state)
+    glDisable(0x0c11);   // (the scissor test)
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(0x4000);   // (the colour buffer)
+    glPopAttrib();
+}
+
 // The full-screen image draw (inline twice in the original): window coordinates (-1, -1),
 // scaled to the display.
 void DrawImage(const void* pixels, int32_t width, int32_t height) {
@@ -44,15 +54,25 @@ void DrawImage(const void* pixels, int32_t width, int32_t height) {
     glDisable(GL_BLEND);
     glDisable(GL_FOG);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    // TPW_PORT_FIX packs CSplash::InterpolateSplash | Mac: the logo and loading pictures are 4:3 and fill the screen | Port: a picture of another shape, which only an asset pack brings, is drawn at its own shape, as large as the screen holds it, in the middle, black around | Why: an asset pack can bring a widescreen picture, which the screen or its 4:3 box would squeeze
+    if (static_cast<int64_t>(width) * 3 != static_cast<int64_t>(height) * 4) {
+        const double scale = std::min(static_cast<double>(gei_Display.mWidth) / static_cast<double>(width),
+                                      static_cast<double>(gei_Display.mHeight) / static_cast<double>(height));
+        const int32_t left = (gei_Display.mWidth - static_cast<int32_t>(width * scale)) / 2;
+        const int32_t bottom = (gei_Display.mHeight - static_cast<int32_t>(height * scale)) / 2;
+        ClearToBlack();
+        glRasterPos3f(2.0f * static_cast<float>(left) / static_cast<float>(gei_Display.mWidth) - 1.0f,
+                      2.0f * static_cast<float>(bottom) / static_cast<float>(gei_Display.mHeight) - 1.0f, 0.5f);
+        glPixelZoom(static_cast<float>(scale), static_cast<float>(scale));
+        glDrawPixels(width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        glPopAttrib();
+        return;
+    }
     if (gUIUnitWidth > 0x800) {
         // (black sides, the image in the 4:3 box in the middle)
         const int32_t box = UI_PillarboxWidth(gei_Display.mHeight);
         const int32_t offset = UI_PillarboxLeft(gei_Display.mWidth, gei_Display.mHeight);
-        glPushAttrib(0x84000);   // (the colour buffer and scissor state)
-        glDisable(0x0c11);   // (the scissor test)
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        glClear(0x4000);   // (the colour buffer)
-        glPopAttrib();
+        ClearToBlack();
         glRasterPos3f(2.0f * static_cast<float>(offset) / static_cast<float>(gei_Display.mWidth) - 1.0f, -1.0f, 0.5f);
         glPixelZoom(static_cast<float>(static_cast<double>(box) / static_cast<double>(width)),
                     static_cast<float>(static_cast<double>(gei_Display.mHeight) / static_cast<double>(height)));

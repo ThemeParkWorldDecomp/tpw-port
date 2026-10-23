@@ -23,6 +23,7 @@
 #include "Ptr32.h"
 #include "dialogs.h"
 #include "email.h"
+#include "packs.h"
 #include "TbAudioSystem.h"
 #include "platform.h"
 #include "platform/arena.h"
@@ -153,6 +154,38 @@ static void TestPaths(const fs::path& scratch) {
     for (const tpw::DirEntry& entry : data) names += entry.name + (entry.isDirectory ? "/ " : " ");
     CHECK(names == "sound.sam Language/ notes.rsrc ui/ ");
     CHECK(tpw::ListGameFolder("data:nowhere").empty());
+}
+
+// Asset packs (packs.h) come after the user folder and before the game folder, the first pack before the next.
+static void TestPacks(const fs::path& scratch) {
+    tpw::Config& config = tpw::config();
+    const fs::path gameDir = config.gameDir;   // TestPaths' folders, which later tests use
+    const fs::path userDir = config.userDir;
+    config.gameDir = scratch / "game";
+    config.userDir = scratch / "user";
+    const fs::path first = scratch / "pack-b";
+    const fs::path second = scratch / "pack-a";
+    Touch(config.gameDir / "data" / "init" / "640" / "Splash_American.tga");
+    Touch(config.gameDir / "data" / "sound.sam");
+    Touch(config.userDir / "data" / "sound.sam");
+    Touch(first / "data" / "init" / "640" / "splash_american.tga");
+    Touch(first / "data" / "sound.sam");
+    Touch(first / "data" / "extra.txt");
+    Touch(second / "DATA" / "init" / "640" / "Splash_American.tga");
+    tpw::PackDirs() = {first, second};
+
+    CHECK(Same(tpw::FindHostPath("data:init:640:Splash_American.tga"), first / "data" / "init" / "640" / "splash_american.tga"));
+    CHECK(Same(tpw::FindHostPath("data:extra.txt"), first / "data" / "extra.txt"));
+    CHECK(Same(tpw::FindHostPath("data:sound.sam"), config.userDir / "data" / "sound.sam"));   // the user folder still wins
+    const auto data = tpw::ListGameFolder("data:");
+    std::string names;
+    for (const tpw::DirEntry& entry : data) names += entry.name + (entry.isDirectory ? "/ " : " ");
+    CHECK(names == "sound.sam extra.txt init/ ");
+
+    tpw::PackDirs().clear();
+    CHECK(Same(tpw::FindHostPath("data:init:640:Splash_American.tga"), config.gameDir / "data" / "init" / "640" / "Splash_American.tga"));
+    config.gameDir = gameDir;
+    config.userDir = userDir;
 }
 
 // The std::ifstream shims of SwearFilter::LoadWordList (platform/msl_ifstream.cpp): a word file as
@@ -2636,6 +2669,7 @@ int main() {
     fs::remove_all(scratch, stale);
     fs::create_directories(scratch);
     TestPaths(scratch);
+    TestPacks(scratch / "packs");
     TestEdition(scratch / "edition");
     TestSwearStreams();
     TestMslRuntime();

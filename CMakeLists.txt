@@ -182,7 +182,8 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
     message(STATUS "tpw: films play (FFmpeg 9.0.2, third_party/ffmpeg)")
   endif()
 
-  add_library(tpw_launcher_objects OBJECT launcher/main.cpp launcher/pending_manual.cpp launcher/static_init.cpp launcher/startup.cpp)
+  add_library(tpw_launcher_objects OBJECT launcher/main.cpp launcher/asset_packs.cpp launcher/pending_manual.cpp
+              launcher/static_init.cpp launcher/startup.cpp)
   target_include_directories(tpw_launcher_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
   # main.cpp opens the launcher's own window (tpw_launcher_ui, below) when no --game is given.
   target_link_libraries(tpw_launcher_objects PRIVATE SDL3::SDL3 tpw_launcher_ui)

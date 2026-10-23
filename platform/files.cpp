@@ -11,6 +11,7 @@
 
 #include <sys/stat.h>
 
+#include "packs.h"
 #include "platform.h"
 #include "platform/macdoze.h"
 
@@ -79,11 +80,26 @@ static fs::path FindUnder(const fs::path& root, const std::vector<std::string>& 
     return fs::exists(current, ec) ? current : fs::path();
 }
 
+std::vector<fs::path>& PackDirs() {
+    static std::vector<fs::path> dirs;
+    return dirs;
+}
+
+// The folders a game path is looked up in, in order: the user folder, the asset packs (packs.h), the game folder.
+static std::vector<fs::path> SearchRoots() {
+    std::vector<fs::path> roots{config().userDir};
+    roots.insert(roots.end(), PackDirs().begin(), PackDirs().end());
+    roots.push_back(config().gameDir);
+    return roots;
+}
+
 fs::path FindHostPath(const std::string& gamePath) {
     const auto parts = SplitGamePath(gamePath);
-    fs::path found = FindUnder(config().userDir, parts);
-    if (found.empty()) found = FindUnder(config().gameDir, parts);
-    return found;
+    for (const fs::path& root : SearchRoots()) {
+        const fs::path found = FindUnder(root, parts);
+        if (!found.empty()) return found;
+    }
+    return {};
 }
 
 fs::path HostPathForWriting(const std::string& gamePath) {
@@ -137,7 +153,7 @@ static uint64_t FileTimeOf(const fs::path& path) {
 std::vector<DirEntry> ListGameFolder(const std::string& gamePath) {
     const auto parts = SplitGamePath(gamePath);
     std::vector<DirEntry> entries;
-    for (const fs::path& root : {config().userDir, config().gameDir}) {
+    for (const fs::path& root : SearchRoots()) {
         const fs::path folder = FindUnder(root, parts);
         std::error_code ec;
         if (folder.empty() || !fs::is_directory(folder, ec)) continue;
