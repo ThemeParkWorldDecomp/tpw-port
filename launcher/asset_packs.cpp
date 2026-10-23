@@ -84,6 +84,22 @@ fs::path PlaceInPack(const fs::path& out, const std::string& path) {
     return target;
 }
 
+// Whether a file of the game folder (its path there, '/' separated, a resource fork's side file by the file it belongs
+// to) changes only how the game looks or sounds: a picture (.tga, the .wct textures, the .ani and .cur cursors), a sound
+// (.sdt, .sf2, and the sound banks' .map files in data/global/sound), a font (.ttf, the .bf4 bitmap fonts) or a film
+// (.mov). Any other file, the .sam settings files above all, can change how a park plays, which a pack never does.
+bool ChangesOnlyLooksOrSound(const std::string& path) {
+    std::string lower = Lower(path);
+    if (lower.size() > 5 && lower.compare(lower.size() - 5, 5, ".rsrc") == 0) lower.resize(lower.size() - 5);
+    const size_t dot = lower.rfind('.');
+    const size_t slash = lower.rfind('/');
+    if (dot == std::string::npos || (slash != std::string::npos && dot < slash)) return false;
+    const std::string kind = lower.substr(dot);
+    for (const char* allowed : {".tga", ".wct", ".ani", ".cur", ".sdt", ".sf2", ".ttf", ".bf4", ".mov"})
+        if (kind == allowed) return true;
+    return kind == ".map" && lower.compare(0, 18, "data/global/sound/") == 0;
+}
+
 // A zip made of a folder holds everything under the folder's name: the length of one folder above "data" that every
 // entry shares, with its slash, or 0.
 size_t SharedFolderLength(const std::vector<const assets::Entry*>& entries) {
@@ -127,6 +143,11 @@ bool Unpack(const fs::path& zip, const fs::path& unpacked, const fs::path& out, 
         const fs::path target = PlaceInPack(out, path);
         if (target.empty()) {
             tpw::Log("asset pack: %s: \"%s\" left out, as its name reaches outside the pack", name.c_str(),
+                     entry->path.c_str());
+            continue;
+        }
+        if (!ChangesOnlyLooksOrSound(path)) {
+            tpw::Log("asset pack: %s: \"%s\" left out, as it is not a picture, sound, font or film", name.c_str(),
                      entry->path.c_str());
             continue;
         }

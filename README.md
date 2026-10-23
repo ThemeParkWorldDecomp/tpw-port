@@ -92,9 +92,14 @@ unpacks a new or changed zip into `packs/.unpacked`, and the game looks in a pac
 still come first. To stop using a pack, remove its zip. Packs are used in name order: when two hold the same file, the
 later name's copy is used. `--packs DIR` names another folder, and it also works with `--game`.
 
-The launcher leaves out a zip whose name starts with a dot, a file in a zip whose name holds a drive or a colon
-(`C:/x`), and a pack that unpacks to more than 8 GB, and its log names each one. A name that climbs out of the zip (`..`
-or a leading `/`) is never read from it.
+A pack changes only how the game looks or sounds. It takes pictures (`.tga`, the `.wct` textures, the `.ani` and `.cur`
+cursors), sounds (`.sdt`, `.sf2`, and the sound banks' `.map` files in `data/global/sound`), fonts (`.ttf`, the `.bf4`
+bitmap fonts) and films (`.mov`). Any other file, a `.sam` settings file above all, is left out: changing how a park
+plays is not what packs are for.
+
+The launcher also leaves out a zip whose name starts with a dot, a file in a zip whose name holds a drive or a colon
+(`C:/x`), and a pack that unpacks to more than 8 GB. Its log names everything it leaves out. A name that climbs out of
+the zip (`..` or a leading `/`) is never read from it.
 
 A replacement must be in the format the game reads: the logo and the loading screens are uncompressed TGA. The game
 picks the logo by the screen's width, from the `640`, `800` or `1024` folder (`640` above 1024 pixels), so a pack

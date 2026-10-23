@@ -2,7 +2,8 @@
 // replacement game files, each at its place in the game folder ("data/init/640/Splash_American.tga"), kept in the packs
 // folder: "packs" in the data folder, or --packs. Before the game starts, each pack is unpacked into the packs folder's
 // ".unpacked", once and again only when its zip changes, and the game finds a pack's files before the game folder's. The
-// game folder is never written. Packs apply in name order: where two hold the same file, the later name's is used.
+// game folder is never written. Packs apply in name order: where two hold the same file, the later name's is used. A pack
+// changes only how the game looks or sounds: it takes pictures, sounds, fonts and films, and leaves any other file out.
 #pragma once
 
 #include <filesystem>
