@@ -37,6 +37,15 @@ struct WindowPlacement {
         float x, y;
     };
     std::vector<Click> clicks;
+    // The launcher's log (launcher/main.cpp: stderr and the log file, platform/log_file.h) for the window's own report
+    // lines (a scripted click, a dumped frame, Play); null: stderr only. The line comes without a newline.
+    void (*log)(const char* line) = nullptr;
+    // Called once when this window starts SDL's video itself (the log file's display line); null: nothing.
+    void (*videoStarted)() = nullptr;
+    // Called once the window is on screen (macOS: the application menu is named after the launcher from then on).
+    void (*windowShown)() = nullptr;
+    // The folder of the log files, which the About box's Show logs opens (empty: no such button).
+    std::string logsFolder;
 };
 
 // Initialises SDL's video subsystem if it is not yet, and leaves it initialised. On Play the window is not closed: it

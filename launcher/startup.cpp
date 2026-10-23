@@ -60,6 +60,7 @@ std::vector<fs::path> FirstFiles(assets::Edition edition, const fs::path& gameDi
 void Pump(float fraction) {
     if (!ui::DrawStartingWindow(fraction)) {
         tpw::Log("launcher: the window was closed while the game was starting");
+        tpw::LogFileF("exit: code 0 (the window was closed while the game was starting)");
         std::_Exit(0);
     }
 }

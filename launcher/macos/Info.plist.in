@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The launcher's Info.plist for a macOS .app bundle (CMake option TPW_BUNDLE, off by default). CMakeLists.txt fills the
+     @...@ names: the version from launcher/VERSION.txt, the names from the same words as launcher/ui/theme.h. With a
+     bundle, the Dock, Cmd-Tab and the menu bar's application menu take the name from here. -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>@TPW_BUNDLE_EXECUTABLE@</string>
+	<key>CFBundleIdentifier</key>
+	<string>@TPW_BUNDLE_IDENTIFIER@</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>@TPW_BUNDLE_NAME@</string>
+	<key>CFBundleDisplayName</key>
+	<string>@TPW_BUNDLE_NAME@ v@TPW_LAUNCHER_VERSION@</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@TPW_LAUNCHER_VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@TPW_LAUNCHER_VERSION@</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+</dict>
+</plist>

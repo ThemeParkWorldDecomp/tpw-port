@@ -9,10 +9,27 @@ namespace tpw::ui {
 
 // The product's name as the player reads it (window title, home screen wordmark, About, --help), in one place so it can
 // be renamed. The per-user data folder cannot hold a slash, so it has its own name just below.
-inline constexpr const char* kProductName = "STP/TPW Launcher";
+#define TPW_UI_PRODUCT_NAME "STP/TPW Launcher"
+inline constexpr const char* kProductName = TPW_UI_PRODUCT_NAME;
 // The product name for the per-user data folder (SDL_GetPrefPath's application name; on macOS
 // ~/Library/Application Support/STP-TPW Launcher). The same words without the slash.
 inline constexpr const char* kDataFolderName = "STP-TPW Launcher";
+// The launcher's version, as a player quotes it in a bug report. Its only source is launcher/VERSION.txt:
+// CMakeLists.txt reads it into TPW_LAUNCHER_VERSION (and into the Windows version resource and the macOS Info.plist
+// template), and every place that shows the version uses one of the three constants below.
+#ifdef TPW_LAUNCHER_VERSION
+#define TPW_UI_VERSION TPW_LAUNCHER_VERSION
+#else
+#define TPW_UI_VERSION "unknown"
+#endif
+inline constexpr const char* kLauncherVersion = TPW_UI_VERSION;
+// "v" and the version: the label beside the home screen's title and in the footer.
+inline constexpr const char* kVersionLabel = "v" TPW_UI_VERSION;
+// The product name, " v" and the version: the application's name as the system shows it (window title, the macOS
+// application menu while the launcher window is up, the About title, the first line of --version and of the log).
+inline constexpr const char* kProductNameWithVersion = TPW_UI_PRODUCT_NAME " v" TPW_UI_VERSION;
+#undef TPW_UI_VERSION
+#undef TPW_UI_PRODUCT_NAME
 // How the games are mentioned: descriptively, never as a logo (launcher-design section 5, "Trademark naming").
 inline constexpr const char* kTagline =
     "An unofficial port for playing your own copy of Sim Theme Park (Mac) and Theme Park World (PC).";
@@ -55,7 +72,9 @@ inline constexpr float kRadius = 16;     // panel corners
 inline constexpr float kOutline = 3;     // the dark outline of panels, tiles and buttons
 inline constexpr float kShadowDrop = 5;  // how far a shadow sits below its panel
 inline constexpr float kShadowBlur = 10;
-inline constexpr int kMinWidth = 720;    // the smallest window the layout is made for
+// The smallest window the layout is made for: the title row holds the title, its version, Settings and About side by
+// side (720 before the version joined it).
+inline constexpr int kMinWidth = 760;
 inline constexpr int kMinHeight = 520;
 inline constexpr int kStartWidth = 800;
 inline constexpr int kStartHeight = 560;

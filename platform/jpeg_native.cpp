@@ -20,6 +20,8 @@ extern "C" {
 #include "jerror.h"
 }
 
+#include "log_file.h"   // the failure reports go to the log file too
+
 namespace tpw {
 namespace jpeg {
 
@@ -47,12 +49,19 @@ j_common_ptr Common(Context* c) {
     return c->compress ? reinterpret_cast<j_common_ptr>(&c->compressor) : reinterpret_cast<j_common_ptr>(&c->decompressor);
 }
 
+// The stock output_message's text (format_message, then a newline on stderr), through the log file too (log_file.h).
+void OutputMessage(j_common_ptr common) {
+    char text[JMSG_LENGTH_MAX];
+    (*common->err->format_message)(common, text);
+    ::tpw::LogRaw(text);
+}
+
 void ErrorExit(j_common_ptr common) {
     Context* c = static_cast<Context*>(common->client_data);
     if (c->hook != nullptr) c->hook(c, c->hookUser);
     (*common->err->output_message)(common);
     if (!Jump(c)) {
-        std::fprintf(stderr, "libjpeg: error outside of a call, stopping\n");
+        ::tpw::LogRawF("libjpeg: error outside of a call, stopping\n");
         std::abort();
     }
 }
@@ -80,6 +89,7 @@ Context* NewContext(bool compress, ErrorHook hook, void* user) {
     std::memset(&c->source, 0, sizeof c->source);
     jpeg_std_error(&c->error);
     c->error.error_exit = ErrorExit;
+    c->error.output_message = OutputMessage;
     j_common_ptr common = Common(c);
     common->err = &c->error;
     common->client_data = c;

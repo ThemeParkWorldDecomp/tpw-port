@@ -56,4 +56,8 @@ struct LogRow {
 };
 bool DescribeProgress(const assets::ImportProgress& progress, LogRow& row);
 
+// A folder's file:// URL, for SDL_OpenURL (the About box's Show logs): "/Users/a b/x" becomes "file:///Users/a%20b/x".
+// Bytes other than letters, digits, '/' and "-._~" are percent-encoded, so a space or a non-ASCII name survives.
+std::string FileUrl(const std::string& path);
+
 }  // namespace tpw::ui

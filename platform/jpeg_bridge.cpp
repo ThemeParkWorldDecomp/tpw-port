@@ -37,6 +37,7 @@
 #include "lobby.h"
 #include "platform/arena.h"
 #include "jpeg_native.h"
+#include "log_file.h"   // the failure reports go to the log file too
 
 namespace {
 
@@ -137,8 +138,8 @@ uint8_t* FindManager(uint32_t err) {
 
 Bridge* Make(void* mac, bool compress, uint32_t expectedSize, uint32_t version, uint32_t size) {
     if (version != kLibraryVersion || size != expectedSize) {
-        std::fprintf(stderr, "libjpeg: the game made a structure of version %u, size 0x%x (expected %u, 0x%x)\n", version, size,
-                     kLibraryVersion, expectedSize);
+        ::tpw::LogRawF("libjpeg: the game made a structure of version %u, size 0x%x (expected %u, 0x%x)\n", version, size,
+                       kLibraryVersion, expectedSize);
     }
     if (Bridge* old = Find(mac)) {
         std::lock_guard<std::mutex> hold(gLock);
@@ -357,7 +358,7 @@ void ErrorOutput(uint32_t tvector, jpeg_common_struct*) {
         tpw::jpeg::PrintMessage(gErrorBridge->native);
         return;
     }
-    std::fprintf(stderr, "libjpeg: the output_message word 0x%x is not one the port made\n", tvector);
+    ::tpw::LogRawF("libjpeg: the output_message word 0x%x is not one the port made\n", tvector);
 }
 
 // 0x10238018 (the C library's longjmp): my_error_exit leaves through the jump buffer behind the manager. The port leaves the
@@ -365,7 +366,7 @@ void ErrorOutput(uint32_t tvector, jpeg_common_struct*) {
 void JpegLongJmp(void* buffer, int32_t) {
     Bridge* b = gErrorBridge;
     if (b != nullptr && b->shadow != nullptr && buffer == b->shadow + kManagerJumpBufferOffset && tpw::jpeg::Jump(b->native)) return;
-    std::fprintf(stderr, "libjpeg: a jump to a buffer the port did not make (%p), stopping\n", buffer);
+    ::tpw::LogRawF("libjpeg: a jump to a buffer the port did not make (%p), stopping\n", buffer);
     std::abort();
 }
 

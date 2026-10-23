@@ -38,6 +38,7 @@
 #include "ui_Postcard.h"
 #include "ui_controls.h"
 #include "ui_main.h"
+#include "log_file.h"   // the failure reports go to the log file too
 
 namespace {
 
@@ -49,7 +50,7 @@ constexpr size_t kHostRoom = std::max<size_t>({0x400, sizeof(CFSUserInfo), sizeo
 void* MacNew(uint32_t size) {
     void* block = tpw::ArenaAllocZeroed(std::max<size_t>(size, kHostRoom));
     if (block == nullptr) {
-        std::fprintf(stderr, "postcard_dispatch: the arena is used up (operator new of %u bytes)\n", static_cast<unsigned>(size));
+        ::tpw::LogRawF("postcard_dispatch: the arena is used up (operator new of %u bytes)\n", static_cast<unsigned>(size));
         std::abort();
     }
     return block;
@@ -74,7 +75,7 @@ uint32_t NewRep(const void* chars, uint32_t n, uint32_t unit) {
     const uint32_t cap = std::max<uint32_t>(n, 3);
     uint8_t* data = static_cast<uint8_t*>(tpw::ArenaAllocZeroed((cap + 1) * unit));
     if (data == nullptr) {
-        std::fprintf(stderr, "postcard_dispatch: the arena is used up (a string of %u characters)\n", static_cast<unsigned>(n));
+        ::tpw::LogRawF("postcard_dispatch: the arena is used up (a string of %u characters)\n", static_cast<unsigned>(n));
         std::abort();
     }
     if (n != 0) std::memcpy(data, chars, static_cast<size_t>(n) * unit);
@@ -154,8 +155,8 @@ uint32_t NewSubRep(const void* src, uint32_t pos, uint32_t n) {
     if (word == 0) return NewRep(nullptr, 0, 1);
     const WordRep* rep = Rep(word);
     if (pos > rep->len) {
-        std::fprintf(stderr, "postcard_dispatch: string substring: pos %u > length %u (the Mac throws out_of_range)\n",
-                     static_cast<unsigned>(pos), static_cast<unsigned>(rep->len));
+        ::tpw::LogRawF("postcard_dispatch: string substring: pos %u > length %u (the Mac throws out_of_range)\n",
+                       static_cast<unsigned>(pos), static_cast<unsigned>(rep->len));
         pos = rep->len;
     }
     return NewRep(Data(rep) + pos, std::min<uint32_t>(n, rep->len - pos), 1);
@@ -304,8 +305,8 @@ void PtrGlue(uint32_t tvector, int32_t a, int32_t b) {
         IllCallYouBack(static_cast<EmailCompletionCode>(a), static_cast<EmailErrorCode>(b));
         return;
     }
-    std::fprintf(stderr, "email_callee::PtrGlue: no translation behind the callback table 0x%x (OutboxCallback 0x101e4124)\n",
-                 static_cast<unsigned>(tvector));
+    ::tpw::LogRawF("email_callee::PtrGlue: no translation behind the callback table 0x%x (OutboxCallback 0x101e4124)\n",
+                   static_cast<unsigned>(tvector));
 }
 
 // first is the word of the first node to go (Email::Reset passes the list's next); last the address of the node that stays.

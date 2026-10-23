@@ -19,6 +19,9 @@ namespace {
 constexpr float kBuntingBottom = 24;   // the bunting hangs above this line
 constexpr float kTitleTop = 26;
 constexpr float kContentTop = 80;      // the screens start below the title
+// The version label beside the title: a much smaller face than the title's, kTitleVersionGap points to its right.
+constexpr Style kTitleVersionStyle = style::kBodyBold;
+constexpr float kTitleVersionGap = 10;
 constexpr float kTileHeight = 158;
 constexpr size_t kLogLimit = 4000;     // rows kept in the checking log
 constexpr float kNoticeSeconds = 4.5f;
@@ -106,6 +109,13 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     RefreshStatus();
     std::string last = backend_.LastChoice();
     playIndex_ = last == "us" ? 0 : 1;
+    skipIntro_ = backend_.Setting(kSkipIntroKey) == "1";
+    backToLauncher_ = backend_.Setting(kBackToLauncherKey) == "1";
+    smoothZoom_ = backend_.Setting(kSmoothZoomKey) == "1";   // tpw-port PR #20 by samueleagle91
+    {   // tpw-port PR #24 by samueleagle91
+        const std::string size = backend_.Setting(kInterfaceSizeKey);
+        interfaceSize_ = size == "85" ? 1 : size == "70" ? 2 : 0;
+    }
     // files the startup check (assets/importer.h) found changed and removed
     std::string startup = backend_.StartupNotice();
     if (!startup.empty()) {
@@ -436,8 +446,20 @@ void LauncherUi::DrawBackdrop(const Rect& w) {
     }
 }
 
+// The title row: the product's name large, and the launcher's version just to its right in a much smaller face, on the
+// same baseline, in the title's sticker look (white with a dark outline) so it reads on the sky. The header's buttons
+// keep to the right of it (TitleRect, TitleVersionRect and HeaderButtonsRect are the test's view of the row).
 float LauncherUi::DrawHeader(const Rect& w, bool buttons) {
-    text_.DrawOutlined(style::kTitle, metric::kMargin + 2, kTitleTop, kProductName, colour::kPaper, colour::kInk, 3);
+    const float titleX = metric::kMargin + 2;
+    const float titleW = text_.Width(style::kTitle, kProductName);
+    text_.DrawOutlined(style::kTitle, titleX, kTitleTop, kProductName, colour::kPaper, colour::kInk, 3);
+    titleRect_ = {titleX, kTitleTop, titleW, text_.LineHeight(style::kTitle)};
+    const float versionW = text_.Width(kTitleVersionStyle, kVersionLabel);
+    const float versionY = kTitleTop + text_.Ascent(style::kTitle) - text_.Ascent(kTitleVersionStyle);
+    titleVersionRect_ = {titleRect_.Right() + kTitleVersionGap, versionY, versionW, text_.LineHeight(kTitleVersionStyle)};
+    text_.DrawOutlined(kTitleVersionStyle, titleVersionRect_.x, titleVersionRect_.y, kVersionLabel, colour::kPaper,
+                       colour::kInk, 2);
+    headerButtonsRect_ = Rect{};
     if (buttons) {
         float h = 36, y = kTitleTop + 8;
         float x = w.Right() - metric::kMargin;
@@ -450,11 +472,14 @@ float LauncherUi::DrawHeader(const Rect& w, bool buttons) {
             settingsOpen_ = true;
             armedRemove_ = -1;
         }
-        if (screen_ == Screen::Home && AnyPlayable()) {
-            float pw = ui_.ButtonWidth("Play") + 20;
+        // The header's Play only where it clears the title and its version (the tiles have their own Play buttons).
+        float pw = ui_.ButtonWidth("Play") + 20;
+        bool fits = x - pw - 10 > titleVersionRect_.Right() + 16;
+        if (screen_ == Screen::Home && AnyPlayable() && fits) {
             x -= pw + 10;
             if (ui_.Button("header-play", {x, y, pw, h}, "Play", ButtonKind::Go)) OpenPlay();
         }
+        headerButtonsRect_ = {x, y, w.Right() - metric::kMargin - x, h};
     }
     return kContentTop;
 }
@@ -471,17 +496,15 @@ void LauncherUi::DrawTiles(const Rect& row, bool dropTargets) {
     tilesShown_ = dropTargets;
 }
 
-void LauncherUi::DrawHome(const Rect& w) {
-    if (AllConfirmed()) {
-        DrawReady(w);
-        return;
-    }
-    float top = DrawHeader(w, true);
+// The footer of both homes: the descriptive line and the disclaimer, word for word, with the launcher's version in the
+// bottom right corner, small and soft, beside the disclaimer's last line (which wraps short of it), out of the way of
+// the tiles and their Play buttons above. A player reads it from there for a bug report.
+Rect LauncherUi::DrawFooter(const Rect& w) {
     const float m = metric::kMargin;
-
-    // The footer: the descriptive line and the disclaimer, word for word.
+    const std::string version = kVersionLabel;
+    const float vw = text_.Width(style::kSmall, version);
     float footerW = w.w - 2 * m - 24;
-    std::vector<std::string> disclaimer = text_.Wrap(style::kSmall, kDisclaimer, footerW);
+    std::vector<std::string> disclaimer = text_.Wrap(style::kSmall, kDisclaimer, footerW - vw - 16);
     std::vector<std::string> tagline = text_.Wrap(style::kSmallBold, kTagline, footerW);
     float lh = text_.LineHeight(style::kSmall);
     float footerH = (disclaimer.size() + tagline.size()) * lh + 18;
@@ -496,6 +519,21 @@ void LauncherUi::DrawHome(const Rect& w) {
         text_.Draw(style::kSmall, footer.x + 12, y, line, colour::kInkSoft);
         y += lh;
     }
+    versionRect_ = {footer.Right() - 12 - vw, y - lh, vw, lh};
+    text_.Draw(style::kSmall, versionRect_.x, versionRect_.y, version, colour::kInkSoft);
+    return footer;
+}
+
+void LauncherUi::DrawHome(const Rect& w) {
+    if (AllConfirmed()) {
+        DrawReady(w);
+        return;
+    }
+    float top = DrawHeader(w, true);
+    const float m = metric::kMargin;
+
+    // The footer: the descriptive line and the disclaimer, word for word, and the version.
+    const Rect footer = DrawFooter(w);
 
     Rect tiles{m, footer.y - metric::kGap - kTileHeight, w.w - 2 * m, kTileHeight};
     Rect field{m, top, w.w - 2 * m, tiles.y - metric::kGap - top - 4};
@@ -537,22 +575,7 @@ void LauncherUi::DrawReady(const Rect& w) {
     const float m = metric::kMargin;
 
     // The footer, as on the home with the drop field.
-    float footerW = w.w - 2 * m - 24;
-    std::vector<std::string> disclaimer = text_.Wrap(style::kSmall, kDisclaimer, footerW);
-    std::vector<std::string> tagline = text_.Wrap(style::kSmallBold, kTagline, footerW);
-    float lh = text_.LineHeight(style::kSmall);
-    float footerH = (disclaimer.size() + tagline.size()) * lh + 18;
-    Rect footer{m, w.Bottom() - m - footerH, w.w - 2 * m, footerH};
-    canvas_.FillRound(footer, 12, colour::kPaper.WithAlpha(215));
-    float y = footer.y + 9;
-    for (const std::string& line : tagline) {
-        text_.Draw(style::kSmallBold, footer.x + 12, y, line, colour::kInk);
-        y += lh;
-    }
-    for (const std::string& line : disclaimer) {
-        text_.Draw(style::kSmall, footer.x + 12, y, line, colour::kInkSoft);
-        y += lh;
-    }
+    const Rect footer = DrawFooter(w);
 
     // The row above the footer: "Game data" on the left; while a drag is over the window, what letting go does.
     const float rowH = 34;
@@ -606,6 +629,8 @@ void LauncherUi::DrawReady(const Rect& w) {
             playIndex_ = i;
             choice_.edition = kEditions[i];
             choice_.gold = status_[2].unlocked;
+            choice_.skipIntro = skipIntro_;
+            choice_.backToLauncher = backToLauncher_;
             playChosen_ = true;
             std::string err;
             backend_.SetLastChoice(assets::EditionName(choice_.edition), err);
@@ -777,6 +802,8 @@ void LauncherUi::DrawPlay(const Rect& w) {
     if (ui_.Button("play", play, "Play", ButtonKind::Go, s.unlocked, style::kHeadline)) {
         choice_.edition = kEditions[playIndex_];
         choice_.gold = goldOn;
+        choice_.skipIntro = skipIntro_;
+        choice_.backToLauncher = backToLauncher_;
         playChosen_ = true;
         std::string err;
         backend_.SetLastChoice(assets::EditionName(choice_.edition), err);
@@ -790,7 +817,8 @@ void LauncherUi::DrawSettings(const Rect& w) {
     canvas_.FillRound(w, 0, colour::kDim);
     float pw = std::min(w.w - 2 * metric::kMargin, 640.0f);
     float contentH = text_.LineHeight(style::kHeadline) + 12 + 2 * (text_.LineHeight(style::kBodyBold) + 4) + 40 +
-                     text_.LineHeight(style::kSmall) + 14 + 3 * 50 + 4 + 2 * text_.LineHeight(style::kSmallBold);
+                     text_.LineHeight(style::kSmall) + 14 + 3 * 50 + 4 + 2 * text_.LineHeight(style::kSmallBold) +
+                     text_.LineHeight(style::kBodyBold) + 4 + 4 * 50;
     float ph = std::min(w.h - 2 * metric::kMargin, contentH + 40);
     Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
     ui_.Panel(panel, colour::kPaper, colour::kCream);
@@ -872,6 +900,74 @@ void LauncherUi::DrawSettings(const Rect& w) {
         }
         y += rowH;
     }
+
+    text_.Draw(style::kBodyBold, in.x, y, "Game", colour::kInk);
+    y += text_.LineHeight(style::kBodyBold) + 4;
+    {
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, "Skip the intro films", colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, "Play goes straight to the lobby, without the logos and the opening film",
+                             row.w - 12 - 56 - 24, false),
+                   colour::kInkSoft);
+        if (ui_.Toggle("skip-intro", {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32}, skipIntro_)) {
+            std::string err;
+            if (!backend_.SaveSetting(kSkipIntroKey, skipIntro_ ? "1" : "0", err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
+        }
+        y += rowH;
+    }
+    {
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, "Back to the launcher after playing", colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, "When the game quits, this window opens again", row.w - 12 - 56 - 24, false),
+                   colour::kInkSoft);
+        if (ui_.Toggle("back-to-launcher", {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32}, backToLauncher_)) {
+            std::string err;
+            if (!backend_.SaveSetting(kBackToLauncherKey, backToLauncher_ ? "1" : "0", err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
+        }
+        y += rowH;
+    }
+    {
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, "Smooth wheel zoom", colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, "The mouse wheel eases the zoom toward the pointer", row.w - 12 - 56 - 24, false),
+                   colour::kInkSoft);
+        if (ui_.Toggle("smooth-zoom", {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32}, smoothZoom_)) {
+            std::string err;
+            if (!backend_.SaveSetting(kSmoothZoomKey, smoothZoom_ ? "1" : "0", err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
+        }
+        y += rowH;
+    }
+    {
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+        const float segW = 210;
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, "Interface size", colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, "Smaller panels show more of the park", row.w - 12 - segW - 24, false),
+                   colour::kInkSoft);
+        static const std::vector<std::string> kSizes = {"100%", "85%", "70%"};
+        static const char* const kValues[] = {"100", "85", "70"};
+        if (ui_.Segmented("interface-size", {row.Right() - 12 - segW, row.CentreY() - 18, segW, 36}, kSizes,
+                          std::vector<bool>(kSizes.size(), true), interfaceSize_)) {
+            std::string err;
+            if (!backend_.SaveSetting(kInterfaceSizeKey, kValues[interfaceSize_], err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
+        }
+        y += rowH;
+    }
     y += 4;
     if (verify_.valid() && verifyIndex_ >= 0) {
         std::string msg = std::string("Checking every file of the ") + EditionTitle(kEditions[verifyIndex_]) + " again";
@@ -883,6 +979,7 @@ void LauncherUi::DrawSettings(const Rect& w) {
 }
 
 void LauncherUi::DrawAbout(const Rect& w) {
+    const float kLogsRowH = 32;   // the Show logs row, when there is a logs folder
     canvas_.FillRound(w, 0, colour::kDim);
     float pw = std::min(w.w - 2 * metric::kMargin, 640.0f), inW = pw - 40;
     const std::vector<MadeWith> rows = MadeWithRows(text_);   // the "Made with" table below
@@ -890,19 +987,37 @@ void LauncherUi::DrawAbout(const Rect& w) {
     float contentH = text_.LineHeight(style::kHeadline) + 10 +
                      text_.LineHeight(style::kBody) * text_.Wrap(style::kBody, kTagline, inW).size() + 6 +
                      text_.LineHeight(style::kSmallBold) * text_.Wrap(style::kSmallBold, kDisclaimer, inW).size() + 12 +
+                     (logsFolder_.empty() ? 0.0f : kLogsRowH + 12) +
                      text_.LineHeight(style::kBodyBold) + 4 + kRows * (text_.LineHeight(style::kSmall) + 6);
     float ph = std::min(w.h - 2 * metric::kMargin, contentH + 44);
     Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
     ui_.Panel(panel, colour::kPaper, colour::kCream);
     Rect in = panel.Inset(20);
     float y = in.y;
-    std::string title = std::string("About ") + kProductName;
+    // The version in the title, as --version and the log file's first line give it.
+    std::string title = std::string("About ") + kProductNameWithVersion;
     text_.Draw(style::kHeadline, in.x, y, title, colour::kInk);
     float cw = ui_.ButtonWidth("Close");
     if (ui_.Button("about-close", {in.Right() - cw, y, cw, 36}, "Close", ButtonKind::Quiet)) aboutOpen_ = false;
     y += text_.LineHeight(style::kHeadline) + 10;
     y += text_.DrawWrapped(style::kBody, in.x, y, in.w, kTagline, colour::kInk) + 6;
     y += text_.DrawWrapped(style::kSmallBold, in.x, y, in.w, kDisclaimer, colour::kInk) + 12;
+
+    // The log files (platform/log_file.h): a bug report attaches the latest one; the button shows them in the Finder.
+    if (!logsFolder_.empty()) {
+        const char* label = "Show logs";
+        float lw = ui_.ButtonWidth(label);
+        showLogsRect_ = {in.x, y, lw, kLogsRowH};
+        if (ui_.Button("about-logs", showLogsRect_, label, ButtonKind::Quiet) &&
+            !SDL_OpenURL(FileUrl(logsFolder_).c_str()))
+            ShowNotice(std::string("Could not open the logs folder: ") + SDL_GetError(), true);
+        float tx = in.x + lw + 12;
+        text_.Draw(style::kSmall, tx, y + (kLogsRowH - text_.LineHeight(style::kSmall)) * 0.5f,
+                   text_.Fit(style::kSmall, "The logs of the last runs. A bug report attaches the newest.",
+                             in.Right() - tx, false),
+                   colour::kInkSoft);
+        y += kLogsRowH + 12;
+    }
 
     text_.Draw(style::kBodyBold, in.x, y, "Made with", colour::kInk);
     y += text_.LineHeight(style::kBodyBold) + 4;
@@ -938,6 +1053,7 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
     ui_.SetInteractive(!overlay && !dragging_);
     tilesShown_ = false;
     readyShown_ = false;
+    versionRect_ = showLogsRect_ = titleRect_ = titleVersionRect_ = headerButtonsRect_ = Rect{};
     DrawBackdrop(window);
     switch (screen_) {
         case Screen::Home: DrawHome(window); break;
