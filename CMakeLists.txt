@@ -1,6 +1,11 @@
 # tpw-port: the playable port. The translation is the tpw-decomp submodule, built as it is except for the files under
 # overrides/, which take the place of the submodule's file of the same path (the port's fixes, listed in FIXES.md).
 cmake_minimum_required(VERSION 3.20)
+# The oldest macOS the launcher runs on. Without it the build takes the building Mac's own version, and a launcher built
+# on macOS 27 refuses to open on 26. Set before project(); -DCMAKE_OSX_DEPLOYMENT_TARGET=... picks another.
+if(APPLE AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET "26.0" CACHE STRING "The oldest macOS the build runs on" FORCE)
+endif()
 project(tpw_port LANGUAGES C CXX)   # C for the vendored libraries (third_party/)
 
 set(CMAKE_CXX_STANDARD 17)
