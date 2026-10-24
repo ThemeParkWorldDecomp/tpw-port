@@ -223,8 +223,8 @@ TbError CSprocketsModule::Init(const TbSoundSystemInfo& info) {
 // _TbSoundSampleCompletedCallback) and maintained the MPEG file player pool (UPooled<CMpegMacFilePlayerUnpooled, 10>) so
 // that the interrupt-time callbacks never allocated. The host pools of the codecs allocate on demand (their operator new falls
 // back to the heap), so a missed top-up costs time, not correctness, and three of the TopUps are not on this base, so none is
-// called. The file player pool has NO heap fallback (its operator new answers NULL when no player is idle), so its
-// maintenance runs here, as the original's Tick ended with it.
+// called. The original's file player pool has NO heap fallback (its operator new answers NULL when no player is idle; the
+// port's fixes make a new player then), so its maintenance runs here, as the original's Tick ended with it.
 // The maintenance walks the pool's queue and frees idle players while SDL's audio thread returns players to it, so the port's
 // fixes hold the pool's lock (MpegPoolQueueLock, include/CMpegBase.h) across it; the Mac's interrupt-time callbacks could
 // never run beside the walk (tpw-port issue #50).

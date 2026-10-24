@@ -104,7 +104,7 @@ template <>
 Pool::UPooled() {}
 
 // 0x10007ffc: for the player's size, the first element of the queue whose player has no read in flight, taken off the queue;
-// NULL when there is none (no heap fallback). Any other size goes to the heap.
+// NULL when there is none (no heap fallback; the port makes one, below). Any other size goes to the heap.
 // (The game tests the answer: NULL is a pool with no idle player, not an allocation failure.)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wnew-returns-null"
@@ -119,7 +119,9 @@ void* Pool::operator new(std::size_t size) {
             return element->GetData();
         }
     }
-    return nullptr;
+    // TPW_PORT_FIX mpegpool UPooled::operator new | Mac: NULL when no player is idle (the interrupt-time callbacks could not allocate), and the caller, _TbSoundSampleMPEG2File::OpenMpegFile, called the player's Open on it | Port: a new element (MakeNewPoolElement, as MaintainPoolLevel makes them); operator delete puts it on the queue and MaintainPoolLevel frees what is above the target, as the host's other sound pools fall back to the heap | Why: a busy park plays more than the ten players at once, and the NULL player crashed the game (tpw-port issue #50)
+    Queue::Element* element = MakeNewPoolElement();
+    return element != nullptr ? element->GetData() : nullptr;
 }
 #pragma clang diagnostic pop
 
