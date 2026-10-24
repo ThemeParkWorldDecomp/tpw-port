@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -237,6 +238,15 @@ public:
     }
     std::string StartupNotice() const override { return startupNotice; }
     std::string startupNotice;   // what the startup check "removed"
+    std::string Setting(const std::string& key) const override {
+        auto it = settings.find(key);
+        return it == settings.end() ? std::string() : it->second;
+    }
+    bool SaveSetting(const std::string& key, const std::string& value, std::string&) override {
+        settings[key] = value;
+        return true;
+    }
+    std::map<std::string, std::string> settings;   // launcher.ini's settings, as SaveSetting kept them
 
 private:
     std::vector<uint8_t> present_;
@@ -337,6 +347,15 @@ SDL_Event ButtonEvent(SDL_EventType type, float x, float y) {
     e.button.button = SDL_BUTTON_LEFT;
     e.button.x = x;
     e.button.y = y;
+    return e;
+}
+
+// `lines` of the wheel; positive: towards the top.
+SDL_Event WheelEvent(float lines) {
+    SDL_Event e{};
+    e.type = SDL_EVENT_MOUSE_WHEEL;
+    e.wheel.y = lines;
+    e.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
     return e;
 }
 
@@ -662,6 +681,20 @@ std::vector<Shot> Shots() {
                          ui.HandleEvent(DropEvent(SDL_EVENT_DROP_POSITION, t.CentreX(), t.CentreY()));
                      },
                      Screen::Home});
+
+    // Settings taller than the window: scrolled to its end with the wheel (the pointer in the box's left margin), and
+    // in the smallest window at its top, the last row cut off under the bar.
+    shots.push_back({"20-settings-scrolled-down", metric::kStartWidth, metric::kStartHeight, PartialUsEur,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         ui.ShowSettings(true);
+                         frames(1);
+                         ui.HandleEvent(MotionEvent(90, metric::kStartHeight * 0.5f));
+                         ui.HandleEvent(WheelEvent(-10));
+                     },
+                     Screen::Home});
+    shots.push_back({"21-settings-smallest", metric::kMinWidth, metric::kMinHeight, PartialUsEur,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) { ui.ShowSettings(true); },
+                     Screen::Home});
     return shots;
 }
 
@@ -899,6 +932,136 @@ void CheckReady(SDL_Renderer* renderer) {
     Check(ui.ReadyPlayRect(0).w == 0 && ui.TileRect(2).w > 0, "Gold missing: the three tiles again");
 }
 
+// Scrolling: the wheel over the area moves the offset a step a line and stops at both ends, the wheel elsewhere does
+// nothing, small steps add up, and content not drawn for a frame starts at its top again. A clip keeps the pointer too:
+// a button outside it is not clicked.
+void CheckScroll(SDL_Renderer* renderer) {
+    Canvas canvas(renderer);
+    Text text(canvas);
+    Ui ui(canvas, text);
+    const Rect area{100, 100, 200, 100};
+    auto frame = [&](const Input& in, bool drawn = true) {
+        canvas.Begin(1);
+        ui.Begin(kDt, in);
+        float offset = drawn ? ui.Scroll("s", area, 50, 120) : -1;
+        ui.End();
+        return offset;
+    };
+    Input in;
+    in.mouseX = in.mouseY = 150;
+    Check(frame(in) == 0, "scroll: starts at the top");
+    in.wheel = -1;
+    Check(frame(in) == 50, "scroll: a line down is a step");
+    in.wheel = -5;
+    Check(frame(in) == 120, "scroll: stops at the end");
+    in.wheel = 1;
+    Check(frame(in) == 70, "scroll: a line up");
+    in.mouseX = 10;
+    in.wheel = -1;
+    Check(frame(in) == 70, "scroll: the wheel away from the area does nothing");
+    in.mouseX = 150;
+    in.wheel = 5;
+    Check(frame(in) == 0, "scroll: stops at the top");
+    in.wheel = -0.01f;
+    for (int i = 0; i < 3; ++i) frame(in);
+    Check(frame(in) == 2, "scroll: a touchpad's small steps add up");
+    in.wheel = -1;
+    frame(in);
+    in.wheel = 0;
+    frame(in, false);
+    Check(frame(in) == 0, "scroll: drawn again after a frame without it, it starts at the top");
+
+    const Rect button{100, 100, 120, 40};
+    auto click = [&](const Rect& clip) {
+        Input press;
+        press.mouseX = 150;
+        press.mouseY = 120;
+        press.down = press.pressed = true;
+        Input release = press;
+        release.down = release.pressed = false;
+        release.released = true;
+        bool clicked = false;
+        for (const Input& i : {press, release}) {
+            canvas.Begin(1);
+            ui.Begin(kDt, i);
+            ui.Clip(clip);
+            clicked = ui.Button("clipped", button, "Button", ButtonKind::Go) || clicked;
+            ui.Unclip();
+            ui.End();
+        }
+        return clicked;
+    };
+    Check(!click({0, 130, 320, 110}), "scroll: a button under the pointer but outside the clip is not clicked");
+    Check(click({0, 110, 320, 130}), "scroll: inside the clip it is");
+}
+
+// The Settings box in the smallest window: its last row (Interface size) starts below the box, the wheel over the box
+// brings it into view, a click on it there keeps the setting, and the wheel back up (or opening the box again) puts it
+// where it was. In a window tall enough for the box nothing scrolls.
+void CheckSettingsScroll(SDL_Renderer* renderer) {
+    FakeBackend b;
+    LauncherUi ui(renderer, b);
+    float width = metric::kMinWidth, height = metric::kMinHeight;
+    auto frames = [&](int n) {
+        for (int i = 0; i < n; ++i) ui.Frame(kDt, width, height, 1);
+    };
+    ui.ShowSettings(true);
+    frames(1);
+    const Rect start = ui.InterfaceSizeRect();
+    Check(start.w > 0 && start.Bottom() > height - metric::kMargin,
+          "settings: in the smallest window the last row starts below the box");
+    Check(ui.SettingsScrolls(), "settings: in the smallest window the box scrolls");
+
+    ui.HandleEvent(MotionEvent(10, height * 0.5f));   // beside the box
+    ui.HandleEvent(WheelEvent(-10));
+    frames(1);
+    Check(ui.InterfaceSizeRect().y == start.y, "settings: the wheel beside the box does not scroll it");
+
+    ui.HandleEvent(MotionEvent(width * 0.5f, height * 0.5f));
+    ui.HandleEvent(WheelEvent(-10));
+    frames(1);
+    const Rect end = ui.InterfaceSizeRect();
+    Check(end.y < start.y && end.y > metric::kMargin && end.Bottom() <= height - metric::kMargin,
+          "settings: scrolled down, the last row is in the box");
+    std::printf("settings at %dx%d points: the Interface size switch at y %.0f, scrolled down %.0f\n",
+                metric::kMinWidth, metric::kMinHeight, start.y, end.y);
+
+    // a click on its third choice, 70%
+    float x = end.Right() - end.w / 6, y = end.CentreY();
+    ui.HandleEvent(MotionEvent(x, y));
+    frames(1);
+    ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, x, y));
+    frames(1);
+    ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, x, y));
+    frames(1);
+    CheckEq(b.Setting(kInterfaceSizeKey), "70", "settings: a click on the scrolled-in row keeps the setting");
+
+    ui.HandleEvent(WheelEvent(10));
+    frames(1);
+    Check(ui.InterfaceSizeRect().y == start.y, "settings: the wheel back up puts the row where it was");
+    ui.HandleEvent(WheelEvent(-10));
+    frames(1);
+    ui.ShowSettings(false);
+    frames(1);
+    ui.ShowSettings(true);
+    frames(1);
+    Check(ui.InterfaceSizeRect().y == start.y, "settings: opened again, the box starts at its top");
+
+    // Tall windows, the box only just fitting at some heights: no clip and no bar, whatever the rounding.
+    width = 1100;
+    for (const float tallHeight : {760.0f, 761.0f, 800.0f}) {
+        height = tallHeight;
+        frames(1);
+        const Rect tall = ui.InterfaceSizeRect();
+        ui.HandleEvent(MotionEvent(width * 0.5f, height * 0.5f));
+        ui.HandleEvent(WheelEvent(-10));
+        frames(1);
+        Check(tall.Bottom() < height - metric::kMargin && ui.InterfaceSizeRect().y == tall.y,
+              "settings: in a tall window the box fits and the wheel moves nothing");
+        Check(!ui.SettingsScrolls(), "settings: in a tall window the box does not scroll, so no bar is drawn");
+    }
+}
+
 bool Overlaps(const Rect& a, const Rect& b) {
     return a.w > 0 && b.w > 0 && a.x < b.Right() && b.x < a.Right() && a.y < b.Bottom() && b.y < a.Bottom();
 }
@@ -1045,6 +1208,8 @@ int main(int argc, char** argv) {
         CheckButton(renderer);
         CheckDrops(renderer);
         CheckReady(renderer);
+        CheckScroll(renderer);
+        CheckSettingsScroll(renderer);
         CheckVersionAndLogs(renderer);
         CheckTitleVersion(renderer);
         SDL_DestroyRenderer(renderer);

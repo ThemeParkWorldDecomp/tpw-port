@@ -23,7 +23,9 @@
 // Nothing reads the string on the host.
 // The 67 initialisers of the shared libraries (engine, sound, bullfrog, ...) belong to the libraries' load and are not here,
 // except the ones in kLibraryInitialisers, which fill plain data the game reads and run first, as the libraries loaded before
-// the program: __sinit_LbMaths_cpp sets LbMaths_ArcTan's angle scale (zero without it, every angle is a quadrant constant).
+// the program: __sinit_LbMaths_cpp sets LbMaths_ArcTan's angle scale (zero without it, every angle is a quadrant constant),
+// and __sinit_AudioPlaceHolder_cpp the sounds' random seed (0 without it, so every launch made the same picks of sample,
+// volume, pitch and gap; its clock is platform/sound_glue.cpp's).
 // The destructors they register through __register_global_object are not recorded (its weak body in src records nothing), so
 // none runs at exit.
 #include "static_init.h"
@@ -114,6 +116,7 @@ void __sinit_ui_worldLobbyController_cpp();
 extern "C" void __sinit_ui_2dmap_cpp();
 void __sinit_TPGlobals_cpp();
 void __sinit_LbMaths_cpp();   // bullfrog library
+void __sinit_AudioPlaceHolder_cpp();   // sound library
 
 namespace {
 struct StaticInitialiser {
@@ -124,6 +127,7 @@ struct StaticInitialiser {
 
 const StaticInitialiser kLibraryInitialisers[] = {
     {0x1002971c, __sinit_LbMaths_cpp, "__sinit_LbMaths_cpp"},  // bullfrog library
+    {0x1001bae4, __sinit_AudioPlaceHolder_cpp, "__sinit_AudioPlaceHolder_cpp"},  // sound library
 };
 
 const StaticInitialiser kStaticInitialisers[] = {

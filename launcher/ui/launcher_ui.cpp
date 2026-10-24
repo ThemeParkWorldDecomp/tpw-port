@@ -112,6 +112,7 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     skipIntro_ = backend_.Setting(kSkipIntroKey) == "1";
     backToLauncher_ = backend_.Setting(kBackToLauncherKey) == "1";
     smoothZoom_ = backend_.Setting(kSmoothZoomKey) == "1";   // tpw-port PR #20 by samueleagle91
+    pcSoundPicks_ = backend_.Setting(kPcSoundPicksKey) != "0";
     {   // tpw-port PR #24 by samueleagle91
         const std::string size = backend_.Setting(kInterfaceSizeKey);
         interfaceSize_ = size == "85" ? 1 : size == "70" ? 2 : 0;
@@ -815,11 +816,13 @@ void LauncherUi::DrawPlay(const Rect& w) {
 
 void LauncherUi::DrawSettings(const Rect& w) {
     canvas_.FillRound(w, 0, colour::kDim);
+    const float rowH = 50;
     float pw = std::min(w.w - 2 * metric::kMargin, 640.0f);
-    float contentH = text_.LineHeight(style::kHeadline) + 12 + 2 * (text_.LineHeight(style::kBodyBold) + 4) + 40 +
-                     text_.LineHeight(style::kSmall) + 14 + 3 * 50 + 4 + 2 * text_.LineHeight(style::kSmallBold) +
-                     text_.LineHeight(style::kBodyBold) + 4 + 4 * 50;
-    float ph = std::min(w.h - 2 * metric::kMargin, contentH + 40);
+    float titleH = text_.LineHeight(style::kHeadline) + 12;
+    // Everything below the title, as drawn below.
+    float bodyH = 2 * (text_.LineHeight(style::kBodyBold) + 4) + 40 + text_.LineHeight(style::kSmall) + 14 + 3 * rowH +
+                  4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + 5 * rowH;
+    float ph = std::min(w.h - 2 * metric::kMargin, titleH + bodyH + 40);
     Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
     ui_.Panel(panel, colour::kPaper, colour::kCream);
     Rect in = panel.Inset(20);
@@ -830,7 +833,22 @@ void LauncherUi::DrawSettings(const Rect& w) {
         settingsOpen_ = false;
         armedRemove_ = -1;
     }
-    y += text_.LineHeight(style::kHeadline) + 12;
+    y += titleH;
+
+    // A window too short for the rest scrolls it under the title: the wheel anywhere over the box moves it a row a
+    // line, and a bar in the right margin shows where it is. It is clipped below the Close button and at the box's
+    // outline, so the row below the view shows its top. Whether it scrolls is whether the box was capped, an exact
+    // comparison: `bodyH - shown` can come out a hair above 0 in a box that fits.
+    const float bodyTop = y, shown = in.Bottom() - bodyTop;
+    settingsScrolls_ = ph < titleH + bodyH + 40;
+    const float maxOffset = settingsScrolls_ ? std::max(0.0f, bodyH - shown) : 0.0f;
+    float offset = 0;
+    if (settingsScrolls_) {
+        offset = ui_.Scroll("settings", panel, rowH, maxOffset);
+        ui_.Clip({panel.x + metric::kOutline, bodyTop, panel.w - 2 * metric::kOutline,
+                  panel.Bottom() - metric::kOutline - bodyTop});
+        y -= offset;
+    }
     bool busy = verify_.valid() || backend_.Running();
 
     text_.Draw(style::kBodyBold, in.x, y, "Data folder", colour::kInk);
@@ -851,7 +869,6 @@ void LauncherUi::DrawSettings(const Rect& w) {
 
     text_.Draw(style::kBodyBold, in.x, y, "Editions", colour::kInk);
     y += text_.LineHeight(style::kBodyBold) + 4;
-    const float rowH = 50;
     for (int i = 0; i < 3; ++i) {
         Rect row{in.x, y, in.w, rowH - 6};
         canvas_.FillRound(row, 10, i % 2 ? colour::kCream : colour::kYellowSoft.WithAlpha(120));
@@ -952,6 +969,22 @@ void LauncherUi::DrawSettings(const Rect& w) {
     {
         Rect row{in.x, y, in.w, rowH - 6};
         canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, "Varied sounds", colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, "Sounds change between their recordings, as on the PC", row.w - 12 - 56 - 24,
+                             false),
+                   colour::kInkSoft);
+        if (ui_.Toggle("pc-sound-picks", {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32}, pcSoundPicks_)) {
+            std::string err;
+            if (!backend_.SaveSetting(kPcSoundPicksKey, pcSoundPicks_ ? "1" : "0", err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
+        }
+        y += rowH;
+    }
+    {
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
         const float segW = 210;
         float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
         text_.Draw(style::kBodyBold, row.x + 12, ty, "Interface size", colour::kInk);
@@ -960,8 +993,9 @@ void LauncherUi::DrawSettings(const Rect& w) {
                    colour::kInkSoft);
         static const std::vector<std::string> kSizes = {"100%", "85%", "70%"};
         static const char* const kValues[] = {"100", "85", "70"};
-        if (ui_.Segmented("interface-size", {row.Right() - 12 - segW, row.CentreY() - 18, segW, 36}, kSizes,
-                          std::vector<bool>(kSizes.size(), true), interfaceSize_)) {
+        interfaceSizeRect_ = {row.Right() - 12 - segW, row.CentreY() - 18, segW, 36};
+        if (ui_.Segmented("interface-size", interfaceSizeRect_, kSizes, std::vector<bool>(kSizes.size(), true),
+                          interfaceSize_)) {
             std::string err;
             if (!backend_.SaveSetting(kInterfaceSizeKey, kValues[interfaceSize_], err))
                 settingsMessage_ = "Cannot keep the setting: " + err;
@@ -975,6 +1009,12 @@ void LauncherUi::DrawSettings(const Rect& w) {
         ui_.ProgressBar({in.x + text_.Width(style::kSmallBold, msg) + 14, y, 160, 18}, -1);
     } else if (!settingsMessage_.empty()) {
         text_.DrawWrapped(style::kSmallBold, in.x, y, in.w, settingsMessage_, colour::kInk);
+    }
+    if (settingsScrolls_) {
+        ui_.Unclip();
+        const float barW = 6, margin = panel.Right() - metric::kOutline - in.Right();
+        ui_.ScrollBar({in.Right() + std::round((margin - barW) * 0.5f), bodyTop, barW, shown}, shown, bodyH, offset,
+                      colour::kYellowSoft);
     }
 }
 

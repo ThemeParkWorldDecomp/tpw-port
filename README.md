@@ -59,6 +59,8 @@ The Settings box has these rows:
 - Skip the intro films: off by default.
 - Back to the launcher: off by default.
 - Smooth wheel zoom: off by default, which keeps the original's step zoom. On, the wheel eases the zoom toward the pointer.
+- Varied sounds: on by default, as the PC release plays them: a sound changes between its recordings, volumes and
+  pitches. Off is the Mac's way, where each sound plays the same recording all through a launch.
 - Interface size: 100% by default, the original. 85% or 70% shrink the panels so the park shows more, with the panels
   still at the edges of the screen.
 - Check again: rehashes every file.

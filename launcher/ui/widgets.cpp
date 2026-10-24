@@ -27,6 +27,7 @@ void Ui::Begin(float dt, const Input& input) {
     input_ = input;
     interactive_ = true;
     animating_ = false;
+    if (clipped_) Unclip();
 }
 
 void Ui::End() {
@@ -34,7 +35,39 @@ void Ui::End() {
 }
 
 bool Ui::Hovered(const Rect& r) const {
-    return r.Contains(input_.mouseX, input_.mouseY);
+    return r.Contains(input_.mouseX, input_.mouseY) && (!clipped_ || clip_.Contains(input_.mouseX, input_.mouseY));
+}
+
+float Ui::Scroll(const std::string& id, const Rect& area, float step, float maxOffset) {
+    ScrollState& s = offsets_[id];
+    if (s.frame + 1 != frame_) s.offset = 0;
+    s.frame = frame_;
+    if (interactive_ && Hovered(area) && input_.wheel != 0) s.offset -= input_.wheel * step;
+    // Kept unrounded, so a touchpad's small steps add up; drawn at whole points.
+    s.offset = std::clamp(s.offset, 0.0f, std::max(0.0f, maxOffset));
+    return std::round(s.offset);
+}
+
+void Ui::Clip(const Rect& r) {
+    SDL_Rect clip{static_cast<int>(std::floor(r.x)), static_cast<int>(std::floor(r.y)),
+                  static_cast<int>(std::ceil(r.w)), static_cast<int>(std::ceil(r.h))};
+    SDL_SetRenderClipRect(canvas_.Renderer(), &clip);
+    clip_ = r;
+    clipped_ = true;
+}
+
+void Ui::Unclip() {
+    SDL_SetRenderClipRect(canvas_.Renderer(), nullptr);
+    clipped_ = false;
+}
+
+void Ui::ScrollBar(const Rect& track, float shown, float total, float offset, Rgba trackColour) {
+    if (total <= shown) return;
+    float radius = track.w * 0.5f;
+    canvas_.FillRound(track, radius, trackColour);
+    float h = std::max(18.0f, track.h * shown / total);
+    float y = track.y + (track.h - h) * Clamp01(offset / (total - shown));
+    canvas_.FillRound({track.x, y, track.w, h}, radius, colour::kInkSoft);
 }
 
 bool Ui::Clicked(const std::string& id, const Rect& r, bool enabled) {
@@ -250,9 +283,7 @@ void Ui::LogList(const std::string& id, const Rect& r, const std::vector<LogEntr
         text_.DrawCentred(style::kSmall, inner, "Nothing checked yet", colour::kInkSoft);
         return;
     }
-    SDL_Rect clip{static_cast<int>(std::floor(inner.x)), static_cast<int>(std::floor(inner.y)),
-                  static_cast<int>(std::ceil(inner.w)), static_cast<int>(std::ceil(inner.h))};
-    SDL_SetRenderClipRect(canvas_.Renderer(), &clip);
+    Clip(inner);
     int first = static_cast<int>(top);
     float scrollW = n > visible ? 10.0f : 0.0f;
     for (int i = first; i < n && i <= first + visible; ++i) {
@@ -264,14 +295,9 @@ void Ui::LogList(const std::string& id, const Rect& r, const std::vector<LogEntr
         text_.Draw(style::kSmall, inner.x + 6, y + 2.5f, text_.Fit(style::kSmall, e.path, pathW, true), colour::kInk);
         text_.Draw(style::kSmallBold, inner.Right() - scrollW - 6 - statusW, y + 2.5f, e.status, e.colour);
     }
-    SDL_SetRenderClipRect(canvas_.Renderer(), nullptr);
-    if (n > visible) {
-        Rect track{inner.Right() - 6, inner.y, 6, inner.h};
-        canvas_.FillRound(track, 3, colour::kCream);
-        float h = std::max(18.0f, track.h * visible / n);
-        float y = track.y + (track.h - h) * (maxTop > 0 ? top / maxTop : 0);
-        canvas_.FillRound({track.x, y, track.w, h}, 3, colour::kInkSoft);
-    }
+    Unclip();
+    ScrollBar({inner.Right() - 6, inner.y, 6, inner.h}, static_cast<float>(visible), static_cast<float>(n), top,
+              colour::kCream);
 }
 
 bool Ui::Toggle(const std::string& id, const Rect& r, bool& on, bool enabled) {
