@@ -128,6 +128,8 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
 
 LauncherUi::~LauncherUi() {
     if (verify_.valid()) verify_.wait();
+    updateCancel_ = true;   // a running update check stops its git step
+    if (updateCheck_.valid()) updateCheck_.wait();
 }
 
 void LauncherUi::Browse(bool folder, DialogPurpose purpose) {
@@ -356,6 +358,22 @@ void LauncherUi::PollVerify() {
     RefreshStatus();
 }
 
+void LauncherUi::PollUpdate() {
+    if (!updateCheck_.valid()) return;
+    if (updateCheck_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+    updateResult_ = updateCheck_.get();
+    updateState_ = UpdateState::Done;
+    if (updateLog_ == nullptr) return;
+    for (const std::string& line : updateResult_.log) updateLog_(line.c_str());
+    const std::string problem = UpdateProblem(updateResult_);
+    const std::string outcome =
+        "update check: " + (updateResult_.kind == UpdateCheck::Kind::Behind
+                                ? std::to_string(updateResult_.behind) +
+                                      (updateResult_.behind == 1 ? " new commit" : " new commits") + " on GitHub"
+                                : updateResult_.kind == UpdateCheck::Kind::UpToDate ? std::string("up to date") : problem);
+    updateLog_(outcome.c_str());
+}
+
 // ---- test hooks
 
 void LauncherUi::ShowScreen(Screen screen) {
@@ -365,6 +383,15 @@ void LauncherUi::ShowScreen(Screen screen) {
 
 void LauncherUi::ShowAbout(bool open) {
     aboutOpen_ = open;
+}
+
+void LauncherUi::ShowUpdateChecking() {
+    updateState_ = UpdateState::Checking;
+}
+
+void LauncherUi::ShowUpdateCheck(const UpdateCheck& result) {
+    updateResult_ = result;
+    updateState_ = UpdateState::Done;
 }
 
 void LauncherUi::ShowSettings(bool open) {
@@ -391,7 +418,8 @@ void LauncherUi::ChoosePlay(Edition edition, bool gold) {
 }
 
 bool LauncherUi::Animating() const {
-    return ui_.Animating() || dragging_ || noticeLeft_ > 0 || screen_ == Screen::Checking || verify_.valid();
+    return ui_.Animating() || dragging_ || noticeLeft_ > 0 || screen_ == Screen::Checking || verify_.valid() ||
+           updateCheck_.valid();
 }
 
 bool LauncherUi::TakePlay(LaunchChoice& out) {
@@ -1076,10 +1104,11 @@ void LauncherUi::DrawAbout(const Rect& w) {
     float pw = std::min(w.w - 2 * metric::kMargin, 640.0f), inW = pw - 40;
     const std::vector<MadeWith> rows = MadeWithRows(text_);   // the "Made with" table below
     const size_t kRows = rows.size();
+    const float updateH = updateClone_.empty() ? 0.0f : UpdateRowHeight(inW);
     float contentH = text_.LineHeight(style::kHeadline) + 10 +
                      text_.LineHeight(style::kBody) * text_.Wrap(style::kBody, kTagline, inW).size() + 6 +
                      text_.LineHeight(style::kSmallBold) * text_.Wrap(style::kSmallBold, kDisclaimer, inW).size() + 12 +
-                     (logsFolder_.empty() ? 0.0f : kLogsRowH + 12) +
+                     (logsFolder_.empty() ? 0.0f : kLogsRowH + 12) + (updateClone_.empty() ? 0.0f : updateH + 12) +
                      text_.LineHeight(style::kBodyBold) + 4 + kRows * (text_.LineHeight(style::kSmall) + 6);
     float ph = std::min(w.h - 2 * metric::kMargin, contentH + 44);
     Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
@@ -1111,6 +1140,12 @@ void LauncherUi::DrawAbout(const Rect& w) {
         y += kLogsRowH + 12;
     }
 
+    // Check for updates, for a launcher built in a clone of tpw-port (updates.h).
+    if (!updateClone_.empty()) {
+        DrawUpdateRow({in.x, y, in.w, updateH});
+        y += updateH + 12;
+    }
+
     text_.Draw(style::kBodyBold, in.x, y, "Made with", colour::kInk);
     y += text_.LineHeight(style::kBodyBold) + 4;
     float c1 = in.w * 0.46f, c2 = in.w * 0.16f;
@@ -1128,9 +1163,81 @@ void LauncherUi::DrawAbout(const Rect& w) {
     }
 }
 
+// The update row's wording, as the spec of the About box's Check for updates gives it (updates.h).
+LauncherUi::UpdateRowView LauncherUi::UpdateRow() const {
+    switch (updateState_) {
+        case UpdateState::Idle: return {"Check for updates", "Looks for a newer version on GitHub.", false};
+        case UpdateState::Checking: return {"", "Checking...", true};
+        case UpdateState::Done: break;
+    }
+    if (updateResult_.kind == UpdateCheck::Kind::UpToDate) return {"", "You have the newest version.", false};
+    if (updateResult_.kind == UpdateCheck::Kind::Behind) {
+        const int n = updateResult_.behind;
+        const std::string changes = n == 1 ? std::string("1 new change on GitHub. Update downloads it")
+                                           : std::to_string(n) + " new changes on GitHub. Update downloads them";
+        return {"Update",
+                changes + ", rebuilds the launcher in a window of its own, and opens it again. Your saves and game "
+                          "files stay as they are.",
+                false};
+    }
+    return {"", UpdateProblem(updateResult_), false};
+}
+
+namespace {
+constexpr float kUpdateButtonH = 32;   // as the Show logs row's
+}
+
+float LauncherUi::UpdateRowHeight(float width) {
+    const UpdateRowView row = UpdateRow();
+    const float textW = width - (row.button.empty() ? 0.0f : ui_.ButtonWidth(row.button) + 12);
+    const float textH = text_.LineHeight(style::kSmall) * static_cast<float>(text_.Wrap(style::kSmall, row.text, textW).size());
+    return std::max(kUpdateButtonH, textH);
+}
+
+void LauncherUi::DrawUpdateRow(const Rect& r) {
+    const UpdateRowView row = UpdateRow();
+    updateRowRect_ = r;
+    float tx = r.x;
+    if (!row.button.empty()) {
+        const float bw = ui_.ButtonWidth(row.button);
+        updateButtonRect_ = {r.x, r.y + (r.h - kUpdateButtonH) * 0.5f, bw, kUpdateButtonH};
+        if (ui_.Button("about-update", updateButtonRect_, row.button, ButtonKind::Quiet)) {
+            if (updateState_ == UpdateState::Idle) {
+                updateCancel_ = false;
+                updateState_ = UpdateState::Checking;
+                updateCheck_ = std::async(std::launch::async, [clone = updateClone_, &cancel = updateCancel_] {
+                    return CheckForUpdates(clone, cancel);
+                });
+            } else {
+                std::string err;
+                if (StartUpdate(updateClone_, err)) {
+                    if (updateLog_ != nullptr) updateLog_("update: the update script started; the launcher closes");
+                    // Closing the launcher as the window's close button does: the script waits for it, then rebuilds it.
+                    SDL_Event quit{};
+                    quit.type = SDL_EVENT_QUIT;
+                    SDL_PushEvent(&quit);
+                } else {
+                    if (updateLog_ != nullptr) updateLog_(("update: " + err).c_str());
+                    ShowNotice(err, true);
+                }
+            }
+        }
+        tx += bw + 12;
+    }
+    const float lh = text_.LineHeight(style::kSmall);
+    const float textH = lh * static_cast<float>(text_.Wrap(style::kSmall, row.text, r.Right() - tx).size());
+    const float ty = r.y + (r.h - textH) * 0.5f;
+    text_.DrawWrapped(style::kSmall, tx, ty, r.Right() - tx, row.text, colour::kInkSoft);
+    if (row.busy) ui_.ProgressBar({tx + text_.Width(style::kSmall, row.text) + 14, r.y + (r.h - 18) * 0.5f, 160, 18}, -1);
+}
+
 void LauncherUi::Frame(float dt, float width, float height, float scale) {
     PollDialogs();
     PollVerify();
+    PollUpdate();
+    // The update row starts again when the About box has been closed (a check still running goes on, and an answer that
+    // comes while the box is closed is only logged).
+    if (!aboutOpen_ && updateState_ == UpdateState::Done) updateState_ = UpdateState::Idle;
     PollImport();
     RefreshStatus();
     if (noticeLeft_ > 0) noticeLeft_ = std::max(0.0f, noticeLeft_ - dt);
@@ -1145,7 +1252,7 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
     ui_.SetInteractive(!overlay && !dragging_);
     tilesShown_ = false;
     readyShown_ = false;
-    versionRect_ = showLogsRect_ = titleRect_ = titleVersionRect_ = headerButtonsRect_ = Rect{};
+    versionRect_ = showLogsRect_ = updateRowRect_ = updateButtonRect_ = titleRect_ = titleVersionRect_ = headerButtonsRect_ = Rect{};
     DrawBackdrop(window);
     switch (screen_) {
         case Screen::Home: DrawHome(window); break;

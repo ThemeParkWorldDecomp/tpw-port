@@ -6,6 +6,7 @@
 #pragma once
 #include <SDL3/SDL.h>
 
+#include <atomic>
 #include <future>
 #include <memory>
 #include <string>
@@ -15,6 +16,7 @@
 #include "draw.h"
 #include "text.h"
 #include "texts.h"
+#include "updates.h"
 #include "versions.h"
 #include "widgets.h"
 
@@ -76,6 +78,12 @@ public:
     void SetWindow(SDL_Window* window) { window_ = window; }
     // The folder of the launcher's log files (launcher/main.cpp): the About box's Show logs opens it. Empty: no button.
     void SetLogsFolder(const std::string& folder) { logsFolder_ = folder; }
+    // The clone of tpw-port the launcher was built in (FindUpdateClone): the About box's Check for updates and Update work
+    // on it. Empty: no such row. `log` takes the check's lines for the launcher's log (null: none).
+    void SetUpdateClone(const std::string& clone, void (*log)(const char* line) = nullptr) {
+        updateClone_ = clone;
+        updateLog_ = log;
+    }
     // Pointer coordinates are the window's, in points.
     void HandleEvent(const SDL_Event& event);
     // Updates and draws one frame of `width` x `height` points at `scale` pixels per point. Does not present.
@@ -122,6 +130,12 @@ public:
     Rect VersionRect() const { return versionRect_; }
     // The About box's Show logs button in the last frame, in points (empty when not shown).
     Rect ShowLogsRect() const { return showLogsRect_; }
+    // The About box's update row: as if a check were running, or had answered `result`, without running git.
+    void ShowUpdateChecking();
+    void ShowUpdateCheck(const UpdateCheck& result);
+    // The update row in the last frame, in points (empty when not shown), and its button (empty when it has none).
+    Rect UpdateRowRect() const { return updateRowRect_; }
+    Rect UpdateButtonRect() const { return updateButtonRect_; }
     // The title row in the last frame, in points: the product's name, the version label drawn to its right, and the
     // header's buttons (About, Settings and the header's Play when shown; empty on screens without them).
     Rect TitleRect() const { return titleRect_; }
@@ -137,6 +151,7 @@ private:
     void FinishImport(const assets::ImportReport& report);
     void PollDialogs();
     void PollVerify();
+    void PollUpdate();
     void Browse(bool folder, DialogPurpose purpose);
     int DropTargetAt(float x, float y) const;   // 0..2 an edition tile, -1 the drop field, -2 nothing
     void RefreshStatus();
@@ -156,6 +171,16 @@ private:
     void DrawPlay(const Rect& window);
     void DrawSettings(const Rect& window);
     void DrawAbout(const Rect& window);
+    // The About box's update row: what it says and its button by the check's state, its height in `width`, and the row
+    // drawn in `row` (whose height is that).
+    struct UpdateRowView {
+        std::string button;   // empty: no button
+        std::string text;
+        bool busy = false;    // a moving bar after the text
+    };
+    UpdateRowView UpdateRow() const;
+    float UpdateRowHeight(float width);
+    void DrawUpdateRow(const Rect& row);
     void DrawStarting(const Rect& window);
 
     Canvas canvas_;
@@ -185,10 +210,22 @@ private:
     bool readyShown_ = false;
     Rect versionRect_;         // last frame's version text (VersionRect)
     Rect showLogsRect_;        // last frame's Show logs button
+    Rect updateRowRect_;       // last frame's update row and its button
+    Rect updateButtonRect_;
     Rect titleRect_;           // last frame's title, its version label and the header's buttons
     Rect titleVersionRect_;
     Rect headerButtonsRect_;
     std::string logsFolder_;
+
+    // Check for updates (updates.h): the clone, the log, the check on a thread of its own and its answer. Idle is the
+    // row's first state, and the box's closing brings it back.
+    enum class UpdateState { Idle, Checking, Done };
+    std::string updateClone_;
+    void (*updateLog_)(const char* line) = nullptr;
+    UpdateState updateState_ = UpdateState::Idle;
+    UpdateCheck updateResult_;
+    std::future<UpdateCheck> updateCheck_;
+    std::atomic<bool> updateCancel_{false};   // set when the launcher closes, so a check that is running stops
 
     // The editions' states, refreshed every frame.
     assets::EditionStatus status_[3];

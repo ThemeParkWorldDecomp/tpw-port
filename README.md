@@ -20,6 +20,10 @@ If macOS asks to install the command line developer tools, click Install, wait, 
 build takes a few minutes. If your Mac has no CMake, `make` fetches it into the build
 folder. Nothing else is installed.
 
+To update, open the launcher's About box, click Check for updates, then Update: Terminal opens, fetches the newest
+version, builds it and starts the launcher again. Or run `make update` in the tpw-port folder (then `make run`). Your
+saves and game files are not touched.
+
 ### Windows
 
 On a PC with 64-bit Windows 10 (version 1803 or newer) or Windows 11, Intel, AMD or Arm (an Arm PC needs Windows 11),
@@ -36,8 +40,12 @@ After installing Git, open a new PowerShell or Command Prompt window. Paste thes
 
 The first build downloads its tools and compiles the launcher. No Visual Studio, CMake, Python or SDK installation is
 needed. Next time, open the tpw-port folder and double-click run.cmd, or run `.\run.cmd` there. You can also start
-build\tpw_launcher.exe directly. To update an existing clone, run `git pull`, `git submodule update --init --recursive`
-and `.\build.cmd`.
+build\tpw_launcher.exe directly.
+
+To update, open the launcher's About box, click Check for updates, then Update: a window opens, fetches the newest
+version, builds it and starts the launcher again. Or double-click update.cmd in the tpw-port folder, which does the same:
+`git pull`, `git submodule update --init --recursive`, `.\build.cmd` and `.\run.cmd`. Your saves and game files are not
+touched. Update needs Git on the PATH and a clone with no changes of your own; otherwise the About box says why.
 
 Git for Windows is the only thing installed. build.cmd fetches the rest into build\tools\, in the versions the Windows
 build was tested with, each checked against its publisher's SHA-256: llvm-mingw (the compiler), CMake, Ninja and Python

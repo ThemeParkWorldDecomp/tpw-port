@@ -46,6 +46,9 @@ struct WindowPlacement {
     void (*windowShown)() = nullptr;
     // The folder of the log files, which the About box's Show logs opens (empty: no such button).
     std::string logsFolder;
+    // The clone of tpw-port the launcher was built in (FindUpdateClone, updates.h), which the About box's Check for
+    // updates and Update work on (empty: no such row).
+    std::string updateClone;
 };
 
 // Initialises SDL's video subsystem if it is not yet, and leaves it initialised. On Play the window is not closed: it

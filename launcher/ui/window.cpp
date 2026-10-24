@@ -207,6 +207,7 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
         LauncherUi& ui = *owned;
         ui.SetWindow(window);
         ui.SetLogsFolder(placement.logsFolder);
+        ui.SetUpdateClone(placement.updateClone, placement.log);
         if (!ui.Ok()) {
             err = ui.Error();
             outcome = WindowOutcome::Failed;
