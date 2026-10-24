@@ -193,10 +193,10 @@ void GetUIMatrix(sMatrix* matrix, int16_t left, int16_t bottom, int16_t width, i
     const float scaleY = h / static_cast<float>(height);
     const float inverseX = 2.0f / scaleX;
     const float inverseY = 2.0f / scaleY;
-    // TPW_PORT_FIX uiscale GetUIMatrix | Mac: the UI's 1536 units down span the screen | Port: the unit space's height does | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
-    const float kHeight = static_cast<float>(gUIUnitHeight);
-    const float kHalfHeight = kHeight * 0.5f;
-    const float kInverseHeight = 1.0f / kHeight;
+    // TPW_PORT_FIX uiscale GetUIMatrix | Mac: the UI's 1536 units down span the screen | Port: the unit space's height does (1536, so the same numbers, at full size) | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
+    const float kHeight = ::kHeight * (static_cast<float>(gUIUnitHeight) / 1536.0f);
+    const float kHalfHeight = ::kHalfHeight * (static_cast<float>(gUIUnitHeight) / 1536.0f);
+    const float kInverseHeight = ::kInverseHeight * (1536.0f / static_cast<float>(gUIUnitHeight));
     const float up = kHeight - static_cast<float>(bottom);
     // TPW_PORT_FIX v5L26 GetUIMatrix | Mac: the UI's 2048 units across span the screen | Port: the unit space's width does (2048 on a 4:3 screen, so the same numbers) | Why: a widescreen port; the meshes stay where their windows are and keep their shape
     const float kHalfWidth = ::kHalfWidth * (static_cast<float>(gUIUnitWidth) / 2048.0f);

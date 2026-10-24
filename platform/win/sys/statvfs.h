@@ -1,3 +1,4 @@
+// Windows port contributed by samueleagle91 (tpw-port PR #1)
 // sys/statvfs.h for Windows: the volume's size and free space that GetDiskFreeSpace (platform/macdoze_system.cpp) asks of
 // statvfs, from GetDiskFreeSpaceExW (platform/posix_win.cpp), counted in 4 KB blocks.
 #pragma once

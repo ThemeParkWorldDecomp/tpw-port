@@ -1,3 +1,4 @@
+// Windows port contributed by samueleagle91 (tpw-port PR #1)
 // dlfcn.h for Windows: the dynamic linker's lookups that the platform layer and the game make, over the process's loaded
 // modules (platform/posix_win.cpp). dlsym(RTLD_DEFAULT) finds the launcher's own functions because the launcher exports
 // its symbols (CMakeLists.txt); dladdr names the module only, not the symbol.

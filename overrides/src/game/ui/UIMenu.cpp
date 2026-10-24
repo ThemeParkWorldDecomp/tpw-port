@@ -114,13 +114,12 @@ void UIMenu::Init(int32_t (*handler)(InterfaceWindow*, int32_t, int32_t, int32_t
         uint32_t product = second * first;
         uint32_t third = static_cast<uint32_t>(menu_callee::Rand());
         // TPW_PORT_FIX v5L26 UIMenu::Init | Mac: the menu's dimmed window is 2048 units wide | Port: as wide as the unit space, its items laid out in the 2048-unit frame and anchored to the middle | Why: a widescreen port; the menu dims the whole screen and sits in its middle, not in a 4:3 box at the left
-        // TPW_PORT_FIX uiscale UIMenu::Init | Mac: the menu's dimmed window is 1536 units high | Port: as high as the unit space | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+        // TPW_PORT_FIX uiscale UIMenu::Init | Mac: the menu's dimmed window is 1536 units high | Port: as high as the unit space, its items moved down together to the middle | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
         lender_callee::WindowCtor(memory, nullptr, 1, static_cast<int32_t>(third + product), 0, 0,
                                   static_cast<int16_t>(gUIUnitWidth - 1), static_cast<int16_t>(gUIUnitHeight - 1));
     }
     mWindow = static_cast<InterfaceWindow*>(memory);
     if (mWindow == nullptr) return;
-    // TPW_PORT_FIX uiscale UIMenu::Init | Mac: (none) | Port: the menu's items move down together, to the middle | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
     UI_CentreDown(mWindow);
     mWindow->SetCallbackFunction(handler);
     mWindow->SetDrawObject(DrawObjectLibrary::FindDrawObject(kLolight));
@@ -141,7 +140,7 @@ int32_t UIMenu::AddItem(int32_t position, const char16_t* text, int32_t id, int3
     mWindow->GetPosition(rect, 1);
     int32_t left = rect->mLeft;
     int32_t right = rect->mRight;
-    // (the item is placed in the 2048-unit frame; the window's constructor moves it to the middle of the wide menu)
+    // TPW_PORT_FIX v5L26 UIMenu::AddItem | Mac: an item is centred across the menu's window | Port: across the 2048-unit frame, which the window's constructor moves to the middle of the wide menu | Why: a widescreen port; the menu dims the whole screen and sits in its middle, not in a 4:3 box at the left
     if (gUIUnitWidth > 0x800) {
         left = 0;
         right = 0x7ff;

@@ -9,6 +9,23 @@ using assets::EditionStatus;
 using assets::ImportProgress;
 using assets::ImportReport;
 
+std::string FileUrl(const std::string& path) {
+    static const char kHex[] = "0123456789ABCDEF";
+    std::string url = "file://";
+    for (unsigned char c : path) {
+        const bool plain = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '/' ||
+                           c == '-' || c == '.' || c == '_' || c == '~';
+        if (plain) {
+            url += static_cast<char>(c);
+        } else {
+            url += '%';
+            url += kHex[c >> 4];
+            url += kHex[c & 15];
+        }
+    }
+    return url;
+}
+
 std::string FormatCount(uint64_t n) {
     std::string digits = std::to_string(n), out;
     for (size_t i = 0; i < digits.size(); ++i) {

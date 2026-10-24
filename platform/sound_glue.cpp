@@ -3,6 +3,8 @@
 // allocation functions, the event calls and the small constructors. The Sound Manager channel
 // layer behind the rest (USoundChannel, SendToChannel) is not here: the host plays sound through
 // platform/sound_module.cpp, which replaces the translated CSprocketsModule.
+#include <chrono>
+#include <cstdint>
 #include <new>
 
 #include "CMpegBase.h"
@@ -11,6 +13,15 @@
 #include "platform.h"
 #include "platform/macdoze.h"
 #include "platform/macdoze_system.h"
+
+// 0x1002eaac: the clock __sinit_AudioPlaceHolder_cpp seeds the sounds' random picks with, read once as the library
+// loads. The Mac's clock counted from start-up of the machine, so each launch had its own seed; the weak body in src
+// reads LbTime_GetClock, which here counts from the program's first call, 0 that early in every launch. The steady
+// clock counts from start-up on Windows and macOS, as the Mac's did.
+extern "C" int32_t MslSeedGlue1002eaac() {
+    const auto now = std::chrono::steady_clock::now().time_since_epoch();
+    return static_cast<int32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
+}
 
 // 0x1002ebfc: the buffer allocation, NULL when it fails.
 void* AllocBuffer_(uint32_t bytes) { return new (std::nothrow) uint8_t[bytes]; }

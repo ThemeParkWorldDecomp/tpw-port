@@ -185,8 +185,11 @@ bool ModeArm(int32_t mode) {
         return true;
     }
     if (mode == 0x15 || mode == 0x16) {
-        // The Mac passes the word at 0x102ddb6c as a pointer; here the int32 is widened without sign extension (the unit's log keeps 32 bits).
-        SetCoasterEdit(reinterpret_cast<void*>(static_cast<uintptr_t>(static_cast<uint32_t>(gLLCCDB6C))), 1);
+        // The Mac passes the word at 0x102ddb6c as a pointer.
+        // TPW_PORT_FIX coaster64 ModeArm | Mac: the current object's word passed as the coaster | Port: the whole pointer, gLLCMCurrentObject, while its low half is the word (as LLCellMouse.cpp's Current reads it), else the word widened | Why: a 64-bit build; the word holds only the pointer's low half, so the coaster panel's track button crashed in SetCoasterEdit
+        void* coaster = reinterpret_cast<void*>(static_cast<uintptr_t>(static_cast<uint32_t>(gLLCCDB6C)));
+        if (static_cast<uint32_t>(reinterpret_cast<uintptr_t>(gLLCMCurrentObject)) == static_cast<uint32_t>(gLLCCDB6C)) coaster = gLLCMCurrentObject;
+        SetCoasterEdit(coaster, 1);
         return true;
     }
     if (mode == 1) {
@@ -1692,7 +1695,7 @@ CThing* LLCC_SystemGetPointedPeepThing() {
     UI_GetMouseXY(mouseX, mouseY);
     // TPW_PORT_FIX v5L51 LLCC_SystemGetPointedPeepThing | Mac: x / 1024 - 1 | Port: UI_UnitToViewX, x over half the unit space less 1 (the same on a 4:3 screen) | Why: on a widescreen the unit space is wider than 2048, and the hot sprite test needs the pointer in the view's -1..1 (include/UI_Base.h)
     gSpriteHotX = UI_UnitToViewX(mouseX, gUIUnitWidth);
-    // TPW_PORT_FIX uiscale LLCC_SystemGetPointedPeepThing | Mac: y / 767.5 - 1 | Port: y over half the unit space's height less a half, less 1 (the same with the whole height) | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+    // TPW_PORT_FIX uiscale LLCC_SystemGetPointedPeepThing | Mac: the pointer's y in the view's -1..1 is y / 767.5 - 1 | Port: y over half the unit space's height less a half, less 1 | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
     gSpriteHotY = static_cast<float>(mouseY) / (static_cast<float>(gUIUnitHeight - 1) * 0.5f) - 1.0f;
     SSpriteGameData* sprite = gHotSprite;
     if (sprite == nullptr) return nullptr;

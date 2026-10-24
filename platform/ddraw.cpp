@@ -189,6 +189,7 @@ uint32_t IUnknown::Release() {
 }  // namespace NS_MacDoze
 
 // ---- DirectDraw ----------------------------------------------------------------------------
+// The _WIN32 parts of this file: Windows port contributed by samueleagle91 (tpw-port PR #1).
 #ifdef _WIN32
 // SDL's DirectInput joystick code (SDL_windowsjoystick.c) defines the same two IIDs, with the same bytes, as selectany,
 // and COFF takes a selectany definition only beside other selectany ones.

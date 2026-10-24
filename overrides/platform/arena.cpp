@@ -11,7 +11,7 @@
 // without the rest of the platform layer.
 #include "platform/arena.h"
 
-// TPW_PORT_FIX win Reserve, Carve | Mac: mmap | Port: VirtualAlloc on Windows, which has no mmap
+// TPW_PORT_FIX win Reserve/Carve | Mac: mmap reserves the arena's range and the system commits each page when it is first touched | Port: on Windows VirtualAlloc reserves the range and Carve commits it up to the new top, 4 MB at a time | Why: Windows has no mmap and commits nothing on touch, and a file read into an uncommitted page fails instead of faulting; contributed by samueleagle91 (tpw-port PR #1)
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -23,6 +23,7 @@
 #include <cstring>
 #include <mutex>
 #include <vector>
+#include "log_file.h"   // the failure reports go to the log file too
 
 namespace tpw {
 
@@ -57,21 +58,18 @@ size_t gTop = 0;                               // first byte never handed out
 size_t gLive = 0;                              // the sizes asked for in the live blocks
 void* gFreeLists[kSmallClasses + kPowerClasses];
 std::vector<LargeHole>* gHoles = nullptr;
-
-[[noreturn]] void Fail(const char* what, const void* address) {
-    std::fprintf(stderr, "arena: %s (%p)\n", what, address);
-    std::abort();
-}
-
-// TPW_PORT_FIX win Carve | Mac: the system commits a reserved page when it is first touched | Port: on Windows, which commits nothing on touch (and a file read into an uncommitted page fails rather than faults), Carve commits the range up to the new top, 4 MB at a time
 #ifdef _WIN32
 constexpr size_t kCommitStep = size_t(4) << 20;
 size_t gCommitted = 0;   // the bytes from the base that are committed
 #endif
 
+[[noreturn]] void Fail(const char* what, const void* address) {
+    ::tpw::LogRawF("arena: %s (%p)\n", what, address);
+    std::abort();
+}
+
 void Reserve() {
     if (gArenaBase != nullptr) return;
-    // TPW_PORT_FIX win Reserve | Mac: mmap reserves the range (MAP_NORESERVE) | Port: VirtualAlloc reserves it on Windows
 #ifdef _WIN32
     void* base = VirtualAlloc(nullptr, kArenaBytes, MEM_RESERVE, PAGE_READWRITE);
     if (base == nullptr) Fail("could not reserve the address range", nullptr);
@@ -102,7 +100,6 @@ int ClassOf(size_t size, size_t& capacity) {
 
 void* Carve(size_t bytes) {
     if (bytes > kArenaBytes - gTop) return nullptr;
-    // TPW_PORT_FIX win Carve | Mac: hands out the reserved range as it is | Port: on Windows commits it first, up to the new top in 4 MB steps
 #ifdef _WIN32
     if (gTop + bytes > gCommitted) {
         size_t end = (gTop + bytes + kCommitStep - 1) / kCommitStep * kCommitStep;

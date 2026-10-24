@@ -469,9 +469,17 @@ int32_t TrueTypeRender::load_settings(bfl::FileSystem::CFile* file) {
     TPFile_Read(&mTextY, 4, 1, file);
     SamsUtilities::_USwapBlock32(reinterpret_cast<uint32_t*>(&mTextY), 1);
     TPFile_Read(&mLogFont, 0x3c, 1, file);
+    // TPW_PORT_FIX sign TrueTypeRender::load_settings | Mac: byte-swaps the five LOGFONT words of a sign's settings always | Port: while gPortSignText (TrueTypeRender.h) is set, swaps them with _USwapBlock32, as it swaps the settings' other words, which leaves them as they are on a little-endian host | Why: the settings files are little-endian, so on a little-endian host a sign's font got a height and weight hundreds of millions large and its text was not drawn: the park's name on the entrance gate and the rides' signs were blank; contributed by samueleagle91 (tpw-port PR #5)
+    if (gPortSignText) {
+        SamsUtilities::_USwapBlock32(reinterpret_cast<uint32_t*>(&mLogFont), 5);
+        return 1;
+    }
     // Only the five int32 words are swapped (the inline byte swaps); the flag bytes and the face name stay as read.
-    // TPW_PORT_FIX sign TrueTypeRender::load_settings | Mac: swaps the five LOGFONT words always | Port: swaps them with _USwapBlock32, as the other settings words, so a little-endian host keeps the file's (little-endian) values
-    SamsUtilities::_USwapBlock32(reinterpret_cast<uint32_t*>(&mLogFont), 5);
+    uint32_t* words = reinterpret_cast<uint32_t*>(&mLogFont);
+    for (int32_t i = 0; i < 5; ++i) {
+        const uint32_t v = words[i];
+        words[i] = (v >> 24) | ((v >> 8) & 0xff00) | ((v << 8) & 0xff0000) | (v << 24);
+    }
     return 1;
 }
 

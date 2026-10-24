@@ -401,7 +401,7 @@ uint32_t ButtonBit(int32_t button) {
     return 0;
 }
 
-// TPW_PORT_FIX wheelzoom gWheelZoomTarget, gWheelZooming, gWheelZoomLeft | Mac: (none: the wheel set the zoom at once) | Port: where the wheel is taking the zoom, whether the zoom is on its way there, and the zoom it left last frame (anything else that moves the zoom ends the way) | Why: smooth wheel zoom toward the pointer
+// TPW_PORT_FIX smoothzoom gWheelZoomTarget/gWheelZooming/gWheelZoomLeft | Mac: (none: the wheel set the zoom at once) | Port: where the wheel is taking the zoom, whether the zoom is on its way there, and the zoom it left last frame (anything else that moves the zoom ends the way) | Why: smooth wheel zoom toward the pointer; contributed by samueleagle91 (tpw-port PR #20)
 float gWheelZoomTarget = 0.0f;
 bool gWheelZooming = false;
 float gWheelZoomLeft = 0.0f;
@@ -443,7 +443,7 @@ void Will_HandleCameraMessages(int32_t message, int32_t a, int32_t b) {
         gCameraModeA |= ButtonBit(a);
         break;
     case kMsgWheel:
-        // TPW_PORT_FIX wheelzoom Will_HandleCameraMessages | Mac: each wheel step moves the zoom by 10 at once | Port: with the launcher's "Smooth wheel zoom" on (gUISmoothWheelZoom), over the park each step moves the zoom's target by 10, and HandleCamera takes the zoom there smoothly, toward the pointer (WheelZoom); with it off, and in a first-person view, the Mac's step | Why: smooth wheel zoom toward the pointer, as an opt-in: the port keeps the original's controls by default; a step jumps a sixth of the zoom range, toward the middle of the screen
+        // TPW_PORT_FIX smoothzoom Will_HandleCameraMessages | Mac: each wheel step moves the zoom by 10 at once, toward the middle of the screen | Port: with the launcher's "Smooth wheel zoom" on (gUISmoothWheelZoom, off by default), over the park each step moves the zoom's target by 10, and HandleCamera takes the zoom there smoothly, toward the pointer (WheelZoom); with it off, and in a first-person view, the Mac's step | Why: a step jumps a sixth of the zoom range; the wheel can zoom smoothly toward the pointer, as modern camera controls do, as an opt-in that keeps the original's controls by default; contributed by samueleagle91 (tpw-port PR #20)
         if (gUISmoothWheelZoom != 0 && (gFirstPersonFlags & 0x16) == 0) {
             if (!gWheelZooming) gWheelZoomTarget = gCameraF68;
             gWheelZoomTarget = a < 0 ? gWheelZoomTarget + 10.0f : gWheelZoomTarget - 10.0f;
@@ -904,7 +904,7 @@ inline bool Key(int16_t id) { return gKeyTableCamera->GetState(id) != 0; }
 // The exact conversion of the listing: a 32-bit unsigned value through the 2^52 trick, rounded to single by the fsubs.
 inline float FromU32(uint32_t v) { return static_cast<float>(v); }
 
-// TPW_PORT_FIX wheelzoom WheelZoom | Mac: (none: the wheel set the zoom at once) | Port: this frame's share of the wheel's zoom, and the view's move toward the pointer | Why: smooth wheel zoom toward the pointer
+// TPW_PORT_FIX smoothzoom WheelZoom | Mac: (none: the wheel set the zoom at once) | Port: this frame's share of the wheel's zoom: the zoom eases to the wheel's target within the zoom limits, most of the way in a fifth of a second, and the view moves toward the ground under the pointer by the share the zoom shrank; the keys, a reset or a load end the easing | Why: smooth wheel zoom toward the pointer, as an opt-in; contributed by samueleagle91 (tpw-port PR #20)
 // The wheel's zoom for one frame of dt ms. Nothing unless the wheel is zooming and nothing else moved the zoom since the
 // last frame (the keys, a reset, a park loaded or a point of interest take over). The target stays within the zoom limits
 // HandleCamera applies; the zoom covers 1 - e^(-dt/60) of the way each frame (nearly all of it in a fifth of a second) and
@@ -1212,7 +1212,7 @@ void HandleCamera() {
         gCameraPosition[2] = ppc_fmadds(vel[2], dt, gCameraPosition[2]);
     }
 
-    // TPW_PORT_FIX wheelzoom HandleCamera | Mac: (none: the wheel set the zoom at once) | Port: the wheel's zoom moves on, before the zoom limits | Why: smooth wheel zoom toward the pointer
+    // TPW_PORT_FIX smoothzoom HandleCamera | Mac: (none: the wheel set the zoom at once) | Port: the wheel's zoom moves on (WheelZoom), before the zoom limits | Why: smooth wheel zoom toward the pointer, as an opt-in; contributed by samueleagle91 (tpw-port PR #20)
     WheelZoom(dt);
     if ((gCameraModeA & 0x80) != 0) {
         if (gCameraWideZoomOnce == 0) {

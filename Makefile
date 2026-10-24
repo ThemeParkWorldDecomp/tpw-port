@@ -1,5 +1,6 @@
-# Builds the launcher on an Apple Silicon Mac. `make` builds build/tpw_launcher; `make run` starts it; `make app` wraps it
-# in build/Theme Park World.app, which opens with a double click (drag it to Applications or the Dock).
+# Builds the launcher on an Apple Silicon or Intel Mac. `make` builds build/tpw_launcher; `make run` starts it; `make test`
+# builds everything and runs the tests; `make app` wraps the launcher in build/Theme Park World.app, which opens with a
+# double click (drag it to Applications or the Dock).
 #
 # The CMake release fetched when this Mac has no CMake 3.20 or newer (the macOS universal tarball, its SHA-256):
 CMAKE_VERSION := 4.4.4
@@ -42,21 +43,22 @@ endif
 # The build runs make again (CMake's Makefiles): it must not see this make's settings (BUILD=..., CMAKE=...).
 CLEAN_ENV := MAKEFLAGS= MFLAGS=
 
-.PHONY: all run app clean check-mac check-tools find-cmake launcher
+# ctest comes with cmake: beside it, or on the PATH when CMAKE is a bare name.
+CTEST = $(if $(findstring /,$(CMAKE)),$(dir $(CMAKE))ctest,ctest)
+
+.PHONY: all run test app clean check-mac check-tools find-cmake launcher
 
 all: launcher
 	@echo "==> Done. The launcher is $(LAUNCHER). Start it with: make run"
 
 # Each step needs the one before it, so the order holds under make -j too.
 check-mac:
-	@if [ "`uname -s`" != Darwin ] || [ "`uname -m`" != arm64 ]; then \
-	  echo "This build is for Apple Silicon Macs only."; \
-	  if [ "`sysctl -n sysctl.proc_translated 2>/dev/null`" = 1 ]; then \
-	    echo "This Terminal runs under Rosetta. Turn off \"Open using Rosetta\" in Terminal's Get Info window and try again."; \
-	  fi; \
+	@if [ "`uname -s`" != Darwin ]; then \
+	  echo "This build is for macOS. On Windows, use build.cmd."; \
 	  exit 1; \
 	fi
-	@echo "==> Apple Silicon Mac, macOS `sw_vers -productVersion`"
+	@case "`uname -m`" in arm64|x86_64) ;; *) echo "This build needs an Apple Silicon or Intel Mac."; exit 1 ;; esac
+	@echo "==> macOS `sw_vers -productVersion`, `uname -m`"
 
 check-tools: check-mac
 	@if ! xcode-select -p >/dev/null 2>&1; then \
@@ -123,30 +125,27 @@ run: all
 	@echo "==> Starting $(LAUNCHER) $(RUN_ARGS)"
 	@"$(LAUNCHER)" $(RUN_ARGS)
 
-# The launcher needs nothing beside it, so the app is the launcher plus an Info.plist. It is signed ad hoc (no developer
-# account): on another Mac, the first open is refused until Open Anyway is clicked in System Settings > Privacy &
-# Security.
+# Builds the launcher, then everything else (the test programs), then runs the tests.
+test: launcher
+	@echo "==> Building the tests ($(JOBS) jobs at once)"
+	@$(CLEAN_ENV) "$(CMAKE)" --build "$(BUILD)" -j $(JOBS)
+	@echo "==> Running the tests"
+	@$(CLEAN_ENV) "$(CTEST)" --test-dir "$(BUILD)" --output-on-failure
+
+# The launcher needs nothing beside it, so the app is the launcher plus launcher/macos/Info.plist.in, filled the way
+# CMakeLists.txt fills it for TPW_BUNDLE (the name from launcher/ui/theme.h, the version from launcher/VERSION.txt). It is
+# signed ad hoc (no developer account): on another Mac, the first open is refused until Open Anyway is clicked in System
+# Settings > Privacy & Security.
 app: all
 	@echo "==> Making $(APP)"
 	@rm -rf "$(APP)"
 	@mkdir -p "$(APP)/Contents/MacOS"
 	@cp "$(LAUNCHER)" "$(APP)/Contents/MacOS/tpw_launcher"
-	@minos=`otool -l "$(LAUNCHER)" | sed -n '/LC_BUILD_VERSION/,/minos/s/^ *minos //p' | head -n 1`; \
-	printf '%s\n' \
-	  '<?xml version="1.0" encoding="UTF-8"?>' \
-	  '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
-	  '<plist version="1.0"><dict>' \
-	  '  <key>CFBundleName</key><string>$(APP_NAME)</string>' \
-	  '  <key>CFBundleDisplayName</key><string>$(APP_NAME)</string>' \
-	  '  <key>CFBundleIdentifier</key><string>io.github.themeparkworlddecomp.tpw-launcher</string>' \
-	  '  <key>CFBundleExecutable</key><string>tpw_launcher</string>' \
-	  '  <key>CFBundlePackageType</key><string>APPL</string>' \
-	  '  <key>CFBundleVersion</key><string>1</string>' \
-	  '  <key>CFBundleShortVersionString</key><string>1.0</string>' \
-	  "  <key>LSMinimumSystemVersion</key><string>$$minos</string>" \
-	  '  <key>LSApplicationCategoryType</key><string>public.app-category.simulation-games</string>' \
-	  '  <key>NSHighResolutionCapable</key><true/>' \
-	  '</dict></plist>' > "$(APP)/Contents/Info.plist"
+	@name=`sed -n 's|^#define TPW_UI_PRODUCT_NAME "\([^"]*\)".*|\1|p' launcher/ui/theme.h`; \
+	version=`tr -d ' \r\n' < launcher/VERSION.txt`; \
+	sed -e "s|@TPW_BUNDLE_EXECUTABLE@|tpw_launcher|g" -e "s|@TPW_BUNDLE_IDENTIFIER@|org.tpw-port.launcher|g" \
+	    -e "s|@TPW_BUNDLE_NAME@|$$name|g" -e "s|@TPW_LAUNCHER_VERSION@|$$version|g" \
+	    launcher/macos/Info.plist.in > "$(APP)/Contents/Info.plist"
 	@codesign --force --sign - "$(APP)" 2>/dev/null
 	@echo "==> Done. Double-click $(APP) to start it, or drag it to Applications."
 

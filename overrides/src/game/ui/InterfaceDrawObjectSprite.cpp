@@ -110,7 +110,7 @@ void InterfaceDrawObjectSprite::Change(uint32_t flags, DOChange* change) {
         const float depth = static_cast<float>(mDepth);
         // TPW_PORT_FIX v5L26 InterfaceDrawObjectSprite::Change | Mac: the left edge over 2048 units | Port: over the unit space's width (2048 on a 4:3 screen) | Why: a widescreen port; the sprite sits where its window is
         mSprite.mPosition.x = (2.0f * left) / static_cast<float>(gUIUnitWidth) - 1.0f;
-        // TPW_PORT_FIX uiscale InterfaceDrawObjectSprite::Change | Mac: the bottom edge over 1536 units | Port: over the unit space's height | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+        // TPW_PORT_FIX uiscale InterfaceDrawObjectSprite::Change | Mac: the sprite's bottom edge over 1536 units | Port: over the unit space's height | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
         mSprite.mPosition.y = 1.0f - (2.0f * bottom) / static_cast<float>(gUIUnitHeight);
         mSprite.mPosition.z = 1.0f - depth / 40.0f;
     }

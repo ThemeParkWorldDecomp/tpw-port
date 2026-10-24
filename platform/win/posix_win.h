@@ -1,3 +1,4 @@
+// Windows port contributed by samueleagle91 (tpw-port PR #1)
 // posix_win.h: the POSIX calls of the platform layer that MinGW's own headers lack, included ahead of every file of
 // tpw_platform on Windows (CMakeLists.txt). The POSIX headers MinGW has no copy of at all are beside this one.
 #pragma once

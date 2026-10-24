@@ -1,3 +1,4 @@
+// Windows port contributed by samueleagle91 (tpw-port PR #1)
 // host_win.cpp: see host_win.h.
 #ifdef _WIN32
 #include "host_win.h"

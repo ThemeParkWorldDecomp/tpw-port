@@ -40,9 +40,6 @@
 #include <cstring>
 #include <new>
 
-// TPW_PORT_FIX ridehead ScriptCodeAt | Mac: (none: the blocks below are the Mac's own words) | Port: the host pointer to the script code word at a Mac address, which ESP_SpawnScript runs from | Why: gRideHeadSpawnBlock, the host's stand-in for the block at 0x1029fda8, lies outside the script code, so the riders' heads were not drawn on the rides
-static void* ScriptCodeAt(uint32_t address) { return const_cast<uint32_t*>(gScriptCodeWords) + (address - kScriptCodeAddress) / 4; }
-
 // Unit v5962: the embedded-entry counters (0x101fff0c, 0x101ffe74), EnableRideHead (0x10200230), bthread_cond (0x10200e34, 0x10200ea8,
 // 0x10200f30) and CalculateOrientFromTrackMorph (0x101fec54).
 
@@ -426,12 +423,13 @@ void EnableRideHead(tag_sMesh* mesh, uint32_t index, uint32_t peep) {
     } else {
         head = 0;
     }
+    // TPW_PORT_FIX ridehead EnableRideHead | Mac: the rider's head script is spawned (both cases) from the block at 0x1029fda8, inside the script code | Port: while gPortScriptCode (include/analyser.h) is set, it is spawned from that place in the script code (ScriptCodeAt) | Why: the host's stand-in (gRideHeadSpawnBlock) lies outside the script code array, where a script never runs, so the riders' heads were not drawn; contributed by samueleagle91 (tpw-port PR #17)
+    void* const block = gPortScriptCode ? ScriptCodeAt(0x1029fda8u) : static_cast<void*>(&gRideHeadSpawnBlock);
     if ((head & 0x80000000u) != 0) {
-        // TPW_PORT_FIX ridehead EnableRideHead | Mac: spawns the rider's head script from the block at 0x1029fda8 | Port: from that place in the script code (ScriptCodeAt), here and below
-        record->mF0C = static_cast<uint32_t>(ESP_SpawnScript(ScriptCodeAt(0x1029fda8u), static_cast<ESP_Sprites>(3),
+        record->mF0C = static_cast<uint32_t>(ESP_SpawnScript(block, static_cast<ESP_Sprites>(3),
                                                               static_cast<int32_t>(head & 0x7fffffffu), static_cast<ACTS>(0), 0.0f, 0.0f, 0.0f));
     } else {
-        record->mF0C = static_cast<uint32_t>(ESP_SpawnScript(ScriptCodeAt(0x1029fda8u), static_cast<ESP_Sprites>(1), static_cast<int32_t>(head),
+        record->mF0C = static_cast<uint32_t>(ESP_SpawnScript(block, static_cast<ESP_Sprites>(1), static_cast<int32_t>(head),
                                                               static_cast<ACTS>(0), 0.0f, 0.0f, 0.0f));
     }
 }

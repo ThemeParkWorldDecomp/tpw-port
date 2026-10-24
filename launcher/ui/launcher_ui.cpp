@@ -19,6 +19,9 @@ namespace {
 constexpr float kBuntingBottom = 24;   // the bunting hangs above this line
 constexpr float kTitleTop = 26;
 constexpr float kContentTop = 80;      // the screens start below the title
+// The version label beside the title: a much smaller face than the title's, kTitleVersionGap points to its right.
+constexpr Style kTitleVersionStyle = style::kBodyBold;
+constexpr float kTitleVersionGap = 10;
 constexpr float kTileHeight = 158;
 constexpr size_t kLogLimit = 4000;     // rows kept in the checking log
 constexpr float kNoticeSeconds = 4.5f;
@@ -108,16 +111,11 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     playIndex_ = last == "us" ? 0 : 1;
     skipIntro_ = backend_.Setting(kSkipIntroKey) == "1";
     backToLauncher_ = backend_.Setting(kBackToLauncherKey) == "1";
-    smoothZoom_ = backend_.Setting(kSmoothZoomKey) == "1";
-    {
+    smoothZoom_ = backend_.Setting(kSmoothZoomKey) == "1";   // tpw-port PR #20 by samueleagle91
+    pcSoundPicks_ = backend_.Setting(kPcSoundPicksKey) != "0";
+    {   // tpw-port PR #24 by samueleagle91
         const std::string size = backend_.Setting(kInterfaceSizeKey);
         interfaceSize_ = size == "85" ? 1 : size == "70" ? 2 : 0;
-    }
-    {
-        const std::string arrivals = backend_.Setting(kVisitorArrivalsKey);
-        arrivals_ = arrivals == "more" ? 1 : arrivals == "many" ? 2 : 0;
-        const std::string limit = backend_.Setting(kVisitorLimitKey);
-        visitorLimit_ = limit == "3000" ? 1 : limit == "5000" ? 2 : 0;
     }
     // files the startup check (assets/importer.h) found changed and removed
     std::string startup = backend_.StartupNotice();
@@ -215,7 +213,6 @@ void LauncherUi::HandleEvent(const SDL_Event& e) {
                 if (armedRemove_ >= 0) armedRemove_ = -1;
                 else if (aboutOpen_) aboutOpen_ = false;
                 else if (settingsOpen_) settingsOpen_ = false;
-                else if (rulesOpen_) rulesOpen_ = false;
                 else if (screen_ == Screen::Result || screen_ == Screen::Play) screen_ = Screen::Home;
             }
             break;
@@ -256,7 +253,7 @@ void LauncherUi::OfferPaths(const std::vector<std::string>& paths) {
         ShowNotice("Wait for the check of an edition to finish", true);
         return;
     }
-    aboutOpen_ = settingsOpen_ = rulesOpen_ = false;
+    aboutOpen_ = settingsOpen_ = false;
     armedRemove_ = -1;
     if (backend_.Running()) {
         queued_.push_back(paths);
@@ -450,8 +447,20 @@ void LauncherUi::DrawBackdrop(const Rect& w) {
     }
 }
 
+// The title row: the product's name large, and the launcher's version just to its right in a much smaller face, on the
+// same baseline, in the title's sticker look (white with a dark outline) so it reads on the sky. The header's buttons
+// keep to the right of it (TitleRect, TitleVersionRect and HeaderButtonsRect are the test's view of the row).
 float LauncherUi::DrawHeader(const Rect& w, bool buttons) {
-    text_.DrawOutlined(style::kTitle, metric::kMargin + 2, kTitleTop, kProductName, colour::kPaper, colour::kInk, 3);
+    const float titleX = metric::kMargin + 2;
+    const float titleW = text_.Width(style::kTitle, kProductName);
+    text_.DrawOutlined(style::kTitle, titleX, kTitleTop, kProductName, colour::kPaper, colour::kInk, 3);
+    titleRect_ = {titleX, kTitleTop, titleW, text_.LineHeight(style::kTitle)};
+    const float versionW = text_.Width(kTitleVersionStyle, kVersionLabel);
+    const float versionY = kTitleTop + text_.Ascent(style::kTitle) - text_.Ascent(kTitleVersionStyle);
+    titleVersionRect_ = {titleRect_.Right() + kTitleVersionGap, versionY, versionW, text_.LineHeight(kTitleVersionStyle)};
+    text_.DrawOutlined(kTitleVersionStyle, titleVersionRect_.x, titleVersionRect_.y, kVersionLabel, colour::kPaper,
+                       colour::kInk, 2);
+    headerButtonsRect_ = Rect{};
     if (buttons) {
         float h = 36, y = kTitleTop + 8;
         float x = w.Right() - metric::kMargin;
@@ -464,16 +473,14 @@ float LauncherUi::DrawHeader(const Rect& w, bool buttons) {
             settingsOpen_ = true;
             armedRemove_ = -1;
         }
-        float rw = ui_.ButtonWidth("Park rules");
-        x -= rw + 10;
-        if (ui_.Button("park-rules", {x, y, rw, h}, "Park rules", ButtonKind::Quiet)) rulesOpen_ = true;
-        // The header's Play only where it clears the title (the tiles have their own Play buttons).
+        // The header's Play only where it clears the title and its version (the tiles have their own Play buttons).
         float pw = ui_.ButtonWidth("Play") + 20;
-        bool fits = x - pw - 10 > metric::kMargin + 2 + text_.Width(style::kTitle, kProductName) + 16;
+        bool fits = x - pw - 10 > titleVersionRect_.Right() + 16;
         if (screen_ == Screen::Home && AnyPlayable() && fits) {
             x -= pw + 10;
             if (ui_.Button("header-play", {x, y, pw, h}, "Play", ButtonKind::Go)) OpenPlay();
         }
+        headerButtonsRect_ = {x, y, w.Right() - metric::kMargin - x, h};
     }
     return kContentTop;
 }
@@ -490,17 +497,15 @@ void LauncherUi::DrawTiles(const Rect& row, bool dropTargets) {
     tilesShown_ = dropTargets;
 }
 
-void LauncherUi::DrawHome(const Rect& w) {
-    if (AllConfirmed()) {
-        DrawReady(w);
-        return;
-    }
-    float top = DrawHeader(w, true);
+// The footer of both homes: the descriptive line and the disclaimer, word for word, with the launcher's version in the
+// bottom right corner, small and soft, beside the disclaimer's last line (which wraps short of it), out of the way of
+// the tiles and their Play buttons above. A player reads it from there for a bug report.
+Rect LauncherUi::DrawFooter(const Rect& w) {
     const float m = metric::kMargin;
-
-    // The footer: the descriptive line and the disclaimer, word for word.
+    const std::string version = kVersionLabel;
+    const float vw = text_.Width(style::kSmall, version);
     float footerW = w.w - 2 * m - 24;
-    std::vector<std::string> disclaimer = text_.Wrap(style::kSmall, kDisclaimer, footerW);
+    std::vector<std::string> disclaimer = text_.Wrap(style::kSmall, kDisclaimer, footerW - vw - 16);
     std::vector<std::string> tagline = text_.Wrap(style::kSmallBold, kTagline, footerW);
     float lh = text_.LineHeight(style::kSmall);
     float footerH = (disclaimer.size() + tagline.size()) * lh + 18;
@@ -515,6 +520,21 @@ void LauncherUi::DrawHome(const Rect& w) {
         text_.Draw(style::kSmall, footer.x + 12, y, line, colour::kInkSoft);
         y += lh;
     }
+    versionRect_ = {footer.Right() - 12 - vw, y - lh, vw, lh};
+    text_.Draw(style::kSmall, versionRect_.x, versionRect_.y, version, colour::kInkSoft);
+    return footer;
+}
+
+void LauncherUi::DrawHome(const Rect& w) {
+    if (AllConfirmed()) {
+        DrawReady(w);
+        return;
+    }
+    float top = DrawHeader(w, true);
+    const float m = metric::kMargin;
+
+    // The footer: the descriptive line and the disclaimer, word for word, and the version.
+    const Rect footer = DrawFooter(w);
 
     Rect tiles{m, footer.y - metric::kGap - kTileHeight, w.w - 2 * m, kTileHeight};
     Rect field{m, top, w.w - 2 * m, tiles.y - metric::kGap - top - 4};
@@ -556,22 +576,7 @@ void LauncherUi::DrawReady(const Rect& w) {
     const float m = metric::kMargin;
 
     // The footer, as on the home with the drop field.
-    float footerW = w.w - 2 * m - 24;
-    std::vector<std::string> disclaimer = text_.Wrap(style::kSmall, kDisclaimer, footerW);
-    std::vector<std::string> tagline = text_.Wrap(style::kSmallBold, kTagline, footerW);
-    float lh = text_.LineHeight(style::kSmall);
-    float footerH = (disclaimer.size() + tagline.size()) * lh + 18;
-    Rect footer{m, w.Bottom() - m - footerH, w.w - 2 * m, footerH};
-    canvas_.FillRound(footer, 12, colour::kPaper.WithAlpha(215));
-    float y = footer.y + 9;
-    for (const std::string& line : tagline) {
-        text_.Draw(style::kSmallBold, footer.x + 12, y, line, colour::kInk);
-        y += lh;
-    }
-    for (const std::string& line : disclaimer) {
-        text_.Draw(style::kSmall, footer.x + 12, y, line, colour::kInkSoft);
-        y += lh;
-    }
+    const Rect footer = DrawFooter(w);
 
     // The row above the footer: "Game data" on the left; while a drag is over the window, what letting go does.
     const float rowH = 34;
@@ -811,11 +816,13 @@ void LauncherUi::DrawPlay(const Rect& w) {
 
 void LauncherUi::DrawSettings(const Rect& w) {
     canvas_.FillRound(w, 0, colour::kDim);
+    const float rowH = 50;
     float pw = std::min(w.w - 2 * metric::kMargin, 640.0f);
-    float contentH = text_.LineHeight(style::kHeadline) + 12 + 2 * (text_.LineHeight(style::kBodyBold) + 4) + 40 +
-                     text_.LineHeight(style::kSmall) + 14 + 3 * 50 + 4 + 2 * text_.LineHeight(style::kSmallBold) +
-                     text_.LineHeight(style::kBodyBold) + 4 + 4 * 50;
-    float ph = std::min(w.h - 2 * metric::kMargin, contentH + 40);
+    float titleH = text_.LineHeight(style::kHeadline) + 12;
+    // Everything below the title, as drawn below.
+    float bodyH = 2 * (text_.LineHeight(style::kBodyBold) + 4) + 40 + text_.LineHeight(style::kSmall) + 14 + 3 * rowH +
+                  4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + 5 * rowH;
+    float ph = std::min(w.h - 2 * metric::kMargin, titleH + bodyH + 40);
     Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
     ui_.Panel(panel, colour::kPaper, colour::kCream);
     Rect in = panel.Inset(20);
@@ -826,7 +833,22 @@ void LauncherUi::DrawSettings(const Rect& w) {
         settingsOpen_ = false;
         armedRemove_ = -1;
     }
-    y += text_.LineHeight(style::kHeadline) + 12;
+    y += titleH;
+
+    // A window too short for the rest scrolls it under the title: the wheel anywhere over the box moves it a row a
+    // line, and a bar in the right margin shows where it is. It is clipped below the Close button and at the box's
+    // outline, so the row below the view shows its top. Whether it scrolls is whether the box was capped, an exact
+    // comparison: `bodyH - shown` can come out a hair above 0 in a box that fits.
+    const float bodyTop = y, shown = in.Bottom() - bodyTop;
+    settingsScrolls_ = ph < titleH + bodyH + 40;
+    const float maxOffset = settingsScrolls_ ? std::max(0.0f, bodyH - shown) : 0.0f;
+    float offset = 0;
+    if (settingsScrolls_) {
+        offset = ui_.Scroll("settings", panel, rowH, maxOffset);
+        ui_.Clip({panel.x + metric::kOutline, bodyTop, panel.w - 2 * metric::kOutline,
+                  panel.Bottom() - metric::kOutline - bodyTop});
+        y -= offset;
+    }
     bool busy = verify_.valid() || backend_.Running();
 
     text_.Draw(style::kBodyBold, in.x, y, "Data folder", colour::kInk);
@@ -847,7 +869,6 @@ void LauncherUi::DrawSettings(const Rect& w) {
 
     text_.Draw(style::kBodyBold, in.x, y, "Editions", colour::kInk);
     y += text_.LineHeight(style::kBodyBold) + 4;
-    const float rowH = 50;
     for (int i = 0; i < 3; ++i) {
         Rect row{in.x, y, in.w, rowH - 6};
         canvas_.FillRound(row, 10, i % 2 ? colour::kCream : colour::kYellowSoft.WithAlpha(120));
@@ -948,6 +969,22 @@ void LauncherUi::DrawSettings(const Rect& w) {
     {
         Rect row{in.x, y, in.w, rowH - 6};
         canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, "Varied sounds", colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, "Sounds change between their recordings, as on the PC", row.w - 12 - 56 - 24,
+                             false),
+                   colour::kInkSoft);
+        if (ui_.Toggle("pc-sound-picks", {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32}, pcSoundPicks_)) {
+            std::string err;
+            if (!backend_.SaveSetting(kPcSoundPicksKey, pcSoundPicks_ ? "1" : "0", err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
+        }
+        y += rowH;
+    }
+    {
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
         const float segW = 210;
         float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
         text_.Draw(style::kBodyBold, row.x + 12, ty, "Interface size", colour::kInk);
@@ -956,8 +993,9 @@ void LauncherUi::DrawSettings(const Rect& w) {
                    colour::kInkSoft);
         static const std::vector<std::string> kSizes = {"100%", "85%", "70%"};
         static const char* const kValues[] = {"100", "85", "70"};
-        if (ui_.Segmented("interface-size", {row.Right() - 12 - segW, row.CentreY() - 18, segW, 36}, kSizes,
-                          std::vector<bool>(kSizes.size(), true), interfaceSize_)) {
+        interfaceSizeRect_ = {row.Right() - 12 - segW, row.CentreY() - 18, segW, 36};
+        if (ui_.Segmented("interface-size", interfaceSizeRect_, kSizes, std::vector<bool>(kSizes.size(), true),
+                          interfaceSize_)) {
             std::string err;
             if (!backend_.SaveSetting(kInterfaceSizeKey, kValues[interfaceSize_], err))
                 settingsMessage_ = "Cannot keep the setting: " + err;
@@ -972,63 +1010,16 @@ void LauncherUi::DrawSettings(const Rect& w) {
     } else if (!settingsMessage_.empty()) {
         text_.DrawWrapped(style::kSmallBold, in.x, y, in.w, settingsMessage_, colour::kInk);
     }
-}
-
-// The Park rules box: how busy the parks get, kept in launcher.ini and given to the game on Play (launcher/main.cpp).
-void LauncherUi::DrawParkRules(const Rect& w) {
-    canvas_.FillRound(w, 0, colour::kDim);
-    const float rowH = 72;
-    float pw = std::min(w.w - 2 * metric::kMargin, 640.0f);
-    float contentH = text_.LineHeight(style::kHeadline) + 10 + text_.LineHeight(style::kSmall) + 14 + 2 * rowH;
-    float ph = std::min(w.h - 2 * metric::kMargin, contentH + 40);
-    Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
-    ui_.Panel(panel, colour::kPaper, colour::kCream);
-    Rect in = panel.Inset(20);
-    float y = in.y;
-    text_.Draw(style::kHeadline, in.x, y, "Park rules", colour::kInk);
-    float cw = ui_.ButtonWidth("Close");
-    if (ui_.Button("rules-close", {in.Right() - cw, y, cw, 36}, "Close", ButtonKind::Quiet)) rulesOpen_ = false;
-    y += text_.LineHeight(style::kHeadline) + 10;
-    text_.Draw(style::kSmall, in.x, y,
-               text_.Fit(style::kSmall, "For every park you play, from the next Play. Busier parks need a faster computer.", in.w,
-                         false),
-               colour::kInkSoft);
-    y += text_.LineHeight(style::kSmall) + 14;
-    struct Rule {
-        const char* id;
-        const char* title;
-        const char* detail;
-        std::vector<std::string> options;
-        int* selected;
-        const char* key;
-        std::vector<std::string> values;
-    };
-    const Rule rules[] = {
-        {"rules-arrivals", "Visitors arriving", "How many guests each bus brings", {"Normal", "More", "Many"}, &arrivals_,
-         kVisitorArrivalsKey, {"normal", "more", "many"}},
-        {"rules-limit", "Visitor limit", "The most guests in a park at once", {"1,500", "3,000", "5,000"},
-         &visitorLimit_, kVisitorLimitKey, {"1500", "3000", "5000"}},
-    };
-    const float segW = std::min(300.0f, in.w * 0.48f);
-    for (const Rule& rule : rules) {
-        Rect row{in.x, y, in.w, rowH - 8};
-        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
-        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
-        text_.Draw(style::kBodyBold, row.x + 12, ty, rule.title, colour::kInk);
-        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
-                   text_.Fit(style::kSmall, rule.detail, row.w - 12 - segW - 24, false), colour::kInkSoft);
-        const std::vector<bool> enabled(rule.options.size(), true);
-        if (ui_.Segmented(rule.id, {row.Right() - 12 - segW, row.CentreY() - 20, segW, 40}, rule.options, enabled,
-                          *rule.selected)) {
-            std::string err;
-            if (!backend_.SaveSetting(rule.key, rule.values[static_cast<size_t>(*rule.selected)], err))
-                ShowNotice("Cannot keep the setting: " + err, true);
-        }
-        y += rowH;
+    if (settingsScrolls_) {
+        ui_.Unclip();
+        const float barW = 6, margin = panel.Right() - metric::kOutline - in.Right();
+        ui_.ScrollBar({in.Right() + std::round((margin - barW) * 0.5f), bodyTop, barW, shown}, shown, bodyH, offset,
+                      colour::kYellowSoft);
     }
 }
 
 void LauncherUi::DrawAbout(const Rect& w) {
+    const float kLogsRowH = 32;   // the Show logs row, when there is a logs folder
     canvas_.FillRound(w, 0, colour::kDim);
     float pw = std::min(w.w - 2 * metric::kMargin, 640.0f), inW = pw - 40;
     const std::vector<MadeWith> rows = MadeWithRows(text_);   // the "Made with" table below
@@ -1036,19 +1027,37 @@ void LauncherUi::DrawAbout(const Rect& w) {
     float contentH = text_.LineHeight(style::kHeadline) + 10 +
                      text_.LineHeight(style::kBody) * text_.Wrap(style::kBody, kTagline, inW).size() + 6 +
                      text_.LineHeight(style::kSmallBold) * text_.Wrap(style::kSmallBold, kDisclaimer, inW).size() + 12 +
+                     (logsFolder_.empty() ? 0.0f : kLogsRowH + 12) +
                      text_.LineHeight(style::kBodyBold) + 4 + kRows * (text_.LineHeight(style::kSmall) + 6);
     float ph = std::min(w.h - 2 * metric::kMargin, contentH + 44);
     Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
     ui_.Panel(panel, colour::kPaper, colour::kCream);
     Rect in = panel.Inset(20);
     float y = in.y;
-    std::string title = std::string("About ") + kProductName;
+    // The version in the title, as --version and the log file's first line give it.
+    std::string title = std::string("About ") + kProductNameWithVersion;
     text_.Draw(style::kHeadline, in.x, y, title, colour::kInk);
     float cw = ui_.ButtonWidth("Close");
     if (ui_.Button("about-close", {in.Right() - cw, y, cw, 36}, "Close", ButtonKind::Quiet)) aboutOpen_ = false;
     y += text_.LineHeight(style::kHeadline) + 10;
     y += text_.DrawWrapped(style::kBody, in.x, y, in.w, kTagline, colour::kInk) + 6;
     y += text_.DrawWrapped(style::kSmallBold, in.x, y, in.w, kDisclaimer, colour::kInk) + 12;
+
+    // The log files (platform/log_file.h): a bug report attaches the latest one; the button shows them in the Finder.
+    if (!logsFolder_.empty()) {
+        const char* label = "Show logs";
+        float lw = ui_.ButtonWidth(label);
+        showLogsRect_ = {in.x, y, lw, kLogsRowH};
+        if (ui_.Button("about-logs", showLogsRect_, label, ButtonKind::Quiet) &&
+            !SDL_OpenURL(FileUrl(logsFolder_).c_str()))
+            ShowNotice(std::string("Could not open the logs folder: ") + SDL_GetError(), true);
+        float tx = in.x + lw + 12;
+        text_.Draw(style::kSmall, tx, y + (kLogsRowH - text_.LineHeight(style::kSmall)) * 0.5f,
+                   text_.Fit(style::kSmall, "The logs of the last runs. A bug report attaches the newest.",
+                             in.Right() - tx, false),
+                   colour::kInkSoft);
+        y += kLogsRowH + 12;
+    }
 
     text_.Draw(style::kBodyBold, in.x, y, "Made with", colour::kInk);
     y += text_.LineHeight(style::kBodyBold) + 4;
@@ -1080,10 +1089,11 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
     input_.pressed = input_.released = false;
     input_.wheel = 0;
 
-    bool overlay = aboutOpen_ || settingsOpen_ || rulesOpen_;
+    bool overlay = aboutOpen_ || settingsOpen_;
     ui_.SetInteractive(!overlay && !dragging_);
     tilesShown_ = false;
     readyShown_ = false;
+    versionRect_ = showLogsRect_ = titleRect_ = titleVersionRect_ = headerButtonsRect_ = Rect{};
     DrawBackdrop(window);
     switch (screen_) {
         case Screen::Home: DrawHome(window); break;
@@ -1097,7 +1107,6 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
         readyShown_ = false;
         ui_.SetInteractive(!dragging_);
         if (settingsOpen_) DrawSettings(window);
-        if (rulesOpen_) DrawParkRules(window);
         if (aboutOpen_) DrawAbout(window);
     }
     if (noticeLeft_ > 0 && !notice_.empty())

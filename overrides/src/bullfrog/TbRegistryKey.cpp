@@ -60,7 +60,7 @@ TbError TbRegistryKey::OpenKey(const char* path) {
     const char* rest = nullptr;
     for (uint32_t i = 0; kRootNames[i][0] != 0; ++i) {
         uint32_t n = std::strlen(kRootNames[i]);
-        // TPW_PORT_FIX win TbRegistryKey::OpenKey | Mac: calls _strnicmp, macdoze's through the using directive | Port: names NS_MacDoze::_strnicmp, the same function, which MinGW's <string.h> declaration of a global _strnicmp would otherwise make ambiguous
+        // TPW_PORT_FIX win TbRegistryKey::OpenKey/CreateKey | Mac: calls _strnicmp, macdoze's through the using directive | Port: names NS_MacDoze::_strnicmp, the same function | Why: MinGW's <string.h> declares a global _strnicmp, which made the call ambiguous; contributed by samueleagle91 (tpw-port PR #1)
         if (NS_MacDoze::_strnicmp(kRootNames[i], path, n) == 0) {
             root = i | 0x80000000u;
             rest = path + n;
@@ -80,7 +80,6 @@ TbError TbRegistryKey::CreateKey(const char* path) {
     const char* rest = nullptr;
     for (uint32_t i = 0; kRootNames[i][0] != 0; ++i) {
         uint32_t n = std::strlen(kRootNames[i]);
-        // TPW_PORT_FIX win TbRegistryKey::CreateKey | Mac: calls _strnicmp, macdoze's through the using directive | Port: names NS_MacDoze::_strnicmp, the same function, which MinGW's <string.h> declaration of a global _strnicmp would otherwise make ambiguous
         if (NS_MacDoze::_strnicmp(kRootNames[i], path, n) == 0) {
             root = i | 0x80000000u;
             rest = path + n;

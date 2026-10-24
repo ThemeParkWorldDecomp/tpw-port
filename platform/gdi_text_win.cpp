@@ -1,3 +1,4 @@
+// Windows port contributed by samueleagle91 (tpw-port PR #1)
 // gdi_text_win.cpp: gdi_text.h on Windows, with stb_truetype (third_party/stb) where the Mac's gdi_text.cpp has CoreText,
 // which CMakeLists.txt leaves out of the Windows build. Fonts are found among the files AddFontResource registered, then
 // among the system's font files, and text is laid out without kerning or ligatures, as on the Mac.

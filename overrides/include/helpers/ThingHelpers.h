@@ -6,7 +6,7 @@
 
 #include "CMessageCentre.h"
 #include "ThingReceivers.h"
-// TPW_PORT_FIX win MessageCentreForSubscribe, Centre | Mac: std::nothrow arrives through the other headers | Port: includes <new> for it, which MinGW's headers do not bring in
+// TPW_PORT_FIX win MessageCentreForSubscribe/Centre | Mac: std::nothrow arrives through the other headers | Port: the header includes <new> for it | Why: MinGW's headers do not bring it in, so the files that include this one did not compile; contributed by samueleagle91 (tpw-port PR #1)
 #include <new>
 
 // The cell tag every derived constructor passes: map cell id 1 (cell x 0, y 0), built in the high half of r4 on the Mac.

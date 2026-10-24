@@ -68,7 +68,7 @@ template class TbTList<TbDynamicStringTemplate<char16_t>*, TbDynamicStringTempla
 // main: ~TbTList 0x1014aa0c, Find 0x1014aad4, RemoveAll 0x1014ab7c, RemoveHead 0x1014ac48, AddTail 0x1014af08, AddHead 0x1014b010
 template class TbTList<TbDynamicStringTemplate<char>*, TbDynamicStringTemplate<char>*>;
 // bullfrog: TbTList 0x100148b8
-// TPW_PORT_FIX win TbTList<_LbSEFunction*, _LbSEFunction*> | Mac: the explicit instantiation also emits the destructor, RemoveAll and RemoveHead, whose weak copies the linker drops for src/bullfrog/LbSCBack.cpp's specializations | Port: on Windows the specializations are declared before the instantiation, so it leaves them to LbSCBack.cpp (COFF refuses an instantiation's copy beside a specialization)
+// TPW_PORT_FIX win TbTList<_LbSEFunction*,_LbSEFunction*> | Mac: the explicit instantiation also emits the destructor, RemoveAll and RemoveHead, whose weak copies the linker drops for src/bullfrog/LbSCBack.cpp's specializations | Port: on Windows the specializations are declared ahead of the instantiation, which leaves them to LbSCBack.cpp | Why: COFF refuses an instantiation's copy beside a specialization (a duplicate symbol); contributed by samueleagle91 (tpw-port PR #1)
 #ifdef _WIN32
 template <> TbTList<_LbSEFunction*, _LbSEFunction*>::~TbTList();
 template <> void TbTList<_LbSEFunction*, _LbSEFunction*>::RemoveAll();

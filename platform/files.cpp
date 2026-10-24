@@ -115,7 +115,7 @@ static bool IsDumpSideFile(const fs::path& path) {
 // seconds since 1904, in 100 ns ticks with the constant added that FileTimeToSystemTime takes off again (SystemTimeToFileTime,
 // macdoze_misc.cpp). The Load and Save panels show it as the time the park was saved, and the game's directory searches
 // compare it to find a player's newest park file. (A true Win32 FILETIME, UTC from 1601, showed as UTC plus 6 minutes 17
-// seconds: the glue's constant is 377.0368 s short of 1601 to 1904.)
+// seconds: the glue's constant is 377.0368 s short of 1601 to 1904.) From tpw-port PR #18 by samueleagle91.
 static uint64_t FileTimeOf(const fs::path& path) {
     struct stat info;
     if (::stat(path.c_str(), &info) != 0) return 0;

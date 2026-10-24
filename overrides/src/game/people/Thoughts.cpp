@@ -22,9 +22,6 @@
 #include <cstring>
 #include <new>
 
-// TPW_PORT_FIX thoughts ScriptCodeAt | Mac: (none: the blocks below are the Mac's own words) | Port: the host pointer to the script code word at a Mac address, which ESP_SpawnScript runs from | Why: gThoughtScripts, the host's copy of the 22 blocks, is zeros and outside the script code, so no thought bubble was drawn
-static void* ScriptCodeAt(uint32_t address) { return const_cast<uint32_t*>(gScriptCodeWords) + (address - kScriptCodeAddress) / 4; }
-
 // CThoughts (TrainingCentre.cpp in the original): the thought bubble and event history of a person or staff
 // member, the bytes at +0x30 of the peep. The class declares no data, so the fields are read by Mac offset:
 //   +0x00 mLastThought, +0x04 mEventHistory[32] (two halfwords each), +0x84 mThoughtScript (script handle),
@@ -143,10 +140,11 @@ void CThoughts::ShowThoughtBubble(ThoughtType type, bool always) {
     uint32_t now = gGameWorldRef->mTurn;
     if (now < *reinterpret_cast<uint32_t*>(self + 0x8c) + static_cast<uint32_t>(multiplier * 5 * 4)) return;
     *reinterpret_cast<uint32_t*>(self + 0x8c) = now;
+    // TPW_PORT_FIX thoughts CThoughts::ShowThoughtBubble | Mac: the bubble's script is spawned from block `script` of the 22 at 0x1029fb20 (24 bytes each), inside the script code | Port: while gPortScriptCode (include/analyser.h) is set, it is spawned from that place in the script code (ScriptCodeAt) | Why: the host's copy (gThoughtScripts) is zeros and lies outside the script code array, where a script never runs, so no thought bubble was drawn; contributed by samueleagle91 (tpw-port PR #13)
+    void* const block = gPortScriptCode ? ScriptCodeAt(0x1029fb20u + 0x18u * static_cast<uint32_t>(script))
+                                        : static_cast<void*>(gThoughtScripts[script]);
     *reinterpret_cast<int32_t*>(self + 0x84) =
-        // TPW_PORT_FIX thoughts CThoughts::ShowThoughtBubble | Mac: spawns the bubble's script from block `script` at 0x1029fb20 | Port: from that place in the script code (ScriptCodeAt), not from the host's copy
-        ESP_SpawnScript(ScriptCodeAt(0x1029fb20u + 0x18u * static_cast<uint32_t>(script)), static_cast<ESP_Sprites>(9), 0,
-                        static_cast<ACTS>(0), 0.0f, 0.0f, 0.0f);
+        ESP_SpawnScript(block, static_cast<ESP_Sprites>(9), 0, static_cast<ACTS>(0), 0.0f, 0.0f, 0.0f);
 }
 
 void CThoughts::RemoveThoughtBubble() {

@@ -7,9 +7,11 @@
 #include "tb_resource_system.h"
 #include "TPAdvisor.h"
 #include "TPEngine.h"
+#include <cstdio>
+
+// TPW_PORT_FIX advisor LoadAdvisor | Mac: the advisor's x is scaled by 0.75, a 4:3 screen's height over its width | Port: while gPortAdvisorAspect (TPAdvisor.h) is set, by the screen's own height over width, 0.75 times 2048 over gUIUnitWidth (include/UI_Base.h) | Why: the advisor is drawn in the interface's space, which spans the whole screen, so on a 16:9 screen he was a third too wide; contributed by samueleagle91 (tpw-port PR #7)
 #include "GameSys.h"
 #include "UI_Base.h"
-#include <cstdio>
 
 // TPAdvisor.cpp (main app of SimTheme Park 2.04b3): the advisor's model, 0x10031bc0..0x1003228c, and the slots'
 // constructor 0x10032454. (The file's text reader is in src/TPAdvisor.cpp, which two other unit libraries link, so the
@@ -29,15 +31,15 @@ sAdvisorStore gAdvisorStore[4];   // 0x102b56fc
 // none at all faults (the flags are set on a NULL instance, as the original does).
 void LoadAdvisor(char* path, char* folder, char* variant, uint32_t which) {
     sAdvisorStore& slot = gAdvisorStore[which];
-    // TPW_PORT_FIX uiscale LoadAdvisor | Mac: (none) | Port: the advisor of the lobby (loaded while setting it up, state 1) is at full size; a park's (loaded with the level, before its UI) takes the sizes the park's UI will have | Why: the front end's panels are whole-screen 4:3 layouts (the player menu's rows run to the right edge, the lobby's panel sits in the corner), which a smaller interface would shrink into the middle
-    const bool park = gGameSystemState != 1;
+    // TPW_PORT_FIX uiscale LoadAdvisor | Mac: (none) | Port: while gPortAdvisorAspect (TPAdvisor.h) is set, the lobby's advisor (state 1) at full size; a park's, loaded with the level before its UI, at the sizes the park's UI will have | Why: the front end's panels are whole-screen 4:3 layouts (the player menu's rows run to the right edge, the lobby's panel sits in the corner), which a smaller interface would shrink into the middle; contributed by samueleagle91 (tpw-port PR #24)
+    const bool park = gPortAdvisorAspect && gGameSystemState != 1;
     const float size = park ? gUIScale : 1.0f;
-    int16_t realWidth = 0, realHeight = 0, unitWidth = 0, unitHeight = 0;
-    UI_InterfaceUnits(park, realWidth, realHeight, unitWidth, unitHeight);
+    int16_t realWidth = 0, realHeight = 0, unitWidth = gUIUnitWidth, unitHeight = 0;
+    if (gPortAdvisorAspect) UI_InterfaceUnits(park, realWidth, realHeight, unitWidth, unitHeight);
     SetMatrixIdentity(&slot.mMatrix);
-    // TPW_PORT_FIX uiscale LoadAdvisor | Mac: at (0.6, -0.6), 0.4 of the half screen in from the bottom right corner | Port: gUIScale of that in from the corner (the same at full size) | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
-    slot.mMatrix.m[3][0] = 1.0f - 0.4f * size;
-    slot.mMatrix.m[3][1] = -(1.0f - 0.4f * size);
+    // TPW_PORT_FIX uiscale LoadAdvisor | Mac: the advisor stands at (0.6, -0.6) and is 0.015 high | Port: while gPortAdvisorAspect is set, gUIScale of that in from the bottom right corner, and gUIScale times as high (his width follows gUIUnitWidth, at the size the park's UI will have) | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
+    slot.mMatrix.m[3][0] = gPortAdvisorAspect ? 1.0f - 0.4f * size : 0.6f;
+    slot.mMatrix.m[3][1] = gPortAdvisorAspect ? -(1.0f - 0.4f * size) : -0.6f;
     slot.mMatrix.m[3][2] = 0.2f;
     gei_System.UpdateLights();
     slot.mLight.mColorWord = 0xffffffffu;
@@ -63,9 +65,7 @@ void LoadAdvisor(char* path, char* folder, char* variant, uint32_t which) {
         slot.mInstance->mMatrix = &slot.mMatrix;
         gei_MapWho->Link(&slot.mLight, 0x10);
         s3DPoint scale = {0.015f, 0.001f, 0.015f};
-        // TPW_PORT_FIX advisor LoadAdvisor | Mac: x is scaled by 0.75, a 4:3 screen's height over its width, so that the advisor is round in the interface's space, which spans the screen | Port: by the screen's own height over width, 0.75 times 2048 over gUIUnitWidth (the UI's width in units, 2048 on a 4:3 screen; include/UI_Base.h) | Why: on a screen wider than 4:3 the interface's space is wider too, and the advisor was stretched across
-        scale.x = scale.x * 0.75f * (unitWidth > 0 ? 2048.0f / static_cast<float>(unitWidth) : 1.0f);
-        // TPW_PORT_FIX uiscale LoadAdvisor | Mac: the height is scaled by 0.015 | Port: times gUIScale, as the width is through gUIUnitWidth | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+        scale.x = scale.x * 0.75f * (gPortAdvisorAspect && unitWidth > 0 ? 2048.0f / static_cast<float>(unitWidth) : 1.0f);
         scale.z = scale.z * size;
         ScaleLMatrixNoTrans(&slot.mInstance->mHeads->mHeader->mF78->mMatrix, &scale);
     }

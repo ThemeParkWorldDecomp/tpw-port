@@ -1,0 +1,151 @@
+# Builds the port on every push and pull request: on Windows with build.cmd, the same command a tester runs (every tool
+# fetched into build\tools\, nothing preinstalled used), and on an Apple Silicon Mac with make; then runs the tests each
+# build has. The launcher each job builds is kept as the run's artifact.
+#
+# GitHub has no Windows 10 or 11 desktop images. The nearest are its server images: windows-2022 (build 20348, the
+# Windows 10 era's server release) and windows-2025 (build 26100, the same build as Windows 11 24H2; windows-latest).
+name: build
+
+on:
+  push:
+    branches-ignore: [ci-play]   # the temporary play workflow builds these sources itself
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch (or pull request) cancels the run still going for it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    strategy:
+      fail-fast: false   # one image failing must not hide the other's result
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      # The files keep the line endings they are stored with, as in the README's clone; .gitattributes still gives the
+      # .cmd files CRLF.
+      - name: Keep line endings as stored
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      # TOOLS=fetch: the runner has a CMake and a Python of its own, a tester's PC has neither.
+      - name: Build the launcher (Command Prompt)
+        shell: cmd
+        run: build.cmd TOOLS=fetch
+      # The launcher starts and answers --version (its name, version and build; exit 0) with no game files. It is a
+      # Windows app, so Start-Process -Wait waits for it; with its output redirected it writes no log file.
+      - name: Start the launcher (--version)
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          $isolated = Join-Path $env:RUNNER_TEMP 'standalone-launcher'
+          New-Item -ItemType Directory -Force -Path $isolated | Out-Null
+          Copy-Item build\tpw_launcher.exe $isolated
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          $out = Join-Path $env:RUNNER_TEMP 'version.txt'
+          $err = Join-Path $env:RUNNER_TEMP 'version-err.txt'
+          $p = Start-Process -FilePath (Join-Path $isolated 'tpw_launcher.exe') -ArgumentList '--version' -NoNewWindow -Wait -PassThru `
+               -RedirectStandardOutput $out -RedirectStandardError $err
+          Get-Content $out, $err
+          if ($p.ExitCode -ne 0) { throw "tpw_launcher.exe --version exited with $($p.ExitCode)" }
+          if (-not (Select-String -LiteralPath $out -Pattern '^build: ' -Quiet)) { throw 'tpw_launcher.exe --version printed no build line' }
+      - name: Build and run the tests (PowerShell)
+        shell: pwsh
+        run: .\build.cmd TOOLS=fetch test
+      - name: Keep the launcher
+        uses: actions/upload-artifact@v4
+        with:
+          name: tpw_launcher-${{ matrix.os }}-x64
+          path: build/tpw_launcher.exe
+          if-no-files-found: error
+      - name: Keep the build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ matrix.os }}
+          path: build/logs/
+          if-no-files-found: ignore
+
+  # Advisory: Windows 11 on Arm. The same x86-64 toolchain and launcher, run under Windows' x64 emulation, so it is slow,
+  # and a red run here does not fail the workflow. The steps are the windows job's.
+  windows-arm:
+    runs-on: windows-11-arm
+    continue-on-error: true
+    timeout-minutes: 120
+    steps:
+      - name: Keep line endings as stored
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build the launcher (Command Prompt)
+        shell: cmd
+        run: build.cmd TOOLS=fetch
+      - name: Start the launcher (--version)
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          $isolated = Join-Path $env:RUNNER_TEMP 'standalone-launcher'
+          New-Item -ItemType Directory -Force -Path $isolated | Out-Null
+          Copy-Item build\tpw_launcher.exe $isolated
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          $out = Join-Path $env:RUNNER_TEMP 'version.txt'
+          $err = Join-Path $env:RUNNER_TEMP 'version-err.txt'
+          $p = Start-Process -FilePath (Join-Path $isolated 'tpw_launcher.exe') -ArgumentList '--version' -NoNewWindow -Wait -PassThru `
+               -RedirectStandardOutput $out -RedirectStandardError $err
+          Get-Content $out, $err
+          if ($p.ExitCode -ne 0) { throw "tpw_launcher.exe --version exited with $($p.ExitCode)" }
+          if (-not (Select-String -LiteralPath $out -Pattern '^build: ' -Quiet)) { throw 'tpw_launcher.exe --version printed no build line' }
+      - name: Build and run the tests (PowerShell)
+        shell: pwsh
+        run: .\build.cmd TOOLS=fetch test
+      - name: Keep the launcher
+        uses: actions/upload-artifact@v4
+        with:
+          name: tpw_launcher-windows-11-arm-x64
+          path: build/tpw_launcher.exe
+          if-no-files-found: error
+      - name: Keep the build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-windows-11-arm
+          path: build/logs/
+          if-no-files-found: ignore
+
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            arch: arm64
+          - os: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build the launcher
+        run: make
+      - name: Start the launcher (--version)
+        run: build/tpw_launcher --version
+      - name: Build and run the tests
+        run: make test
+      # One file, build/tpw_launcher (the zip drops its executable bit: chmod +x after unzipping).
+      - name: Keep the launcher
+        uses: actions/upload-artifact@v4
+        with:
+          name: tpw_launcher-${{ matrix.os }}-${{ matrix.arch }}
+          path: build/tpw_launcher
+          if-no-files-found: error

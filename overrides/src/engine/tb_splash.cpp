@@ -118,6 +118,8 @@ int32_t CSplash::Init(char* language, char* path, int32_t frames) {
     mFrames = frames;
     mScale = 100.0f / static_cast<float>(mFrames);
     int32_t width = gei_Display.mWidth;
+    // TPW_PORT_FIX smallres CSplash::Init | Mac: the pictures' folder (640, 800 or 1024) is named by the screen's width | Port: on a screen wider than 4:3, by the width of the 4:3 box its height gives, which the pictures are drawn in | Why: on a wide screen the 640 x 480 preset is 853 wide (960 for 800 x 600 at 16:10), and no folder has that name, so welcome.tga did not load (an assertion in Overlay)
+    if (gUIUnitWidth > 0x800) width = UI_PillarboxWidth(gei_Display.mHeight);
     if (width < 640 || width > 1024) width = 640;
     int32_t legalY, welcomeY;   // where the overlay's bottom row goes
     char dir[260], splash[260], legal[260], welcomeLanguage[260], welcome[260];

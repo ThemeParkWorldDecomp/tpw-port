@@ -116,7 +116,7 @@ int32_t EffectPeekMsg(InterfaceWindow* window, int32_t message, int32_t a, int32
                 // TPW_PORT_FIX v5L26 EffectPeekMsg | Mac: the button's place across the screen is out of 2048 units | Port: out of the unit space's width (2048 on a 4:3 screen) | Why: a widescreen port; the highlight sparkles over the button wherever the anchoring put it
                 const int32_t half = gUIUnitWidth / 2;
                 const float x = static_cast<float>(rect.mLeft + width / 2 - half) * (1.0f / static_cast<float>(half));
-                // TPW_PORT_FIX uiscale EffectPeekMsg | Mac: the button's place down the screen is out of 1536 units | Port: out of the unit space's height | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+                // TPW_PORT_FIX uiscale EffectPeekMsg/UIMain_ShowRidePreview/UIMain_ShowSpritePreview/InitGameUI | Mac: places down the screen are out of 1536 units from 768, and the game's view windows are 1536 units high | Port: out of the unit space's height from its middle, and the views as high as it | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
                 const int32_t halfDown = gUIUnitHeight / 2;
                 const float y = static_cast<float>(rect.mTop + height / 2 - halfDown) / static_cast<float>(halfDown);
                 if (message == 0x10001)
@@ -509,7 +509,7 @@ static const char* const kColumnButtonAssert = kStringPool + 6;
 
 // 0x10181400
 void UIMain_ShowRidePreview(CoolRect& rect, uint32_t id, int32_t z) {
-    // TPW_PORT_FIX uiscale UIMain_ShowRidePreview | Mac: the rectangle's place down the screen is out of 1536 units, from 768 | Port: out of the unit space's height, from its middle | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+    // TPW_PORT_FIX uiscale UIMain_ShowRidePreview | Mac: the rectangle's place down the screen is out of 1536 units, from 768 | Port: out of the unit space's height, from its middle | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
     const int32_t halfDown = gUIUnitHeight / 2;
     float bottom = static_cast<float>(halfDown - static_cast<int32_t>(rect.mBottom)) / static_cast<float>(halfDown);
     float top = static_cast<float>(halfDown - static_cast<int32_t>(rect.mTop)) / static_cast<float>(halfDown);
@@ -561,12 +561,13 @@ void UIMain_ShowSpritePreview(CoolRect& rect, CPeep* peep, int32_t z, float scal
     int32_t halfWidth = (right - left) >> 1;
     int32_t quarterHeight = (bottom - top) >> 2;
     int32_t centre = left + halfWidth;
-    // TPW_PORT_FIX uiscale UIMain_ShowSpritePreview | Mac: the sprite's place down the screen is out of 1536 units, from 768 | Port: out of the unit space's height, from its middle | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+    // TPW_PORT_FIX uiscale UIMain_ShowSpritePreview | Mac: the sprite's place down the screen is out of 1536 units, from 768 | Port: out of the unit space's height, from its middle | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
     const int32_t halfDown = gUIUnitHeight / 2;
     int32_t y = halfDown - ((bottom - quarterHeight) - offset);
     // TPW_PORT_FIX v5L26 UIMain_ShowSpritePreview | Mac: the sprite's place across the screen is out of 2048 units, from 1016 | Port: out of the unit space's width, from 8 short of its middle (the same on a 4:3 screen) | Why: a widescreen port; the person stands in their panel wherever the anchoring put it
     const int32_t half = gUIUnitWidth / 2;
     float x = static_cast<float>(centre - (half - 8)) / static_cast<float>(half);
+    // TPW_PORT_FIX uiscale UIMain_ShowSpritePreview | Mac: the sprite's height on the screen is out of 768 units | Port: out of half the unit space's height | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
     float yy = static_cast<float>(y) / static_cast<float>(halfDown);
     float depth = CalcZTrans(z);
     gSpritePreviewHandle = ESP_Spawn2DCopyOfScriptAt(script, x, yy, depth, scale);
@@ -749,6 +750,8 @@ void UIMain_AdvisorMessage(AdvisorMessage message) {
 
 // 0x1018227c, 68 bytes.
 void UIMain_CancelAdvisorMessage(AdvisorMessage message) {
+    // TPW_PORT_FIX fix-input UIMain_CancelAdvisorMessage | Mac: asks the world's advisor with no check, also when the park map is destroyed at the quit, after CGame::ExitLevel has deleted the world (GAMESYSTEM_Close runs UI_CloseSystem after the last park tick; Mac OS 9 has no memory protection, so the read through the null world does not fault there) | Port: while gPortNoWorldAdvisorGuard (ui_main.h) is set, returns when gGameWorld is null | Why: quitting with the park map open crashed at shutdown (reported and fixed on Windows by samueleagle91, tpw-port PR #1)
+    if (gPortNoWorldAdvisorGuard && gGameWorld == nullptr) return;
     gGameWorld->GetAdvisor()->CancelMessage(message);
 }
 
@@ -1810,7 +1813,7 @@ float gGameWindowCentreY;              // 0x102b2b58
 float gGameWindowHalfWidth = 1.0f;     // 0x10278a28
 float gGameWindowHalfHeight = 1.0f;    // 0x10278a2c
 
-// TPW_PORT_FIX uiscale UseInterfaceSize | Mac: (none) | Port: the interface size on (a park) or off (the lobby); after a switch the tooltip window, made at start-up and kept, is made again at the new size, enabled as it was | Why: the front end's panels are whole-screen 4:3 layouts (the player menu's rows run to the right edge, the lobby's panel sits in the corner), which a smaller interface would shrink into the middle
+// TPW_PORT_FIX uiscale UseInterfaceSize/InitGameUI/InitLobbyUI/InitOnlineUI | Mac: (none: the UI is one size) | Port: a park's UI set-up turns the interface size on and the lobby's turns it off; the tooltip window, kept from start-up, is made again at the new size, enabled as it was | Why: the front end's panels are whole-screen 4:3 layouts (the player menu's rows run to the right edge, the lobby's panel sits in the corner), which a smaller interface would shrink into the middle; contributed by samueleagle91 (tpw-port PR #24)
 static void UseInterfaceSize(bool on) {
     if (!UI_UseInterfaceSize(on) || gUIHelpWindow.mHelpWindow == nullptr) return;
     const bool enabled = gUIHelpWindow.mEnabled != 0;
@@ -1821,7 +1824,6 @@ static void UseInterfaceSize(bool on) {
 
 void InitGameUI() {
     UI_FlushAllMessages();
-    // TPW_PORT_FIX uiscale InitGameUI | Mac: (none) | Port: the park's UI is laid out at the interface size | Why: the front end's panels are whole-screen 4:3 layouts (the player menu's rows run to the right edge, the lobby's panel sits in the corner), which a smaller interface would shrink into the middle
     UseInterfaceSize(true);
     gText.InitThemeSpecific();
     CreateStaticTags();
@@ -1851,7 +1853,7 @@ void InitGameUI() {
     gei_MapWho->Link(static_cast<CMapLinkBase*>(light), 0x20);
 
     // TPW_PORT_FIX v5L26 InitGameUI | Mac: the game's view and first-person windows are 2048 units wide | Port: as wide as the unit space | Why: a widescreen port; the park is picked and scrolled across the whole width and the panels on the view are anchored to its edges
-    // TPW_PORT_FIX uiscale InitGameUI | Mac: the game's view and first-person windows are 1536 units high | Port: as high as the unit space | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges
+    // TPW_PORT_FIX uiscale InitGameUI | Mac: the game's view and first-person windows are 1536 units high | Port: as high as the unit space | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
     InterfaceWindow* window = gUIRootWindow->CreateObject(1, 0, 0, 0, 0, static_cast<int16_t>(gUIUnitWidth - 1),
                                                           static_cast<int16_t>(gUIUnitHeight - 1));
     if (window != nullptr) {
@@ -1915,7 +1917,7 @@ void DeInitGameUI() {
 // into the map's light list 0x20 and turns the help text on or off by the player's tooltips setting.
 void InitLobbyUI() {
     UI_FlushAllMessages();
-    // TPW_PORT_FIX uiscale InitLobbyUI | Mac: (none) | Port: the lobby's UI is laid out at full size | Why: the front end's panels are whole-screen 4:3 layouts (the player menu's rows run to the right edge, the lobby's panel sits in the corner), which a smaller interface would shrink into the middle
+    // TPW_PORT_FIX uiscale InitLobbyUI/InitOnlineUI | Mac: (none: the UI is one size) | Port: the lobby's UI is laid out at full size, an online park's at the interface size, as a park's is | Why: the front end's panels are whole-screen 4:3 layouts (the player menu's rows run to the right edge, the lobby's panel sits in the corner), which a smaller interface would shrink into the middle; contributed by samueleagle91 (tpw-port PR #24)
     UseInterfaceSize(false);
     CLight* light = &gUILight;
     gei_System.UpdateLights();
@@ -1957,7 +1959,6 @@ void CreateOnlinePanel();   // 0x101e8f08
 // Engine_GameFirstPersonMsg, cursor 0x15, script gFirstPersonWindowScript), then sets the help text by the tooltips setting.
 void InitOnlineUI() {
     UI_FlushAllMessages();
-    // TPW_PORT_FIX uiscale InitOnlineUI | Mac: (none) | Port: an online park's UI is laid out at the interface size, as a park's is | Why: the front end's panels are whole-screen 4:3 layouts (the player menu's rows run to the right edge, the lobby's panel sits in the corner), which a smaller interface would shrink into the middle
     UseInterfaceSize(true);
     gei_System.UpdateLights();
     gUILight.mColorWord = 0xffffffffu;

@@ -19,7 +19,9 @@
 #include "platform/opengl.h"
 #include "platform/macdoze.h"
 #include "platform/upixels.h"
-#include "TbIRLE4bitFont.h"   // gTbFontScale
+#ifdef TPW_PORT_FIX
+#include "TbIRLE4bitFont.h"   // gTbFontScale (only the port's fixes scale the UI's fonts)
+#endif
 
 namespace SamsUtilities {
 void UPixelsReadRGBA(UPixels& pixels, uint8_t* out, int32_t width, int32_t height);   // platform/upixels.cpp
@@ -120,7 +122,8 @@ void UCursorOpenGL::Swap(UOpenGL&) { DrawOverlay(); }
 // screen the overlay is drawn in game pixels (tpw::CursorPlacement) onto the copy of the game's
 // picture that is then scaled into the window. The cursors were drawn for 1024 x 768, so on a larger
 // game picture the cursor grows with the UI, as its fonts do (gTbFontScale, the UI's pixels per unit
-// over 1024 x 768's), by a whole number so that its pixels stay square.
+// over 1024 x 768's), by a whole number so that its pixels stay square (by samueleagle91, tpw-port
+// PR #6). Without the port's fixes the cursor is as large as the game made it.
 void UCursorOpenGL::DrawOverlay() {
     const auto count = static_cast<int32_t>(mPictures->frames.size());
     if (count == 0 || gShowCount <= 0) return;
@@ -131,7 +134,11 @@ void UCursorOpenGL::DrawOverlay() {
     if (!tpw::CursorPlacement(place)) return;
     const float mouseX = place.x, mouseY = place.y, scaleX = place.scaleX, scaleY = place.scaleY;
     const int pixelsWide = place.surfaceWide, pixelsHigh = place.surfaceHigh;
+#ifdef TPW_PORT_FIX
     const float grow = std::max(1.0f, std::round(gTbFontScale));
+#else
+    const float grow = 1.0f;
+#endif
     const float x0 = (mouseX - static_cast<float>(mHotX) * grow) * scaleX;
     const float y0 = (mouseY - static_cast<float>(mHotY) * grow) * scaleY;
     const float x1 = x0 + static_cast<float>(kFrameSize) * grow * scaleX;

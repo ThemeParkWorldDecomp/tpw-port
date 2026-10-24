@@ -30,12 +30,12 @@ import argparse
 import ctypes
 import ctypes.util
 import pathlib
-import platform
 import re
 import subprocess
 import sys
 
 DARWIN = sys.platform == "darwin"
+# The WINDOWS parts of this file: Windows port contributed by samueleagle91 (tpw-port PR #1).
 WINDOWS = sys.platform == "win32"
 # Scopes whose functions belong to the platform layer rather than to the game.
 PLATFORM_SCOPES = ("NS_MacDoze::", "SamsUtilities::", "IDirectDraw", "IdxDirectDraw::", "IDirect3D")
@@ -128,7 +128,9 @@ def main():
     needed = sorted(undefined - defined)
     system = SystemLibraries(args.syslib)
     names = [c_name(s) for s in needed]
-    demangled = run([args.cxxfilt], "\n".join(names) + "\n").splitlines()
+    # c_name already removes Mach-O's extra underscore. Older Apple c++filt versions strip one by default on
+    # stdin; that would turn _Z... into Z... and classify every C++ function as a variable on a clean Mac.
+    demangled = run([args.cxxfilt, "--no-strip-underscore"], "\n".join(names) + "\n").splitlines()
 
     functions, variables, special = [], [], []
     for symbol, name, pretty in zip(needed, names, demangled):
@@ -262,79 +264,83 @@ def trampolines(functions):
     the integer and floating-point return registers, so callers expecting an int, a
     pointer, a bool, a float or a double all read zero. (A caller expecting a structure
     through a hidden pointer gets its buffer back untouched.) Constructors and
-    destructors return their first argument instead (see returns_this)."""
-    machine = platform.machine().lower()
+    destructors return their first argument instead (see returns_this).
+
+    The processor is the compiler's target, chosen in the generated file, not the one
+    Python reports: on an Arm PC an x64 build runs an x64 Python, which can still report
+    ARM64."""
     prefix = "_" if DARWIN else ""
     lines = []
     w = lines.append
-    if machine in ("arm64", "aarch64"):
-        w("__asm__(")
-        w('    ".text\\n"')
+    w("#if defined(__aarch64__)")
+    w("__asm__(")
+    w('    ".text\\n"')
+    w('    ".p2align 2\\n"')
+    w(f'    "{prefix}tpw_stub_common:\\n"')
+    w('    "    stp x29, x30, [sp, #-16]!\\n"')
+    w('    "    mov x29, sp\\n"')
+    w('    "    mov w0, w16\\n"')
+    w(f'    "    bl {prefix}tpw_stub_hit\\n"')
+    w('    "    mov x0, #0\\n"')
+    w('    "    mov x1, #0\\n"')
+    w('    "    fmov d0, xzr\\n"')
+    w('    "    fmov d1, xzr\\n"')
+    w('    "    fmov d2, xzr\\n"')
+    w('    "    fmov d3, xzr\\n"')
+    w('    "    ldp x29, x30, [sp], #16\\n"')
+    w('    "    ret\\n"')
+    w(f'    "{prefix}tpw_stub_common_this:\\n"')
+    w('    "    stp x29, x30, [sp, #-32]!\\n"')
+    w('    "    mov x29, sp\\n"')
+    w('    "    str x0, [sp, #16]\\n"')
+    w('    "    mov w0, w16\\n"')
+    w(f'    "    bl {prefix}tpw_stub_hit\\n"')
+    w('    "    ldr x0, [sp, #16]\\n"')
+    w('    "    ldp x29, x30, [sp], #32\\n"')
+    w('    "    ret\\n"')
+    for i, (symbol, _, pretty) in enumerate(functions):
+        w(f'    ".globl {symbol}\\n"')
         w('    ".p2align 2\\n"')
-        w(f'    "{prefix}tpw_stub_common:\\n"')
-        w('    "    stp x29, x30, [sp, #-16]!\\n"')
-        w('    "    mov x29, sp\\n"')
-        w('    "    mov w0, w16\\n"')
-        w(f'    "    bl {prefix}tpw_stub_hit\\n"')
-        w('    "    mov x0, #0\\n"')
-        w('    "    mov x1, #0\\n"')
-        w('    "    fmov d0, xzr\\n"')
-        w('    "    fmov d1, xzr\\n"')
-        w('    "    fmov d2, xzr\\n"')
-        w('    "    fmov d3, xzr\\n"')
-        w('    "    ldp x29, x30, [sp], #16\\n"')
-        w('    "    ret\\n"')
-        w(f'    "{prefix}tpw_stub_common_this:\\n"')
-        w('    "    stp x29, x30, [sp, #-32]!\\n"')
-        w('    "    mov x29, sp\\n"')
-        w('    "    str x0, [sp, #16]\\n"')
-        w('    "    mov w0, w16\\n"')
-        w(f'    "    bl {prefix}tpw_stub_hit\\n"')
-        w('    "    ldr x0, [sp, #16]\\n"')
-        w('    "    ldp x29, x30, [sp], #32\\n"')
-        w('    "    ret\\n"')
-        for i, (symbol, _, pretty) in enumerate(functions):
-            w(f'    ".globl {symbol}\\n"')
-            w('    ".p2align 2\\n"')
-            w(f'    "{symbol}:\\n"')
-            w(f'    "    mov w16, #{i & 0xffff}\\n"')
-            if i > 0xffff:
-                w(f'    "    movk w16, #{i >> 16}, lsl #16\\n"')
-            w(f'    "    b {prefix}tpw_stub_common{"_this" if returns_this(pretty) else ""}\\n"')
-        w(");")
-    elif machine in ("x86_64", "amd64"):
-        w("__asm__(")
-        w('    ".text\\n"')
-        w(f'    "{prefix}tpw_stub_common:\\n"')
-        w('    "    pushq %rbp\\n"')
-        w('    "    movq %rsp, %rbp\\n"')
-        if WINDOWS:
-            # The Windows x64 convention: the first argument in %ecx, and 32 bytes of shadow space for the callee.
-            w('    "    movl %eax, %ecx\\n"')
-            w('    "    subq $32, %rsp\\n"')
-        else:
-            w('    "    movl %eax, %edi\\n"')
-        w(f'    "    call {prefix}tpw_stub_hit\\n"')
-        w('    "    xorl %eax, %eax\\n"')
-        w('    "    xorl %edx, %edx\\n"')
-        w('    "    xorps %xmm0, %xmm0\\n"')
-        w('    "    xorps %xmm1, %xmm1\\n"')
-        if WINDOWS:
-            w('    "    movq %rbp, %rsp\\n"')
-        w('    "    popq %rbp\\n"')
-        w('    "    ret\\n"')
-        for i, (symbol, _, _) in enumerate(functions):
-            w(f'    ".globl {symbol}\\n"')
-            w(f'    "{symbol}:\\n"')
-            w(f'    "    movl ${i}, %eax\\n"')
-            w(f'    "    jmp {prefix}tpw_stub_common\\n"')
-        w(");")
+        w(f'    "{symbol}:\\n"')
+        w(f'    "    mov w16, #{i & 0xffff}\\n"')
+        if i > 0xffff:
+            w(f'    "    movk w16, #{i >> 16}, lsl #16\\n"')
+        w(f'    "    b {prefix}tpw_stub_common{"_this" if returns_this(pretty) else ""}\\n"')
+    w(");")
+    w("#elif defined(__x86_64__)")
+    w("__asm__(")
+    w('    ".text\\n"')
+    w(f'    "{prefix}tpw_stub_common:\\n"')
+    w('    "    pushq %rbp\\n"')
+    w('    "    movq %rsp, %rbp\\n"')
+    if WINDOWS:
+        # The Windows x64 convention: the first argument in %ecx, and 32 bytes of shadow space for the callee.
+        w('    "    movl %eax, %ecx\\n"')
+        w('    "    subq $32, %rsp\\n"')
     else:
-        # Any other processor: plain C functions under the symbols' names. Integer and
-        # pointer results read zero; floating-point results are undefined there.
-        for i, (symbol, _, _) in enumerate(functions):
-            w(f'extern "C" long tpw_stub_fn_{i}() __asm__("{symbol}");')
-            w(f'extern "C" long tpw_stub_fn_{i}() {{ tpw_stub_hit({i}); return 0; }}')
+        w('    "    movl %eax, %edi\\n"')
+    w(f'    "    call {prefix}tpw_stub_hit\\n"')
+    w('    "    xorl %eax, %eax\\n"')
+    w('    "    xorl %edx, %edx\\n"')
+    w('    "    xorps %xmm0, %xmm0\\n"')
+    w('    "    xorps %xmm1, %xmm1\\n"')
+    if WINDOWS:
+        w('    "    movq %rbp, %rsp\\n"')
+    w('    "    popq %rbp\\n"')
+    w('    "    ret\\n"')
+    for i, (symbol, _, _) in enumerate(functions):
+        w(f'    ".globl {symbol}\\n"')
+        w(f'    "{symbol}:\\n"')
+        w(f'    "    movl ${i}, %eax\\n"')
+        w(f'    "    jmp {prefix}tpw_stub_common\\n"')
+    w(");")
+    w("#else")
+    # Any other processor: plain C functions under the symbols' names. Integer and
+    # pointer results read zero; floating-point results are undefined there.
+    for i, (symbol, _, _) in enumerate(functions):
+        w(f'extern "C" long tpw_stub_fn_{i}() __asm__("{symbol}");')
+        w(f'extern "C" long tpw_stub_fn_{i}() {{ tpw_stub_hit({i}); return 0; }}')
+    w("#endif")
     return lines
 
 

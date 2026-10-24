@@ -22,9 +22,6 @@
 #include <cstdint>
 #include <new>
 
-// TPW_PORT_FIX staffscript StaffRoomStatusPanel::UpdateViewSprite | Mac: spawns the staff figure's script from the block at 0x1029ff70 | Port: from that place in gScriptCodeWords, the script code array the block lies in: gStaffRoomSpawnBlock, the host's copy, is outside the array, where a script never runs (src/game/Script.cpp), so the figure was not drawn
-static void* StaffRoomSpawnCode() { return const_cast<uint32_t*>(gScriptCodeWords) + (0x1029ff70u - kScriptCodeAddress) / 4; }
-
 // The staff, show and upgrade status panels' view-window functions and the small free functions around them (unit v51051), main app.
 
 // ---- StaffRoomStatusPanel
@@ -106,10 +103,13 @@ void StaffRoomStatusPanel::UpdateViewSprite(CStaff* staff) {
     InterfaceWindow* view = f->mWindow.get()->GetWindow(0x1e84);
     view->GetClientRect(&rect);
     int32_t left = rect.mLeft, top = rect.mTop, right = rect.mRight, bottom = rect.mBottom;
-    int32_t x = left + ((right - left) >> 1) - 0x3f8;
-    int32_t y = 0x300 - (bottom - ((bottom - top) >> 2));
-    float fy = static_cast<float>(y) / 768.0f;
-    float fx = static_cast<float>(x) * 0.0009765625f;
+    // TPW_PORT_FIX stafffigure StaffRoomStatusPanel::UpdateViewSprite | Mac: the figure's place across the screen is out of 2048 units, from 1016, and down it out of 1536 units, from 768 | Port: out of the unit space's width, from 8 short of its middle, and out of its height, from its middle (the same on a 4:3 screen at full interface size), as UIMain_ShowSpritePreview places a guest's figure | Why: the same sum as the hire panel's (UpdateViewWindow): on a screen wider than 4:3, or with a smaller interface, the figure stood beside the staff room panel's picture box instead of in it; contributed by samueleagle91 (tpw-port PR #39)
+    const int32_t half = gUIUnitWidth / 2;
+    const int32_t halfDown = gUIUnitHeight / 2;
+    int32_t x = left + ((right - left) >> 1) - (half - 8);
+    int32_t y = halfDown - (bottom - ((bottom - top) >> 2));
+    float fy = static_cast<float>(y) / static_cast<float>(halfDown);
+    float fx = static_cast<float>(x) / static_cast<float>(half);
     float fz = CalcZTrans(static_cast<int32_t>(view->mZ) + 1);
     int32_t sprite = WordAt(staff, 0x24);
     int32_t a = WordAt(staff, 0x20);
@@ -117,8 +117,9 @@ void StaffRoomStatusPanel::UpdateViewSprite(CStaff* staff) {
         f->mF28 = sprite;
         f->mF2c = a;
         if (f->mScript != 0) SCR_KillScript(f->mScript);
-        // TPW_PORT_FIX staffscript StaffRoomStatusPanel::UpdateViewSprite | Mac: gStaffRoomSpawnBlock | Port: StaffRoomSpawnCode()
-        f->mScript = ESP_SpawnScript(StaffRoomSpawnCode(), static_cast<ESP_Sprites>(sprite), a, static_cast<ACTS>(1), fx, fy, fz);
+        // TPW_PORT_FIX staffscript StaffRoomStatusPanel::UpdateViewSprite | Mac: the staff member's figure is spawned from the block at 0x1029ff70, inside the script code | Port: while gPortScriptCode (include/analyser.h) is set, it is spawned from that place in the script code (ScriptCodeAt) | Why: the host's copy of the block (gStaffRoomSpawnBlock) lies outside the script code array, where a script never runs, so the staff room panel's figure was not drawn; contributed by samueleagle91 (tpw-port PR #2)
+        void* const block = gPortScriptCode ? ScriptCodeAt(0x1029ff70u) : static_cast<void*>(gStaffRoomSpawnBlock);
+        f->mScript = ESP_SpawnScript(block, static_cast<ESP_Sprites>(sprite), a, static_cast<ACTS>(1), fx, fy, fz);
         SCR_SetFloatVariable(f->mScript, 8, 8.0f);
     }
 }

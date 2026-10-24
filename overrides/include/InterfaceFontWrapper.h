@@ -21,9 +21,11 @@ public:
     // Unit v51118: 0x10168c04 (64): 0 without a font, else the font's virtual at +0x28 (the vertical spacing, a byte).
     int32_t GetHeight();
 };
-// TPW_PORT_FIX win InterfaceFontWrapper::GetCharWidth | Mac: a weak inline default, which the src file's definition replaces | Port: left out on Windows, where COFF refuses the inline copy beside the definition (the default serves only the unit test libraries, which the Windows build does not make)
-#if !defined(TPW_V51039_STRONG) && !defined(_WIN32)
+#ifndef TPW_V51039_STRONG
+// TPW_PORT_FIX win InterfaceFontWrapper::GetCharWidth | Mac: a weak inline default, which src/game/ui/InterfaceFont.cpp's definition replaces | Port: left out on Windows | Why: COFF refuses an inline copy beside the definition (a duplicate symbol); the defaults serve only the unit test libraries, which the Windows build does not make; contributed by samueleagle91 (tpw-port PR #1)
+#ifndef _WIN32
 __attribute__((weak)) inline int32_t InterfaceFontWrapper::GetCharWidth(char16_t) { return 0; }
+#endif
 #endif
 struct TbFontCharSize;
 namespace fontwrapper_callee {

@@ -1,7 +1,8 @@
 // widgets.h: the launcher screen's widgets, immediate mode: each frame the screen code calls them in drawing order and
 // they draw themselves and report clicks. About eight kinds: panel, button, tile, progress bar, log list, toggle,
-// segmented switch and the drop field, plus badges and a notice. Hover and press move through damped springs, which
-// gives buttons and tiles their bouncy hover. Everything is in points (draw.h).
+// segmented switch and the drop field, plus badges, a notice and what scrolling needs (an offset the wheel moves, a
+// clip and a bar). Hover and press move through damped springs, which gives buttons and tiles their bouncy hover.
+// Everything is in points (draw.h).
 #pragma once
 #include <cstdint>
 #include <string>
@@ -64,6 +65,7 @@ public:
     // react to the pointer.
     void SetInteractive(bool on) { interactive_ = on; }
     bool Interactive() const { return interactive_; }
+    // The pointer is over `r` (and inside the clip, while there is one).
     bool Hovered(const Rect& r) const;
     // True while any spring is still moving (the window keeps redrawing until everything rests).
     bool Animating() const { return animating_; }
@@ -91,11 +93,24 @@ public:
     // A message in a pill at the bottom of the window.
     void Notice(const Rect& window, std::string_view message, Rgba fill);
 
+    // Content taller than its view: how far it is scrolled, in points from its top (0 to `maxOffset`). The wheel over
+    // `area` moves it `step` points a line. Content not drawn the frame before (a box opened again) starts at its top.
+    float Scroll(const std::string& id, const Rect& area, float step, float maxOffset);
+    // Drawing, and the pointer the widgets see, kept inside `r` until Unclip.
+    void Clip(const Rect& r);
+    void Unclip();
+    // A bar in `track` showing where the view is: `shown` of `total` in view, scrolled `offset` (all in one unit).
+    void ScrollBar(const Rect& track, float shown, float total, float offset, Rgba trackColour);
+
 private:
     struct SpringState {
         float x = 0, v = 0;
         uint64_t frame = 0;
         bool seen = false;
+    };
+    struct ScrollState {
+        float offset = 0;
+        uint64_t frame = 0;   // the frame it was last drawn in
     };
     // True when the press and the release both landed on `r` while interactive.
     bool Clicked(const std::string& id, const Rect& r, bool enabled);
@@ -108,10 +123,13 @@ private:
     uint64_t frame_ = 0;
     bool interactive_ = true;
     bool animating_ = false;
+    bool clipped_ = false;
+    Rect clip_;            // while clipped_
     std::string active_;   // the widget the button went down on
     std::unordered_map<std::string, SpringState> springs_;
     std::unordered_map<std::string, float> scroll_;   // log lists: rows hidden above the top
     std::unordered_map<std::string, bool> follow_;    // log lists: keep the newest row in view
+    std::unordered_map<std::string, ScrollState> offsets_;   // Scroll: points hidden above the top
 };
 
 }  // namespace tpw::ui
