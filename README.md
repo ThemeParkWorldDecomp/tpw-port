@@ -95,13 +95,21 @@ still come first. To stop using a pack, remove its zip. Packs are used in name o
 later name's copy is used. `--packs DIR` names another folder, and it also works with `--game`.
 
 A pack changes only how the game looks or sounds. It takes pictures (`.tga`, the `.wct` textures, the `.ani` and `.cur`
-cursors), sounds (`.sdt`, `.sf2`, and the sound banks' `.map` files in `data/global/sound`), fonts (`.ttf`, the `.bf4`
-bitmap fonts) and films (`.mov`). Any other file, a `.sam` settings file above all, is left out: changing how a park
-plays is not what packs are for.
+cursors), sounds (`.sf2`, and the sound banks: an `.sdt` and its `.map` index, in the folders the game keeps them in,
+`data/global/sound` and `Speech` and each level's `Sound`, `Speech` and `Music`), fonts (`.ttf`, the `.bf4` bitmap
+fonts) and films (`.mov`). Any other file, a `.sam` settings file above all, is left out: changing how a park plays is
+not what packs are for. So is a file under a folder whose name holds a dot or is a game file's name
+(`data/levels/fantasy/features/bfbin.wad/x.tga`), as that folder would hide the game's file. The game takes nothing else
+from a pack's folder either, so a file put in `.unpacked` by hand is not used.
 
 The launcher also leaves out a zip whose name starts with a dot, a file in a zip whose name holds a drive or a colon
-(`C:/x`), and a pack that unpacks to more than 8 GB. Its log names everything it leaves out. A name that climbs out of
-the zip (`..` or a leading `/`) is never read from it.
+(`C:/x`), and a pack that unpacks to more than 8 GB. Its log names each file it leaves out and why, apart from a Mac's
+`__MACOSX`, `._` and `.DS_Store` files. The zip reader itself never lists folder entries or a name that climbs out of
+the zip (`..` or a leading `/`), so those have no log line. A newer launcher that checks packs by other rules unpacks
+them again.
+
+A broken file in a pack can crash the game, as a broken game file would: a cursor `.tga` shorter than 32 rows, for
+example, or a `.map` that isn't its sound bank's index.
 
 A replacement must be in the format the game reads: the logo and the loading screens are uncompressed TGA. The game
 picks the logo by the screen's width, from the `640`, `800` or `1024` folder (`640` above 1024 pixels), so a pack

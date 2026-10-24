@@ -42,6 +42,7 @@
 #include "analyser.h"
 #include "rsse.h"
 #include "asset_packs.h"
+#include "packs.h"
 #include "platform.h"
 #include "handoff.h"
 #ifdef _WIN32
@@ -976,7 +977,8 @@ int LauncherMain(int argc, char** argv) {
     if (!packs.empty()) {
         tpw::launcher::UsePacks(packs);
 #ifdef TPW_PORT_FIX
-        gPortPackPictures = true;   // a pack's logo or loading picture may be of another shape (src/engine/tb_splash.cpp)
+        // Only when a pack is in use: a pack's logo or loading picture may be of another shape (src/engine/tb_splash.cpp).
+        gPortPackPictures = !tpw::PackDirs().empty();
 #endif
     }
 

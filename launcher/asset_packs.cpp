@@ -23,8 +23,11 @@ namespace {
 namespace fs = std::filesystem;
 
 constexpr char kUnpackedFolder[] = ".unpacked";
-// In each unpacked folder: the size and time of the zip it was unpacked from.
+// In each unpacked folder: the rules it was unpacked by, and the size and time of the zip it was unpacked from.
 constexpr char kStampFile[] = ".pack";
+// The rules, raised whenever they change (tpw::PackMayHold, LeftOutBecause), so a folder unpacked by older rules is
+// unpacked again. The stamps of the first packs had none.
+constexpr char kRules[] = "rules 2";
 // The most a pack may unpack to (8 GB, over 25 times the game folder), so a zip that expands without end cannot fill
 // the disk.
 constexpr uint64_t kMaxPackBytes = uint64_t{8} << 30;
@@ -38,7 +41,7 @@ std::string StampOf(const fs::path& zip) {
     std::error_code ec;
     const uintmax_t size = fs::file_size(zip, ec);
     const auto time = fs::last_write_time(zip, ec).time_since_epoch().count();
-    return std::to_string(size) + " " + std::to_string(static_cast<long long>(time));
+    return std::string(kRules) + " " + std::to_string(size) + " " + std::to_string(static_cast<long long>(time));
 }
 
 std::string ReadStamp(const fs::path& folder) {
@@ -48,15 +51,30 @@ std::string ReadStamp(const fs::path& folder) {
     return line;
 }
 
-// What a zip made on a desktop holds besides the files: a Mac's "__MACOSX" folder and "._" files, and ".DS_Store".
+// What a zip made on a desktop holds besides the files: a Mac's "__MACOSX" folder and "._" files, and ".DS_Store". They
+// are left out without a log line.
 bool IsDesktopClutter(const std::string& path) {
     size_t start = 0;
     while (start < path.size()) {
         const size_t slash = std::min(path.find('/', start), path.size());
-        if (path.compare(start, slash - start, "__MACOSX") == 0 || path[start] == '.') return true;
+        const std::string part = path.substr(start, slash - start);
+        if (part == "__MACOSX" || part == ".DS_Store" || part.compare(0, 2, "._") == 0) return true;
         start = slash + 1;
     }
     return false;
+}
+
+// An entry's name without its "." folders, which some zip tools write ("./data/x.tga" is data/x.tga).
+std::string WithoutDotFolders(const std::string& path) {
+    std::string out;
+    size_t start = 0;
+    while (start < path.size()) {
+        const size_t slash = std::min(path.find('/', start), path.size());
+        const std::string part = path.substr(start, slash - start);
+        if (!part.empty() && part != ".") out += (out.empty() ? "" : "/") + part;
+        start = slash + 1;
+    }
+    return out;
 }
 
 // Whether a zip's name can name its unpacked folder: not empty and not starting with a dot. A stem of "." or ".."
@@ -84,32 +102,35 @@ fs::path PlaceInPack(const fs::path& out, const std::string& path) {
     return target;
 }
 
-// Whether a file of the game folder (its path there, '/' separated, a resource fork's side file by the file it belongs
-// to) changes only how the game looks or sounds: a picture (.tga, the .wct textures, the .ani and .cur cursors), a sound
-// (.sdt, .sf2, and the sound banks' .map files in data/global/sound), a font (.ttf, the .bf4 bitmap fonts) or a film
-// (.mov). Any other file, the .sam settings files above all, can change how a park plays, which a pack never does.
-bool ChangesOnlyLooksOrSound(const std::string& path) {
-    std::string lower = Lower(path);
-    if (lower.size() > 5 && lower.compare(lower.size() - 5, 5, ".rsrc") == 0) lower.resize(lower.size() - 5);
-    const size_t dot = lower.rfind('.');
-    const size_t slash = lower.rfind('/');
-    if (dot == std::string::npos || (slash != std::string::npos && dot < slash)) return false;
-    const std::string kind = lower.substr(dot);
-    for (const char* allowed : {".tga", ".wct", ".ani", ".cur", ".sdt", ".sf2", ".ttf", ".bf4", ".mov"})
-        if (kind == allowed) return true;
-    return kind == ".map" && lower.compare(0, 18, "data/global/sound/") == 0;
+// Why a pack leaves out the file at `path` (from the game folder, '/' separated), or empty when it takes it: a folder in
+// the path whose name holds a dot, or that is a file in the game folder, would hide that file from the game (the game
+// would find "bfbin.wad" a folder), and the file must be one a pack may hold (tpw::PackMayHold).
+std::string LeftOutBecause(const std::string& path) {
+    size_t start = 0;
+    for (size_t slash; (slash = path.find('/', start)) != std::string::npos; start = slash + 1) {
+        if (path.find('.', start) < slash) return "a folder in its path has a dot in its name";
+        if (tpw::IsGameFile(path.substr(0, slash))) return "a folder in its path is a file in the game folder";
+    }
+    if (!tpw::PackMayHold(path)) return "it is not a picture, sound, font or film the game keeps there";
+    return {};
 }
+
+// An entry and its name without "." folders.
+struct Item {
+    const assets::Entry* entry;
+    std::string path;
+};
 
 // A zip made of a folder holds everything under the folder's name: the length of one folder above "data" that every
 // entry shares, with its slash, or 0.
-size_t SharedFolderLength(const std::vector<const assets::Entry*>& entries) {
-    if (entries.empty()) return 0;
-    const std::string& first = entries.front()->path;
+size_t SharedFolderLength(const std::vector<Item>& items) {
+    if (items.empty()) return 0;
+    const std::string& first = items.front().path;
     const size_t slash = first.find('/');
     if (slash == std::string::npos || Lower(first.substr(0, slash)) == "data") return 0;
     const std::string folder = first.substr(0, slash + 1);
-    for (const assets::Entry* entry : entries)
-        if (entry->path.compare(0, folder.size(), folder) != 0) return 0;
+    for (const Item& item : items)
+        if (item.path.compare(0, folder.size(), folder) != 0) return 0;
     return folder.size();
 }
 
@@ -119,36 +140,39 @@ bool Unpack(const fs::path& zip, const fs::path& unpacked, const fs::path& out, 
     if (!blob) return false;
     std::unique_ptr<assets::Source> source = assets::OpenZip(blob, err);
     if (!source) return false;
-    std::vector<const assets::Entry*> entries;
-    for (const assets::Entry& entry : source->Entries())
-        if (!IsDesktopClutter(entry.path)) entries.push_back(&entry);
-    const size_t skip = SharedFolderLength(entries);
+    std::vector<Item> items;
+    for (const assets::Entry& entry : source->Entries()) {
+        std::string path = WithoutDotFolders(entry.path);
+        if (!path.empty() && !IsDesktopClutter(path)) items.push_back({&entry, std::move(path)});
+    }
+    const size_t skip = SharedFolderLength(items);
     const std::string name = zip.filename().string();
     uint64_t total = 0;
-    for (const assets::Entry* entry : entries) {
-        if (entry->size > kMaxPackBytes - total) {
+    for (const Item& item : items) {
+        if (item.entry->size > kMaxPackBytes - total) {
             err = "it unpacks to more than 8 GB";
             return false;
         }
-        total += entry->size;
+        total += item.entry->size;
     }
     std::error_code ec;
     RemovePackFolder(unpacked, out);
     fs::create_directories(out, ec);
     std::vector<char> buffer(1 << 16);
     uint64_t written = 0;
-    for (const assets::Entry* entry : entries) {
+    for (const Item& item : items) {
+        const assets::Entry* entry = item.entry;
         // A resource fork is kept as the game folder keeps one, in an ".rsrc" side file.
-        const std::string path = entry->path.substr(skip) + (entry->kind == assets::EntryKind::Rsrc ? ".rsrc" : "");
+        const std::string path = item.path.substr(skip) + (entry->kind == assets::EntryKind::Rsrc ? ".rsrc" : "");
         const fs::path target = PlaceInPack(out, path);
         if (target.empty()) {
             tpw::Log("asset pack: %s: \"%s\" left out, as its name reaches outside the pack", name.c_str(),
                      entry->path.c_str());
             continue;
         }
-        if (!ChangesOnlyLooksOrSound(path)) {
-            tpw::Log("asset pack: %s: \"%s\" left out, as it is not a picture, sound, font or film", name.c_str(),
-                     entry->path.c_str());
+        const std::string why = LeftOutBecause(path);
+        if (!why.empty()) {
+            tpw::Log("asset pack: %s: \"%s\" left out, as %s", name.c_str(), entry->path.c_str(), why.c_str());
             continue;
         }
         fs::create_directories(target.parent_path(), ec);
