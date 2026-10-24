@@ -225,7 +225,13 @@ TbError CSprocketsModule::Init(const TbSoundSystemInfo& info) {
 // back to the heap), so a missed top-up costs time, not correctness, and three of the TopUps are not on this base, so none is
 // called. The file player pool has NO heap fallback (its operator new answers NULL when no player is idle), so its
 // maintenance runs here, as the original's Tick ended with it.
+// The maintenance walks the pool's queue and frees idle players while SDL's audio thread returns players to it, so the port's
+// fixes hold the pool's lock (MpegPoolQueueLock, include/CMpegBase.h) across it; the Mac's interrupt-time callbacks could
+// never run beside the walk (tpw-port issue #50).
 void CSprocketsModule::Tick() {
+#ifdef TPW_PORT_FIX
+    std::lock_guard<std::recursive_mutex> guard(SamsUtilities::MpegPoolQueueLock());
+#endif
     SamsUtilities::UPooled<CMpegMacFilePlayerUnpooled, 10>::MaintainPoolLevel();
 }
 
