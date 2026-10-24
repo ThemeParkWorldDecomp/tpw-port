@@ -112,6 +112,7 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     skipIntro_ = backend_.Setting(kSkipIntroKey) == "1";
     backToLauncher_ = backend_.Setting(kBackToLauncherKey) == "1";
     smoothZoom_ = backend_.Setting(kSmoothZoomKey) == "1";   // tpw-port PR #20 by samueleagle91
+    for (const SamOption& option : SamOptions()) samChoices_.push_back(SamChoice(option, backend_.Setting(option.key)) + 1);
     pcSoundPicks_ = backend_.Setting(kPcSoundPicksKey) != "0";
     {   // tpw-port PR #24 by samueleagle91
         const std::string size = backend_.Setting(kInterfaceSizeKey);
@@ -814,6 +815,31 @@ void LauncherUi::DrawPlay(const Rect& w) {
         screen_ = Screen::Home;
 }
 
+// The Graphics section's options: the original's GraphicalOptions that change what the port shows, with the choices the
+// options files' comments list. Texture quality's Min and Low look alike here (both half-size textures), as do Medium and
+// High, so it offers Low and High; any visitor shadow but Off is High in the game (EngineStartup_SetOptions), so that one
+// offers Off and On.
+const std::vector<SamOption>& SamOptions() {
+    static const std::vector<SamOption> kOptions = {
+        {"sam_view_distance", 17, "View distance", "How far first person sees", {"Short", "Med", "Long", "Max"},
+         {0, 1, 2, 3}},
+        {"sam_sky_quality", 6, "Sky layers", "Layers of cloud in the sky", {"1", "2", "4"}, {1, 2, 4}},
+        {"sam_sky_shadow", 8, "Cloud shadows", "Clouds' shadows across the ground", {"Off", "On"}, {0, 1}},
+        {"sam_procedural_texturing", 3, "Ground blending", "Detail in the ground", {"Off", "16", "32", "64"},
+         {0, 1, 2, 3}},
+        {"sam_texture_quality", 1, "Texture quality", "Low draws the textures at half size", {"Low", "High"}, {1, 3}},
+        {"sam_lighting", 18, "Lighting", "Light and shade across the park", {"Off", "On"}, {0, 1}},
+        {"sam_sprite_shadow", 10, "Visitor shadows", "The shadows the visitors cast", {"Off", "On"}, {0, 3}},
+    };
+    return kOptions;
+}
+
+int SamChoice(const SamOption& option, const std::string& value) {
+    for (size_t i = 0; i < option.values.size(); ++i)
+        if (value == std::to_string(option.values[i])) return static_cast<int>(i);
+    return -1;
+}
+
 void LauncherUi::DrawSettings(const Rect& w) {
     canvas_.FillRound(w, 0, colour::kDim);
     const float rowH = 50;
@@ -821,7 +847,8 @@ void LauncherUi::DrawSettings(const Rect& w) {
     float titleH = text_.LineHeight(style::kHeadline) + 12;
     // Everything below the title, as drawn below.
     float bodyH = 2 * (text_.LineHeight(style::kBodyBold) + 4) + 40 + text_.LineHeight(style::kSmall) + 14 + 3 * rowH +
-                  4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + 5 * rowH;
+                  4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + 5 * rowH +
+                  text_.LineHeight(style::kBodyBold) + 4 + static_cast<float>(SamOptions().size()) * rowH;
     float ph = std::min(w.h - 2 * metric::kMargin, titleH + bodyH + 40);
     Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
     ui_.Panel(panel, colour::kPaper, colour::kCream);
@@ -999,6 +1026,31 @@ void LauncherUi::DrawSettings(const Rect& w) {
             std::string err;
             if (!backend_.SaveSetting(kInterfaceSizeKey, kValues[interfaceSize_], err))
                 settingsMessage_ = "Cannot keep the setting: " + err;
+        }
+        y += rowH;
+    }
+
+    // The original's options files' graphics options (SamOptions), each Default (the detail level's own) or a choice.
+    text_.Draw(style::kBodyBold, in.x, y, "Graphics", colour::kInk);
+    y += text_.LineHeight(style::kBodyBold) + 4;
+    for (size_t i = 0; i < SamOptions().size(); ++i) {
+        const SamOption& option = SamOptions()[i];
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, i % 2 ? colour::kCream : colour::kYellowSoft.WithAlpha(120));
+        std::vector<std::string> labels = {"Default"};
+        labels.insert(labels.end(), option.shown.begin(), option.shown.end());
+        const float segW = 80.0f * static_cast<float>(labels.size());
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, text_.Fit(style::kBodyBold, option.title, row.w - 12 - segW - 24, false),
+                   colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, option.line, row.w - 12 - segW - 24, false), colour::kInkSoft);
+        int& choice = samChoices_[i];
+        if (ui_.Segmented(option.key, {row.Right() - 12 - segW, row.CentreY() - 18, segW, 36}, labels,
+                          std::vector<bool>(labels.size(), true), choice)) {
+            std::string err;
+            const std::string value = choice == 0 ? "default" : std::to_string(option.values[static_cast<size_t>(choice - 1)]);
+            if (!backend_.SaveSetting(option.key, value, err)) settingsMessage_ = "Cannot keep the setting: " + err;
         }
         y += rowH;
     }

@@ -23,6 +23,7 @@
 #include "Ptr32.h"
 #include "dialogs.h"
 #include "email.h"
+#include "packs.h"
 #include "TbAudioSystem.h"
 #include "platform.h"
 #include "platform/arena.h"
@@ -153,6 +154,73 @@ static void TestPaths(const fs::path& scratch) {
     for (const tpw::DirEntry& entry : data) names += entry.name + (entry.isDirectory ? "/ " : " ");
     CHECK(names == "sound.sam Language/ notes.rsrc ui/ ");
     CHECK(tpw::ListGameFolder("data:nowhere").empty());
+}
+
+// Asset packs (packs.h) come after the user folder and before the game folder, the first pack before the next, and only
+// with the files a pack may hold: never another kind of file, nor a folder named like a game file.
+static void TestPacks(const fs::path& scratch) {
+    CHECK(tpw::PackMayHold("data/init/640/Splash_American.tga"));
+    CHECK(tpw::PackMayHold("DATA/INIT/640/SPLASH_AMERICAN.TGA"));
+    CHECK(tpw::PackMayHold("data/fonts/x.ttf.rsrc"));   // a resource fork goes by its file
+    CHECK(!tpw::PackMayHold("data/levels/fantasy/global.sam"));
+    CHECK(!tpw::PackMayHold("data/extra.txt"));
+    CHECK(!tpw::PackMayHold("data/init/README"));
+    CHECK(!tpw::PackMayHold("data/init/.x.tga"));
+    CHECK(!tpw::PackMayHold("data/levels/fantasy/features/bfbin.wad/x.tga"));   // a folder whose name holds a dot
+    CHECK(!tpw::PackMayHold("data/levels/fantasy/global.sam/x.tga"));
+    CHECK(!tpw::PackMayHold("data/.hidden/x.tga"));
+    // A sound bank and its index alike, and only in the folders the game keeps the banks in.
+    for (const char* folder : {"data/global/sound/", "data/global/Speech/", "data/levels/fantasy/Sound/",
+                               "data/levels/jungle/Speech/", "data/levels/space/Music/"}) {
+        CHECK(tpw::PackMayHold(std::string(folder) + "bank.sdt"));
+        CHECK(tpw::PackMayHold(std::string(folder) + "bank.map"));
+    }
+    for (const char* folder : {"data/", "data/init/", "data/levels/fantasy/", "data/levels/fantasy/features/",
+                               "data/levels/Sound/"}) {
+        CHECK(!tpw::PackMayHold(std::string(folder) + "bank.sdt"));
+        CHECK(!tpw::PackMayHold(std::string(folder) + "bank.map"));
+    }
+
+    tpw::Config& config = tpw::config();
+    const fs::path gameDir = config.gameDir;   // TestPaths' folders, which later tests use
+    const fs::path userDir = config.userDir;
+    config.gameDir = scratch / "game";
+    config.userDir = scratch / "user";
+    const fs::path first = scratch / "pack-b";
+    const fs::path second = scratch / "pack-a";
+    const fs::path features = fs::path("data") / "levels" / "fantasy" / "features";
+    Touch(config.gameDir / "data" / "init" / "640" / "Splash_American.tga");
+    Touch(config.gameDir / "data" / "sound.sam");
+    Touch(config.gameDir / features / "bfbin.wad");
+    Touch(config.userDir / "data" / "sound.sam");
+    Touch(first / "data" / "init" / "640" / "splash_american.tga");
+    Touch(first / "data" / "logo.tga");
+    Touch(first / "data" / "sound.sam");
+    Touch(first / "data" / "extra.txt");
+    Touch(first / features / "BFBIN.WAD" / "x.tga");   // put there by hand, or unpacked by older rules
+    Touch(second / "DATA" / "init" / "640" / "Splash_American.tga");
+    tpw::PackDirs() = {first, second};
+
+    CHECK(tpw::IsGameFile("data/levels/fantasy/features/bfbin.wad"));
+    CHECK(tpw::IsGameFile("DATA/Levels/fantasy/features/BFBIN.WAD"));
+    CHECK(!tpw::IsGameFile("data/levels/fantasy/features"));   // a folder
+    CHECK(!tpw::IsGameFile("data/nowhere.wad"));
+
+    CHECK(Same(tpw::FindHostPath("data:init:640:Splash_American.tga"), first / "data" / "init" / "640" / "splash_american.tga"));
+    CHECK(Same(tpw::FindHostPath("data:sound.sam"), config.userDir / "data" / "sound.sam"));   // the user folder still wins
+    CHECK(tpw::FindHostPath("data:extra.txt").empty());   // in a pack, but not a file a pack may hold
+    CHECK(Same(tpw::FindHostPath("data:levels:fantasy:features:bfbin.wad"), config.gameDir / features / "bfbin.wad"));
+    const auto data = tpw::ListGameFolder("data:");
+    std::string names;
+    for (const tpw::DirEntry& entry : data) names += entry.name + (entry.isDirectory ? "/ " : " ");
+    CHECK(names == "sound.sam logo.tga init/ levels/ ");
+    const auto listed = tpw::ListGameFolder("data:levels:fantasy:features");
+    CHECK(listed.size() == 1 && listed[0].name == "bfbin.wad" && !listed[0].isDirectory);
+
+    tpw::PackDirs().clear();
+    CHECK(Same(tpw::FindHostPath("data:init:640:Splash_American.tga"), config.gameDir / "data" / "init" / "640" / "Splash_American.tga"));
+    config.gameDir = gameDir;
+    config.userDir = userDir;
 }
 
 // The std::ifstream shims of SwearFilter::LoadWordList (platform/msl_ifstream.cpp): a word file as
@@ -2636,6 +2704,7 @@ int main() {
     fs::remove_all(scratch, stale);
     fs::create_directories(scratch);
     TestPaths(scratch);
+    TestPacks(scratch / "packs");
     TestEdition(scratch / "edition");
     TestSwearStreams();
     TestMslRuntime();

@@ -11,6 +11,7 @@
 
 #include <sys/stat.h>
 
+#include "packs.h"
 #include "platform.h"
 #include "platform/macdoze.h"
 
@@ -79,11 +80,66 @@ static fs::path FindUnder(const fs::path& root, const std::vector<std::string>& 
     return fs::exists(current, ec) ? current : fs::path();
 }
 
+std::vector<fs::path>& PackDirs() {
+    static std::vector<fs::path> dirs;
+    return dirs;
+}
+
+// The folders the game keeps its sound banks in, each an .sdt with its .map index: data/global's sound and speech, and
+// each level's sound, speech and music (`folder` lower case).
+static bool IsSoundBankFolder(const std::string& folder) {
+    if (folder == "data/global/sound" || folder == "data/global/speech") return true;
+    const std::string levels = "data/levels/";
+    if (folder.compare(0, levels.size(), levels) != 0) return false;
+    const size_t slash = folder.find('/', levels.size());
+    if (slash == std::string::npos || slash == levels.size()) return false;
+    const std::string kind = folder.substr(slash + 1);
+    return kind == "sound" || kind == "speech" || kind == "music";
+}
+
+bool PackMayHold(const std::string& path) {
+    std::string lower = path;
+    for (char& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (lower.size() > 5 && lower.compare(lower.size() - 5, 5, ".rsrc") == 0) lower.resize(lower.size() - 5);
+    const size_t slash = lower.rfind('/');
+    const std::string folder = slash == std::string::npos ? std::string() : lower.substr(0, slash);
+    const std::string name = slash == std::string::npos ? lower : lower.substr(slash + 1);
+    if (folder.find('.') != std::string::npos || name.empty() || name[0] == '.') return false;
+    const size_t dot = name.rfind('.');
+    if (dot == std::string::npos) return false;
+    const std::string kind = name.substr(dot);
+    for (const char* allowed : {".tga", ".wct", ".ani", ".cur", ".sf2", ".ttf", ".bf4", ".mov"})
+        if (kind == allowed) return true;
+    return (kind == ".sdt" || kind == ".map") && IsSoundBankFolder(folder);
+}
+
+bool IsGameFile(const std::string& path) {
+    const fs::path found = FindUnder(config().gameDir, SplitGamePath(path));
+    std::error_code ec;
+    return !found.empty() && fs::is_regular_file(found, ec);
+}
+
+// A game path's parts as a path from the game folder, '/' separated.
+static std::string JoinParts(const std::vector<std::string>& parts) {
+    std::string path;
+    for (const std::string& part : parts) path += (path.empty() ? "" : "/") + part;
+    return path;
+}
+
 fs::path FindHostPath(const std::string& gamePath) {
     const auto parts = SplitGamePath(gamePath);
     fs::path found = FindUnder(config().userDir, parts);
-    if (found.empty()) found = FindUnder(config().gameDir, parts);
-    return found;
+    if (!found.empty()) return found;
+    // From a pack only a file a pack may hold, so neither a folder nor another kind of file there (one put in
+    // ".unpacked" by hand, or unpacked by older rules) takes a game file's place.
+    if (PackMayHold(JoinParts(parts))) {
+        for (const fs::path& pack : PackDirs()) {
+            found = FindUnder(pack, parts);
+            std::error_code ec;
+            if (!found.empty() && fs::is_regular_file(found, ec)) return found;
+        }
+    }
+    return FindUnder(config().gameDir, parts);
 }
 
 fs::path HostPathForWriting(const std::string& gamePath) {
@@ -136,8 +192,13 @@ static uint64_t FileTimeOf(const fs::path& path) {
 
 std::vector<DirEntry> ListGameFolder(const std::string& gamePath) {
     const auto parts = SplitGamePath(gamePath);
+    const std::string inside = JoinParts(parts);
+    // The user folder, the asset packs (packs.h), the game folder; from a pack only the files a pack may hold.
+    std::vector<std::pair<fs::path, bool>> roots{{config().userDir, false}};
+    for (const fs::path& pack : PackDirs()) roots.emplace_back(pack, true);
+    roots.emplace_back(config().gameDir, false);
     std::vector<DirEntry> entries;
-    for (const fs::path& root : {config().userDir, config().gameDir}) {
+    for (const auto& [root, pack] : roots) {
         const fs::path folder = FindUnder(root, parts);
         std::error_code ec;
         if (folder.empty() || !fs::is_directory(folder, ec)) continue;
@@ -145,6 +206,8 @@ std::vector<DirEntry> ListGameFolder(const std::string& gamePath) {
         for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec)) {
             const std::string name = it->path().filename().string();
             if (name.empty() || name[0] == '.' || IsDumpSideFile(it->path())) continue;
+            std::error_code kind;
+            if (pack && (!it->is_regular_file(kind) || !PackMayHold(inside.empty() ? name : inside + "/" + name))) continue;
             const bool seen = std::any_of(entries.begin(), entries.end(),
                                           [&](const DirEntry& e) { return EqualNoCase(e.name, name); });
             if (seen) continue;

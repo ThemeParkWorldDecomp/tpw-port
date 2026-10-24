@@ -66,6 +66,9 @@ The Settings box has these rows:
   pitches. Off is the Mac's way, where each sound plays the same recording all through a launch.
 - Interface size: 100% by default, the original. 85% or 70% shrink the panels so the park shows more, with the panels
   still at the edges of the screen.
+- Graphics: seven options of the original's options files (low.sam, med.sam, high.sam), each Default by default, which
+  keeps the value of the game's own graphics quality: view distance (Short, Medium, Long, Max), sky layers (1, 2, 4),
+  cloud shadows, ground blending (Off, 16, 32, 64), texture quality (Low, High), lighting and visitor shadows (Off, On).
 - Check again: rehashes every file.
 
 ## What you need
@@ -84,6 +87,44 @@ Your checked game files and your saves live in `~/Library/Application Support/ST
 (launcher-YYYYMMDD-HHMMSS.log, the 10 most recent runs kept; the About box's Show logs button opens it), and
 `tpw_launcher --version` prints the launcher's version. On Windows the launcher has no console: what it prints goes to
 launcher.log in that folder too, unless its output is redirected (`build\tpw_launcher.exe 2> log.txt`).
+
+## Asset packs
+
+An asset pack swaps some of the game's files for your own, such as a sharper Bullfrog logo, without changing the
+checked game files. A pack is a zip of files, each at its place in the game folder: `data/init/640/Splash_American.tga`
+is the Bullfrog logo shown before the films. A zip made of a folder works too, as one folder around `data` is ignored.
+
+Put packs in the `packs` folder beside `saves` and `assets`: `~/Library/Application Support/STP-TPW Launcher/packs`
+on a Mac and `%APPDATA%\STP-TPW Launcher\packs` on Windows (the launcher makes it). When you press Play, the launcher
+unpacks a new or changed zip into `packs/.unpacked`, and the game looks in a pack before its own files. Your saves
+still come first. To stop using a pack, remove its zip. Packs are used in name order: when two hold the same file, the
+later name's copy is used. `--packs DIR` names another folder, and it also works with `--game`.
+
+A pack changes only how the game looks or sounds. It takes pictures (`.tga`, the `.wct` textures, the `.ani` and `.cur`
+cursors), sounds (`.sf2`, and the sound banks: an `.sdt` and its `.map` index, in the folders the game keeps them in,
+`data/global/sound` and `Speech` and each level's `Sound`, `Speech` and `Music`), fonts (`.ttf`, the `.bf4` bitmap
+fonts) and films (`.mov`). Any other file, a `.sam` settings file above all, is left out: changing how a park plays is
+not what packs are for. So is a file under a folder whose name holds a dot or is a game file's name
+(`data/levels/fantasy/features/bfbin.wad/x.tga`), as that folder would hide the game's file. The game takes nothing else
+from a pack's folder either, so a file put in `.unpacked` by hand is not used.
+
+The launcher also leaves out a zip whose name starts with a dot, a file in a zip whose name holds a drive or a colon
+(`C:/x`), and a pack that unpacks to more than 8 GB. Its log names each file it leaves out and why, apart from a Mac's
+`__MACOSX`, `._` and `.DS_Store` files. The zip reader itself never lists folder entries or a name that climbs out of
+the zip (`..` or a leading `/`), so those have no log line. A newer launcher that checks packs by other rules unpacks
+them again.
+
+A broken file in a pack can crash the game, as a broken game file would: a cursor `.tga` shorter than 32 rows, for
+example, or a `.map` that isn't its sound bank's index.
+
+A replacement must be in the format the game reads: the logo and the loading screens are uncompressed TGA. The game
+picks the logo by the screen's width, from the `640`, `800` or `1024` folder (`640` above 1024 pixels), so a pack
+replaces all three. A logo of another shape than 4:3 keeps its shape: a 16:9 logo fills a 16:9 screen.
+
+A loading screen is `welcome.tga` with `legal.tga` or `welcome_<language>.tga` copied onto its left edge, so keep a
+replacement `welcome.tga` at least as wide as those, or their right side is cut off. On a loading picture wider than
+4:3 they stay at its left edge, at the rows they have on a 4:3 one, and the progress bar stays in the screen's 4:3
+middle.
 
 ## Where it stands
 

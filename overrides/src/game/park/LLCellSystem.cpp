@@ -525,7 +525,10 @@ void PushClick(int32_t x, int32_t y) {
 
 // The ride the cell system holds (gLLCCDB6C is a 32 bit pointer word on the Mac).
 CObject* HeldRide() {
-    return reinterpret_cast<CObject*>(static_cast<uintptr_t>(static_cast<uint32_t>(gLLCCDB6C)));
+    // TPW_PORT_FIX heldride HeldRide | Mac: the held ride's word is its address | Port: the whole pointer, gLLCMCurrentObject, while its low half is the word (as LLCellMouse.cpp's Current_2 reads it), else the word widened | Why: a 64-bit build; the word holds only the pointer's low half, so Backspace while laying a water ride's track crashed in LLCR_FixBridges (backtrack's FixBridgesOfHeldRide)
+    const uint32_t word = static_cast<uint32_t>(gLLCCDB6C);
+    if (static_cast<uint32_t>(reinterpret_cast<uintptr_t>(gLLCMCurrentObject)) == word) return gLLCMCurrentObject;
+    return reinterpret_cast<CObject*>(static_cast<uintptr_t>(word));
 }
 
 // Backtrack's two ways out after a mode that sets the first block: with the flag and the bridge fixes. The held ride is read again before each call.

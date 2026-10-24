@@ -677,8 +677,18 @@ void UCursor::SetPosition(const UPointMac& position) {
         tpw::fit::GameToWindow(LetterboxInPoints(), gFit.gameWide, gFit.gameHigh, windowX, windowY, windowX, windowY);
     }
     // Only a focused window moves the pointer: an unfocused one (--background, or simply behind another) would
-    // pull the mouse away from whatever the person is doing.
-    if ((SDL_GetWindowFlags(gWindow.sdl) & SDL_WINDOW_INPUT_FOCUS) == 0) return;
+    // pull the mouse away from whatever the person is doing. The game is still told the pointer is there, as the
+    // warp's move would have told it: a move event for the next pass. Otherwise it keeps its starting (0, 0), and a
+    // park edge-scrolls to its top-left corner until the mouse comes over the window.
+    if ((SDL_GetWindowFlags(gWindow.sdl) & SDL_WINDOW_INPUT_FOCUS) == 0) {
+        SDL_Event move{};
+        move.type = SDL_EVENT_MOUSE_MOTION;
+        move.motion.windowID = SDL_GetWindowID(gWindow.sdl);
+        move.motion.x = static_cast<float>(windowX);
+        move.motion.y = static_cast<float>(windowY);
+        SDL_PushEvent(&move);
+        return;
+    }
     SDL_WarpMouseInWindow(gWindow.sdl, static_cast<float>(windowX), static_cast<float>(windowY));
 }
 
