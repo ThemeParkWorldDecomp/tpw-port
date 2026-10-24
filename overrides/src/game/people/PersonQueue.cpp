@@ -36,8 +36,9 @@ uint16_t gNoFireworks = 0;       // 0x102a0ff2
 uint16_t gNoBalloonThing = 0;    // 0x102a0ff4
 uint16_t gNoDecision = 0;        // 0x102a0ff6
 
-// Placeholder: the real type of the message (vtable 0x102a10dc) is not recovered.
-int32_t CMsgPersonIdle::GetType() const { return 0; }
+// The message is the original's CMsgPrankery (include/ThingReceivers.h): its GetType answers 14, a prank.
+// TPW_PORT_FIX prankmsg CMsgPersonIdle::GetType | Mac: 14: the prank code posts a CMsgPrankery, whose GetType (0x10120b90) answers 0xe; in the 2.0.1 CD's program the vtable it stores (0x100ec3d0) is the one whose GetType, 0x100efdb8, answers 14, with the 76-byte destructor right after the function | Port: 14 | Why: the translation's placeholder answered 0, which nothing handles: CStaffHQ::ReceiveMessage sends the nearest free guard after the prankster only for type 14, so no guard ever went after a visitor who burst a balloon or dropped litter on purpose
+int32_t CMsgPersonIdle::GetType() const { return 0xe; }
 
 namespace {
 
