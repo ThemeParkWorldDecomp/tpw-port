@@ -42,7 +42,7 @@ CLEAN_ENV := MAKEFLAGS= MFLAGS=
 # ctest comes with cmake: beside it, or on the PATH when CMAKE is a bare name.
 CTEST = $(if $(findstring /,$(CMAKE)),$(dir $(CMAKE))ctest,ctest)
 
-.PHONY: all run test clean check-mac check-tools find-cmake launcher
+.PHONY: all run test clean update check-mac check-tools find-cmake launcher
 
 all: launcher
 	@echo "==> Done. The launcher is $(LAUNCHER). Start it with: make run"
@@ -120,6 +120,15 @@ launcher: find-cmake
 run: all
 	@echo "==> Starting $(LAUNCHER) $(RUN_ARGS)"
 	@"$(LAUNCHER)" $(RUN_ARGS)
+
+# Brings the clone up to the newest tpw-port (a fast-forward pull, never a merge, then the submodules), then builds the
+# launcher with the updated Makefile. Your saves and checked game files are never touched. update.command runs it.
+update:
+	@echo "==> Getting the newest tpw-port"
+	@git pull --ff-only
+	@echo "==> Updating the submodules"
+	@git submodule update --init --recursive
+	@$(MAKE) all
 
 # Builds the launcher, then everything else (the test programs), then runs the tests.
 test: launcher

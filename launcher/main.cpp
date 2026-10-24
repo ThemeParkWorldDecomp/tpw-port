@@ -56,6 +56,7 @@
 #include "ui_main.h"
 #include "ui/backend.h"
 #include "ui/theme.h"
+#include "ui/updates.h"
 #include "ui/window.h"
 
 namespace {
@@ -544,6 +545,9 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
         // While the launcher window is up the menu bar names it with its version; Play renames it after the game below.
         placement.windowShown = [] { NameAppMenu(tpw::ui::kProductNameWithVersion); };
         if (!tpw::LogFilePath().empty()) placement.logsFolder = std::filesystem::path(tpw::LogFilePath()).parent_path().string();
+        // Built in a clone of tpw-port (the README's way): the About box can check GitHub for updates and run the update.
+        if (const char* base = SDL_GetBasePath()) placement.updateClone = tpw::ui::FindUpdateClone(base);
+        if (!placement.updateClone.empty()) tpw::Log("updates: the launcher's clone is %s", placement.updateClone.c_str());
         if (!config.display.empty()) {
             if (config.background) {   // before SDL's video starts, as the game's window sets them
                 SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");

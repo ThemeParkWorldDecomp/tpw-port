@@ -600,6 +600,39 @@ std::vector<Shot> Shots() {
                      },
                      Screen::Home});
 
+    // The update row (updates.h) in a launcher built in a clone: its first state, a check that found 3 new commits, and
+    // one that cannot update (git's fetch error).
+    shots.push_back({"12b-about-update", metric::kStartWidth, metric::kStartHeight, nullptr,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
+                         ui.SetLogsFolder("/Users/player/Library/Application Support/STP-TPW Launcher/logs");
+                         ui.SetUpdateClone("/Users/player/tpw-port");
+                         ui.ShowAbout(true);
+                     },
+                     Screen::Home});
+    shots.push_back({"12c-about-update-behind", metric::kStartWidth, metric::kStartHeight, nullptr,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
+                         ui.SetLogsFolder("/Users/player/Library/Application Support/STP-TPW Launcher/logs");
+                         ui.SetUpdateClone("/Users/player/tpw-port");
+                         ui.ShowAbout(true);
+                         UpdateCheck behind;
+                         behind.kind = UpdateCheck::Kind::Behind;
+                         behind.behind = 3;
+                         ui.ShowUpdateCheck(behind);
+                     },
+                     Screen::Home});
+    shots.push_back({"12d-about-update-cannot", metric::kStartWidth, metric::kStartHeight, nullptr,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
+                         ui.SetLogsFolder("/Users/player/Library/Application Support/STP-TPW Launcher/logs");
+                         ui.SetUpdateClone("/Users/player/tpw-port");
+                         ui.ShowAbout(true);
+                         UpdateCheck failed;
+                         failed.kind = UpdateCheck::Kind::FetchFailed;
+                         failed.detail = "fatal: unable to access 'https://github.com/ThemeParkWorldDecomp/tpw-port.git/': "
+                                         "Could not resolve host: github.com";
+                         ui.ShowUpdateCheck(failed);
+                     },
+                     Screen::Home});
+
     shots.push_back({"13-home-wide", 1100, 760, PartialUsEur, nullptr, Screen::Home});
 
     shots.push_back({"14-home-smallest", metric::kMinWidth, metric::kMinHeight, nullptr, nullptr, Screen::Home});
@@ -1114,6 +1147,89 @@ void CheckVersionAndLogs(SDL_Renderer* renderer) {
     Check(ui.ShowLogsRect().w == 0, "About closed: no Show logs");
 }
 
+// The About box's update row (updates.h): there only for a launcher built in a clone; a button to check, none while the
+// check runs, Update for new commits, none for a clone that cannot update, each fitting the box at the start size and the
+// smallest; and back to its first state once the box is closed. And FindUpdateClone: the clone from its build folder, a
+// worktree's .git file, nothing without tpw-decomp or the update script, nothing more than 3 folders up.
+void CheckUpdateRow(SDL_Renderer* renderer, const std::string& screens) {
+    using Kind = UpdateCheck::Kind;
+    FakeBackend b;
+    LauncherUi ui(renderer, b);
+    ui.ShowAbout(true);
+    ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+    Check(ui.UpdateRowRect().w == 0, "About: no update row outside a clone");
+    ui.SetUpdateClone("/Users/player/tpw-port");
+    for (int size = 0; size < 2; ++size) {
+        const float w = size == 0 ? metric::kStartWidth : metric::kMinWidth;
+        const float h = size == 0 ? metric::kStartHeight : metric::kMinHeight;
+        const std::string at = " at " + std::to_string(static_cast<int>(w)) + "x" + std::to_string(static_cast<int>(h));
+        auto fits = [&](const std::string& what) {
+            ui.Frame(kDt, w, h, 1);
+            const Rect row = ui.UpdateRowRect();
+            Check(row.w > 0 && row.Bottom() < h && row.Right() <= w, "About: the update row fits, " + what + at);
+            const Rect button = ui.UpdateButtonRect();
+            if (button.w > 0)
+                Check(button.Right() <= row.Right() && button.Bottom() <= row.Bottom(),
+                      "About: the update button is in its row, " + what + at);
+            return button;
+        };
+        ui.ShowAbout(false);
+        ui.Frame(kDt, w, h, 1);
+        ui.ShowAbout(true);
+        const Rect check = fits("first");
+        Check(check.w > 0, "About: Check for updates" + at);
+        ui.ShowUpdateChecking();
+        Check(fits("checking").w == 0, "About: no button while checking" + at);
+        UpdateCheck result;
+        result.kind = Kind::Behind;
+        result.behind = 3;
+        ui.ShowUpdateCheck(result);
+        const Rect update = fits("behind");
+        Check(update.w > 0 && update.w < check.w, "About: an Update button for new commits" + at);
+        for (Kind kind : {Kind::UpToDate, Kind::NoGit, Kind::NoBranch, Kind::FetchFailed, Kind::LocalChanges, Kind::Failed}) {
+            result.kind = kind;
+            result.detail = "fatal: unable to access 'https://github.com/ThemeParkWorldDecomp/tpw-port.git/': Could not "
+                            "resolve host: github.com";
+            ui.ShowUpdateCheck(result);
+            const std::string name = "kind " + std::to_string(static_cast<int>(kind));
+            Check(fits(name).w == 0, "About: no button when it cannot update, " + name + at);
+            if (kind != Kind::UpToDate) Check(!UpdateProblem(result).empty(), "About: a sentence for " + name);
+        }
+        ui.ShowAbout(false);
+        ui.Frame(kDt, w, h, 1);
+        Check(ui.UpdateRowRect().w == 0, "About closed: no update row" + at);
+        ui.ShowAbout(true);
+        Check(fits("reopened").w == check.w, "About reopened: Check for updates again" + at);
+    }
+
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path root = fs::path(screens) / "update-clone";
+    fs::remove_all(root, ec);
+    const fs::path clone = root / "tpw port";   // a space in the path
+    fs::create_directories(clone / ".git", ec);
+    fs::create_directories(clone / "tpw-decomp", ec);
+    fs::create_directories(clone / "build" / "a" / "b" / "c", ec);
+    std::ofstream(clone / "update.cmd") << "rem\n";
+    std::ofstream(clone / "update.command") << "#!/bin/sh\n";
+    const std::string build = (clone / "build").string() + "/";   // as SDL_GetBasePath gives it
+    Check(fs::path(FindUpdateClone(build)) == clone, "FindUpdateClone: the clone from its build folder");
+    Check(fs::path(FindUpdateClone(clone.string())) == clone, "FindUpdateClone: the clone itself");
+    Check(fs::path(FindUpdateClone((clone / "build" / "a" / "b").string())) == clone, "FindUpdateClone: 3 folders up");
+    Check(FindUpdateClone((clone / "build" / "a" / "b" / "c").string()).empty(), "FindUpdateClone: not 4 folders up");
+    Check(FindUpdateClone("").empty(), "FindUpdateClone: nothing for no folder");
+    fs::remove_all(clone / ".git", ec);
+    std::ofstream(clone / ".git") << "gitdir: elsewhere\n";   // a worktree
+    Check(fs::path(FindUpdateClone(build)) == clone, "FindUpdateClone: a worktree's .git file");
+    fs::remove_all(clone / "tpw-decomp", ec);
+    Check(FindUpdateClone(build).empty(), "FindUpdateClone: nothing without tpw-decomp");
+    fs::create_directories(clone / "tpw-decomp", ec);
+    fs::remove(clone / "update.cmd", ec);
+    fs::remove(clone / "update.command", ec);
+    Check(FindUpdateClone(build).empty(), "FindUpdateClone: nothing without the update script");
+    fs::remove_all(root, ec);
+}
+
 // The launcher's version beside the large title on both homes, at the smallest window, the start size and two large
 // ones: drawn to the title's right with a small gap, much smaller than the title, on its line, and clear of the header's
 // buttons. And the application's name as the window title and the menu bar give it: the product's name, " v", the
@@ -1218,6 +1334,7 @@ int main(int argc, char** argv) {
         CheckScroll(renderer);
         CheckSettingsScroll(renderer);
         CheckVersionAndLogs(renderer);
+        CheckUpdateRow(renderer, dir);
         CheckTitleVersion(renderer);
         SDL_DestroyRenderer(renderer);
     }
