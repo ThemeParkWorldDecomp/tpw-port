@@ -156,14 +156,14 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
     # The WIN32 parts of this file: Windows port contributed by samueleagle91 (tpw-port PR #1).
     # The signs' text is drawn with stb_truetype (third_party/stb, platform/gdi_text_win.cpp) in place of CoreText
     # (platform/gdi_text.cpp). The POSIX calls MinGW lacks come from platform/win: its headers, and posix_win.h ahead of
-    # every file. The sockets are Windows' (platform/winsock.cpp), and gluBuild2DMipmaps, in the Mac's OpenGL framework,
-    # is glu32's.
+    # every file (quoted inside SHELL:, which splits at spaces, so a clone in a folder with a space builds). The sockets
+    # are Windows' (platform/winsock.cpp), and gluBuild2DMipmaps, in the Mac's OpenGL framework, is glu32's.
     get_target_property(platform_sources tpw_platform SOURCES)
     list(REMOVE_ITEM platform_sources ${CMAKE_CURRENT_SOURCE_DIR}/platform/gdi_text.cpp)
     set_property(TARGET tpw_platform PROPERTY SOURCES ${platform_sources})
     target_include_directories(tpw_platform PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
     target_include_directories(tpw_platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/platform/win)
-    target_compile_options(tpw_platform PRIVATE "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/platform/win/posix_win.h")
+    target_compile_options(tpw_platform PRIVATE "SHELL:-include \"${CMAKE_CURRENT_SOURCE_DIR}/platform/win/posix_win.h\"")
     target_link_libraries(tpw_platform PUBLIC ws2_32 glu32)
   endif()
 
