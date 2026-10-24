@@ -151,7 +151,8 @@ void CUI2DMap::CreateMapPanel() {
 
     InterfaceWindow* panel = gUIRootWindow->Build(gMapPanelScript, UI_2DMap_CallbackFn);
     UIMain_SetPanel(panel);
-    MacAt<uint32_t>(self, 4) = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(panel));
+    // TPW_PORT_FIX mapword CUI2DMap::CreateMapPanel | Mac: the panel window's address is the word at the map's +4 | Port: the window's offset in the arena (windows are made there), the word MapCallback's tick turns back into the address (a Ptr32) | Why: a 64-bit build; an address's low 32 bits are its offset only when the arena starts on a 4 GB boundary, which it need not (on Windows it does not), so closing the park map with its tick crashed (SIGSEGV in UI_SendMessage)
+    MacAt<uint32_t>(self, 4) = tpw::ArenaOffset(panel);
     panel->CaptureKb(0);
 
     InterfaceWindow* title = panel->GetWindow(0x991);
