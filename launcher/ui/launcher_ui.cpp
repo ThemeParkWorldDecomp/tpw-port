@@ -659,7 +659,7 @@ void LauncherUi::DrawHome(const Rect& w) {
     DrawTiles(tiles, true);
 }
 
-// The home once every edition is confirmed: no drop field, two large tiles (the European edition, then the US one), each
+// The home once every edition is confirmed: no drop field, two large tiles (the US edition, then the European one), each
 // with its Gold badge and its Play button. The whole window still takes a drop; the tiles light up under it as the small
 // ones do, and "Game data" opens Settings.
 void LauncherUi::DrawReady(const Rect& w) {
@@ -683,10 +683,10 @@ void LauncherUi::DrawReady(const Rect& w) {
                    text_.Fit(style::kBodyBold, "Let go to check them", row.Right() - tx, false), colour::kInk);
     }
 
-    // The two tiles: European on the left, US on the right.
+    // The two tiles: US on the left, European on the right (Sim Theme Park is always named first, the maintainer, 2026-10-25).
     Rect area{m, top, w.w - 2 * m, row.y - metric::kGap - top};
     float tw = (area.w - metric::kGap) * 0.5f;
-    static constexpr int kOrder[2] = {1, 0};   // status_ index of the left and the right tile
+    static constexpr int kOrder[2] = {0, 1};   // status_ index of the left and the right tile
     static constexpr const char* kGames[2] = {"Sim Theme Park", "Theme Park World"};   // by status_ index
     const float pad = 16, playH = 52, pillH = 30;
     tileRects_[2] = Rect{};

@@ -444,8 +444,8 @@ void AdoptOldSaves(const std::filesystem::path& prefPath, const std::filesystem:
     }
 }
 
-// The application menu's title (the bold name beside the Apple menu): "Theme Park World" for the European edition, "Sim
-// Theme Park" for the US one, so the menu bar names the game being played rather than the launcher (the maintainer, 2026-10-22);
+// The application menu's title (the bold name beside the Apple menu): "Sim Theme Park" for the US edition, "Theme Park
+// World" for the European one, so the menu bar names the game being played rather than the launcher (the maintainer, 2026-10-22);
 // while the launcher's own window is up, the launcher's name with its version (kProductNameWithVersion, the maintainer, 2026-10-23).
 // Set through the Objective-C runtime (as platform/window.cpp sends orderBack:) on the menu SDL made when its video
 // started: [[[[NSApp mainMenu] itemAtIndex:0] submenu] setTitle:]. Nothing is created here: without a running

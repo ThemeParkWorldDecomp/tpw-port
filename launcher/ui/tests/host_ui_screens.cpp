@@ -1019,15 +1019,15 @@ void CheckReady(SDL_Renderer* renderer) {
     };
     frames(1);
     Check(ui.Animating(), "all confirmed: the startup notice shows");
-    Rect eu = ui.TileRect(1), us = ui.TileRect(0);
-    Check(eu.w > 300 && us.w > 300 && eu.x < us.x, "all confirmed: two large tiles, the European one on the left");
+    Rect us = ui.TileRect(0), eu = ui.TileRect(1);
+    Check(us.w > 300 && eu.w > 300 && us.x < eu.x, "all confirmed: two large tiles, the US one on the left");
     Check(ui.TileRect(2).w == 0, "all confirmed: no Gold tile");
-    Rect euPlay = ui.ReadyPlayRect(1), usPlay = ui.ReadyPlayRect(0);
-    Check(euPlay.w > 0 && eu.Contains(euPlay.CentreX(), euPlay.CentreY()), "all confirmed: the European Play is in its tile");
+    Rect usPlay = ui.ReadyPlayRect(0), euPlay = ui.ReadyPlayRect(1);
     Check(usPlay.w > 0 && us.Contains(usPlay.CentreX(), usPlay.CentreY()), "all confirmed: the US Play is in its tile");
-    std::printf("all confirmed at %dx%d points: European Play centre %.0f,%.0f; US Play centre %.0f,%.0f\n",
-                metric::kStartWidth, metric::kStartHeight, euPlay.CentreX(), euPlay.CentreY(), usPlay.CentreX(),
-                usPlay.CentreY());
+    Check(euPlay.w > 0 && eu.Contains(euPlay.CentreX(), euPlay.CentreY()), "all confirmed: the European Play is in its tile");
+    std::printf("all confirmed at %dx%d points: US Play centre %.0f,%.0f; European Play centre %.0f,%.0f\n",
+                metric::kStartWidth, metric::kStartHeight, usPlay.CentreX(), usPlay.CentreY(), euPlay.CentreX(),
+                euPlay.CentreY());
 
     // a drag over the European tile names it; anywhere else is still the window's drop
     b.Queue(FakeBackend::Script());
@@ -1052,14 +1052,14 @@ void CheckReady(SDL_Renderer* renderer) {
     };
     LaunchChoice choice;
     Check(!ui.TakePlay(choice), "all confirmed: no play before a click");
-    click(ui.ReadyPlayRect(1));
-    Check(ui.TakePlay(choice) && choice.edition == assets::kEditionEur && choice.gold,
-          "all confirmed: the European Play starts the European edition with the Gold rides");
-    Check(b.LastChoice() == "eur", "all confirmed: the European choice is kept");
     click(ui.ReadyPlayRect(0));
     Check(ui.TakePlay(choice) && choice.edition == assets::kEditionUs && choice.gold,
           "all confirmed: the US Play starts the US edition with the Gold rides");
     Check(b.LastChoice() == "us", "all confirmed: the US choice is kept");
+    click(ui.ReadyPlayRect(1));
+    Check(ui.TakePlay(choice) && choice.edition == assets::kEditionEur && choice.gold,
+          "all confirmed: the European Play starts the European edition with the Gold rides");
+    Check(b.LastChoice() == "eur", "all confirmed: the European choice is kept");
 
     // without the Gold rides it is the home with the drop field again
     std::string err;

@@ -46,6 +46,8 @@ Players set it in the launcher or a game menu, never by editing a .sam file.
 - Test aids stay out of a pull request.
 - One concern per pull request, and one per commit.
 - Say in the pull request what you tested and on what: the edition and the system.
+- Naming order: Sim Theme Park (the US edition) is always named before Theme Park World (the European one) wherever
+  the two appear together: screens, options, texts, logs, docs. The launcher's tiles follow it, US on the left.
 
 ## Playable offline
 
