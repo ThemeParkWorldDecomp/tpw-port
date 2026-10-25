@@ -16,8 +16,10 @@
 #include <fstream>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <iterator>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "Ptr32.h"
@@ -2165,10 +2167,21 @@ TbSampleHeader* TbSoundPipeChannel::GetSampleHeader() {
     return &Fake(this)->header;
 }
 
-// The MPEG file player pool (src/sound/LbMpeg.cpp, src/sound/MpegDecode.cpp, src/sound/CSprocketsModule.cpp, src/sound/StreamableMpeg2.cpp, not linked here): the two members the module calls are counted.
+// The MPEG file player pool (src/sound/LbMpeg.cpp, src/sound/MpegDecode.cpp, src/sound/CSprocketsModule.cpp,
+// src/sound/StreamableMpeg2.cpp, not linked here): the two members the module calls are counted.
+// The pool's lock (MpegPoolQueueLock, include/CMpegBase.h), which the module holds around the maintenance, is a lock of its own.
 static int gKeepFullCalls = 0;
 static uint8_t gKeepFullArgument = 0xff;
 static int gMaintainCalls = 0;
+#ifdef TPW_PORT_FIX
+static bool gMaintainLocked = false;   // the last MaintainPoolLevel ran with the pool's lock held
+
+// Never destroyed, as src/sound/LbMpeg.cpp's.
+std::recursive_mutex& SamsUtilities::MpegPoolQueueLock() {
+    static std::recursive_mutex* lock = new std::recursive_mutex;
+    return *lock;
+}
+#endif
 
 template <>
 void SamsUtilities::MpegFilePlayerPool::SetPoolKeepFull(uint8_t flag) {
@@ -2179,6 +2192,15 @@ void SamsUtilities::MpegFilePlayerPool::SetPoolKeepFull(uint8_t flag) {
 template <>
 void SamsUtilities::MpegFilePlayerPool::MaintainPoolLevel() {
     ++gMaintainCalls;
+#ifdef TPW_PORT_FIX
+    // The lock is recursive, so only another thread fails to take it while the caller holds it.
+    bool taken = false;
+    std::thread([&taken] {
+        taken = SamsUtilities::MpegPoolQueueLock().try_lock();
+        if (taken) SamsUtilities::MpegPoolQueueLock().unlock();
+    }).join();
+    gMaintainLocked = !taken;
+#endif
 }
 
 bool TbSoundPipeChannel::StreamerCallback(void* buffer, uint32_t size, void* pipe) {
@@ -2245,8 +2267,16 @@ static void TestSound(const fs::path& scratch) {
     // Init sets the MPEG file player pool to be kept full and maintains it (the Tick that ends Init); each Tick maintains it.
     CHECK(gKeepFullCalls == 1 && gKeepFullArgument == 1);
     CHECK(gMaintainCalls == 1);
+#ifdef TPW_PORT_FIX
+    // Tick holds the pool's lock across the maintenance, which walks the queue SDL's audio thread returns players to.
+    CHECK(gMaintainLocked);
+    gMaintainLocked = false;
+#endif
     module->Tick();
     CHECK(gMaintainCalls == 2);
+#ifdef TPW_PORT_FIX
+    CHECK(gMaintainLocked);
+#endif
     CHECK(module->Channels() != nullptr);
     for (uint32_t i = 0; i < 4; ++i) {
         CHECK(module->ChannelAt(i) != nullptr);
