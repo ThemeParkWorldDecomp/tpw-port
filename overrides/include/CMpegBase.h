@@ -101,8 +101,8 @@ public:
 
 // The pool of file players (StreamableMpeg2.cpp, CSprocketsModule.cpp): operator new takes an idle player from the queue; on
 // the Mac it answers NULL when none is idle (there is no heap fallback: the game keeps the pool full, MaintainPoolLevel, from
-// the sound module's Tick); the port makes a new player then (operator new, src/sound/StreamableMpeg2.cpp). Operator delete
-// puts the player back. Level 10 is the target the pool is kept at. The members are defined
+// the sound module's Tick); the port's fixes make a new player then (operator new, src/sound/StreamableMpeg2.cpp). Operator
+// delete puts the player back. Level 10 is the target the pool is kept at. The members are defined
 // for the one instance the game has, <CMpegMacFilePlayerUnpooled, 10> (src/sound/StreamableMpeg2.cpp), as explicit specializations.
 template <class T, int Level>
 class UPooled : public T {
@@ -135,7 +135,7 @@ public:
 
 using MpegFilePlayerPool = UPooled<CMpegMacFilePlayerUnpooled, 10>;
 
-// TPW_PORT_FIX mpegpool MpegPoolQueueLock | Mac: (none: the pool's queue was changed at interrupt time only by Enqueue and Dequeue, which the Mac made atomic, and the program's walks of it could be interrupted but never run beside a callback) | Port: one recursive lock (defined in src/sound/LbMpeg.cpp), taken by Enqueue, Dequeue, Add and Remove and held across each walk of the queue: UPooled::operator new (src/sound/StreamableMpeg2.cpp), ClearPool (src/sound/MpegDecode.cpp) and MaintainPoolLevel (by its caller, CSprocketsModule::Tick in tpw-port's platform/sound_module.cpp) | Why: the players are returned to the pool from SDL's audio thread, in parallel with the game; a walk on one thread stepped onto an element the other had taken off and freed, and read garbage as the player (a crash in IsPoolObjectAvailable as a park started, tpw-port issue #50)
+// TPW_PORT_FIX mpegpool MpegPoolQueueLock | Mac: (none: the MPEG file player pool's queue was changed at interrupt time only by Enqueue and Dequeue, which the Mac made atomic; the program's walks of it could be interrupted but never ran beside a callback) | Port: one recursive lock (defined in src/sound/LbMpeg.cpp), taken by Enqueue, Dequeue, Add and Remove and held across each walk of the queue: UPooled::operator new, ClearPool and MaintainPoolLevel (by its caller, CSprocketsModule::Tick in platform/sound_module.cpp) | Why: the players go back to the pool from SDL's audio thread, in parallel with the game; a walk on one thread stepped onto an element the other had taken off and freed, and read garbage as the player (a crash in IsPoolObjectAvailable as a park started, more often the higher the frame rate; tpw-port issue #50, fixed by Decidetto in tpw-port PR #53)
 std::recursive_mutex& MpegPoolQueueLock();
 
 }  // namespace SamsUtilities

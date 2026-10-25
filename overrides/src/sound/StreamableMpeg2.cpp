@@ -104,14 +104,14 @@ template <>
 Pool::UPooled() {}
 
 // 0x10007ffc: for the player's size, the first element of the queue whose player has no read in flight, taken off the queue;
-// NULL when there is none (no heap fallback; the port makes one, below). Any other size goes to the heap.
+// NULL when there is none (no heap fallback; the port's fixes make one, below). Any other size goes to the heap.
 // (The game tests the answer: NULL is a pool with no idle player, not an allocation failure.)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wnew-returns-null"
 template <>
 void* Pool::operator new(std::size_t size) {
     if (size != sizeof(Pool)) return ::operator new(size);
-    // TPW_PORT_FIX mpegpool UPooled::operator new | Mac: the walk is not locked (only Dequeue is atomic) | Port: the pool's lock is held across the walk (MpegPoolQueueLock, include/CMpegBase.h) | Why: the audio thread returns players to the queue in parallel, and another walk may free an element under this one (tpw-port issue #50)
+    // TPW_PORT_FIX mpegpool UPooled::operator_new | Mac: the walk for an idle player is not locked (only Dequeue is atomic) | Port: the pool's lock (MpegPoolQueueLock, include/CMpegBase.h) is held across the walk | Why: the audio thread returns players to the queue in parallel, and another walk may free an element under this one (tpw-port issue #50)
     std::lock_guard<std::recursive_mutex> guard(MpegPoolQueueLock());
     for (Queue::Element* element = gPoolQueue.GetHead(); element != nullptr; element = element->GetNext()) {
         void* player = element->GetData();
@@ -119,7 +119,7 @@ void* Pool::operator new(std::size_t size) {
             return element->GetData();
         }
     }
-    // TPW_PORT_FIX mpegpool UPooled::operator new | Mac: NULL when no player is idle (the interrupt-time callbacks could not allocate), and the caller, _TbSoundSampleMPEG2File::OpenMpegFile, called the player's Open on it | Port: a new element (MakeNewPoolElement, as MaintainPoolLevel makes them); operator delete puts it on the queue and MaintainPoolLevel frees what is above the target, as the host's other sound pools fall back to the heap | Why: the pool's ten are the idle reserve MaintainPoolLevel refills every tick (players in use are off the queue, so a park can play any number at once), and it ran out when more than ten MPEG sounds started between two sound ticks, as a big park does when it starts: the NULL player crashed the game (tpw-port issue #50)
+    // TPW_PORT_FIX mpegpool UPooled::operator_new | Mac: NULL when no player is idle (the interrupt-time callbacks could not allocate), and _TbSoundSampleMPEG2File::OpenMpegFile calls the player's Open on it | Port: a new element (MakeNewPoolElement, as MaintainPoolLevel makes them); operator delete puts it on the queue and MaintainPoolLevel frees what is above the target, as the host's other sound pools fall back to the heap | Why: the pool's ten are the idle reserve MaintainPoolLevel refills every tick; it runs out when more than ten MPEG sounds start between two sound ticks, as a busy park does as it starts, and the NULL player crashed the game; a failed open is no way out, since CCodecFactory::CreateCodec's failure path then releases the channel's chain, with the sentence's callback pipe that asked for the sample still running, which ends attached to itself (a stack overflow in _TbSoundSampleCallback::GetDataChunk) (tpw-port issue #50)
     Queue::Element* element = MakeNewPoolElement();
     return element != nullptr ? element->GetData() : nullptr;
 }

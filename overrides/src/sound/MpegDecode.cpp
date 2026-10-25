@@ -52,11 +52,11 @@ Pool::StaticCleanup::~StaticCleanup() { ClearPool(1); }
 
 // 0x10003c58: free the elements whose player has no read in flight. `all` restarts from the head after each (so a player that
 // stays busy at the head never lets it end); otherwise one pass.
-// TPW_PORT_FIX mpegpool ClearPool | Mac: the walks are not locked (only Dequeue is atomic) | Port: the pool's lock is held across the single pass, and across each step of the walk that starts again from the head (which can wait for a busy player, so it lets the audio thread in between steps) | Why: the audio thread returns players to the queue in parallel, and a walk freed elements another walk was on (tpw-port issue #50)
 template <>
 void Pool::ClearPool(uint8_t all) {
     ReportPoolStatistics();
     if (all == 0) {
+        // TPW_PORT_FIX mpegpool UPooled::ClearPool | Mac: the walks of the queue are not locked (only Dequeue is atomic) | Port: the pool's lock (MpegPoolQueueLock, include/CMpegBase.h) is held across the single pass, and across each step of the walk that starts again from the head (which waits for busy players, so the audio thread can return one between steps) | Why: the audio thread returns players to the queue in parallel, and a walk freed elements another walk was on (tpw-port issue #50)
         std::lock_guard<std::recursive_mutex> guard(MpegPoolQueueLock());
         Queue::Element* element = gPoolQueue.GetHead();
         while (element != nullptr) {

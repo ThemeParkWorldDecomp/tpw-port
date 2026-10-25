@@ -361,9 +361,11 @@ int16_t PBReadSync(MacFileIoParams* block) {
 }
 
 // The Mac OS queue (Enqueue, Dequeue): append at the tail; unlink anywhere, qErr (-1) when the element is not in the queue.
-// TPW_PORT_FIX mpegpool Enqueue/Dequeue | Mac: atomic against interrupts | Port: the pool's recursive lock (MpegPoolQueueLock, include/CMpegBase.h), which the walks of the queue hold too | Why: a lock of Enqueue and Dequeue alone left the walks to race the audio thread (tpw-port issue #50)
+std::mutex gQueueLock;
+
 template <class Q>
 void Enqueue(typename Q::Element* element, Q* queue) {
+    // TPW_PORT_FIX mpegpool Enqueue/Dequeue | Mac: atomic against interrupts | Port: the pool's recursive lock (MpegPoolQueueLock, include/CMpegBase.h, defined in this file), which the walks of the queue hold too | Why: a lock of Enqueue and Dequeue alone left the walks to race the audio thread (tpw-port issue #50)
     std::lock_guard<std::recursive_mutex> guard(SamsUtilities::MpegPoolQueueLock());
     element->mLink = nullptr;
     if (queue->mTail == nullptr) {
@@ -588,9 +590,9 @@ int32_t UInterruptSafeQueue<Data>::GetSize() {
     return mCount;
 }
 
-// TPW_PORT_FIX mpegpool UInterruptSafeQueue::Add/Remove | Mac: the count is changed after the queue call, outside it | Port: both under the pool's lock | Why: the audio thread adds while the game removes, and MaintainPoolLevel reads the count (tpw-port issue #50)
 template <class Data>
 void UInterruptSafeQueue<Data>::Add(Element* element) {
+    // TPW_PORT_FIX mpegpool UInterruptSafeQueue::Add/Remove | Mac: the count is changed after the queue call, outside it | Port: both under the pool's lock | Why: the audio thread adds while the game removes, and MaintainPoolLevel reads the count (tpw-port issue #50)
     std::lock_guard<std::recursive_mutex> guard(SamsUtilities::MpegPoolQueueLock());
     Enqueue(element, this);
     mCount = AddWrap(mCount, 1);
