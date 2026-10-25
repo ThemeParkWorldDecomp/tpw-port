@@ -13,9 +13,68 @@ its About box and the first line of its log all show it. See [Reporting a proble
 
 ## Quick start
 
-Download the newest release from the [Releases page](https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest). A release is fixed: 0.0.3 is the
-same code on every Mac and PC and never changes afterwards, and fixes come in the next version. The Mac and Windows
-downloads of a release are built from the same commit, its tag (v0.0.3).
+The easiest way is one line. It downloads the source of the newest release and builds the launcher on your computer,
+in a few minutes. A launcher your computer built is not blocked by macOS or Windows SmartScreen, so there are no
+warnings to click through. Run the same line again to update.
+
+- Mac (macOS 11 or newer, Apple Silicon or Intel), in Terminal:
+
+      curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh
+
+  It needs Apple's command line developer tools. If they are missing, it says so and how to get them, and changes
+  nothing. The launcher goes in `~/Applications/STP-TPW-Launcher/build/tpw_launcher`.
+- Windows 10 (version 1803 or newer) or 11, 64-bit, in PowerShell:
+
+      irm https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.ps1 | iex
+
+  It needs Git (`winget install Git.Git`, then a new PowerShell window). The launcher goes in
+  `%LOCALAPPDATA%\STP-TPW-Launcher\build\tpw_launcher.exe`.
+
+If you already play from a clone of tpw-port (the way below), run the same line too. It installs in its own folder and
+never touches the clone; at the end it says the clone is no longer needed, so you can delete it. Your games, saves and
+settings are not in the clone: they are in the launcher's data folder (`~/Library/Application Support/STP-TPW Launcher`
+on a Mac, `%APPDATA%\STP-TPW Launcher` on Windows), and the new install uses them as they are.
+
+The installer starts the launcher when it is done. Options go after `sh -s --` on a Mac, and after a scriptblock on
+Windows. For example, `--dev` (`-Dev`) installs main, the next version while it is being made (it can have bugs):
+
+    curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh -s -- --dev
+    & ([scriptblock]::Create((irm https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.ps1))) -Dev
+
+To stay on main, add `--dev` (`-Dev`) every time you run the line: without it, the line switches the install back to the
+newest release, and says so. So does the launcher's Update button, which always gets the newest release.
+
+`--dir PATH` (`-Dir PATH`) installs somewhere else, and `--help` (`-Help`) lists the rest. The installer needs no
+administrator rights. It writes only in its own folder, apart from one line that lets you type `themepark` (below).
+Your game files and saves are not in its folder, and it never touches them.
+
+### Play after install
+
+Type this in a Terminal (Mac) or PowerShell (Windows) window, in any folder:
+
+    themepark
+
+It starts the launcher, where the Update button is.
+
+- On a Mac, the command works in every new Terminal window you open after installing (not in the window you installed
+  from). The first install opens the launcher by itself, so you can play straight away.
+- On Windows, it works straight away: in the PowerShell window you installed from and in every new one.
+
+At the end, the installer checks that a new window finds `themepark`. If one does not (an unusual shell setup, for
+example), it shows the one line to run that fixes it.
+
+To remove the installed launcher, delete its folder (`~/Applications/STP-TPW-Launcher` on a Mac,
+`%LOCALAPPDATA%\STP-TPW-Launcher` on Windows). On a Mac, also delete the line that ends with
+`# tpw-port installer: the themepark command` from `~/.zprofile` (and from `~/.bash_profile`, `~/.bash_login` or
+`~/.profile` if it is there too). On Windows, also remove the folder's `bin` entry from your Path: search the Start menu
+for "Edit environment variables for your account", then edit Path. Your game files, saves and settings are kept in the
+launcher's data folder and stay.
+
+### Ready-made downloads
+
+The other way to install is a ready-made launcher from the [Releases page](https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest). It was
+not built on your computer, so macOS and Windows warn about it at first. It does not update itself: its Update button
+opens the Releases page.
 
 - Windows 10 or 11 (64-bit): the `-windows-x64.zip`. Unzip it and run tpw_launcher.exe. If Windows SmartScreen stops it,
   click More info, then Run anyway.
@@ -24,15 +83,23 @@ downloads of a release are built from the same commit, its tag (v0.0.3).
   `xattr -d com.apple.quarantine ` followed by the unpacked tpw_launcher (drag it onto the Terminal window), then
   double-click tpw_launcher.
 
-Then see [Playing](#playing). To build a release from its source instead, follow the steps below with `--branch` and the
-release's tag in the clone (`git clone --branch v0.0.3 --recurse-submodules ...`). A clone without `--branch` is main:
-the next version while it is being made (its launcher says so, 0.0.4-dev for example), for contributors and testers.
+A release is fixed: 0.0.3 is the same code on every Mac and PC and never changes afterwards, and fixes come in the next
+version. The Mac and Windows downloads of a release and the installers' builds of it are all built from the same commit,
+its tag (v0.0.3).
+
+Then see [Playing](#playing).
+
+### Building from source by hand
+
+Follow the steps below. Their clone uses `--branch stable`, the newest release (the stable branch follows the
+releases). `--branch v0.0.3` gives one release in particular. A clone without `--branch` is main: the next version
+while it is being made (its launcher says so, 0.0.4-dev for example), for contributors and testers.
 
 ### Building on macOS
 
 On a Mac with Apple Silicon or an Intel processor, in Terminal:
 
-    git clone --recurse-submodules https://github.com/ThemeParkWorldDecomp/tpw-port.git
+    git clone --branch stable --recurse-submodules https://github.com/ThemeParkWorldDecomp/tpw-port.git
     cd tpw-port && make
     make run
 
@@ -49,7 +116,7 @@ install Git once if you do not have it:
 
 After installing Git, open a new PowerShell or Command Prompt window. Paste these lines:
 
-    git -c core.autocrlf=false clone --recurse-submodules https://github.com/ThemeParkWorldDecomp/tpw-port.git
+    git -c core.autocrlf=false clone --branch stable --recurse-submodules https://github.com/ThemeParkWorldDecomp/tpw-port.git
     cd tpw-port
     .\build.cmd
     .\run.cmd

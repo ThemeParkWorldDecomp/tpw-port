@@ -23,6 +23,8 @@ The first release: play Sim Theme Park and Theme Park World from your own discs,
 - The Load panel shows save times in your own time zone.
 - Wide screens: the game fits your screen, and the advisor, menus and Options screen are no longer stretched.
 - Export logs, in the About box, saves the launcher's newest log to your Downloads folder, ready to attach to a bug report.
+- Install and update the launcher by pasting one line into Terminal or PowerShell. It builds on your computer, so there are no security warnings to click through.
+- Type themepark in any new Terminal or PowerShell window to start the launcher, from any folder.
 
 ### Fixed
 

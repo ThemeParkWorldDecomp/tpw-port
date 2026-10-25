@@ -3,6 +3,11 @@
 # Release. A release is never changed afterwards. A fix found later goes into the next version (CONTRIBUTING.md,
 # Releases), so every report that names a version names one build of the code, the same on every system.
 #
+# The release also carries the one-line installers, install.sh and install.ps1 (they build the launcher from source on
+# the player's computer). The one-liners download them from releases/latest, so the newest release always hands out
+# the newest installer. After publishing, the stable branch is moved forward to the tag: stable is what players and
+# `git clone --branch stable` get, main is the next version being made.
+#
 # Run by hand (Actions, release, Run workflow) it is a trial: the same builds, tests and downloads, kept as the run's
 # artifacts, and nothing published.
 name: release
@@ -53,6 +58,22 @@ jobs:
         with:
           name: changelog
           path: changes.md
+          if-no-files-found: error
+      # The installers are run by players' computers straight from the release: at least they must parse.
+      - name: The shell installer parses
+        run: sh -n install.sh
+      - name: The PowerShell installer parses
+        shell: pwsh
+        run: |
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path install.ps1), [ref]$null, [ref]$errors)
+          if ($errors) { $errors | ForEach-Object { Write-Host $_ }; throw 'install.ps1 does not parse' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers
+          path: |
+            install.sh
+            install.ps1
           if-no-files-found: error
 
   windows:
@@ -128,6 +149,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      # The whole history, for the stable branch's fast-forward check below.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -138,11 +163,21 @@ jobs:
           VERSION: ${{ needs.check.outputs.version }}
         run: |
           cd dist
-          sha256sum STP-TPW-Launcher-* > SHA256SUMS.txt
+          sha256sum STP-TPW-Launcher-* install.sh install.ps1 > SHA256SUMS.txt
           { sed -n '/[^[:space:]]/,$p' changes.md; printf '\n## Downloads\n\n'; } > notes.md
           cat >> notes.md <<EOF
           The STP/TPW Launcher $VERSION, built from the tag $GITHUB_REF_NAME. The Mac and Windows downloads are the same code.
           You need your own copy of the game: the launcher imports it from your discs.
+
+          The easiest way to install it (run the same line again to update) is one line, which downloads the source
+          and builds the launcher on your computer, so there are no security warnings to click through:
+
+          - Mac (Terminal): \`curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/latest/download/install.sh | sh\`
+          - Windows (PowerShell): \`irm https://github.com/$GITHUB_REPOSITORY/releases/latest/download/install.ps1 | iex\`
+
+          If you play from a clone of this repository, run the same line too: it leaves the clone alone (and says when it
+          can go), and your games, saves and settings stay as they are. The README's Quick start says what each line
+          needs. Or download a ready-made launcher:
 
           - Windows 10 or 11 (64-bit): STP-TPW-Launcher-$VERSION-windows-x64.zip. Unzip it and run tpw_launcher.exe. If
             Windows SmartScreen stops it, click More info, then Run anyway.
@@ -156,4 +191,17 @@ jobs:
           system and your edition, attach the launcher's newest log and say what you clicked before it went wrong.
           EOF
           gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --verify-tag --title "STP/TPW Launcher $VERSION" \
-            --notes-file notes.md STP-TPW-Launcher-* SHA256SUMS.txt
+            --notes-file notes.md STP-TPW-Launcher-* install.sh install.ps1 SHA256SUMS.txt
+      # stable follows the releases: moved to each new tag, created by the first. A plain push (no force) is refused when
+      # it is not a fast-forward, so stable never goes back and never loses a commit; the check first says why in words.
+      - name: Move the stable branch to the release
+        run: |
+          commit=$(git rev-parse "refs/tags/$GITHUB_REF_NAME^{commit}")
+          if git ls-remote --exit-code --heads origin stable > /dev/null; then
+            git fetch --no-tags origin '+refs/heads/stable:refs/remotes/origin/stable'
+            if ! git merge-base --is-ancestor refs/remotes/origin/stable "$commit"; then
+              echo "::error::stable has commits that $GITHUB_REF_NAME does not; it was not moved (the release is published)"
+              exit 1
+            fi
+          fi
+          git push origin "$commit:refs/heads/stable"

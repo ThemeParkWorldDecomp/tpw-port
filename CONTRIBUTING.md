@@ -56,6 +56,13 @@ Players set it in the launcher or a game menu, never by editing a .sam file.
   never used twice. A fix found after a release, even one for a problem in it, lands on main and ships in the next
   version.
 - Only the maintainers change launcher/VERSION.txt and cut releases. A pull request leaves it as it is.
+- Players get stable. The stable branch is the newest release: release.yml moves it forward to each new tag, and nothing
+  else changes it. The one-line installers (install.sh and install.ps1, attached to every release) build the newest
+  release too. Pull requests target main, never stable.
+- To work on main or test it, install it with the installer's `--dev` (`-Dev` on Windows), which builds main and updates
+  to the newest main, or clone main by hand: `git clone --recurse-submodules https://github.com/ThemeParkWorldDecomp/tpw-port.git`, then the README's
+  building steps. A change to an installer is tested on both systems, and keeps its contract (the comment at the top of
+  each script): the launcher's updater reads its output.
 
 ## The changelog
 
