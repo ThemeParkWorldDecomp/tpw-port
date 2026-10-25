@@ -34,6 +34,10 @@ inline constexpr const char* kInterfaceSizeKey = "interface_size";
 // launcher.ini's key for the Settings box's "Varied sounds" (absent or "1": each of the sounds' random draws moves the seed,
 // as on the PC, so a sound varies among its recordings; "0": the Mac's draws, one recording a sound each launch).
 inline constexpr const char* kPcSoundPicksKey = "pc_sound_picks";
+// launcher.ini's key for the Settings box's "Full screen" (absent or "1": the game is a real full-screen window, as it has
+// always been; "0": it plays in a window with a title bar, as --windowed starts it). Alt+Enter in the game switches on
+// Windows, Cmd+Ctrl+F or the green button on a Mac.
+inline constexpr const char* kFullScreenKey = "fullscreen";
 
 // An option of the original's options files (low.sam, med.sam, high.sam) that the Settings box's Graphics section offers:
 // launcher.ini's key, its slot in the game's options table (gPortSamOptions, OptionsBalance.h), the row's title and line,
@@ -203,6 +207,7 @@ private:
     bool skipIntro_ = false;   // the Settings box's "Skip the intro films", as launcher.ini keeps it
     bool backToLauncher_ = false;   // the Settings box's "Back to the launcher after playing", as launcher.ini keeps it
     bool pcSoundPicks_ = true;      // the Settings box's "Varied sounds", as launcher.ini keeps it (on when absent)
+    bool fullScreen_ = true;        // the Settings box's "Full screen", as launcher.ini keeps it (on when absent)
     bool smoothZoom_ = false;       // the Settings box's "Smooth wheel zoom", as launcher.ini keeps it
     int interfaceSize_ = 0;         // the Settings box's "Interface size": 0 100%, 1 85%, 2 70%
     std::vector<int> samChoices_;   // the Graphics section: for each of SamOptions(), 0 the detail level's own, else 1 + its choice

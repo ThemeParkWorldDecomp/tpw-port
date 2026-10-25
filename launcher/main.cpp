@@ -284,7 +284,8 @@ void Usage(const char* program) {
                  "  --stp, --eur   the same as --edition stp, --edition tpw\n"
                  "  --windowed     run in a window with a title bar instead of full screen (by default the game is a real\n"
                  "                 full-screen window on its screen, a Space of its own with the menu bar and the dock\n"
-                 "                 hidden, as Cmd+Ctrl+F makes it; Cmd+Ctrl+F also leaves it)\n"
+                 "                 hidden, as Cmd+Ctrl+F makes it; Cmd+Ctrl+F also leaves it; on Windows Alt+Enter switches\n"
+                 "                 while playing). The Settings box's Full screen, off, does the same\n"
                  "  --resolution WxH  the game's resolution, named by its 4:3 size: a Resolution.sam preset (512x384,\n"
                  "                    640x480, 800x600, 1024x768, 1280x1024, 1600x1200, 2048x1536) or a larger one of the\n"
                  "                    port's (2560x1920, 3200x2400, 4096x3072; default: 4096x3072). The game renders at it\n"
@@ -502,7 +503,8 @@ void NameAppMenu(const char* name) {
 // closes. From tpw-port PRs #10, #20, #22 and #24 by samueleagle91; the update check's keys (updater.h) too.
 void KeepSettings(const tpw::ui::ImporterBackend& backend, const std::string& prefPath) {
     for (const char* key : {tpw::ui::kSkipIntroKey, tpw::ui::kBackToLauncherKey, tpw::ui::kSmoothZoomKey,
-                            tpw::ui::kInterfaceSizeKey, tpw::ui::kPcSoundPicksKey, tpw::ui::kCheckUpdatesKey,
+                            tpw::ui::kInterfaceSizeKey, tpw::ui::kPcSoundPicksKey, tpw::ui::kFullScreenKey,
+                            tpw::ui::kCheckUpdatesKey,
                             tpw::ui::kUpdateLastCheckKey, tpw::ui::kUpdateFoundKey, tpw::ui::kUpdateToldKey}) {
         const std::string value = backend.Setting(key);
         std::string ignored;
@@ -623,6 +625,11 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
     // game started from its window quits (ReopenLauncher).
     KeepSettings(backend, prefPath);
     gBackToLauncher = choice.backToLauncher;
+    // The Settings box's "Full screen" (on unless launcher.ini says 0): off is --windowed, a window with a title bar.
+    if (backend.Setting(tpw::ui::kFullScreenKey) == "0") {
+        config.debugOptions[1] = 0;
+        tpw::Log("full screen off (the launcher's Settings): the game plays in a window");
+    }
     // The Park rules box (tpw-port PR #23: more visitors per bus, a higher visitor limit) left the port, which changes
     // only how the game is shown and driven, never how a park plays; it is to become a tpw-mods mod. A launcher.ini that
     // still has its keys keeps them, and they are ignored.

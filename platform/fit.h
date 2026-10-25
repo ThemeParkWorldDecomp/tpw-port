@@ -55,6 +55,20 @@ inline bool RealFullScreen(bool fullScreenBox, bool fitted, bool background) {
     return fullScreenBox && fitted && !background;
 }
 
+// Whether a key press is the game's full-screen toggle, Alt+Enter (the Windows convention; Linux too): an Enter key
+// with an Alt key held and no other modifier, a first press, not a repeat. Never on a Mac, where Cmd+Ctrl+F and the
+// green button do it and Option+Return stays the game's. The press is the host's: it never reaches the game.
+inline bool FullScreenToggleKey(bool apple, bool enterKey, bool altHeld, bool otherModifierHeld, bool repeat) {
+    return !apple && enterKey && altHeld && !otherModifierHeld && !repeat;
+}
+
+// Whether the toggle can act at all: only through the fit (the game draws into its offscreen framebuffer and the
+// window shows it scaled, whatever the window's size) and never with --background (as RealFullScreen). The window need
+// not be the game's full-screen box: --windowed's document window goes full screen the same way.
+inline bool CanToggleFullScreen(bool fitted, bool background) {
+    return fitted && !background;
+}
+
 // The largest rectangle of the game's aspect ratio inside a window of the given size, centred in it.
 inline Rect Letterbox(double windowWide, double windowHigh, int gameWide, int gameHigh) {
     Rect box;

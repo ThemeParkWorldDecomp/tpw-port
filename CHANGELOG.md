@@ -12,6 +12,7 @@ The first release: play Sim Theme Park and Theme Park World from your own discs,
 - A Windows version, alongside the Mac one.
 - Setting: skip the intro films.
 - Setting: go back to the launcher when you quit the game.
+- Setting: Full screen can be switched off to play in a window; Alt+Enter switches it while playing on Windows (Cmd+Ctrl+F on a Mac).
 - Park rules: choose how many visitors each bus brings and how many your park can hold.
 - Interface size: smaller panels, so you see more of your park.
 - The original game's graphics options, now in the launcher's Settings.

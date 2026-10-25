@@ -116,6 +116,7 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     smoothZoom_ = backend_.Setting(kSmoothZoomKey) == "1";   // tpw-port PR #20 by samueleagle91
     for (const SamOption& option : SamOptions()) samChoices_.push_back(SamChoice(option, backend_.Setting(option.key)) + 1);
     pcSoundPicks_ = backend_.Setting(kPcSoundPicksKey) != "0";
+    fullScreen_ = backend_.Setting(kFullScreenKey) != "0";
     checkUpdates_ = backend_.Setting(kCheckUpdatesKey) != "0";   // on by default (updater.h says why)
     {   // tpw-port PR #24 by samueleagle91
         const std::string size = backend_.Setting(kInterfaceSizeKey);
@@ -937,7 +938,7 @@ void LauncherUi::DrawSettings(const Rect& w) {
     float titleH = text_.LineHeight(style::kHeadline) + 12;
     // Everything below the title, as drawn below.
     float bodyH = 2 * (text_.LineHeight(style::kBodyBold) + 4) + 40 + text_.LineHeight(style::kSmall) + 14 + 3 * rowH +
-                  4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + 5 * rowH +
+                  4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + 6 * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + static_cast<float>(SamOptions().size()) * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + rowH;
     float ph = std::min(w.h - 2 * metric::kMargin, titleH + bodyH + 40);
@@ -1065,6 +1066,25 @@ void LauncherUi::DrawSettings(const Rect& w) {
         if (ui_.Toggle("back-to-launcher", {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32}, backToLauncher_)) {
             std::string err;
             if (!backend_.SaveSetting(kBackToLauncherKey, backToLauncher_ ? "1" : "0", err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
+        }
+        y += rowH;
+    }
+    {
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, "Full screen", colour::kInk);
+#if defined(__APPLE__)
+        const char* fullScreenLine = "Off, the game plays in a window. Cmd+Ctrl+F switches while playing";
+#else
+        const char* fullScreenLine = "Off, the game plays in a window. Alt+Enter switches while playing";
+#endif
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, fullScreenLine, row.w - 12 - 56 - 24, false), colour::kInkSoft);
+        if (ui_.Toggle("full-screen", {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32}, fullScreen_)) {
+            std::string err;
+            if (!backend_.SaveSetting(kFullScreenKey, fullScreen_ ? "1" : "0", err))
                 settingsMessage_ = "Cannot keep the setting: " + err;
         }
         y += rowH;

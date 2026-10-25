@@ -8,6 +8,8 @@
 // as the screen allows with the game's aspect ratio and never has more pixels than the game. The game is told its
 // own size, not the window's, and the mouse is mapped back through the letterbox. The game's full-screen box (procID 2)
 // is a real full-screen window, the whole screen in a Space of its own (not with --windowed, --background or --no-fit).
+// On a Mac, Cmd+Ctrl+F and the green button take the window in and out of full screen (the system does it; the window's
+// size is read every frame). On Windows and Linux, Alt+Enter does the same through ToggleFullScreen below.
 #include <SDL3/SDL.h>
 #if defined(__APPLE__)
 #include <objc/message.h>
@@ -543,6 +545,39 @@ GrafPort* NewCWindow(void*, const Rect* bounds, const unsigned char* title, bool
     gWindowMade = true;
     if (visible) NS_MacDoze::ShowWindow(&gWindow, 5);
     return &gWindow;
+}
+
+// Alt+Enter (platform/gamework.cpp, not on a Mac): the window goes between a real full-screen window (SDL's desktop full
+// screen, as the game's full-screen box is made) and the fitted window, the one --windowed makes. Only through the fit
+// and never with --background (fit::CanToggleFullScreen): the game's picture is letterboxed into whatever the window is,
+// so nothing of the game's changes; the fitted window is sized and centred again as when it was made.
+bool tpw::ToggleFullScreen() {
+    if (!gWindowMade || !tpw::fit::CanToggleFullScreen(gFit.wanted, tpw::config().background)) {
+        tpw::Log("fullscreen: Alt+Enter does nothing (%s)",
+                 !gWindowMade ? "no window yet" : !gFit.wanted ? "the window is not fitted" : "--background");
+        return false;
+    }
+    const bool wasFullScreen = (SDL_GetWindowFlags(gWindow.sdl) & SDL_WINDOW_FULLSCREEN) != 0;
+    if (wasFullScreen) {
+        if (!SDL_SetWindowFullscreen(gWindow.sdl, false)) {
+            tpw::Log("fullscreen: could not leave full screen (%s)", SDL_GetError());
+            return false;
+        }
+        gFit.fullScreen = false;
+        SDL_SyncWindow(gWindow.sdl);
+        tpw::Log("fullscreen: off (Alt+Enter); the game plays in a window");
+        RefitWindow();
+    } else {
+        if (!SDL_SetWindowFullscreenMode(gWindow.sdl, nullptr) || !SDL_SetWindowFullscreen(gWindow.sdl, true)) {
+            tpw::Log("fullscreen: not available (%s); the window stays", SDL_GetError());
+            return false;
+        }
+        gFit.fullScreen = true;
+        if (!SDL_SyncWindow(gWindow.sdl)) tpw::Log("fullscreen: the move to full screen had not finished in time");
+        tpw::Log("fullscreen: on (Alt+Enter)");
+        LogFullScreen();
+    }
+    return true;
 }
 
 // The application's frontmost window: the game's one window once it is shown. As on the

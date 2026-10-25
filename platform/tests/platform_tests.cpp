@@ -1996,6 +1996,17 @@ static void TestFitFullScreen() {
     CHECK(!tpw::fit::RealFullScreen(false, true, false));   // --windowed: the document window
     CHECK(!tpw::fit::RealFullScreen(true, true, true));     // --background: the fitted window behind the others
     CHECK(!tpw::fit::RealFullScreen(true, false, false));   // --no-fit: the window is the game's size
+    // Alt+Enter toggles full screen on Windows and Linux: Enter with Alt alone, a first press. Never on a Mac.
+    CHECK(tpw::fit::FullScreenToggleKey(false, true, true, false, false));
+    CHECK(!tpw::fit::FullScreenToggleKey(true, true, true, false, false));    // a Mac: Option+Return is the game's
+    CHECK(!tpw::fit::FullScreenToggleKey(false, false, true, false, false));  // Alt with another key
+    CHECK(!tpw::fit::FullScreenToggleKey(false, true, false, false, false));  // Enter alone is the game's
+    CHECK(!tpw::fit::FullScreenToggleKey(false, true, true, true, false));    // Ctrl+Alt+Enter, Shift+Alt+Enter: not it
+    CHECK(!tpw::fit::FullScreenToggleKey(false, true, true, false, true));    // a held key's repeat does not toggle again
+    // It acts only through the fit and never with --background; --windowed's document window toggles too.
+    CHECK(tpw::fit::CanToggleFullScreen(true, false));
+    CHECK(!tpw::fit::CanToggleFullScreen(false, false));
+    CHECK(!tpw::fit::CanToggleFullScreen(true, true));
     // A 16:10 screen (1440 x 900 points) holding a 16:9 game: bars above and below (45 each), none at the sides.
     tpw::fit::Rect box = tpw::fit::Letterbox(1440, 900, 3840, 2160);
     CHECK(box.left == 0.0 && box.width == 1440.0 && box.height == 810.0 && box.top == 45.0);
