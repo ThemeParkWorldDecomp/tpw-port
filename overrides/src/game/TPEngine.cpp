@@ -269,7 +269,7 @@ int32_t EngineStartup_OptionsFile(uint32_t flags) {
     else if ((flags & 0x2000) != 0)
         path += gTPGlobals.mHighOptionsFile;
     if (gOptionsBalance.Load(path.mData, CBalanceTable::LoadMode(0)) == 0) return 0;
-    // TPW_PORT_FIX samoptions EngineStartup_OptionsFile | Mac: the engine reads the options file's values | Port: the launcher's choices (gPortSamOptions, OptionsBalance.h) replace them first, slot by slot; the file is loaded only here, so they hold for the whole session | Why: the player chooses these original .sam options in the launcher
+    // TPW_PORT_FIX samoptions EngineStartup_OptionsFile | Mac: the engine reads the options file's values | Port: the launcher's choices (gPortSamOptions, OptionsBalance.h) replace them first, slot by slot; the file is loaded only here, so they hold for as long as the game runs | Why: the player chooses these original .sam options in the launcher; contributed by samueleagle91 (tpw-port PR #40)
     for (int32_t slot = 0; slot < 28; ++slot)
         if (gPortSamOptions[slot] >= 0) gOptionsBalance.mValues[slot].mInteger = gPortSamOptions[slot];
     EngineStartup_SetOptions();

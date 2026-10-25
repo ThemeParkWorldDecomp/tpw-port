@@ -36,8 +36,10 @@ uint16_t gNoFireworks = 0;       // 0x102a0ff2
 uint16_t gNoBalloonThing = 0;    // 0x102a0ff4
 uint16_t gNoDecision = 0;        // 0x102a0ff6
 
-// Placeholder: the real type of the message (vtable 0x102a10dc) is not recovered.
-int32_t CMsgPersonIdle::GetType() const { return 0; }
+// The message is the original's CMsgPrankery (include/ThingReceivers.h), whose GetType (0x10120b90) answers 14, a prank:
+// CStaffHQ::ReceiveMessage sends the nearest free guard after the prankster for that type. Found by samueleagle91
+// (tpw-port issue #51).
+int32_t CMsgPersonIdle::GetType() const { return 0xe; }
 
 namespace {
 
@@ -1624,8 +1626,8 @@ void CPerson::SetState(PersonState state) {
     case 20: Sprite(s, 3); break;
     case 21:
         if (Word(s, 0xd0) != 0) {
-            // TPW_PORT_FIX walktarget CPerson::SetState | Mac: a visitor starting to wait for the bus out of the park (state 21) walks again to the place its walk was set to, the bytes at +0x18 to +0x1b read as the MapPos {cell, offset} pairs they are in big-endian memory | Port: the halfwords CPeep::SetDest keeps there (the cell in the high byte, the offset in the low one) are read whole and split | Why: on a little-endian host the two bytes are the other way round, so the offsets were taken for the cell: a visitor starting to wait for the bus was sent away from the stop toward a square across the map, and walking back to the stop started the wait again (one visitor of a test park went round 16 times in half a minute)
             MapPos a, b;
+            // TPW_PORT_FIX walktarget CPerson::SetState | Mac: a visitor starting to wait for the bus out of the park (state 21) walks again to the place its walk was set to, the bytes at +0x18 to +0x1b read as the MapPos {cell, offset} pairs they are in big-endian memory | Port: the halfwords CPeep::SetDest keeps there (the cell in the high byte, the offset in the low one) are read whole and split | Why: on a little-endian host the two bytes are the other way round, so the offsets were taken for the cell: a visitor starting to wait for the bus was sent away from the stop toward a square across the map, and walking back to the stop started the wait again (one visitor of a test park went round 16 times in half a minute); contributed by samueleagle91 (tpw-port PR #41)
             a.mCell = static_cast<uint8_t>(Half(s, 0x18) >> 8);
             a.mOffset = static_cast<uint8_t>(Half(s, 0x18) & 0xffu);
             b.mCell = static_cast<uint8_t>(Half(s, 0x1a) >> 8);

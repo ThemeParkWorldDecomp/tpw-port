@@ -1575,7 +1575,7 @@ void CObject::RepairFully(tag_IDX_TYPE<IDXTYPEUniqueNameThingId, uint16_t> staff
         }
         RSSE_UpgradeRideEffect(static_cast<int32_t>(mF20));
         if (mF4C == 1 || mF4C == 2) {
-            // TPW_PORT_FIX upgrade CObject::RepairFully | Mac: the upgrade's sprite script is spawned from its block at 0x1029fd30, inside the script code | Port: while gPortScriptCode (include/analyser.h) is set, it is spawned from that place in the script code (ScriptCodeAt) | Why: the host's copy of the block (gUpgradeSpawnBlock) lies outside the script code array, where a script never runs (src/game/Script.cpp), so the sprite shown when a ride's upgrade is fitted was not drawn
+            // TPW_PORT_FIX upgrade CObject::RepairFully | Mac: the upgrade's sprite script is spawned from its block at 0x1029fd30, inside the script code | Port: while gPortScriptCode (include/analyser.h) is set, it is spawned from that place in the script code (ScriptCodeAt) | Why: the host's copy of the block (gUpgradeSpawnBlock) lies outside the script code array, where a script never runs (src/game/Script.cpp), so the sprite shown when a ride's upgrade is fitted was not drawn; contributed by samueleagle91 (tpw-port PR #16)
             void* const block = gPortScriptCode ? ScriptCodeAt(0x1029fd30u) : static_cast<void*>(gUpgradeSpawnBlock);
             mF50 = static_cast<uint32_t>(ESP_SpawnScript(block, static_cast<ESP_Sprites>(0xc), 0, static_cast<ACTS>(0), x, 0.0f, z));
         }

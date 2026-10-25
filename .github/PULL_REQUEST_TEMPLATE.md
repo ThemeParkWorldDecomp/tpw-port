@@ -8,6 +8,7 @@
 - [ ] An option from the original's .sam files offers only the values the original accepts, defaults to the original's, and is set in the launcher or a game menu.
 - [ ] Any other new setting is off by default, off is exactly the original, and it changes only display, input devices, sound output, files or the launcher.
 - [ ] The tpw-decomp and mods/ submodule pointers are unchanged.
+- [ ] It targets main and leaves launcher/VERSION.txt unchanged (releases are cut by the maintainers, see CONTRIBUTING.md).
 - [ ] Changes to game source files are whole-file copies under overrides/ at the same path, each with a row in FIXES.md (what the Mac does, what the port does, why).
 - [ ] Host code for another system is under platform/ and launcher/, behind that system's macro.
 - [ ] No test aids (scratch programs, local scripts, logs).
@@ -15,4 +16,4 @@
 
 ## Tested on
 
-Edition (US, European, Gold) and system:
+Edition (US, European, Gold), system, and the launcher version and build (the log's first line):

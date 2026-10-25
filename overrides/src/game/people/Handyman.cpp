@@ -92,6 +92,7 @@ int32_t BalanceAt(int32_t slot) { return gMainBalance.mValues[slot].mInteger; }
 int32_t CellX(MapId id) { return static_cast<int32_t>((static_cast<uint32_t>(id.mIndex) - 1u) & 0x7fu); }
 int32_t CellY(MapId id) { return static_cast<int32_t>((static_cast<uint32_t>(id.mIndex) - 1u) >> 7); }
 
+// TPW_PORT_FIX walktarget WalkTarget | Mac: (none: the MapPos is read where SetDest wrote it, which is the same bytes in big-endian memory) | Port: the halfword read whole and split into the cell (high byte) and the offset (low byte) | Why: on a little-endian host the halfword's bytes are the other way round (ProcessWalkingToLitter, below); contributed by samueleagle91 (tpw-port PR #41)
 // A place CPeep::SetDest kept as the halfword cell << 8 | offset (mPosX, mPosY), as the MapPos it was made from.
 MapPos WalkTarget(const MapPos& kept) {
     uint16_t half;
@@ -326,7 +327,7 @@ void CHandyman::ProcessWalkingToLitter() {
             mTargetLitterCell.mIndex = 0;
             ChooseNextAction();
         } else {
-            // TPW_PORT_FIX walktarget CHandyman::ProcessWalkingToLitter | Mac: the handyman is put at the place his walk was set to, the halfwords CPeep::SetDest keeps at +0x18 and +0x1a (the cell in the high byte, the offset in the low one), read as the MapPos {cell, offset} they are in big-endian memory | Port: the halfwords are read whole and split (WalkTarget) | Why: on a little-endian host the two bytes are the other way round, so the offsets were taken for the cell: a handyman who reached litter was put on the square named by the offsets of the spot he had walked to (117, 117 for all four in a test park), outside the park where no one can walk, and he stayed there
+            // TPW_PORT_FIX walktarget CHandyman::ProcessWalkingToLitter | Mac: the handyman is put at the place its walk was set to, the halfwords CPeep::SetDest keeps at +0x18 and +0x1a (the cell in the high byte, the offset in the low one), read as the MapPos {cell, offset} they are in big-endian memory | Port: the halfwords are read whole and split (WalkTarget) | Why: on a little-endian host the two bytes are the other way round, so the offsets were taken for the cell: a handyman who reached litter was put on the square named by the offsets of the spot he had walked to (117, 117 for all four in a test park), outside the park where no one can walk, and he stayed there; contributed by samueleagle91 (tpw-port PR #41)
             AsPeep(this)->Teleport(WalkTarget(mPosX), WalkTarget(mPosY));
             SetState(static_cast<CStaff::StaffState>(kStateCleaningLitter));
         }

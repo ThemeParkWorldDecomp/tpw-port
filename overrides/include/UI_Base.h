@@ -180,8 +180,6 @@ extern int16_t gUIRealScreenHeight;   // 0x10395bba
 extern float gUIWideAspect;    // width over height the launcher asks for; 0 keeps the presets' sizes
 extern int16_t gUIUnitWidth;   // the UI's width in units: 2048 on a 4:3 screen, more on a wider one
 extern int8_t gUIHighPresets;  // nonzero: Resolution.sam values 8 to 10 are the launcher's larger presets (src/game/TPConfig.cpp)
-// TPW_PORT_FIX packs gPortPackPictures | Mac: (none: the logo and loading pictures are 4:3) | Port: true when the launcher lays asset packs over the game's files, whose pictures may be of another shape; false, the original's drawing, by default | Why: the splash draws a picture of another shape at its own shape only for packs, so without them it draws as the Mac's
-extern bool gPortPackPictures;
 bool UI_IsWideWindow(const InterfaceWindow* window);   // spans more than the 2048 units (the root and the game's view)
 int16_t UI_WideShift(const InterfaceWindow* window);   // how far the 2048-unit layout placed in `window` was moved across
 int16_t UI_WideShiftFor(const InterfaceWindow* window, bool relative);   // the same for a rectangle in its frame
@@ -269,6 +267,8 @@ float UI_InterfaceSize();           // gUIScale while it applies, else 1
 void UI_InterfaceUnits(bool on, int16_t& realWidth, int16_t& realHeight, int16_t& unitWidth, int16_t& unitHeight);
 // TPW_PORT_FIX smoothzoom gUISmoothWheelZoom | Mac: (none: a wheel step moves the zoom at once) | Port: nonzero when the launcher's "Smooth wheel zoom" is on; 0, the original's step, by default | Why: smooth wheel zoom toward the pointer, as an opt-in: the port keeps the original's controls by default; contributed by samueleagle91 (tpw-port PR #20)
 extern int8_t gUISmoothWheelZoom;
+// TPW_PORT_FIX packs gPortPackPictures | Mac: (none: the logo and loading pictures are 4:3) | Port: true when the launcher lays asset packs over the game's files, whose pictures may be of another shape; false, the original's drawing, by default | Why: the splash draws a picture of another shape at its own shape only for packs, so without them it draws as the Mac's; contributed by samueleagle91 (tpw-port PR #26)
+extern bool gPortPackPictures;
 // TPW_PORT_FIX widepanel gPortWidePanel | Mac: no such flag (no wide windows) | Port: a flag the launcher sets (launcher/main.cpp); while it is set a window exactly 0x800 units across is a 4:3 panel, not a wide one (UI_IsWideWindow, the InterfaceWindow constructor), apart from the login panel's root, which stays wide | Why: the Options panel's root window is 0..2048, which the wide test called wide, so on a screen wider than 4:3 its rows were anchored apart from their panel; the login panel's root is 0..2048 too, but its rows belong at the screen's right edge; contributed by samueleagle91 (tpw-port PRs #12 and #35)
 // False unless the launcher sets it, so a program that does not (the differential tests) keeps the wide test as it was.
 inline bool gPortWidePanel = false;

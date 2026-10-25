@@ -31,6 +31,7 @@
 #include "platform/macdoze.h"
 #include "platform/msl.h"
 #include "platform/samsutils.h"
+#include "platform/upixels.h"
 #include "ui_ime.h"
 #include "TbIRLE4bitFont.h"
 #include "UI_Base.h"
@@ -527,8 +528,10 @@ static void TestFileHandles() {
                config.userDir / "save" / "users" / "T5L48" / "outbox" / "00000001.jpg"));
     CHECK(tpw::GamePathForReading("TPW:Theme Park Data:save:users:T5L48:outbox:00000002.jpg") ==
           "TPW:Theme Park Data:save:users:T5L48:outbox:00000002.jpg");
+#ifdef TPW_PORT_FIX
     // AddressBook::Save, Outbox::Save and Outbox::WriteMailData write through the SaveStream glue: its open of the colon path makes
-    // the file in the user folder, and the loaders' CreateFile (TextFile::Open) reads the same file back.
+    // the file in the user folder, and the loaders' CreateFile (TextFile::Open) reads the same file back (the port fix v5L48; the
+    // Mac's open takes the colon path as it is).
     {
         const char* const kBook = "TPW:Theme Park Data:save:users:T5L48:addrbook.dat";
         SaveStream out;
@@ -569,6 +572,7 @@ static void TestFileHandles() {
         CHECK(!fs::exists(config.userDir / "save" / "users" / "U5L48"));
         CHECK(!fs::exists(kMail));
     }
+#endif
 
     // Listing more than one entry, then files and folders coming and going.
     _WIN32_FIND_DATAA found;
@@ -1672,6 +1676,26 @@ static void TestFitArithmetic() {
 }
 
 #ifdef TPW_PORT_FIX
+// ---- Format 7, 24-bit RGB (platform/upixels.cpp, unit postcard24) -------------------------------------------
+// Postcard::save copies the card (format 9, bytes alpha, red, green, blue) into a format 7 buffer of its own and hands its
+// rows to the JPEG writer: the copy has a buffer, and its bytes are red, green, blue. Read back, the alpha is the default.
+static void TestUPixels24RGB() {
+    using namespace SamsUtilities;
+    uint8_t card[] = {0xff, 0xfb, 0xf8, 0xc6, 0x80, 0x10, 0x20, 0x30};   // the card's back, then a half-transparent pixel
+    UPixels source(kPixels32ARGB, card, 2, 1, -1, nullptr);
+    UPixels rgb(kPixels24RGB, 2, 1, nullptr);
+    const auto* bytes = static_cast<const uint8_t*>(rgb.GetData());
+    CHECK(bytes != nullptr);
+    if (bytes == nullptr) return;
+    rgb.Convert(source, false);
+    const uint8_t expected[] = {0xfb, 0xf8, 0xc6, 0x10, 0x20, 0x30};
+    CHECK(std::memcmp(bytes, expected, sizeof expected) == 0);
+    UPixels back(kPixels32ARGB, 2, 1, nullptr);
+    back.Convert(rgb, false);
+    const uint8_t opaque[] = {0xff, 0xfb, 0xf8, 0xc6, 0xff, 0x10, 0x20, 0x30};
+    CHECK(std::memcmp(back.GetData(), opaque, sizeof opaque) == 0);
+}
+
 // ---- The widescreen screen (include/UI_Base.h) -----------------------------------------------------------------------
 // The arithmetic the game runs: the preset's height at the launcher's aspect, the 4:3 box the 2D art keeps, the unit
 // space's width and the anchoring of the 2048-unit layout in it. The frames of a 16:9 run are the proof of the rest.
@@ -2728,6 +2752,7 @@ int main() {
     TestFitMouse();
     TestFitFullScreen();
 #ifdef TPW_PORT_FIX
+    TestUPixels24RGB();
     TestWideScreen();
     TestWidePick();
     TestFontScale();

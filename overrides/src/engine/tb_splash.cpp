@@ -11,12 +11,12 @@
 #include "tb_resource_system.h"
 #include "tb_splash.h"
 #include "Wavelet.h"
-#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
 // TPW_PORT_FIX v5L26 CSplash::InterpolateSplash | Mac: the 4:3 splash and its bar fill the screen | Port: on a screen wider than 4:3 they fill a 4:3 box in the middle, black at the sides | Why: a widescreen port; the logo and loading screens are pillarboxed rather than stretched
 #include "UI_Base.h"
+#include <algorithm>
 
 // tb_splash.cpp (decompiled from the engine library of SimTheme Park 2.04b3, functions at
 // 0x1002cb24..0x1002da70).
@@ -35,6 +35,7 @@ uint32_t NowMs() {
     return static_cast<uint32_t>(SamsUtilities::UTimer::GetAbsolute() / 1000);
 }
 
+// TPW_PORT_FIX packs ClearToBlack | Mac: (none: the pillarbox's clear was written out in DrawImage) | Port: the clear as a helper, used by the pillarbox and by a pack's picture of another shape | Why: both draw an image that does not fill the screen; contributed by samueleagle91 (tpw-port PR #26)
 // (the whole screen black, around an image that does not fill it)
 void ClearToBlack() {
     glPushAttrib(0x84000);   // (the colour buffer and scissor state)
@@ -54,7 +55,7 @@ void DrawImage(const void* pixels, int32_t width, int32_t height) {
     glDisable(GL_BLEND);
     glDisable(GL_FOG);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    // TPW_PORT_FIX packs CSplash::InterpolateSplash | Mac: the logo and loading pictures are 4:3 and fill the screen | Port: with gPortPackPictures (the launcher's asset packs), a picture of another shape, which only a pack brings, is drawn at its own shape, as large as the screen holds it, in the middle, black around | Why: an asset pack can bring a widescreen picture, which the screen or its 4:3 box would squeeze
+    // TPW_PORT_FIX packs CSplash::InterpolateSplash | Mac: the logo and loading pictures are 4:3 and fill the screen | Port: with gPortPackPictures (the launcher's asset packs), a picture of another shape, which only a pack brings, is drawn at its own shape, as large as the screen holds it, in the middle, black around | Why: an asset pack can bring a widescreen picture, which the screen or its 4:3 box would squeeze; contributed by samueleagle91 (tpw-port PR #26)
     if (gPortPackPictures && static_cast<int64_t>(width) * 3 != static_cast<int64_t>(height) * 4) {
         const double scale = std::min(static_cast<double>(gei_Display.mWidth) / static_cast<double>(width),
                                       static_cast<double>(gei_Display.mHeight) / static_cast<double>(height));
@@ -112,10 +113,10 @@ int32_t CDrawToBackBuffer::Overlay(char* name, int32_t x, int32_t y) {
     }
     uint8_t* dst = static_cast<uint8_t*>(mps_Data) + mBytesPerPixel * (row * mWidth);
     const uint8_t* src = static_cast<const uint8_t*>(image) + mBytesPerPixel * (skip * width);
-    // TPW_PORT_FIX packs CDrawToBackBuffer::Overlay | Mac: each of the overlay's rows is copied whole, as the original's overlays are no wider than the picture under them | Port: with gPortPackPictures (the launcher's asset packs), no more of a row than the picture is wide | Why: a pack's welcome.tga narrower than legal.tga would make each row's copy run into the next row, and the last one past the picture
-    const int32_t across = gPortPackPictures && width > mWidth ? mWidth : width;
     int32_t line = y;
     for (int32_t i = 0; i < height; i++) {
+        // TPW_PORT_FIX packs CDrawToBackBuffer::Overlay | Mac: each of the overlay's rows is copied whole, as the original's overlays are no wider than the picture under them | Port: with gPortPackPictures (the launcher's asset packs), no more of a row than the picture is wide | Why: a pack's welcome.tga wider than the picture under it would make each row's copy run into the next row, and the last one past the picture; contributed by samueleagle91 (tpw-port PR #26)
+        const int32_t across = gPortPackPictures && width > mWidth ? mWidth : width;
         if (line < mHeight) std::memcpy(dst, src, static_cast<uint32_t>(mBytesPerPixel * across));
         line++;
         src += mBytesPerPixel * width;
@@ -140,7 +141,7 @@ int32_t CSplash::Init(char* language, char* path, int32_t frames) {
     mFrames = frames;
     mScale = 100.0f / static_cast<float>(mFrames);
     int32_t width = gei_Display.mWidth;
-    // TPW_PORT_FIX smallres CSplash::Init | Mac: the pictures' folder (640, 800 or 1024) is named by the screen's width | Port: on a screen wider than 4:3, by the width of the 4:3 box its height gives, which the pictures are drawn in | Why: on a wide screen the 640 x 480 preset is 853 wide (960 for 800 x 600 at 16:10), and no folder has that name, so welcome.tga did not load (an assertion in Overlay)
+    // TPW_PORT_FIX smallres CSplash::Init | Mac: the pictures' folder (640, 800 or 1024) is named by the screen's width | Port: on a screen wider than 4:3, by the width of the 4:3 box its height gives, which the pictures are drawn in | Why: on a wide screen the 640 x 480 preset is 853 wide (960 for 800 x 600 at 16:10), and no folder has that name, so welcome.tga did not load (an assertion in Overlay); contributed by samueleagle91 (tpw-port PR #29)
     if (gUIUnitWidth > 0x800) width = UI_PillarboxWidth(gei_Display.mHeight);
     if (width < 640 || width > 1024) width = 640;
     int32_t legalY, welcomeY;   // where the overlay's bottom row goes

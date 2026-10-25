@@ -40,7 +40,7 @@
 // WhichCheckButtonsAreDown 0x1019b120.
 
 // 0x1019b018 (220 bytes): the path drawing mode for the coaster placing, given to the mouse (made first when there is none).
-// TPW_PORT_FIX coaster64 CoasterPlaceMouseMode | Mac: the path drawing mode, the mouse and the default mode allocated with the Mac's sizes (0x14, 1, 8) | Port: with sizeof each | Why: a 64-bit build; the objects hold an 8-byte vtable pointer, so they are larger than the Mac's sizes, and the constructors wrote past the blocks (AddressSanitizer: CMMCoaster's word at 8 past an 8-byte block, which corrupted the heap once a coaster's track was finished)
+// TPW_PORT_FIX coaster64 CoasterPlaceMouseMode | Mac: the path drawing mode, the mouse and the default mode allocated with the Mac's sizes (0x14, 1, 8) | Port: with sizeof each | Why: a 64-bit build; the objects hold an 8-byte vtable pointer, so they are larger than the Mac's sizes, and the constructors wrote past the blocks (AddressSanitizer: CMMCoaster's word at 8 past an 8-byte block, which corrupted the heap once a coaster's track was finished); contributed by samueleagle91 (tpw-port PR #28)
 void CoasterPlaceMouseMode() {
     LLCM_SetCurrentObject(false);
     CMMPathDraw* mode = nullptr;
@@ -269,7 +269,7 @@ __attribute__((weak)) void* OperatorNew(uint32_t size) { return ::operator new(s
 }
 
 // The constructors run on memory from the fake-able allocation (placement new keeps the order of the original's calls).
-// TPW_PORT_FIX coaster64 CoasterPanelEndTrack | Mac: the mouse, the default mode and the coaster mode allocated with the Mac's sizes (1, 8, 8) | Port: with sizeof each | Why: a 64-bit build; the objects hold an 8-byte vtable pointer, so they are larger than the Mac's sizes, and the constructors wrote past the blocks (AddressSanitizer: CMMCoaster's word at 8 past an 8-byte block, which corrupted the heap once a coaster's track was finished)
+// TPW_PORT_FIX coaster64 CoasterPanelEndTrack | Mac: the mouse, the default mode and the coaster mode allocated with the Mac's sizes (1, 8, 8) | Port: with sizeof each | Why: a 64-bit build; the objects hold an 8-byte vtable pointer, so they are larger than the Mac's sizes, and the constructors wrote past the blocks (AddressSanitizer: CMMCoaster's word at 8 past an 8-byte block, which corrupted the heap once a coaster's track was finished); contributed by samueleagle91 (tpw-port PR #28)
 static CMouse* MakeMouse() {
     CMouse* mouse = static_cast<CMouse*>(coaster_end_callee::OperatorNew(sizeof(CMouse)));
     CMMDefault* mode = new (coaster_end_callee::OperatorNew(sizeof(CMMDefault))) CMMDefault();

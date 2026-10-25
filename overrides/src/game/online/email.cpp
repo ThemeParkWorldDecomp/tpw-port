@@ -703,8 +703,9 @@ __attribute__((weak)) void SaveStreamCtor(SaveStream* s) {
 __attribute__((weak)) bool SaveStreamOpen(SaveStream* s, const char* name) {
     auto* f = static_cast<std::ofstream*>(s->impl);
     // TPW_PORT_FIX v5L48 SaveStreamOpen | Mac: the MSL stream opens the colon path (the player's folder: addrbook.dat, outbox.dat, the mails) | Port: it opens the user folder's copy of the path (tpw::GamePathForWriting), where the loaders' CreateFile looks first | Why: the host's ofstream takes the colon path as one file name in the working directory, so the files were never read back
-    // TPW_PORT_FIX winnewline SaveStreamOpen | Mac: the stream is opened in text mode, which on the Mac writes each '\n' as the one byte the loaders end a line at | Port: it is opened in binary mode, so each '\n' is one byte on every host | Why: on Windows a text-mode ofstream writes "\r\n", and the loaders (TextFile, StreamOpen) take the bytes as they are, so every line read back kept a '\r': each save of the address book added one to every address, and the outbox's empty line between blocks was empty no more
-    f->open(tpw::GamePathForWriting(name), std::ios::out | std::ios::trunc | std::ios::binary);
+    const auto path = tpw::GamePathForWriting(name);
+    // TPW_PORT_FIX winnewline SaveStreamOpen | Mac: the stream is opened in text mode, which on the Mac writes each '\n' as the one byte the loaders end a line at | Port: it is opened in binary mode, so each '\n' is one byte on every host | Why: on Windows a text-mode ofstream writes "\r\n", and the loaders (TextFile, StreamOpen) take the bytes as they are, so every line read back kept a '\r': each save of the address book added one to every address, and the outbox's empty line between blocks was empty no more; contributed by samueleagle91 (tpw-port PR #30)
+    f->open(path, std::ios::out | std::ios::trunc | std::ios::binary);
     s->filebufOpen = f->is_open() ? 1 : 0;
     return f->is_open();
 }

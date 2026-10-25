@@ -186,7 +186,7 @@ bool ModeArm(int32_t mode) {
     }
     if (mode == 0x15 || mode == 0x16) {
         // The Mac passes the word at 0x102ddb6c as a pointer.
-        // TPW_PORT_FIX coaster64 ModeArm | Mac: the current object's word passed as the coaster | Port: the whole pointer, gLLCMCurrentObject, while its low half is the word (as LLCellMouse.cpp's Current reads it), else the word widened | Why: a 64-bit build; the word holds only the pointer's low half, so the coaster panel's track button crashed in SetCoasterEdit
+        // TPW_PORT_FIX coaster64 ModeArm | Mac: the current object's word passed as the coaster | Port: the whole pointer, gLLCMCurrentObject, while its low half is the word (as LLCellMouse.cpp's Current reads it), else the word widened | Why: a 64-bit build; the word holds only the pointer's low half, so the coaster panel's track button crashed in SetCoasterEdit; contributed by samueleagle91 (tpw-port PR #28)
         void* coaster = reinterpret_cast<void*>(static_cast<uintptr_t>(static_cast<uint32_t>(gLLCCDB6C)));
         if (static_cast<uint32_t>(reinterpret_cast<uintptr_t>(gLLCMCurrentObject)) == static_cast<uint32_t>(gLLCCDB6C)) coaster = gLLCMCurrentObject;
         SetCoasterEdit(coaster, 1);
@@ -525,7 +525,7 @@ void PushClick(int32_t x, int32_t y) {
 
 // The ride the cell system holds (gLLCCDB6C is a 32 bit pointer word on the Mac).
 CObject* HeldRide() {
-    // TPW_PORT_FIX heldride HeldRide | Mac: the held ride's word is its address | Port: the whole pointer, gLLCMCurrentObject, while its low half is the word (as LLCellMouse.cpp's Current_2 reads it), else the word widened | Why: a 64-bit build; the word holds only the pointer's low half, so Backspace while laying a water ride's track crashed in LLCR_FixBridges (backtrack's FixBridgesOfHeldRide)
+    // TPW_PORT_FIX heldride HeldRide | Mac: the held ride's word is its address | Port: the whole pointer, gLLCMCurrentObject, while its low half is the word (as LLCellMouse.cpp's Current reads it), else the word widened | Why: a 64-bit build; the word holds only the pointer's low half, so Backspace while laying a water ride's track crashed in LLCR_FixBridges (backtrack's FixBridgesOfHeldRide); contributed by samueleagle91 (tpw-port PR #44)
     const uint32_t word = static_cast<uint32_t>(gLLCCDB6C);
     if (static_cast<uint32_t>(reinterpret_cast<uintptr_t>(gLLCMCurrentObject)) == word) return gLLCMCurrentObject;
     return reinterpret_cast<CObject*>(static_cast<uintptr_t>(word));

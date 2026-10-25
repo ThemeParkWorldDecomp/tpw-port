@@ -164,7 +164,7 @@ int32_t StaffRoomListFiller(CThing* thing) {
         item[0].mText = staff->GetName();
         int32_t energy = static_cast<int32_t>(*reinterpret_cast<const float*>(reinterpret_cast<const uint8_t*>(thing) + 0x1f8));
         item[1].mInt = static_cast<int32_t>((static_cast<uint32_t>(energy) & 0xff) << 10) / 100;
-        // TPW_PORT_FIX staffrows StaffRoomListFiller | Mac: the row's word is the staff member's address | Port: its offset in the arena (DataOf), the word StaffWentIntoStaffRoom gives a row and the panel's readers turn back into the address | Why: a 64-bit build; an address's low 32 bits are its offset only when the arena starts on a 4 GB boundary, which it need not (on Windows it does not), so with a staff member resting in a staff room, opening the room's panel crashed (SIGSEGV in UpdateViewSprite, at the arena's base plus the cut address)
+        // TPW_PORT_FIX staffrows StaffRoomListFiller | Mac: the row's word is the staff member's address | Port: its offset in the arena (DataOf), the word StaffWentIntoStaffRoom gives a row and the panel's readers turn back into the address | Why: a 64-bit build; an address's low 32 bits are its offset only when the arena starts on a 4 GB boundary, which it need not (on Windows it does not), so with a staff member resting in a staff room, opening the room's panel crashed (SIGSEGV in UpdateViewSprite, at the arena's base plus the cut address); contributed by samueleagle91 (tpw-port PR #42)
         gStaffRoomList->AddItem(item, DataOf(thing), -1, 0);
     }
     return 1;

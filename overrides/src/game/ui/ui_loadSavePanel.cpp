@@ -196,7 +196,7 @@ __attribute__((weak)) void loadsave_callee::FileTimeToLocal(const void* in, void
 namespace {
 
 // The Mac stores the panel windows' pointers in these two int words.
-// TPW_PORT_FIX panelword WindowWord | Mac: the window's address is the word | Port: the window's offset in the arena (windows are made there), the word WindowOf turns back into the address | Why: a 64-bit build; the address's low 32 bits are its offset only when the arena starts on a 4 GB boundary, which it need not (on Windows it does not), so RemoveSavePanel and RemoveLoadPanel sent their close message to an address the arena's base past the window, and closing the Save or Load panel crashed (SIGSEGV in UI_SendMessage)
+// TPW_PORT_FIX panelword WindowWord | Mac: the window's address is the word | Port: the window's offset in the arena (windows are made there), the word WindowOf turns back into the address | Why: a 64-bit build; the address's low 32 bits are its offset only when the arena starts on a 4 GB boundary, which it need not (on Windows it does not), so RemoveSavePanel and RemoveLoadPanel sent their close message to an address the arena's base past the window, and closing the Save or Load panel crashed (SIGSEGV in UI_SendMessage); contributed by samueleagle91 (tpw-port PR #33)
 int32_t WindowWord(InterfaceWindow* window) { return window != nullptr ? static_cast<int32_t>(tpw::ArenaOffset(window)) : 0; }
 
 // The rows of both lists: name, then "<date text> hh:mm". The Mac builds this inline in both fills.

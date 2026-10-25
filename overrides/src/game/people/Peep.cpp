@@ -137,6 +137,7 @@ uint8_t* PeepBytes(CPeep* peep) { return reinterpret_cast<uint8_t*>(peep); }
 // The Mac's int -> single conversion of the magic-number trick: the exact int, rounded to single.
 float IntToSingle(int32_t value) { return static_cast<float>(static_cast<double>(value)); }
 
+// TPW_PORT_FIX walktarget WalkTarget | Mac: (none: the MapPos is read where SetDest wrote it, which is the same bytes in big-endian memory) | Port: the halfword split into the cell (high byte) and the offset (low byte) | Why: on a little-endian host the halfword's bytes are the other way round (CPeep::Serialise, below); contributed by samueleagle91 (tpw-port PR #41)
 // A place SetDest kept as the halfword cell << 8 | offset (+0x18, +0x1a), as the MapPos it was made from.
 MapPos WalkTarget(int16_t kept) {
     const uint16_t half = static_cast<uint16_t>(kept);
@@ -220,7 +221,7 @@ int32_t CPeep::Serialise(void* file, int32_t save, int32_t version, uint32_t unu
         if (thoughts->Serialise(file, 0, version, unused) != 0) return 1;
     }
 
-    // TPW_PORT_FIX walktarget CPeep::Serialise | Mac: the peep walks again to the place its walk was set to, the halfwords SetDest keeps at +0x18 and +0x1a (the cell in the high byte, the offset in the low one), read as the MapPos {cell, offset} they are in big-endian memory | Port: the halfwords are read whole and split (WalkTarget) | Why: on a little-endian host the two bytes are the other way round, so the offsets were taken for the cell: each save and each load sent every visitor and staff member off toward another square, often past the map's edge (all eight peeps of a test park, at the save and at the load), in place of the walk it was on
+    // TPW_PORT_FIX walktarget CPeep::Serialise | Mac: the peep walks again to the place its walk was set to, the halfwords SetDest keeps at +0x18 and +0x1a (the cell in the high byte, the offset in the low one), read as the MapPos {cell, offset} they are in big-endian memory | Port: the halfwords are read whole and split (WalkTarget) | Why: on a little-endian host the two bytes are the other way round, so the offsets were taken for the cell: each save and each load sent every visitor and staff member off toward another square, often past the map's edge (all eight peeps of a test park, at the save and at the load), in place of the walk it was on; contributed by samueleagle91 (tpw-port PR #41)
     const MapPos x = WalkTarget(*destX);
     const MapPos y = WalkTarget(*destY);
     if (SetDest(x, y) == 0) CTRACE(2, "Couldn't renav to my accurate dest!!");

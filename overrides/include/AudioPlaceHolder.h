@@ -41,16 +41,13 @@ class CAudioPlaceHolder;
 // ---- callees outside this unit that are not translated yet (stand-ins in the launcher) -----------------------------------
 namespace bfl::maths {
 // 0x10019ad0 (32): a wrapper of LbMaths_Random 0x10018cf4 (80): seed = seed * 0x19660d + 0x3c6ef35f, answers the new seed. The
-// placeholder always passes a COPY of CAudioPlaceHolder::mRandomSeed, so the static itself is never advanced (on the Mac: see
-// pcpicks below).
+// placeholder always passes a COPY of CAudioPlaceHolder::mRandomSeed, so the static itself is never advanced.
 uint32_t Random(int32_t& seed);
 // 0x10018c30 (32): a wrapper of LbMaths_RangedRandomSlow 0x10018c88 (56): Random(seed) % range (unsigned; no test for a zero range).
 uint32_t RangedRandomSlow(int32_t& seed, uint32_t range);
 }  // namespace bfl::maths
 
-// TPW_PORT_FIX pcpicks gPortPcSoundPicks/SoundRandom/SoundRangedRandom | Mac: each of the sounds' random draws (which recording, its volume, pitch and gap, a sentence's branch, a shuffle) takes a copy of the seed and drops the rotated value, so the seed never moves and every draw of a launch gives the same number: a sound plays the same one of its recordings every time | Port: while gPortPcSoundPicks is set, each draw moves the seed and takes it rotated right by 13, as the PC release does (seed * 0x19660d + 0x3c6ef35f, then seed >> 13 | seed << 19) | Why: the sounds were recorded to vary (the Belly Bounce's scream has 19 recordings, of which the Mac plays one), and on the PC they do
-// The switch the launcher sets (launcher/main.cpp); false, the Mac's draws, unless it does, so the differential tests run
-// the original.
+// TPW_PORT_FIX pcpicks gPortPcSoundPicks/SoundRandom/SoundRangedRandom | Mac: no such switch: every random draw of the sound code (which recording, its volume, pitch and gap, a sentence's branch, a shuffle) takes a copy of its seed (CAudioPlaceHolder::mRandomSeed, or the shuffle's mSeed) and LbMaths_Random drops its rotated value, so the seed never moves and each draw gives the same number all through a launch | Port: a switch the launcher sets (the Settings box's "Varied sounds", on unless launcher.ini's pc_sound_picks is 0); while it is set each draw moves its seed and takes it rotated right by 13, as the PC release does (seed * 0x19660d + 0x3c6ef35f, then the rotation), under a lock, as a sentence's sample callback draws on the host's audio thread | Why: the sounds were recorded to vary, and on the PC they do: on the Mac each sound plays one of its recordings every time (the Belly Bounce's scream has 19, and one of them played 207 times out of 207); false unless the launcher sets it, so the differential tests run the original; contributed by samueleagle91 (tpw-port PR #38)
 inline bool gPortPcSoundPicks = false;
 // The draws of the sound code, on the seed they are given: Random's 32 bits (the weighted picks take the top 16) and
 // RangedRandomSlow's remainder. The Mac's draw on a copy while gPortPcSoundPicks is clear; the PC's moving one while it is set.
@@ -208,7 +205,7 @@ public:
     void* SetHandle(void* handle);                          // 0x1001ccd0 (12)
 
     static TbSoundManager* mpSoundManager;   // sound 0x1003f360 (exported as mpSoundManager__17CAudioPlaceHolder)
-    static int32_t mRandomSeed;              // sound 0x1003f35c (mRandomSeed__17CAudioPlaceHolder): 0; only ever read (the Mac; pcpicks moves it)
+    static int32_t mRandomSeed;              // sound 0x1003f35c (mRandomSeed__17CAudioPlaceHolder): 0; only ever read
 
     CEventData* mEvent;                  // +4 the event (CEventData of the category: sounds, flags at +0x10, parameter id at +0x12)
     CSoundData* mSound;                  // +8 the chosen sound of the event

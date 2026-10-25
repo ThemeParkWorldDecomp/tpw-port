@@ -101,7 +101,7 @@ void GetRequiredBraceTangents(tag_sTrackBrace* brace, sCoasterType* type, sCoast
     const uint32_t flags0 = brace->mFlags;
     tag_sTrackBrace* nextB = (flags0 & 0x80000) == 0 ? brace->mNext : nullptr;
     tag_sTrackBrace* prevB = (flags0 & 0x40000) == 0 ? brace->mPrev : nullptr;
-    // TPW_PORT_FIX coaster64 GetRequiredBraceTangents | Mac: the closing brace takes the brace after the block's word 0x18 (the first brace) | Port: mLastBrace, the field at that word in the host block (sCoasterTrackParams) | Why: a 64-bit build; the translation read the field at host offset 0x18, which the block's corrected layout (TPW_PORT_FIX coaster64 sCoasterTrackParams) gives to the 0x18 word's own name; the brace that closes a circuit then took no neighbour, its handles were NaN and the track's sampling never ended
+    // TPW_PORT_FIX coaster64 GetRequiredBraceTangents | Mac: the closing brace takes the brace after the block's word 0x18 (the first brace) | Port: mLastBrace, the field at that word in the host block (sCoasterTrackParams) | Why: a 64-bit build; the translation read the field at host offset 0x18, which the block's corrected layout (TPW_PORT_FIX coaster64 sCoasterTrackParams) gives to the 0x18 word's own name; the brace that closes a circuit then took no neighbour, its handles were NaN and the track's sampling never ended; contributed by samueleagle91 (tpw-port PR #28)
     if ((flags0 & 0x100000) != 0) prevB = params->mLastBrace->mPrev;
 
     float t1[3] = {Ld(brace, 0x28), Ld(brace, 0x2c), Ld(brace, 0x30)};   // stack 0x90
@@ -110,7 +110,7 @@ void GetRequiredBraceTangents(tag_sTrackBrace* brace, sCoasterType* type, sCoast
     if (nextB == nullptr && prevB == nullptr) return;
 
     const float px = brace->mX4C, py = brace->mL50, pz = brace->mZ54;
-    // TPW_PORT_FIX coaster64 GetRequiredBraceTangents | Mac: the type's words 0, 8 and 0x0c read by their offsets | Port: tag_sCoasterType's mFlags, mF08 and mF0C | Why: a 64-bit build; the host type keeps its native pointers among the first words, so every later word is further on than the Mac's, so the tangents took the next word
+    // TPW_PORT_FIX coaster64 GetRequiredBraceTangents | Mac: the type's words 0, 8 and 0x0c read by their offsets | Port: tag_sCoasterType's mFlags, mF08 and mF0C | Why: a 64-bit build; the host type keeps its native pointers among the first words, so every later word is further on than the Mac's, so the tangents took the next word; contributed by samueleagle91 (tpw-port PR #28)
     const tag_sCoasterType* coasterType = reinterpret_cast<const tag_sCoasterType*>(type);
     const float typeScale = coasterType->mF0C;
     float ax = 0.0f, ay = 0.0f, az = 0.0f;   // stack 0xc0
@@ -841,7 +841,7 @@ void RecalcBraceTangents() {
     std::memcpy(&typeFlags, type, 4);
     uint32_t banked = typeFlags & 0x10;
     float speed = 0.0f;
-    // TPW_PORT_FIX coaster64 RecalcBraceTangents | Mac: the type's word 0x48 read by its offset | Port: tag_sCoasterType's mF48 | Why: a 64-bit build; the host type keeps its native pointers among the first words, so every later word is further on than the Mac's, so the banking's speeds took mF44
+    // TPW_PORT_FIX coaster64 RecalcBraceTangents | Mac: the type's word 0x48 read by its offset | Port: tag_sCoasterType's mF48 | Why: a 64-bit build; the host type keeps its native pointers among the first words, so every later word is further on than the Mac's, so the banking's speeds took mF44; contributed by samueleagle91 (tpw-port PR #28)
     const float typeF48 = reinterpret_cast<const tag_sCoasterType*>(type)->mF48;
     const float twoPi = 6.2831854820251465f;
     const float half = 0.5f;
@@ -1153,7 +1153,7 @@ float GetNewBraceLoftInterval(sLinkPylon* pylon, sPylonControl* control, tag_sTr
             if (data->mFlags & 1) {
                 f0 = other->mL50;
             } else {
-                // TPW_PORT_FIX coaster64 GetNewBraceLoftInterval | Mac: the ride set's embedded records read at their 32-bit offsets (the table at +4, records of 0x14 bytes with the block at +4) | Port: through sEmbeddedSet, as CoasterType.cpp's EmbeddedBlockFloat reads them | Why: a 64-bit build; the native pointers move those words, so the editor's preview brace read a pointer from the wrong bytes and crashed
+                // TPW_PORT_FIX coaster64 GetNewBraceLoftInterval | Mac: the ride set's embedded records read at their 32-bit offsets (the table at +4, records of 0x14 bytes with the block at +4) | Port: through sEmbeddedSet, as CoasterType.cpp's EmbeddedBlockFloat reads them | Why: a 64-bit build; the native pointers move those words, so the editor's preview brace read a pointer from the wrong bytes and crashed; contributed by samueleagle91 (tpw-port PR #28)
                 sPylonControl* otherControl = data->mControl;
                 const sEmbeddedSet* embedded = static_cast<const sEmbeddedSet*>(gRideAnimSets[other->mWord70]->mHeads->mF28);
                 const uint8_t* entry = embedded->mRecords[otherControl->mF2C].mBlock;
@@ -1183,7 +1183,7 @@ static tag_sCoasterInstance* InstanceOfParams(sCoasterTrackParams* params) {
 }
 
 // 0x1003e344 (256 bytes)
-// TPW_PORT_FIX coaster64 LinkPylon | Mac: the last pylon is the block's word 0x14 | Port: the instance's mPylonTail, which NewPylon, DeletePylon and UnLinkPreviewBrace keep | Why: a 64-bit build; the host instance keeps that word at its end, and the block's 0x14 is padding nothing sets, so linking a pylon followed a null pointer
+// TPW_PORT_FIX coaster64 LinkPylon | Mac: the last pylon is the block's word 0x14 | Port: the instance's mPylonTail, which NewPylon, DeletePylon and UnLinkPreviewBrace keep | Why: a 64-bit build; the host instance keeps that word at its end, and the block's 0x14 is padding nothing sets, so linking a pylon followed a null pointer; contributed by samueleagle91 (tpw-port PR #28)
 void LinkPylon(sPylonRecord* pylon, sCoasterTrackParams* params, uint32_t x, uint32_t z, uint32_t index) {
     tag_sCoasterInstance* instance = InstanceOfParams(params);
     pylon->mFlags |= 8;
@@ -1205,7 +1205,7 @@ void LinkPylon(sPylonRecord* pylon, sCoasterTrackParams* params, uint32_t x, uin
 }
 
 // 0x1003e48c (236 bytes)
-// TPW_PORT_FIX coaster64 LinkBrace | Mac: the block's words 0x08 (the brace count) and 0x24 (the editor's brace) | Port: the instance's mBraceCount and mPreviewBrace | Why: a 64-bit build; the host instance keeps those words at its end, where NewTrackBrace and the editor read them
+// TPW_PORT_FIX coaster64 LinkBrace | Mac: the block's words 0x08 (the brace count) and 0x24 (the editor's brace) | Port: the instance's mBraceCount and mPreviewBrace | Why: a 64-bit build; the host instance keeps those words at its end, where NewTrackBrace and the editor read them; contributed by samueleagle91 (tpw-port PR #28)
 void LinkBrace(tag_sTrackBrace* brace, sCoasterTrackParams* params, int32_t valid) {
     tag_sCoasterInstance* instance = InstanceOfParams(params);
     if (valid != 0) {
@@ -1236,7 +1236,7 @@ void LinkBrace(tag_sTrackBrace* brace, sCoasterTrackParams* params, int32_t vali
 }
 
 // 0x1003e5c0 (212 bytes)
-// TPW_PORT_FIX coaster64 UnLinkBrace | Mac: the block's words 0x08 (the brace count) and 0x24 (the editor's brace) | Port: the instance's mBraceCount and mPreviewBrace | Why: a 64-bit build; the host instance keeps those words at its end, where LinkBrace and the editor keep them
+// TPW_PORT_FIX coaster64 UnLinkBrace | Mac: the block's words 0x08 (the brace count) and 0x24 (the editor's brace) | Port: the instance's mBraceCount and mPreviewBrace | Why: a 64-bit build; the host instance keeps those words at its end, where LinkBrace and the editor keep them; contributed by samueleagle91 (tpw-port PR #28)
 void UnLinkBrace(tag_sTrackBrace* brace, sCoasterTrackParams* params) {
     tag_sCoasterInstance* instance = InstanceOfParams(params);
     uint32_t f = brace->mFlags;
@@ -1577,7 +1577,7 @@ void LinkPreviewBraceToPylon(tag_sCoasterInstance* instance, tag_sTrackBrace* br
             if (gCoasterWord1790 == 2) brace->mFlags |= 0x80;
         }
     } else {
-        // TPW_PORT_FIX coaster64 LinkPreviewBraceToPylon | Mac: the type's pylon controls at 0x1c8 and 0xa8, by their offsets | Port: tag_sCoasterType's mPylonsB and mPylonsA | Why: a 64-bit build; the host type keeps its native pointers among the first words, so every later word is further on than the Mac's, so the editor's new pylon took bytes inside other fields as its control (the loft of the brace beside it rose to the top)
+        // TPW_PORT_FIX coaster64 LinkPreviewBraceToPylon | Mac: the type's pylon controls at 0x1c8 and 0xa8, by their offsets | Port: tag_sCoasterType's mPylonsB and mPylonsA | Why: a 64-bit build; the host type keeps its native pointers among the first words, so every later word is further on than the Mac's, so the editor's new pylon took bytes inside other fields as its control (the loft of the brace beside it rose to the top); contributed by samueleagle91 (tpw-port PR #28)
         if ((gCoasterInputFlags & 0x40) != 0) {
             brace->mFlags |= 0x40;
             control = &reinterpret_cast<tag_sCoasterType*>(const_cast<uint32_t*>(instance->mType))->mPylonsB;

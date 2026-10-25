@@ -1243,7 +1243,7 @@ int32_t LoadCoasters(void* file) {
                         b->mFlags &= 0xfffffeffu;
                     const uint8_t* table = reinterpret_cast<const uint8_t*>(b->mData->mF18Table);
                     uint32_t bflags = b->mFlags;
-                    // TPW_PORT_FIX coaster64 LoadCoasters | Mac: the brace infos at the brace's offsets 0x84 and 0x78, counted from its 0x70 | Port: the brace's mInfo84 and mInfo78 | Why: a 64-bit build; the host brace's bytes from 0x70 hold other words, so a loaded coaster's braces pointed their spline at them
+                    // TPW_PORT_FIX coaster64 LoadCoasters | Mac: the brace infos at the brace's offsets 0x84 and 0x78, counted from its 0x70 | Port: the brace's mInfo84 and mInfo78 | Why: a 64-bit build; the host brace's bytes from 0x70 hold other words, so a loaded coaster's braces pointed their spline at them; contributed by samueleagle91 (tpw-port PR #28)
                     if ((bflags & 0x2000) == 0 && (bflags & 0x100) != 0 && (*reinterpret_cast<const uint32_t*>(table) & 8) != 0) {
                         b->mF90 = reinterpret_cast<sBraceSpline*>(&b->mInfo84);
                         b->mF74 = reinterpret_cast<const uint32_t*>(table + 0x44);

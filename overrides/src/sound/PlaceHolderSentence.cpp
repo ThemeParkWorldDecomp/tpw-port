@@ -87,7 +87,8 @@ bool CPlaceHolderOneShotBranchingSentenceElement::ChooseRandomSound(bool) {
         parent->mFlags |= kSubclass40;
         return false;
     }
-    const uint32_t pick = SoundRangedRandom(mRandomSeed, total);   // (pcpicks, include/AudioPlaceHolder.h)
+    // TPW_PORT_FIX pcpicks CPlaceHolderOneShotBranchingSentenceElement::ChooseRandomSound/CPlaceHolderBranchingSentence::AssignSoundToNextBranch/CPlaceHolderSentenceShuffle::CListShuffle::Shuffle | Mac: the branch draws take a copy of mRandomSeed, and the shuffle a copy of its own mSeed | Port: they draw through SoundRangedRandom, and the shuffle keeps its seed's new value, while gPortPcSoundPicks is set | Why: as the PC release: a sentence varies its branches, and a shuffle its order (see include/AudioPlaceHolder.h); contributed by samueleagle91 (tpw-port PR #38)
+    const uint32_t pick = SoundRangedRandom(mRandomSeed, total);
     uint32_t running = 0;
     for (uint32_t index = 0; index < branches; ++index) {
         const CSoundBranchData& branch = mSound->mBranches.get()[index];
@@ -261,7 +262,7 @@ bool CPlaceHolderBranchingSentence::AssignSoundToNextBranch(uint32_t parameter) 
         mFlags |= kSubclass40;
         return false;
     }
-    const uint32_t pick = SoundRangedRandom(mRandomSeed, total);   // (pcpicks, include/AudioPlaceHolder.h)
+    const uint32_t pick = SoundRangedRandom(mRandomSeed, total);
     uint32_t running = 0;
     for (uint32_t index = 0; index < branches; ++index) {
         const CSoundBranchData& branch = sound->mBranches.get()[index];
@@ -539,7 +540,7 @@ void CPlaceHolderSentenceShuffle::CListShuffle::Init(CEventData* event) {
 void CPlaceHolderSentenceShuffle::CListShuffle::Shuffle() {
     mIndex = 0;
     int32_t seed = static_cast<int32_t>(mSeed);
-    const uint32_t pick = SoundRangedRandom(seed, mEvent->mSoundCount);   // (pcpicks: the PC keeps the shuffle's own seed moving)
+    const uint32_t pick = SoundRangedRandom(seed, mEvent->mSoundCount);
     mSeed = static_cast<uint32_t>(seed);
     const uint32_t first = mEvent->mSounds.mOffset;
     uint32_t p = first + (pick - 1) * kSoundRecord;

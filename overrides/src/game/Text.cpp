@@ -10,8 +10,7 @@
 #include "Text.h"
 #include "TPSettings.h"
 #include <cstdio>
-
-// TPW_PORT_FIX smallres CText::SetRez | Mac: no UI header | Port: UI_Base.h for gUIUnitWidth, gUIRealScreenHeight and UI_PillarboxWidth | Why: the font group on a wide screen below
+// TPW_PORT_FIX smallres CText::SetRez | Mac: no UI header | Port: UI_Base.h for gUIUnitWidth, gUIRealScreenHeight and UI_PillarboxWidth | Why: the font group on a wide screen below; contributed by samueleagle91 (tpw-port PR #29)
 #include "UI_Base.h"
 
 // Text.cpp: CText methods at 0x1015be6c..0x1015ea58 and __sinit_Text_cpp at 0x1015ea80.
@@ -130,7 +129,7 @@ int32_t CText::Init() {
 }
 
 void CText::SetRez(int32_t width) {
-    // TPW_PORT_FIX smallres CText::SetRez | Mac: the font group follows the screen's width | Port: on a screen wider than 4:3, the width of the 4:3 box its height gives, which the interface's 2048 units span | Why: Init loads only the group of the resolution preset, which is named by its 4:3 size; on a wide screen the 512 x 384, 640 x 480 and 800 x 600 presets are wider than that, so the width picked a group that was never loaded, and the lobby's version number, measured with no font, made a sprite 0 pixels wide (an assertion in tb_sprite.cpp)
+    // TPW_PORT_FIX smallres CText::SetRez | Mac: the font group follows the screen's width | Port: on a screen wider than 4:3, the width of the 4:3 box its height gives, which the interface's 2048 units span | Why: Init loads only the group of the resolution preset, which is named by its 4:3 size; on a wide screen the 512 x 384, 640 x 480 and 800 x 600 presets are wider than that, so the width picked a group that was never loaded, and the lobby's version number, measured with no font, made a sprite 0 pixels wide (an assertion in tb_sprite.cpp); contributed by samueleagle91 (tpw-port PR #29)
     if (gUIUnitWidth > 0x800) width = UI_PillarboxWidth(gUIRealScreenHeight);
     mResolutionGroup = width <= 512 ? 0 : width <= 640 ? 1 : width <= 800 ? 2 : 3;
 }

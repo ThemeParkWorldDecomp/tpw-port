@@ -17,8 +17,9 @@
 #include "TbSoundManager.h"
 #include <cmath>
 #include <cstring>
-#include <mutex>
 #include <new>
+// TPW_PORT_FIX pcpicks SoundRandom/SoundRangedRandom | Mac: no such draws | Port: the draws of the sound code (include/AudioPlaceHolder.h): the Mac's on a copy of the seed while gPortPcSoundPicks is clear, the PC's moving one, under a lock, while it is set | Why: a sentence's sample callback (SoundCallback) draws on the host's audio thread, so a moving seed is changed under a lock; contributed by samueleagle91 (tpw-port PR #38)
+#include <mutex>
 
 // AudioPlaceHolder.cpp: CAudioPlaceHolder, the base of every sound the game is playing (unit w79g2, "sound symbols shared", file
 // AudioPlaceHolder.cpp of the library). See include/AudioPlaceHolder.h for the layout, the vtable and the flag bits.
@@ -28,7 +29,7 @@
 // SystemCommand (slot +0x18); the answer is dropped unless the function says otherwise. The file words of Save and Load are the
 // Mac's SamsUtilities swaps: the file is little-endian, so the host (little-endian) writes and reads the native words (the helpers of
 // include/TbSoundBank.h do nothing here). The random numbers come from bfl::maths::Random and RangedRandomSlow (stand-ins), always
-// given a COPY of mRandomSeed, through SoundRandom and SoundRangedRandom (pcpicks, include/AudioPlaceHolder.h). All float arithmetic is single precision in the listing's order; the build has -ffp-contract=off.
+// given a COPY of mRandomSeed. All float arithmetic is single precision in the listing's order; the build has -ffp-contract=off.
 
 TbSoundManager* CAudioPlaceHolder::mpSoundManager = nullptr;
 int32_t CAudioPlaceHolder::mRandomSeed = 0;
@@ -140,9 +141,7 @@ uint32_t RangedRandomSlow(int32_t& seed, uint32_t range) { return LbMaths_Ranged
 uint32_t Random(int32_t& seed) { return static_cast<uint32_t>(LbMaths_Random(seed)); }
 }  // namespace bfl::maths
 
-// (pcpicks, include/AudioPlaceHolder.h) The Mac's draw works on a copy, so `seed` stays as it was; the PC's moves `seed` and
-// answers it rotated right by 13. The draws come from the sound tick and also from a sentence's sample callback (SoundCallback),
-// which the host runs on its audio thread, so a moving seed is changed under a lock.
+// The Mac's draw works on a copy, so `seed` stays as it was; the PC's moves `seed` and answers it rotated right by 13.
 uint32_t SoundRandom(int32_t& seed) {
     if (!gPortPcSoundPicks) {
         int32_t copy = seed;
@@ -475,7 +474,8 @@ int32_t CAudioPlaceHolder::GetRandomVolume() {
     if (mExtra != nullptr && GetParameterValue(kParamVolume, percent)) {
         return static_cast<int32_t>(VolumeMin(*mSound) + (range * percent) / 100);
     }
-    const uint32_t offset = range != 0 ? SoundRangedRandom(mRandomSeed, range) : 0;   // (pcpicks)
+    // TPW_PORT_FIX pcpicks CAudioPlaceHolder::GetRandomVolume/GetRandomPitch/GetPsuedoTime/ChooseRandomSample/ChooseRandomSound | Mac: each draws on a copy of mRandomSeed (RangedRandomSlow, or Random's top 16 bits) | Port: each draws through SoundRangedRandom or SoundRandom (include/AudioPlaceHolder.h), which move the seed while gPortPcSoundPicks is set | Why: the PC release's draws, so a sound varies among its recordings, volumes, pitches and gaps (see include/AudioPlaceHolder.h); contributed by samueleagle91 (tpw-port PR #38)
+    const uint32_t offset = range != 0 ? SoundRangedRandom(mRandomSeed, range) : 0;
     return static_cast<int32_t>(offset + VolumeMin(*mSound));
 }
 
@@ -492,7 +492,7 @@ int32_t CAudioPlaceHolder::GetRandomPitch() {
     if (mExtra != nullptr && GetParameterValue(kParamPitch, percent)) {
         return PitchMin(*mSound) + static_cast<int32_t>((static_cast<uint32_t>(range) * percent) / 100);
     }
-    const int32_t offset = range != 0 ? static_cast<int32_t>(SoundRangedRandom(mRandomSeed, static_cast<uint32_t>(range))) : 0;   // (pcpicks)
+    const int32_t offset = range != 0 ? static_cast<int32_t>(SoundRangedRandom(mRandomSeed, static_cast<uint32_t>(range))) : 0;
     return offset + PitchMin(*mSound);
 }
 
@@ -533,7 +533,7 @@ int32_t CAudioPlaceHolder::GetPsuedoTime() {
             mSound->mF12 = minimum;
         }
         const int32_t range = static_cast<int32_t>(mSound->mF12) - static_cast<int32_t>(mSound->mF10);
-        offset = range != 0 ? static_cast<int32_t>(SoundRangedRandom(mRandomSeed, static_cast<uint32_t>(range))) : 0;   // (pcpicks)
+        offset = range != 0 ? static_cast<int32_t>(SoundRangedRandom(mRandomSeed, static_cast<uint32_t>(range))) : 0;
     }
     return static_cast<int32_t>(mSound->mF10) + offset;
 }
@@ -616,7 +616,7 @@ CSampleData* CAudioPlaceHolder::ChooseRandomSample(bool rotate) {
     const uint32_t count = mSound->mSampleCount & 0xffff;
     if (count == 1) return mSound->mSamples.get();
     if (count == 0) return nullptr;
-    const uint32_t pick = SoundRandom(mRandomSeed) >> 16;   // (pcpicks)
+    const uint32_t pick = SoundRandom(mRandomSeed) >> 16;
     CSampleData* sample = mSound->mSamples.get();
     for (uint32_t left = count; left != 0; --left) {
         if (sample->mF04 >= pick) {
@@ -672,7 +672,7 @@ bool CAudioPlaceHolder::ChooseRandomSound(bool rotate) {
         mSound = mEvent->mSounds.get();
         return true;
     }
-    const uint32_t pick = SoundRandom(mRandomSeed) >> 16;   // (pcpicks)
+    const uint32_t pick = SoundRandom(mRandomSeed) >> 16;
     uint32_t total = 0;
     CSoundData* sounds = mEvent->mSounds.get();
     CSoundData* sound = sounds;

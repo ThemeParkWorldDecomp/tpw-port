@@ -1,11 +1,9 @@
 # tpw-port: the playable port. The translation is the tpw-decomp submodule, built as it is except for the files under
 # overrides/, which take the place of the submodule's file of the same path (the port's fixes, listed in FIXES.md).
 cmake_minimum_required(VERSION 3.20)
-# The oldest macOS the launcher runs on. Without it the build takes the building Mac's own version, and a launcher built
-# on macOS 27 refuses to open on 26. Set before project(); -DCMAKE_OSX_DEPLOYMENT_TARGET=... picks another.
-if(APPLE AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
-  set(CMAKE_OSX_DEPLOYMENT_TARGET "26.0" CACHE STRING "The oldest macOS the build runs on" FORCE)
-endif()
+# The oldest macOS the launcher runs on: 11, the first with Apple Silicon. Without it a build runs only on the macOS it
+# was built on and newer, so a release built on GitHub's macOS 15 would refuse every older Mac. Set before project().
+set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "The oldest macOS the launcher runs on")
 project(tpw_port LANGUAGES C CXX)   # C for the vendored libraries (third_party/)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -161,14 +159,14 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
     # The WIN32 parts of this file: Windows port contributed by samueleagle91 (tpw-port PR #1).
     # The signs' text is drawn with stb_truetype (third_party/stb, platform/gdi_text_win.cpp) in place of CoreText
     # (platform/gdi_text.cpp). The POSIX calls MinGW lacks come from platform/win: its headers, and posix_win.h ahead of
-    # every file. The sockets are Windows' (platform/winsock.cpp), and gluBuild2DMipmaps, in the Mac's OpenGL framework,
-    # is glu32's.
+    # every file (quoted inside SHELL:, which splits at spaces, so a clone in a folder with a space builds). The sockets
+    # are Windows' (platform/winsock.cpp), and gluBuild2DMipmaps, in the Mac's OpenGL framework, is glu32's.
     get_target_property(platform_sources tpw_platform SOURCES)
     list(REMOVE_ITEM platform_sources ${CMAKE_CURRENT_SOURCE_DIR}/platform/gdi_text.cpp)
     set_property(TARGET tpw_platform PROPERTY SOURCES ${platform_sources})
     target_include_directories(tpw_platform PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
     target_include_directories(tpw_platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/platform/win)
-    target_compile_options(tpw_platform PRIVATE "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/platform/win/posix_win.h")
+    target_compile_options(tpw_platform PRIVATE "SHELL:-include \"${CMAKE_CURRENT_SOURCE_DIR}/platform/win/posix_win.h\"")
     target_link_libraries(tpw_platform PUBLIC ws2_32 glu32)
   endif()
 
@@ -336,11 +334,14 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   target_link_libraries(tpw_launcher_ui PUBLIC SDL3::SDL3 tpw_assets ZLIB::ZLIB)
   # The launcher's version: launcher/VERSION.txt is the one place it is written (not launcher/VERSION: launcher/ is an
   # include folder, and on a case-blind disk that name would stand in for the C++ header <version>). The window's corner,
-  # the About box, --version and the log file's first line all take it from here.
+  # the About box, --version and the log file's first line all take it from here. A release is X.Y.Z, and only its tag
+  # (vX.Y.Z) says so; between releases main says the next one with -dev (0.0.4-dev), so a build of main never passes for a
+  # release. The Windows version resource and the macOS Info.plist take the numbers only (TPW_LAUNCHER_VERSION_NUMBER).
   file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/launcher/VERSION.txt TPW_LAUNCHER_VERSION LIMIT_COUNT 1)
-  if(NOT TPW_LAUNCHER_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
-    message(FATAL_ERROR "launcher/VERSION.txt: \"${TPW_LAUNCHER_VERSION}\" is not a version like 0.0.2")
+  if(NOT TPW_LAUNCHER_VERSION MATCHES "^([0-9]+\\.[0-9]+\\.[0-9]+)(-dev)?$")
+    message(FATAL_ERROR "launcher/VERSION.txt: \"${TPW_LAUNCHER_VERSION}\" is not a version like 0.0.3 or 0.0.4-dev")
   endif()
+  set(TPW_LAUNCHER_VERSION_NUMBER "${CMAKE_MATCH_1}")
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/launcher/VERSION.txt)
   target_compile_definitions(tpw_launcher_ui PUBLIC TPW_LAUNCHER_VERSION="${TPW_LAUNCHER_VERSION}")
   # The product's name as the system shows it, read from launcher/ui/theme.h (TPW_UI_PRODUCT_NAME), its one place, for the
@@ -351,7 +352,7 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   endif()
   set(TPW_BUNDLE_NAME "${CMAKE_MATCH_1}")
   set(TPW_BUNDLE_EXECUTABLE tpw_launcher)
-  string(REPLACE "." "," TPW_LAUNCHER_VERSION_COMMAS "${TPW_LAUNCHER_VERSION}")
+  string(REPLACE "." "," TPW_LAUNCHER_VERSION_COMMAS "${TPW_LAUNCHER_VERSION_NUMBER}")
   if(WIN32)
     # The executable's version resource (launcher/win/launcher.rc.in): FileVersion, ProductVersion, ProductName and a
     # FileDescription of the name with its version, which Explorer's Details and the Task Manager show. Compiled by the

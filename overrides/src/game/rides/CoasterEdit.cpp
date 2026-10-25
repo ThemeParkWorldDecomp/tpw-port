@@ -1014,7 +1014,7 @@ void HandleMultiBracePreviewChange(tag_sCoasterInstance* instance, tag_sRideAnim
         FlagGenerateTrack(gCoasterEditInstance, 0);
         if (pylon != nullptr) {
             const sTrackBraceData* mine = gPylonMoveBrace->mData;
-            // TPW_PORT_FIX coaster64 HandleMultiBracePreviewChange | Mac: the pylons' words 0x14 (the coaster) compared | Port: their mInstance | Why: a 64-bit build; the host record keeps the coaster at mInstance and its 0x14 is padding, so a pylon of another coaster passed as this one's
+            // TPW_PORT_FIX coaster64 HandleMultiBracePreviewChange | Mac: the pylons' words 0x14 (the coaster) compared | Port: their mInstance | Why: a 64-bit build; the host record keeps the coaster at mInstance and its 0x14 is padding, so a pylon of another coaster passed as this one's; contributed by samueleagle91 (tpw-port PR #28)
             if (pylon->mF18Table != mine->mF18Table || pylon->mInstance != mine->mInstance) goto done;
             const sPylonControl* control = reinterpret_cast<const sPylonControl*>(pylon->mF18Table);
             if (pylon->mF30 >= static_cast<uint32_t>(control->mFCC)) goto done;
@@ -1456,7 +1456,7 @@ void DeleteTrackBrace(tag_sCoasterInstance* instance, tag_sTrackBrace* brace) {
     tag_sTrackBrace* cur = (instance->mBlock3C & 2) ? instance->mPreviewBrace : instance->mBraces;
     if (cur != nullptr) {
         if (cur->mData->mFlags & 1) {
-            // TPW_PORT_FIX coaster64 DeleteTrackBrace | Mac: the type's word 0xa4 read by its offset | Port: tag_sCoasterType's mFA4 | Why: a 64-bit build; the host type keeps its native pointers among the first words, so every later word is further on than the Mac's
+            // TPW_PORT_FIX coaster64 DeleteTrackBrace | Mac: the type's word 0xa4 read by its offset | Port: tag_sCoasterType's mFA4 | Why: a 64-bit build; the host type keeps its native pointers among the first words, so every later word is further on than the Mac's; contributed by samueleagle91 (tpw-port PR #28)
             instance->mF118 = reinterpret_cast<const tag_sCoasterType*>(instance->mType)->mFA4;
             if ((instance->mBlock3C & 2) == 0) instance->mBlock3C &= ~4u;
         } else {
@@ -1505,7 +1505,7 @@ void DeleteTrackBrace(tag_sCoasterInstance* instance, tag_sTrackBrace* brace) {
     if (pylon->mF30 == 0) {
         DeletePylon(instance, pylon, 0);
     } else {
-        // TPW_PORT_FIX coaster64 DeleteTrackBrace | Mac: the first brace's word 0x70, read by its offset | Port: its mWord70 (sPylonOwner::mF70) | Why: a 64-bit build; the host brace keeps that word further on, and its 0x70 is the next brace pointer
+        // TPW_PORT_FIX coaster64 DeleteTrackBrace | Mac: the first brace's word 0x70, read by its offset | Port: its mWord70 (sPylonOwner::mF70) | Why: a 64-bit build; the host brace keeps that word further on, and its 0x70 is the next brace pointer; contributed by samueleagle91 (tpw-port PR #28)
         const uint32_t ownerWord = pylon->mOwner->mF70;
         Assign3DObjectToAIWorld(instance, pylon->mCellX, pylon->mCellZ, ownerWord, 0);
         UpdatePylonStackStructures(ControlOf_2(pylon), pylon);
@@ -1783,7 +1783,7 @@ uint32_t DoMovePylon(uint32_t x, uint32_t z) {
     bool different = false;
     if (pylon != nullptr) {
         const tag_sPylon* data = brace->mData;
-        // TPW_PORT_FIX coaster64 DoMovePylon | Mac: the pylons' words 0x18 (the control) and 0x14 (the coaster) compared | Port: their control pointers and mInstance | Why: a 64-bit build; 0x18 holds only the control's low half and the host record keeps the coaster at mInstance, its 0x14 being padding
+        // TPW_PORT_FIX coaster64 DoMovePylon | Mac: the pylons' words 0x18 (the control) and 0x14 (the coaster) compared | Port: their control pointers and mInstance | Why: a 64-bit build; 0x18 holds only the control's low half and the host record keeps the coaster at mInstance, its 0x14 being padding; contributed by samueleagle91 (tpw-port PR #28)
         if (pylon->mF18Table != data->mF18Table || pylon->mInstance != data->mInstance) different = true;
     }
 
@@ -1966,7 +1966,7 @@ sBraceMeshList* GetPylonFromBraceMesh(uint32_t id, uint32_t* out) {
 }
 
 // 0x10058888 (112 bytes): the n-th brace mesh (the entry's pointer at 0x70) of a list; with flag 0x20 the entries flagged 0x2000 are skipped.
-// TPW_PORT_FIX coaster64 GetNthBraceMesh | Mac: the entry's word 0x70 answered as a pointer | Port: the brace's 32-bit mWord70 (the ride set's id the caller looks up) widened to the pointer | Why: a 64-bit build; the host brace's 0x70 is its next brace pointer
+// TPW_PORT_FIX coaster64 GetNthBraceMesh | Mac: the entry's word 0x70 answered as a pointer | Port: the brace's 32-bit mWord70 (the ride set's id the caller looks up) widened to the pointer | Why: a 64-bit build; the host brace's 0x70 is its next brace pointer; contributed by samueleagle91 (tpw-port PR #28)
 void* GetNthBraceMesh(sBraceMeshList* list, uint32_t n) {
     if ((list->mFlags & 0x20) == 0) return reinterpret_cast<void*>(static_cast<uintptr_t>(list->mEntries[n]->mMesh));
     uint32_t seen = 0;
@@ -2116,12 +2116,12 @@ void SetCoasterEdit(void* coaster, int32_t flag);
 namespace {
 
 // The braces' pylon record sits at the brace's +0x100; its table of brace pointers starts at +0x30 (a pointer each: 4 bytes on the Mac).
-// TPW_PORT_FIX coaster64 PylonTableEntry | Mac: the word index + offset from the record's 0x30, the brace count being entry 0 | Port: the record's mBraces[index + offset - 1] | Why: a 64-bit build; the host record's braces start at 0x40 and are 8 bytes each, so the entries read were two places early, the first two being the previous pylon and the count
+// TPW_PORT_FIX coaster64 PylonTableEntry | Mac: the word index + offset from the record's 0x30, the brace count being entry 0 | Port: entry index + offset of a table of pointers starting one slot before the record's mBraces (entry 0 being the slot holding mCount) | Why: a 64-bit build; the host record's braces start at 0x40 and are 8 bytes each, so the entries read were two places early, the first two being the previous pylon and the count; contributed by samueleagle91 (tpw-port PR #28)
 tag_sTrackBrace* PylonTableEntry(tag_sTrackBrace* brace, int32_t wordOffset) {
     uint32_t index;
     std::memcpy(&index, reinterpret_cast<const uint8_t*>(brace) + 4, 4);   // the brace's word +4
-    const sPylonRecord* record = reinterpret_cast<const sPylonRecord*>(brace->mData);
-    return record->mBraces[index + wordOffset - 1];
+    tag_sTrackBrace* const* table = reinterpret_cast<tag_sTrackBrace* const*>(reinterpret_cast<const uint8_t*>(brace->mData) + offsetof(sPylonRecord, mBraces) - sizeof(void*));
+    return table[index + wordOffset];
 }
 
 sCoasterTrackParams* EditParams() {

@@ -157,7 +157,7 @@ int8_t gUIInterfaceSizeOn = 0;
 int16_t gUIUnitHeight = 0x600;
 // TPW_PORT_FIX smoothzoom gUISmoothWheelZoom | Mac: (none) | Port: the launcher's "Smooth wheel zoom", off until it says otherwise | Why: smooth wheel zoom toward the pointer, as an opt-in: the port keeps the original's controls by default; contributed by samueleagle91 (tpw-port PR #20)
 int8_t gUISmoothWheelZoom = 0;
-// TPW_PORT_FIX packs gPortPackPictures | Mac: (none) | Port: the launcher sets it when it uses asset packs; false by default | Why: a pack's pictures may be of another shape, which the splash draws at its own shape only then (src/engine/tb_splash.cpp)
+// TPW_PORT_FIX packs gPortPackPictures | Mac: (none) | Port: the launcher sets it when it uses asset packs; false by default | Why: a pack's pictures may be of another shape, which the splash draws at its own shape only then (src/engine/tb_splash.cpp); contributed by samueleagle91 (tpw-port PR #26)
 bool gPortPackPictures = false;
 
 // The UI's hash of a name: each character (as a signed char) is mixed in and the whole

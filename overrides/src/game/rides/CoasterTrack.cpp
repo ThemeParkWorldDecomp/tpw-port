@@ -83,7 +83,7 @@ float gTrackSubdivTimes[100];                          // 0x102b74c0 (up to 0x10
 // 0x10050a3c: gives every control of every brace its neighbours (the previous and next control of the chain, across the braces) and its
 // number, then the bezier weight of each control (the distance ratio to the brace's neighbour, clamped for the controls after the pivot).
 // +0x18 is mNext. The control's Mac word +0x14 (previous control) has no room on the host (mBrace covers it): Link14 works it out.
-// TPW_PORT_FIX coaster64 SetupBraceBezierCtrlParams | Mac: the previous control stored at the control's word 0x14, beside its brace at 0x10 | Port: not stored (Link14 works out the same control), mBrace keeping the brace | Why: a 64-bit build; the brace pointer covers 0x14, so the previous control replaced it, and LinearSampleTrack then wrote a brace's sample number inside a control, over the next brace's pointers
+// TPW_PORT_FIX coaster64 SetupBraceBezierCtrlParams | Mac: the previous control stored at the control's word 0x14, beside its brace at 0x10 | Port: not stored (Link14 works out the same control), mBrace keeping the brace | Why: a 64-bit build; the brace pointer covers 0x14, so the previous control replaced it, and LinearSampleTrack then wrote a brace's sample number inside a control, over the next brace's pointers; contributed by samueleagle91 (tpw-port PR #28)
 void SetupBraceBezierCtrlParams(tag_sCoasterInstance* instance) {
     uint32_t number = 0;
     for (tag_sTrackBrace* brace = instance->mLastBrace; brace != nullptr; brace = brace->mPrev) {
@@ -174,7 +174,7 @@ void DestroyCoasterPylons(tag_sCoasterInstance* instance) {
             Destroy3DObjectFromAIWorld(node->mF0C, node->mF10);
         } else {
             tag_sTrackBrace* brace = node->mBraces[0];
-            // TPW_PORT_FIX coaster64 DestroyCoasterPylons | Mac: the brace info at the brace's offset 0x78 | Port: the brace's mInfo78 | Why: a 64-bit build; the host brace's 0x78 is inside other words, so the blocks freed were not the ones NewTrackBrace made
+            // TPW_PORT_FIX coaster64 DestroyCoasterPylons | Mac: the brace info at the brace's offset 0x78 | Port: the brace's mInfo78 | Why: a 64-bit build; the host brace's 0x78 is inside other words, so the blocks freed were not the ones NewTrackBrace made; contributed by samueleagle91 (tpw-port PR #28)
             DestroyBraceInfo(brace, &brace->mInfo78);
         }
         sCoasterPylon* next = node->mNext;
@@ -381,7 +381,7 @@ uint32_t* SpanWord(tag_sCoasterInstance* instance) { return reinterpret_cast<uin
 
 // The Mac word at a control's +0x14 (a control to move to when the sample's t is negative): the control before it in its brace's array,
 // or for the first the last control of the same array of the brace's mNext (none without one), as SetupBraceBezierCtrlParams links them.
-// TPW_PORT_FIX coaster64 Link14 | Mac: the previous control read from the control's word 0x14 | Port: worked out from the control's brace and place, as SetupBraceBezierCtrlParams links it | Why: a 64-bit build; the brace pointer covers 0x14, and the pad at 0x50 that held it instead is the out handle's y and z, which BezierPosition reads, so the track's shape went wild
+// TPW_PORT_FIX coaster64 Link14 | Mac: the previous control read from the control's word 0x14 | Port: worked out from the control's brace and place, as SetupBraceBezierCtrlParams links it | Why: a 64-bit build; the brace pointer covers 0x14, and the pad at 0x50 that held it instead is the out handle's y and z, which BezierPosition reads, so the track's shape went wild; contributed by samueleagle91 (tpw-port PR #28)
 tag_sBezierControl* Link14(const tag_sBezierControl* control) {
     const sBraceSpline* spline = control->mBrace->mF90;
     const bool inA = control >= spline->mControlsA && control < spline->mControlsA + spline->mCount;

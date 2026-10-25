@@ -133,18 +133,19 @@ test: launcher
 	@$(CLEAN_ENV) "$(CTEST)" --test-dir "$(BUILD)" --output-on-failure
 
 # The launcher needs nothing beside it, so the app is the launcher plus launcher/macos/Info.plist.in, filled the way
-# CMakeLists.txt fills it for TPW_BUNDLE (the name from launcher/ui/theme.h, the version from launcher/VERSION.txt). It is
-# signed ad hoc (no developer account): on another Mac, the first open is refused until Open Anyway is clicked in System
-# Settings > Privacy & Security.
+# CMakeLists.txt fills it for TPW_BUNDLE (the name from launcher/ui/theme.h, the version from launcher/VERSION.txt, its
+# numbers without -dev where only numbers go). It is signed ad hoc (no developer account): on another Mac, the first
+# open is refused until Open Anyway is clicked in System Settings > Privacy & Security.
 app: all
 	@echo "==> Making $(APP)"
 	@rm -rf "$(APP)"
 	@mkdir -p "$(APP)/Contents/MacOS"
 	@cp "$(LAUNCHER)" "$(APP)/Contents/MacOS/tpw_launcher"
 	@name=`sed -n 's|^#define TPW_UI_PRODUCT_NAME "\([^"]*\)".*|\1|p' launcher/ui/theme.h`; \
-	version=`tr -d ' \r\n' < launcher/VERSION.txt`; \
+	version=`tr -d ' \r\n' < launcher/VERSION.txt`; number=`echo "$$version" | sed 's/-dev$$//'`; \
 	sed -e "s|@TPW_BUNDLE_EXECUTABLE@|tpw_launcher|g" -e "s|@TPW_BUNDLE_IDENTIFIER@|org.tpw-port.launcher|g" \
 	    -e "s|@TPW_BUNDLE_NAME@|$$name|g" -e "s|@TPW_LAUNCHER_VERSION@|$$version|g" \
+	    -e "s|@TPW_LAUNCHER_VERSION_NUMBER@|$$number|g" \
 	    launcher/macos/Info.plist.in > "$(APP)/Contents/Info.plist"
 	@codesign --force --sign - "$(APP)" 2>/dev/null
 	@echo "==> Done. Double-click $(APP) to start it, or drag it to Applications."

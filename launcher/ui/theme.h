@@ -16,7 +16,8 @@ inline constexpr const char* kProductName = TPW_UI_PRODUCT_NAME;
 inline constexpr const char* kDataFolderName = "STP-TPW Launcher";
 // The launcher's version, as a player quotes it in a bug report. Its only source is launcher/VERSION.txt:
 // CMakeLists.txt reads it into TPW_LAUNCHER_VERSION (and into the Windows version resource and the macOS Info.plist
-// template), and every place that shows the version uses one of the three constants below.
+// template), and every place that shows the version uses one of the three constants below. A release says X.Y.Z; a
+// build of main between releases says the next version with -dev (0.0.4-dev), so it never passes for a release.
 #ifdef TPW_LAUNCHER_VERSION
 #define TPW_UI_VERSION TPW_LAUNCHER_VERSION
 #else

@@ -1,0 +1,137 @@
+# Builds a release when its tag (vX.Y.Z) is pushed: the launcher for Windows x64 and for Macs with Apple Silicon and
+# Intel processors, all from the one tagged commit, with the tests run first; then publishes them as the tag's GitHub
+# Release. A release is never changed afterwards. A fix found later goes into the next version (CONTRIBUTING.md,
+# Releases), so every report that names a version names one build of the code, the same on every system.
+#
+# Run by hand (Actions, release, Run workflow) it is a trial: the same builds, tests and downloads, kept as the run's
+# artifacts, and nothing published.
+name: release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The tag must name launcher/VERSION.txt's version, so a -dev version (main between releases) is never released. A
+  # trial takes the version as it is.
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag names launcher/VERSION.txt's version
+        id: version
+        run: |
+          version=$(head -n 1 launcher/VERSION.txt | tr -d '\r')
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::the tag $GITHUB_REF_NAME does not name launcher/VERSION.txt's version ($version)"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  windows:
+    needs: check
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - name: Keep line endings as stored
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build the launcher and run the tests
+        shell: cmd
+        run: build.cmd TOOLS=fetch test
+      - name: The launcher names its version
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'version.txt'
+          $p = Start-Process -FilePath build\tpw_launcher.exe -ArgumentList '--version' -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out
+          Get-Content $out
+          if ($p.ExitCode -ne 0) { throw "tpw_launcher.exe --version exited with $($p.ExitCode)" }
+          if (-not (Select-String -LiteralPath $out -SimpleMatch -Pattern ' v${{ needs.check.outputs.version }}' -Quiet)) { throw 'the launcher does not name the release version' }
+      - name: Pack the launcher
+        shell: pwsh
+        run: |
+          $dir = 'STP-TPW-Launcher-${{ needs.check.outputs.version }}-windows-x64'
+          New-Item -ItemType Directory -Path $dir | Out-Null
+          Copy-Item build\tpw_launcher.exe, README.md $dir
+          Compress-Archive -Path $dir -DestinationPath "$dir.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: STP-TPW-Launcher-*.zip
+          if-no-files-found: error
+
+  macos:
+    needs: check
+    strategy:
+      matrix:
+        include:
+          - os: macos-15
+            arch: arm64
+          - os: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build the launcher and run the tests
+        run: make && make test
+      - name: The launcher names its version
+        run: build/tpw_launcher --version | tee version.txt && grep -F ' v${{ needs.check.outputs.version }}' version.txt
+      # A .tar.gz keeps the launcher's executable bit (a .zip from a browser download does not).
+      - name: Pack the launcher
+        run: |
+          dir=STP-TPW-Launcher-${{ needs.check.outputs.version }}-macos-${{ matrix.arch }}
+          mkdir "$dir" && cp build/tpw_launcher README.md "$dir"/
+          tar -czf "$dir.tar.gz" "$dir"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: STP-TPW-Launcher-*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs: [check, windows, macos]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          cd dist
+          sha256sum STP-TPW-Launcher-* > SHA256SUMS.txt
+          cat > notes.md <<EOF
+          The STP/TPW Launcher $VERSION, built from the tag $GITHUB_REF_NAME. The Mac and Windows downloads are the same code.
+          You need your own copy of the game: the launcher imports it from your discs.
+
+          - Windows 10 or 11 (64-bit): STP-TPW-Launcher-$VERSION-windows-x64.zip. Unzip it and run tpw_launcher.exe. If
+            Windows SmartScreen stops it, click More info, then Run anyway.
+          - Mac with Apple Silicon: STP-TPW-Launcher-$VERSION-macos-arm64.tar.gz. With an Intel processor: the -macos-x64 one.
+            Double-click it to unpack, then in Terminal run \`xattr -d com.apple.quarantine\` on the unpacked tpw_launcher
+            (the launcher is not signed, so macOS blocks it otherwise) and start it.
+          - To build it yourself: \`git clone --branch $GITHUB_REF_NAME --recurse-submodules https://github.com/$GITHUB_REPOSITORY.git\`,
+            then the README's Quick start.
+
+          Reporting a problem: say that you run $VERSION (the About box and the log file's first line show it), your
+          system and your edition, attach the launcher's newest log and say what you clicked before it went wrong.
+          EOF
+          gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --verify-tag --title "STP/TPW Launcher $VERSION" \
+            --notes-file notes.md STP-TPW-Launcher-* SHA256SUMS.txt

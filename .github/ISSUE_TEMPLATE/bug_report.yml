@@ -1,0 +1,65 @@
+name: Bug report
+description: Something in the launcher or the game goes wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check first that you run the newest release (https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest): a fix comes in the next version,
+        never in a release already out.
+  - type: input
+    id: version
+    attributes:
+      label: Launcher version
+      description: >-
+        As the window title, the About box or the log's first line shows it, for example 0.0.3. A build of main says
+        -dev (0.0.4-dev): then also give the build the log's first line names (build: ...).
+      placeholder: 0.0.3
+    validations:
+      required: true
+  - type: dropdown
+    id: from
+    attributes:
+      label: Where the launcher came from
+      options:
+        - A download from the Releases page
+        - Built from a release's tag (git clone --branch vX.Y.Z)
+        - Built from main
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: macOS or Windows and its version, and the processor (Apple Silicon, Intel or AMD).
+      placeholder: macOS 15.5, Apple Silicon
+    validations:
+      required: true
+  - type: dropdown
+    id: edition
+    attributes:
+      label: Edition
+      options:
+        - Sim Theme Park (US)
+        - Theme Park World (European)
+        - Gold
+        - The launcher, before choosing one
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you clicked before it went wrong, what you expected, what happened instead, and whether it
+        happens again when you do the same.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: >-
+        Drag the launcher's newest log file here. It is in ~/Library/Application Support/STP-TPW Launcher/logs on a Mac
+        and %APPDATA%\STP-TPW Launcher\logs on Windows; the About box's Show logs button opens the folder.
+    validations:
+      required: true

@@ -6,9 +6,27 @@ You need your own copy of the game. Nothing from the game is in here.
 Not affiliated with or endorsed by Electronic Arts. Sim Theme Park and Theme Park World are trademarks of their
 respective owners.
 
+**Reporting a problem? Always say which launcher version you run** (for example 0.0.3). The launcher's window title,
+its About box and the first line of its log all show it. See [Reporting a problem](#reporting-a-problem).
+
 ## Quick start
 
-### macOS
+Download the newest release from the [Releases page](https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest). A release is fixed: 0.0.3 is the
+same code on every Mac and PC and never changes afterwards, and fixes come in the next version. The Mac and Windows
+downloads of a release are built from the same commit, its tag (v0.0.3).
+
+- Windows 10 or 11 (64-bit): the `-windows-x64.zip`. Unzip it and run tpw_launcher.exe. If Windows SmartScreen stops it,
+  click More info, then Run anyway.
+- Mac with Apple Silicon: the `-macos-arm64.tar.gz`. Mac with an Intel processor: the `-macos-x64.tar.gz`. Double-click it
+  to unpack it. The launcher is not signed yet, so macOS blocks it at first: in Terminal, run
+  `xattr -d com.apple.quarantine ` followed by the unpacked tpw_launcher (drag it onto the Terminal window), then
+  double-click tpw_launcher.
+
+Then see [Playing](#playing). To build a release from its source instead, follow the steps below with `--branch` and the
+release's tag in the clone (`git clone --branch v0.0.3 --recurse-submodules ...`). A clone without `--branch` is main:
+the next version while it is being made (its launcher says so, 0.0.4-dev for example), for contributors and testers.
+
+### Building on macOS
 
 On a Mac with Apple Silicon or an Intel processor, in Terminal:
 
@@ -23,7 +41,7 @@ If macOS asks to install the command line developer tools, click Install, wait, 
 build takes a few minutes. If your Mac has no CMake, `make` fetches it into the build
 folder. Nothing else is installed.
 
-### Windows
+### Building on Windows
 
 On a PC with 64-bit Windows 10 (version 1803 or newer) or Windows 11, Intel, AMD or Arm (an Arm PC needs Windows 11),
 install Git once if you do not have it:
@@ -73,8 +91,8 @@ The Settings box has these rows:
 
 ## What you need
 
-- A Mac (Apple Silicon or Intel), or a PC with 64-bit Windows 10 or 11 (Intel, AMD or Arm; an Arm PC needs Windows 11),
-  and about 2.5 GB of free space.
+- A Mac (Apple Silicon or Intel) with macOS 11 or newer, or a PC with 64-bit Windows 10 or 11 (Intel, AMD or Arm; an
+  Arm PC needs Windows 11), and about 2.5 GB of free space.
 - Your own copy of the game:
   - The US Mac CD gives Sim Theme Park.
   - The Mac CD plus the European PC CD give Theme Park World too. Only the 2000 pressings of the PC CD work (Redump
@@ -145,7 +163,7 @@ on the Mac, bugs included. This repository adds what it takes to play:
   names nothing defines yet.
 - platform/: the Mac Toolbox, Sound Sprockets, QuickTime and the game's Windows-style shims, done on SDL3, OpenGL and
   CoreText (on Windows, stb_truetype in place of CoreText).
-- overrides/: the port's fixes, 125 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
+- overrides/: the port's fixes, 191 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
   the port does and why. Each file there is built in place of the tpw-decomp file of the same path. Headers are read
   from a copy of tpw-decomp's headers in the build folder with the overridden ones laid over it.
 - mods/: the [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) submodule, for optional changes to how the game plays. It holds no mods yet
@@ -286,6 +304,23 @@ moves its clicks on right-anchored and centred panels (the script's header has t
 The recipes' pass numbers are timed without the 60 frames a second pacing, so the script sets TPW_VSYNC_EVERY_REFRESH=1
 (a test-only variable that swaps at every refresh as before the pacing); --paced leaves it unset to test the pacing itself.
 
+## Reporting a problem
+
+Open an issue (the form asks for each of these) or post on Discord, and say:
+
+1. **The launcher version**, for example 0.0.3. The window title, the About box and the log's first line show it, and
+   `tpw_launcher --version` prints it. A report without it cannot be checked, since each version is different code. A
+   version ending in -dev (0.0.4-dev) is a build of main, not a release: give the build too, which the log's first line
+   names (`build: ...`).
+2. Your system (macOS or Windows and its version, Apple Silicon, Intel or AMD).
+3. Your edition: US, European or Gold.
+4. The launcher's newest log, attached: `~/Library/Application Support/STP-TPW Launcher/logs` on a Mac,
+   `%APPDATA%\STP-TPW Launcher\logs` on Windows (the About box's Show logs button opens the folder).
+5. What you clicked before it went wrong, and whether it happens again when you do the same.
+
+Before reporting, check that you run the newest release: a fix comes in the next version, never in a release already
+out.
+
 ## Contributing
 
 The project is three repositories, and every change belongs in exactly one of them:
@@ -317,10 +352,10 @@ and 2025 (the nearest GitHub has to the Windows 10 and 11 kernels; 2025 is the b
 on Arm (under its x64 emulation) and on macOS (Apple Silicon and Intel). Each Windows build also starts the launcher
 once (--version), and each run keeps the launchers it built as artifacts.
 
-Issues are welcome too. A useful bug report says which edition you play (US, European or Gold), attaches the launcher's newest
-log (`~/Library/Application Support/STP-TPW Launcher/logs` on a Mac, `%APPDATA%\STP-TPW Launcher\logs` on Windows; its
-first lines name the launcher's version, the system's version and the machine) and says what you clicked before it went
-wrong.
+Pull requests go to main, which is always the next version (launcher/VERSION.txt says it with -dev, 0.0.4-dev for
+example). A release is cut from main: its version without -dev, then a tag (v0.0.4) on that commit, from which
+.github/workflows/release.yml builds, tests and publishes the Windows and Mac downloads together. A release is never
+changed or replaced afterwards, so a fix accepted after it ships in the next version.
 
 ## See also
 

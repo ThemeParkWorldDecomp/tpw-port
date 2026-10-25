@@ -583,7 +583,7 @@ int32_t FindNthDataNodeIndex(tag_sRideAnimSet* set, uint32_t kind, uint32_t n); 
 
 // ---- Unit w137 (src/game/rides/CoasterEdit.cpp): the coasters' per-frame ticks and the track editor's pointer input.
 // The words of the dragged brace CoasterUserInputTick reads (native pointers; the Mac offsets in comments).
-// TPW_PORT_FIX coaster64 sTrackBraceData | Mac: the pylon record's words at their 32-bit places | Port: the fields at the places sPylonRecord, the record NewPylon makes, has on the host (static_asserts below it) | Why: a 64-bit build; the control pointer, the native pointers and their padding move x y z, the brace count and the braces, so this view read the braces as the control and the coordinates 4 bytes early
+// TPW_PORT_FIX coaster64 sTrackBraceData | Mac: the pylon record's words at their 32-bit places | Port: the fields at the places sPylonRecord, the record NewPylon makes, has on the host (static_asserts below it) | Why: a 64-bit build; the control pointer, the native pointers and their padding move x y z, the brace count and the braces, so this view read the braces as the control and the coordinates 4 bytes early; contributed by samueleagle91 (tpw-port PR #28)
 struct sTrackBraceData {
     uint32_t mF00;                    // 0x00
     uint32_t mFlags;                  // 0x04  bit 1 (value 2): the drag costs nothing; bit 0 marks an end pylon brace (unit w186)
@@ -618,7 +618,7 @@ struct tag_sTrackBrace {
     };
     uint32_t mFlags;                  // 0x08  0x200000: the collision needs an update (FlagCollisionUpdateTrackAroundBrace; unit w186)
     uint8_t mF0C[0x4c - 0x0c];        // 0x0c  (with 0x4c..0x57 below, the bezier control a single-brace pylon's brace holds: its point at 0x4c)
-    // TPW_PORT_FIX coaster64 tag_sTrackBrace | Mac: the brace's x, loft and z at 0x4c, 0x50 and 0x54, the point of the control a single-brace pylon's brace holds at 0x0c | Port: the same place (the units appended them as other fields) | Why: a 64-bit build; with the fields apart, NewTrackBrace, RecalcBraceTangents and SetupBraceBezierCtrlParams set and read them while the track was built from the control's point, left at the park's corner
+    // TPW_PORT_FIX coaster64 tag_sTrackBrace | Mac: the brace's x, loft and z at 0x4c, 0x50 and 0x54, the point of the control a single-brace pylon's brace holds at 0x0c | Port: the same place (the units appended them as other fields) | Why: a 64-bit build; with the fields apart, NewTrackBrace, RecalcBraceTangents and SetupBraceBezierCtrlParams set and read them while the track was built from the control's point, left at the park's corner; contributed by samueleagle91 (tpw-port PR #28)
     float mX4C;                       // 0x4c  (unit v5157) NewTrackBrace's x (pylon flag 1)
     float mL50;                       // 0x50  its loft
     float mZ54;                       // 0x54  its z
@@ -646,7 +646,7 @@ struct tag_sTrackBrace {
     float mFF4;                       // 0xf4  (unit v5214, appended) the fifth animation's value
     const uint32_t* mF74;            // 0x74  (unit v5366, appended: the Mac offset) the word whose value indexes the spline's controls (0x58 bytes each)
     // Unit v5157 (names invented): mX4C, mL50 and mZ54 are at their Mac places above.
-    // TPW_PORT_FIX coaster64 tag_sTrackBrace | Mac: the brace's two sBraceInfo at 0x78 {count, 0x7c block, 0x80 block} and 0x84 {count, 0x88 block, 0x8c block} | Port: two whole sBraceInfo, each also named by its count and blocks (the units' mCount78, mBlk7C, ...) | Why: a 64-bit build; the host kept the counts as two adjacent words and the blocks as other fields, so SetupBraceInfo, through mF90 at the count, wrote the blocks over the second count and the words after it, and DestroyTrackBrace freed blocks nothing had set
+    // TPW_PORT_FIX coaster64 tag_sTrackBrace | Mac: the brace's two sBraceInfo at 0x78 {count, 0x7c block, 0x80 block} and 0x84 {count, 0x88 block, 0x8c block} | Port: two whole sBraceInfo, each also named by its count and blocks (the units' mCount78, mBlk7C, ...) | Why: a 64-bit build; the host kept the counts as two adjacent words and the blocks as other fields, so SetupBraceInfo, through mF90 at the count, wrote the blocks over the second count and the words after it, and DestroyTrackBrace freed blocks nothing had set; contributed by samueleagle91 (tpw-port PR #28)
     union {
         sBraceInfo mInfo78;           // 0x78  (mF90 points here)
         struct {
@@ -918,7 +918,7 @@ void GetTangentLengths(uint32_t index, tag_sTrackBrace* brace, float* before, fl
 
 // ---- Unit v5026 (src/game/rides/CoasterEdit.cpp): dragging a pylon of the track editor (TPConfig.cpp; names invented)
 typedef sTrackBraceData tag_sPylon;
-// TPW_PORT_FIX coaster64 sPylonOwner | Mac: the brace's word 0x70 | Port: the brace's mWord70, where the host brace keeps that word | Why: a 64-bit build; the brace's native pointers move its words, and 0x70 is the host brace's mNext
+// TPW_PORT_FIX coaster64 sPylonOwner | Mac: the brace's word 0x70 | Port: the brace's mWord70, where the host brace keeps that word | Why: a 64-bit build; the brace's native pointers move its words, and 0x70 is the host brace's mNext; contributed by samueleagle91 (tpw-port PR #28)
 struct sPylonOwner {
     uint8_t mF00[offsetof(tag_sTrackBrace, mWord70)];   // 0x00  a brace
     uint32_t mF70;                    // 0x70  Assign3DObjectToAIWorld's third word
@@ -954,7 +954,7 @@ bool StartMovePylon(tag_sTrackBrace* brace);    // 0x10057738 (604 bytes): begin
 // ---- Unit v5038 (src/game/rides/CoasterTrack.cpp): the destroyers of a coaster's track and pylons, and the track position control (TPConfig.cpp; names invented)
 struct sBraceInfo;
 // A node of a coaster's pylon list (native pointers, the Mac offsets in comments). Flag bit 0: a single brace (word 0x34) with its info at brace + 0x78.
-// TPW_PORT_FIX coaster64 sCoasterPylon | Mac: the next pylon at 0x28, the brace count at 0x30 and the braces from 0x34 | Port: the fields at the places sPylonRecord has them on the host (static_asserts below it) | Why: a 64-bit build; this view read the pylon's x and y as the next pylon, its z as the brace count and the previous pylon as the first brace, so placing a coaster's station crashed in RecalcBraceTangents
+// TPW_PORT_FIX coaster64 sCoasterPylon | Mac: the next pylon at 0x28, the brace count at 0x30 and the braces from 0x34 | Port: the fields at the places sPylonRecord has them on the host (static_asserts below it) | Why: a 64-bit build; this view read the pylon's x and y as the next pylon, its z as the brace count and the previous pylon as the first brace, so placing a coaster's station crashed in RecalcBraceTangents; contributed by samueleagle91 (tpw-port PR #28)
 struct sCoasterPylon {
     uint32_t mF00;                    // 0x00
     uint32_t mFlags;                  // 0x04  bit 0: the node holds a brace in mBraces[0]
@@ -1162,7 +1162,7 @@ struct sBraceWalkList {
     sBraceWalkRecord* mRecords;           // 0x04
     sBraceWalkRecord* mEnd;               // 0x08
 };
-// TPW_PORT_FIX coaster64 sBraceWalkNode | Mac: a brace's words 0x64, 0x6c and 0x90 | Port: the brace's mPrev, mF90 and mF6C, where the host brace keeps those words | Why: a 64-bit build; the brace's native pointers move its words, so this view read the next brace as the twist and the padding as the spline list
+// TPW_PORT_FIX coaster64 sBraceWalkNode | Mac: a brace's words 0x64, 0x6c and 0x90 | Port: the brace's mPrev, mF90 and mF6C, where the host brace keeps those words | Why: a 64-bit build; the brace's native pointers move its words, so this view read the next brace as the twist and the padding as the spline list; contributed by samueleagle91 (tpw-port PR #28)
 struct sBraceWalkNode {
     uint8_t mPad00[8];
     uint32_t mFlags;                      // 0x08  0x800 cleared unless 0x1000
@@ -1189,7 +1189,7 @@ struct sStackCtl {
     uint8_t mPad00[0x18];
     sStackQ* mQ;                          // 0x18
 };
-// TPW_PORT_FIX coaster64 sStackPylon | Mac: a brace's words 0x74, 0x78, 0x84, 0x90 and 0x100 | Port: the brace's mF74, mCount78, mCount84, mF90 and mData, where the host brace keeps them (as InsertBraceIntoPylon and UnLinkEnd set the same words) | Why: a 64-bit build; the brace's native pointers move its words, so UpdatePylonStackStructures read the pylon record and wrote the stack's areas at the wrong places
+// TPW_PORT_FIX coaster64 sStackPylon | Mac: a brace's words 0x74, 0x78, 0x84, 0x90 and 0x100 | Port: the brace's mF74, mCount78, mCount84, mF90 and mData, where the host brace keeps them (as InsertBraceIntoPylon and UnLinkEnd set the same words) | Why: a 64-bit build; the brace's native pointers move its words, so UpdatePylonStackStructures read the pylon record and wrote the stack's areas at the wrong places; contributed by samueleagle91 (tpw-port PR #28)
 struct sStackPylon {
     uint8_t mPad00[8];
     uint32_t mFlags;                      // 0x08  0x100 set unless last, 0x2000
@@ -1207,7 +1207,7 @@ static_assert(offsetof(sStackPylon, mF90) == offsetof(tag_sTrackBrace, mF90));
 static_assert(offsetof(sStackPylon, mF74) == offsetof(tag_sTrackBrace, mF74));
 static_assert(offsetof(sStackPylon, mArea78) == offsetof(tag_sTrackBrace, mCount78));
 static_assert(offsetof(sStackPylon, mArea84) == offsetof(tag_sTrackBrace, mCount84));
-// TPW_PORT_FIX coaster64 sPylonStackHead | Mac: the pylon record's brace count at 0x30 and braces from 0x34 | Port: at the places sPylonRecord has them on the host | Why: a 64-bit build; this view read the previous pylon as the count and the count as the first brace
+// TPW_PORT_FIX coaster64 sPylonStackHead | Mac: the pylon record's brace count at 0x30 and braces from 0x34 | Port: at the places sPylonRecord has them on the host | Why: a 64-bit build; this view read the previous pylon as the count and the count as the first brace; contributed by samueleagle91 (tpw-port PR #28)
 struct sPylonStackHead {
     uint8_t mPad00[offsetof(sPylonRecord, mCount)];
     uint32_t mCount;                      // 0x30
@@ -1222,7 +1222,7 @@ void SetInitialOrientationParams(sCoasterOrientation* orient, sCoasterTrackParam
 void HandleCoasterButtonClick(uint32_t buttons, uint32_t event);   // 0x10058510 (176 bytes)
 void HandleCoasterButtonDown(uint32_t buttons);                    // 0x10056d7c (696 bytes, stand-in)
 // The brace mesh lists (native pointers: the host offsets after the first pointer are larger than the Mac's in the comments).
-// TPW_PORT_FIX coaster64 sBraceMeshEntry | Mac: a brace's word 0x70 | Port: the brace's mWord70, a 32-bit word (the ride set's id) | Why: a 64-bit build; 0x70 is the host brace's mNext, and the word is an id, not a pointer
+// TPW_PORT_FIX coaster64 sBraceMeshEntry | Mac: a brace's word 0x70 | Port: the brace's mWord70, a 32-bit word (the ride set's id) | Why: a 64-bit build; 0x70 is the host brace's mNext, and the word is an id, not a pointer; contributed by samueleagle91 (tpw-port PR #28)
 struct sBraceMeshEntry {
     uint8_t mPad00[8];
     uint32_t mFlags;                      // 0x08  0x2000 skipped when the list has flag 0x20
@@ -1230,7 +1230,7 @@ struct sBraceMeshEntry {
     uint32_t mMesh;                       // 0x70  (the brace's mWord70) the ride set's id
 };
 static_assert(offsetof(sBraceMeshEntry, mMesh) == offsetof(tag_sTrackBrace, mWord70));
-// TPW_PORT_FIX coaster64 sBraceMeshList | Mac: the pylon record's brace count at 0x30 and braces from 0x34 | Port: at the places sPylonRecord has them on the host | Why: a 64-bit build; this view read the previous pylon as the count and the count as the first brace
+// TPW_PORT_FIX coaster64 sBraceMeshList | Mac: the pylon record's brace count at 0x30 and braces from 0x34 | Port: at the places sPylonRecord has them on the host | Why: a 64-bit build; this view read the previous pylon as the count and the count as the first brace; contributed by samueleagle91 (tpw-port PR #28)
 struct sBraceMeshList {
     uint8_t mPad00[4];
     uint32_t mFlags;                      // 0x04  0x20: entries flagged 0x2000 are not counted
@@ -1240,7 +1240,7 @@ struct sBraceMeshList {
 };
 static_assert(offsetof(sBraceMeshList, mCount) == offsetof(sPylonRecord, mCount));
 static_assert(offsetof(sBraceMeshList, mEntries) == offsetof(sPylonRecord, mBraces));
-// TPW_PORT_FIX coaster64 sBraceMeshBlock | Mac: a brace's word 0x100 | Port: the brace's mData | Why: a 64-bit build; the brace's native pointers move its pylon record to 0x108
+// TPW_PORT_FIX coaster64 sBraceMeshBlock | Mac: a brace's word 0x100 | Port: the brace's mData | Why: a 64-bit build; the brace's native pointers move its pylon record to 0x108; contributed by samueleagle91 (tpw-port PR #28)
 struct sBraceMeshBlock {
     uint8_t mPad00[offsetof(tag_sTrackBrace, mData)];
     sBraceMeshList* mList;                // 0x100  (the brace's mData)
@@ -1294,7 +1294,7 @@ struct sBraceControl {
     uint32_t mBase;                   // 0x10  the first id looked up
 };
 // The track parameters block (the instance's +0x3c block). Native pointers: the host offsets of the pointers are further than the Mac's.
-// TPW_PORT_FIX coaster64 sCoasterTrackParams | Mac: the instance's words from 0x3c: the brace chain at +0x18 and the first brace at +0x1c | Port: in the order the host instance has them inline (mLastBrace, then mBraces; static_asserts below). The brace count (+0x08), the last pylon (+0x14) and the editor's brace (+0x24) are fields the host instance keeps at its end (mBraceCount, mPylonTail, mPreviewBrace), so LinkPylon, LinkBrace and UnLinkBrace use those | Why: a 64-bit build; this view read the instance's padding as the brace chain and the brace chain as the first brace
+// TPW_PORT_FIX coaster64 sCoasterTrackParams | Mac: the instance's words from 0x3c: the brace chain at +0x18 and the first brace at +0x1c | Port: in the order the host instance has them inline (mLastBrace, then mBraces; static_asserts below). The brace count (+0x08), the last pylon (+0x14) and the editor's brace (+0x24) are fields the host instance keeps at its end (mBraceCount, mPylonTail, mPreviewBrace), so LinkPylon, LinkBrace and UnLinkBrace use those | Why: a 64-bit build; this view read the instance's padding as the brace chain and the brace chain as the first brace; contributed by samueleagle91 (tpw-port PR #28)
 struct sCoasterTrackParams {
     uint32_t mF00;                    // 0x00
     uint32_t mPylonCount;             // 0x04

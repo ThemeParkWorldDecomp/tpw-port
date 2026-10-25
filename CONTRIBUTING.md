@@ -47,6 +47,16 @@ Players set it in the launcher or a game menu, never by editing a .sam file.
 - One concern per pull request, and one per commit.
 - Say in the pull request what you tested and on what: the edition and the system.
 
+## Versions and releases
+
+- Pull requests target main. Main is always the next version: launcher/VERSION.txt says it with -dev (0.0.4-dev).
+- A release is a version without -dev, its tag (v0.0.4) on one commit of main, and the GitHub Release that
+  .github/workflows/release.yml builds from that tag: Windows and both Macs from the same code.
+- A release never changes. Its tag is never moved or deleted, its downloads are never replaced, and a version number is
+  never used twice. A fix found after a release, even one for a problem in it, lands on main and ships in the next
+  version.
+- Only the maintainers change launcher/VERSION.txt and cut releases. A pull request leaves it as it is.
+
 ## How a change lands
 
 Both tpw-decomp and tpw-port are exported from one private working tree. An accepted pull request is merged here and is
@@ -56,6 +66,8 @@ FIXES.md. A pull request that belongs in another repository is closed with a poi
 
 ## Issues
 
-Issues are welcome. A useful bug report says which edition you play (US, European or Gold), attaches the launcher's
+Issues are welcome. Every bug report names the launcher version it happened on (0.0.3, for example: the window title,
+the About box and the log's first line show it), since each version is different code; a report on a -dev build of main
+also gives the build named in the log's first line. It says which edition you play (US, European or Gold), attaches the launcher's
 newest log (`~/Library/Application Support/STP-TPW Launcher/logs` on a Mac, `%APPDATA%\STP-TPW Launcher\logs` on Windows)
 and says what you clicked before it went wrong.

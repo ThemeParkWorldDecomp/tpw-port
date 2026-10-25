@@ -586,7 +586,7 @@ void ExtrudeTrackSection(tag_sTrackBrace* brace1, tag_sTrackBrace* brace2, int32
 
 // 0x1004fd94. The type holds at 0x78 the table and at 0x7c the count (Mac offsets). Entries are 0x2c bytes: eight floats (low, high
 // for the angle and the orientation's three angles) and the answer word at 0x20. The last entry is the fallback and is never tested.
-// TPW_PORT_FIX coaster64 GetCrossSectionFromParams | Mac: the selects as 0x2c-byte entries from the type's word 0x78, counted by its word 0x7c, the answer a record's address | Port: tag_sCrossSectionSelect from mF78, counted by mSelectCount, the answer the select's record pointer mF20 | Why: a 64-bit build; the selects hold native record pointers (CreateCrossSectionSelectsFromSamFile), 0x38 bytes each, and the count read was the low half of the records pointer, so the track's cross sections came from the wrong bytes
+// TPW_PORT_FIX coaster64 GetCrossSectionFromParams | Mac: the selects as 0x2c-byte entries from the type's word 0x78, counted by its word 0x7c, the answer a record's address | Port: tag_sCrossSectionSelect from mF78, counted by mSelectCount, the answer the select's record pointer mF20 | Why: a 64-bit build; the selects hold native record pointers (CreateCrossSectionSelectsFromSamFile), 0x38 bytes each, and the count read was the low half of the records pointer, so the track's cross sections came from the wrong bytes; contributed by samueleagle91 (tpw-port PR #28)
 sCoasterRecord* GetCrossSectionFromParams(sCoasterType* type, float unused, sCoasterOrientation* orientation, float angle) {
     (void)unused;
     const tag_sCoasterType* coaster = reinterpret_cast<const tag_sCoasterType*>(type);
@@ -663,14 +663,14 @@ void GenerateExtrusions() {
     sExtrusionParams* out = gExtrudeParamsBuf;
     out->mF00 = 0.0f;
     out->mF04 = 0.0f;
-    // TPW_PORT_FIX coaster64 GenerateExtrusions | Mac: the selects as 0x2c-byte entries (the type's words 0x74 flags, 0x78 table, 0x7c count) with record addresses | Port: tag_sCrossSectionSelect through tag_sCoasterType's mSelectFlags, mF78 and mSelectCount, with record pointers (the answer mF20, the transition's ends mF24 and mF28) | Why: a 64-bit build; the selects hold native pointers, 0x38 bytes each, so the walk read the wrong entries, counts and flags
+    // TPW_PORT_FIX coaster64 GenerateExtrusions | Mac: the selects as 0x2c-byte entries (the type's words 0x74 flags, 0x78 table, 0x7c count) with record addresses | Port: tag_sCrossSectionSelect through tag_sCoasterType's mSelectFlags, mF78 and mSelectCount, with record pointers (the answer mF20, the transition's ends mF24 and mF28) | Why: a 64-bit build; the selects hold native pointers, 0x38 bytes each, so the walk read the wrong entries, counts and flags; contributed by samueleagle91 (tpw-port PR #28)
     const tag_sCrossSectionSelect* selects = static_cast<const tag_sCrossSectionSelect*>(TypeOf(gCoasterCurrent)->mF78);
     sCoasterRecord* previous = selects[0].mF20;
     out->mSection = previous;
     sExtrusionParams& second = gExtrudeParamsStatic[1];
     second.mF04 = 10000000.0f;
     second.mF00 = 10000000.0f;
-    // TPW_PORT_FIX coaster64 GenerateExtrusions | Mac: the type's words 0x80 and 0x84, read by their offsets | Port: the type's mSelectA and mSelectB, which SetCrossSectionSelectDefaults sets | Why: a 64-bit build; the host type keeps those words at its end, and the offsets read (0x88 and 0x90) are its record index and points block, so the track's first cross section was the point coordinates and extruding it read a null row
+    // TPW_PORT_FIX coaster64 GenerateExtrusions | Mac: the type's words 0x80 and 0x84, read by their offsets | Port: the type's mSelectA and mSelectB, which SetCrossSectionSelectDefaults sets | Why: a 64-bit build; the host type keeps those words at its end, and the offsets read (0x88 and 0x90) are its record index and points block, so the track's first cross section was the point coordinates and extruding it read a null row; contributed by samueleagle91 (tpw-port PR #28)
     second.mSection = TypeOf(gCoasterCurrent)->mSelectA;
     second.mF08 = 0.0f;
     sExtrusionParams& first = gExtrudeParamsStatic[0];

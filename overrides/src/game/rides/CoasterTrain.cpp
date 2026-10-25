@@ -345,7 +345,7 @@ void SetCarOrientation(sCarInstance* car, sCoasterOrientation* orient, s3DPoint*
 // 0x1004aedc (132 bytes). The speed a car wants at a height: a plus (the type's +0x28 going up, +0x2c going down, times the type's
 // +0x24 times (c - d)); at least b. A NaN gives b.
 float GetCarWantedSpeedAtHeight(sCoasterType* type, float a, float b, float c, float d) {
-    // TPW_PORT_FIX coaster64 GetCarWantedSpeedAtHeight | Mac: the type's words 0x24, 0x28 and 0x2c read by their offsets | Port: tag_sCoasterType's mF24, mF28 and mF2C | Why: a 64-bit build; the host type keeps its native pointers among the first words, so those offsets read the textures pointer and its count
+    // TPW_PORT_FIX coaster64 GetCarWantedSpeedAtHeight | Mac: the type's words 0x24, 0x28 and 0x2c read by their offsets | Port: tag_sCoasterType's mF24, mF28 and mF2C | Why: a 64-bit build; the host type keeps its native pointers among the first words, so those offsets read the textures pointer and its count; contributed by samueleagle91 (tpw-port PR #28)
     const tag_sCoasterType* coaster = reinterpret_cast<const tag_sCoasterType*>(type);
     const float f24 = coaster->mF24;
     const float f28 = coaster->mF28;

@@ -13,7 +13,7 @@ public:
 extern const BalanceDescription gOptionsBalanceDescriptions[32]; // 0x102990a8
 extern COptionsBalance gOptionsBalance; // 0x102b4da8, original symbol name not recovered
 
-// TPW_PORT_FIX samoptions gPortSamOptions | Mac: every option comes from the options file of the player's detail level (low.sam, med.sam or high.sam) | Port: a value the launcher's Graphics settings give replaces the file's in its slot when the file is loaded at start (EngineStartup_OptionsFile); -1 keeps the file's | Why: the player chooses these original .sam options in the launcher, each among the values the files' own comments list
+// TPW_PORT_FIX samoptions gPortSamOptions | Mac: every option comes from the options file of the player's detail level (low.sam, med.sam or high.sam) | Port: a value the launcher's Graphics settings give replaces the file's in its slot when the file is loaded at start (EngineStartup_OptionsFile); -1 keeps the file's | Why: the player chooses these original .sam options in the launcher, each among the values the files' own comments list; contributed by samueleagle91 (tpw-port PR #40)
 // The launcher's choice for each slot of mValues (the rows of gOptionsBalanceDescriptions), or -1 for the options file's
 // value. Every slot is -1 unless the launcher sets it, so the differential tests run the original.
 inline int32_t gPortSamOptions[28] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
