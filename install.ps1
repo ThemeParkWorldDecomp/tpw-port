@@ -413,14 +413,15 @@ $TpwInstallCode = @(& {
     # or the PC. The profile folder (and a C:\Users\NAME of any other drive or spelling) becomes %USERPROFILE%, a
     # Windows SID <sid>, the PC's name <computer> (4 letters or more) and the account name <user>, only after user=,
     # owner: and the like, so that a name that is a common word is not changed elsewhere. Scrubbing again changes
-    # nothing. It mirrors platform\log_scrub.h.
+    # nothing. It mirrors platform\log_scrub.h. Each rule is (pattern, replacement); the pattern is built in its own
+    # parentheses, because PowerShell's comma binds tighter than +.
     function Get-LogRules {
         $rules = New-Object System.Collections.ArrayList
         $word = '(?![\w.-])'
         $profileDir = $env:USERPROFILE
         if ($profileDir -and $profileDir.Length -ge 4) {
             $spelled = [regex]::Escape($profileDir.TrimEnd('\', '/')).Replace('\\', '[\\/]')
-            [void]$rules.Add(@('(?i)' + $spelled + $word, '%USERPROFILE%'))
+            [void]$rules.Add(@(('(?i)' + $spelled + $word), '%USERPROFILE%'))
         }
         [void]$rules.Add(@('(?i)[A-Za-z]:[\\/]Users[\\/](?!(?:Public|Default|Shared|All Users|Default User)(?:[\\/]|$|[\s"''<>]))[^\\/\s"''<>%]+', '%USERPROFILE%'))
         [void]$rules.Add(@('S-1-5-21(?:-\d+){3,5}', '<sid>'))
@@ -428,11 +429,11 @@ $TpwInstallCode = @(& {
         if ($pc -and $pc.Length -ge 4) {
             $case = ''
             if ($pc.Length -ge 6) { $case = '(?i)' }
-            [void]$rules.Add(@($case + '(?<![\w-])' + [regex]::Escape($pc) + '(?![\w-])', '<computer>'))
+            [void]$rules.Add(@(($case + '(?<![\w-])' + [regex]::Escape($pc) + '(?![\w-])'), '<computer>'))
         }
         $user = $env:USERNAME
         if ($user) {
-            [void]$rules.Add(@('(?i)\b(user|username|user name|login|logname|owner|account)(\s*[=:]\s*)' + [regex]::Escape($user) + '(?![\w-])', '${1}${2}<user>'))
+            [void]$rules.Add(@(('(?i)\b(user|username|user name|login|logname|owner|account)(\s*[=:]\s*)' + [regex]::Escape($user) + '(?![\w-])'), '${1}${2}<user>'))
         }
         return ,$rules
     }

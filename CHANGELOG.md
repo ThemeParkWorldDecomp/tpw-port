@@ -54,5 +54,6 @@ The first release: play Sim Theme Park and Theme Park World from your own discs,
 - The park no longer drifts into a corner when the game window isn't focused.
 - The launcher's Settings box scrolls when the window is too short.
 - Windows: building works when the folder's name has a space in it.
+- Windows: the installer's build no longer fails on the rules that keep your name out of the logs.
 
 Most of this release was made by @samueleagle91. Thank you!
