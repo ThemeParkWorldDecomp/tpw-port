@@ -38,6 +38,12 @@ inline constexpr const char* kPcSoundPicksKey = "pc_sound_picks";
 // always been; "0": it plays in a window with a title bar, as --windowed starts it). Alt+Enter in the game switches on
 // Windows, Cmd+Ctrl+F or the green button on a Mac.
 inline constexpr const char* kFullScreenKey = "fullscreen";
+// launcher.ini's keys for the "Gold Edition" switch, one an edition: on the play tiles of the all-confirmed home and on the
+// Play screen's card. "0": that edition plays plain although the Gold bonus rides are installed; absent or "1": with them
+// (the maintainer, 2026-10-25: players who have the Gold data must be able to play without it).
+inline constexpr const char* kGoldUsKey = "gold_us";
+inline constexpr const char* kGoldEurKey = "gold_eur";
+inline const char* GoldKey(assets::Edition edition) { return edition == assets::kEditionUs ? kGoldUsKey : kGoldEurKey; }
 
 // An option of the original's options files (low.sam, med.sam, high.sam) that the Settings box's Graphics section offers:
 // launcher.ini's key, its slot in the game's options table (gPortSamOptions, OptionsBalance.h), the row's title and line,
@@ -133,13 +139,16 @@ public:
     void ShowSettings(bool open);
     void ArmRemove(assets::Edition edition);
     void ShowNotice(const std::string& message, bool problem);
-    // Play's edition switch and Gold toggle, as if clicked.
+    // Play's edition switch and Gold Edition toggle, as if clicked (the toggle's state is kept in launcher.ini, GoldKey).
     void ChoosePlay(assets::Edition edition, bool gold);
     // Where the last frame drew the drop targets, in points (an empty rect when not shown). Index 0 US, 1 European,
     // 2 Gold (empty on the all-confirmed home, whose two tiles are the US and European ones).
     Rect TileRect(int index) const { return tilesShown_ ? tileRects_[index] : Rect{}; }
     // The all-confirmed home's Play button of a tile (0 US, 1 European) in the last frame, in points (empty when not shown).
     Rect ReadyPlayRect(int index) const { return readyShown_ ? readyPlay_[index] : Rect{}; }
+    // The all-confirmed home's Gold Edition switch of a tile (0 US, 1 European) in the last frame, in points (empty when
+    // not shown).
+    Rect ReadyGoldRect(int index) const { return readyShown_ ? readyGold_[index] : Rect{}; }
     // The Settings box's Interface size switch, its last row, where the last frame drew it (scrolled with the box), in
     // points (empty when the box is closed).
     Rect InterfaceSizeRect() const { return settingsOpen_ ? interfaceSizeRect_ : Rect{}; }
@@ -179,6 +188,8 @@ private:
     bool AnyPlayable() const;
     bool AllConfirmed() const;   // US, European and Gold all unlocked: the home becomes two tiles to play from
     void OpenPlay();
+    // Flips an edition's Gold Edition switch (0 US, 1 European) and keeps it in launcher.ini (GoldKey).
+    void SetGold(int index, bool on);
     TileView TileFor(int index) const;
 
     void DrawBackdrop(const Rect& window);
@@ -222,6 +233,7 @@ private:
     Rect tileRects_[3];
     bool tilesShown_ = false;
     Rect readyPlay_[2];
+    Rect readyGold_[2];        // the all-confirmed home's Gold Edition switches
     bool readyShown_ = false;
     Rect versionRect_;         // last frame's version text (VersionRect)
     Rect showLogsRect_;        // last frame's Show logs button
@@ -251,7 +263,7 @@ private:
 
     // Play.
     int playIndex_ = 1;        // 0 US, 1 European
-    bool gold_[2] = {false, false};
+    bool gold_[2] = {true, true};   // the Gold Edition switch an edition (0 US, 1 European), as launcher.ini keeps it: on when absent
     bool playChosen_ = false;
     LaunchChoice choice_;
 

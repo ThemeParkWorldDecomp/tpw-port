@@ -111,6 +111,7 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     RefreshStatus();
     std::string last = backend_.LastChoice();
     playIndex_ = last == "us" ? 0 : 1;
+    for (int i = 0; i < 2; ++i) gold_[i] = backend_.Setting(GoldKey(kEditions[i])) != "0";   // on unless switched off
     skipIntro_ = backend_.Setting(kSkipIntroKey) == "1";
     backToLauncher_ = backend_.Setting(kBackToLauncherKey) == "1";
     smoothZoom_ = backend_.Setting(kSmoothZoomKey) == "1";   // tpw-port PR #20 by samueleagle91
@@ -391,7 +392,14 @@ void LauncherUi::ChoosePlay(Edition edition, bool gold) {
     int i = EditionIndex(edition);
     if (i > 1) return;
     playIndex_ = i;
-    gold_[i] = gold;
+    SetGold(i, gold);
+}
+
+void LauncherUi::SetGold(int index, bool on) {
+    gold_[index] = on;
+    std::string err;
+    if (!backend_.SaveSetting(GoldKey(kEditions[index]), on ? "1" : "0", err))
+        ShowNotice("Cannot keep the Gold Edition switch: " + err, true);
 }
 
 bool LauncherUi::Animating() const {
@@ -661,7 +669,7 @@ void LauncherUi::DrawHome(const Rect& w) {
 }
 
 // The home once every edition is confirmed: no drop field, two large tiles (the US edition, then the European one), each
-// with its Gold badge and its Play button. The whole window still takes a drop; the tiles light up under it as the small
+// with its Gold Edition switch and its Play button. The whole window still takes a drop; the tiles light up under it as the small
 // ones do, and "Game data" opens Settings.
 void LauncherUi::DrawReady(const Rect& w) {
     float top = DrawUpdateBanner(w, DrawHeader(w, true));
@@ -689,7 +697,7 @@ void LauncherUi::DrawReady(const Rect& w) {
     float tw = (area.w - metric::kGap) * 0.5f;
     static constexpr int kOrder[2] = {0, 1};   // status_ index of the left and the right tile
     static constexpr const char* kGames[2] = {"Sim Theme Park", "Theme Park World"};   // by status_ index
-    const float pad = 16, playH = 52, pillH = 30;
+    const float pad = 16, playH = 52, pillH = 34;
     tileRects_[2] = Rect{};
     for (int k = 0; k < 2; ++k) {
         int i = kOrder[k];
@@ -706,22 +714,28 @@ void LauncherUi::DrawReady(const Rect& w) {
         v.highlight = dragging_ && dropTarget_ == i;
         ui_.Tile(std::string("ready-") + assets::EditionName(kEditions[i]), r, v);
 
-        // Inside, at the bottom: the Gold badge, then the Play button.
+        // Inside, at the bottom: the Gold Edition switch (this home shows only once the Gold bonus rides are confirmed
+        // too; off plays the plain edition), then the Play button. The switch is the Play screen's card's: one state an
+        // edition (gold_), kept in launcher.ini. The pill sits 12 points above the button, so the two never overlap.
         Rect play{r.x + pad, r.Bottom() - pad - playH, r.w - 2 * pad, playH};
-        const char* goldText = "Gold Edition included";
-        float pw = std::min(play.w, text_.Width(style::kSmallBold, goldText) + 2 * 12 + 22);
+        const char* goldText = "Gold Edition";
+        const float toggleW = 44, toggleH = pillH - 6;
+        float pw = std::min(play.w, text_.Width(style::kSmallBold, goldText) + 14 + 10 + toggleW + 3);
         Rect pill{r.CentreX() - pw * 0.5f, play.y - 12 - pillH, pw, pillH};
-        canvas_.Outlined(pill, pillH * 0.5f, 2, colour::kYellowSoft, colour::kInk);
-        ui_.DrawBadge(Badge::Check, pill.x + 12 + 8, pill.CentreY(), 9, 1);
-        float tx = pill.x + 12 + 22;
+        bool& goldOn = gold_[i];
+        canvas_.Outlined(pill, pillH * 0.5f, 2, goldOn ? colour::kYellowSoft : colour::kCream, colour::kInk);
+        Rect toggle{pill.Right() - 3 - toggleW, pill.CentreY() - toggleH * 0.5f, toggleW, toggleH};
+        float tx = pill.x + 14;
         text_.Draw(style::kSmallBold, tx, pill.y + (pillH - text_.LineHeight(style::kSmallBold)) * 0.5f,
-                   text_.Fit(style::kSmallBold, goldText, pill.Right() - 10 - tx, false), colour::kInk);
+                   text_.Fit(style::kSmallBold, goldText, toggle.x - 10 - tx, false), colour::kInk);
+        readyGold_[i] = toggle;
+        if (ui_.Toggle(std::string("gold-") + assets::EditionName(kEditions[i]), toggle, goldOn)) SetGold(i, goldOn);
         readyPlay_[i] = play;
         if (ui_.Button(std::string("ready-play-") + assets::EditionName(kEditions[i]), play, "Play", ButtonKind::Go,
                        true, style::kHeadline)) {
             playIndex_ = i;
             choice_.edition = kEditions[i];
-            choice_.gold = status_[2].unlocked;
+            choice_.gold = goldOn;
             choice_.skipIntro = skipIntro_;
             choice_.backToLauncher = backToLauncher_;
             playChosen_ = true;
@@ -883,10 +897,12 @@ void LauncherUi::DrawPlay(const Rect& w) {
                                          : DescribeTile(gold).detail;
     text_.Draw(style::kSmall, gx, card.y + 12 + text_.LineHeight(style::kHeading),
                text_.Fit(style::kSmall, goldLine, gw, false), colour::kInkSoft);
-    bool& goldOn = gold_[playIndex_];
-    if (!gold.unlocked) goldOn = false;
-    ui_.Toggle(std::string("gold-") + assets::EditionName(kEditions[playIndex_]),
-               {card.Right() - 16 - 56, card.CentreY() - 16, 56, 32}, goldOn, gold.unlocked);
+    // The switch is the all-confirmed home's tile's: gold_, kept in launcher.ini. Without the Gold data it shows off and
+    // cannot be flipped; the kept state waits for the data.
+    bool goldOn = gold.unlocked && gold_[playIndex_];
+    if (ui_.Toggle(std::string("gold-") + assets::EditionName(kEditions[playIndex_]),
+                   {card.Right() - 16 - 56, card.CentreY() - 16, 56, 32}, goldOn, gold.unlocked))
+        SetGold(playIndex_, goldOn);
     y += cardH + 18;
 
     float playW = 220;

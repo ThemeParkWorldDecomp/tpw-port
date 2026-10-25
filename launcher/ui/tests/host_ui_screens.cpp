@@ -1025,9 +1025,11 @@ void CheckReady(SDL_Renderer* renderer) {
     Rect usPlay = ui.ReadyPlayRect(0), euPlay = ui.ReadyPlayRect(1);
     Check(usPlay.w > 0 && us.Contains(usPlay.CentreX(), usPlay.CentreY()), "all confirmed: the US Play is in its tile");
     Check(euPlay.w > 0 && eu.Contains(euPlay.CentreX(), euPlay.CentreY()), "all confirmed: the European Play is in its tile");
-    std::printf("all confirmed at %dx%d points: US Play centre %.0f,%.0f; European Play centre %.0f,%.0f\n",
+    std::printf("all confirmed at %dx%d points: US Play centre %.0f,%.0f; European Play centre %.0f,%.0f; Gold Edition "
+                "switches %.0f,%.0f and %.0f,%.0f\n",
                 metric::kStartWidth, metric::kStartHeight, usPlay.CentreX(), usPlay.CentreY(), euPlay.CentreX(),
-                euPlay.CentreY());
+                euPlay.CentreY(), ui.ReadyGoldRect(0).CentreX(), ui.ReadyGoldRect(0).CentreY(),
+                ui.ReadyGoldRect(1).CentreX(), ui.ReadyGoldRect(1).CentreY());
 
     // a drag over the European tile names it; anywhere else is still the window's drop
     b.Queue(FakeBackend::Script());
@@ -1060,6 +1062,57 @@ void CheckReady(SDL_Renderer* renderer) {
     Check(ui.TakePlay(choice) && choice.edition == assets::kEditionEur && choice.gold,
           "all confirmed: the European Play starts the European edition with the Gold rides");
     Check(b.LastChoice() == "eur", "all confirmed: the European choice is kept");
+
+    // Each tile's Gold Edition switch: inside the tile, above its Play button without touching it; off, that edition's
+    // Play starts without the Gold rides and launcher.ini keeps it (gold_eur), the other edition's switch untouched.
+    Rect euGold = ui.ReadyGoldRect(1), usGold = ui.ReadyGoldRect(0);
+    Check(euGold.w > 0 && eu.Contains(euGold.CentreX(), euGold.CentreY()) && euGold.Bottom() < euPlay.y,
+          "all confirmed: the European Gold Edition switch is in its tile, above Play");
+    Check(usGold.w > 0 && us.Contains(usGold.CentreX(), usGold.CentreY()) && usGold.Bottom() < usPlay.y,
+          "all confirmed: the US Gold Edition switch is in its tile, above Play");
+    Check(b.settings.count("gold_eur") == 0 && b.settings.count("gold_us") == 0, "Gold switch: nothing kept until flipped");
+    click(euGold);
+    Check(b.settings["gold_eur"] == "0", "Gold switch: off is kept in launcher.ini as gold_eur=0");
+    click(ui.ReadyPlayRect(1));
+    Check(ui.TakePlay(choice) && choice.edition == assets::kEditionEur && !choice.gold,
+          "Gold switch off: the European Play starts the plain European edition");
+    click(ui.ReadyPlayRect(0));
+    Check(ui.TakePlay(choice) && choice.edition == assets::kEditionUs && choice.gold,
+          "Gold switch off for Europe: the US Play still starts with the Gold rides");
+    // the Play screen's card shows the same state and its toggle changes the tile's
+    ui.ShowScreen(LauncherUi::Screen::Play);
+    ui.ChoosePlay(assets::kEditionEur, true);
+    frames(1);
+    Check(b.settings["gold_eur"] == "1", "Gold switch: the Play screen's toggle is the same switch, kept as gold_eur=1");
+    ui.ShowScreen(LauncherUi::Screen::Home);
+    frames(1);
+    click(ui.ReadyPlayRect(1));
+    Check(ui.TakePlay(choice) && choice.edition == assets::kEditionEur && choice.gold,
+          "Gold switch on again: the European Play starts with the Gold rides");
+    // a new launcher reads the kept switches: US off, Europe on
+    b.settings["gold_us"] = "0";
+    {
+        LauncherUi again(renderer, b);
+        auto framesAgain = [&](int n) {
+            for (int i = 0; i < n; ++i) again.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        };
+        auto clickAgain = [&](const Rect& r) {
+            again.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+            framesAgain(1);
+            again.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+            framesAgain(1);
+            again.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+            framesAgain(1);
+        };
+        framesAgain(1);
+        clickAgain(again.ReadyPlayRect(0));
+        Check(again.TakePlay(choice) && choice.edition == assets::kEditionUs && !choice.gold,
+              "Gold switch remembered: a new launcher starts the plain US edition");
+        clickAgain(again.ReadyPlayRect(1));
+        Check(again.TakePlay(choice) && choice.edition == assets::kEditionEur && choice.gold,
+              "Gold switch remembered: a new launcher starts the European edition with the Gold rides");
+    }
+    b.settings.erase("gold_us");
 
     // without the Gold rides it is the home with the drop field again
     std::string err;

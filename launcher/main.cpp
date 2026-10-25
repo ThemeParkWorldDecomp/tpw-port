@@ -557,6 +557,9 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
     if (!play.empty()) {
         choice.edition = play == "us" ? tpw::assets::kEditionUs : tpw::assets::kEditionEur;
         choice.skipIntro = backend.Setting(tpw::ui::kSkipIntroKey) == "1";
+        // the tiles' Gold Edition switch, as the window's Play reads it: on while the Gold data is there and not switched off
+        choice.gold = backend.Status(tpw::assets::kEditionGold).unlocked &&
+                      backend.Setting(tpw::ui::GoldKey(choice.edition)) != "0";
         const tpw::assets::EditionStatus status = backend.Status(choice.edition);
         if (!status.unlocked) {
             tpw::LogRawF(
@@ -687,7 +690,11 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
     tpw::LogFileF("play: %s (%s), from %s; game folder %s", us ? "Sim Theme Park, the US edition" : "Theme Park World, the European edition",
                   tpw::assets::EditionName(choice.edition), play.empty() ? "the launcher window's Play" : "--play",
                   config.gameDir.string().c_str());
-    if (choice.gold) tpw::Log("Gold rides: switched on, but this build does not add them to the game yet");
+    // The Gold Edition switch (launcher_ui.h GoldKey). The Gold data is kept in assets/gold, apart from the game folder
+    // chosen above, and nothing reads it into the game yet, so the switch changes the choice, the label and this line.
+    if (choice.gold) tpw::Log("Gold rides: on, but this build does not add them to the game yet");
+    else if (backend.Status(tpw::assets::kEditionGold).unlocked) tpw::Log("Gold rides: off (data present, switched off)");
+    else tpw::Log("Gold rides: no data");
     return -1;
 }
 
