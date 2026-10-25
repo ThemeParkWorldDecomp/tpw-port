@@ -116,7 +116,7 @@ FIXES.md. A pull request that belongs in another repository is closed with a poi
 
 ## Issues
 
-Issues are welcome. Every bug report names the launcher version it happened on (0.0.3, for example: the window title,
+Issues are welcome. Every bug report names the launcher version it happened on (0.1.0, for example: the window title,
 the About box and the log's first line show it), since each version is different code; a report on a -dev build of main
 also gives the build named in the log's first line. It says which edition you play (US, European or Gold), attaches the launcher's
 newest log (open the launcher's About box, click Export logs, then attach the file it saves in your Downloads folder;

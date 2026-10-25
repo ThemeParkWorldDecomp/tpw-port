@@ -192,7 +192,7 @@ void CrashWrite(const char* text, int length) {
     if (length <= 0) return;
     (void)!write(2, text, static_cast<size_t>(length));
     const int fd = tpw::LogFileDescriptor();
-    if (fd >= 0) (void)!write(fd, text, static_cast<size_t>(length));
+    if (fd >= 0) tpw::WriteScrubbed(fd, text, static_cast<size_t>(length));
 }
 
 // A crash right after a stand-in returned is usually caused by it (a zero where the caller
@@ -224,8 +224,11 @@ void OnCrash(int signal) {
         gExitLogged = 1;
         const int length = signal == SIGABRT ? std::snprintf(text, sizeof text, "exit: abort\n")
                                              : std::snprintf(text, sizeof text, "exit: crashed (signal %d)\n", signal);
-        if (length > 0) (void)!write(fd, text, static_cast<size_t>(length));
+        if (length > 0) tpw::WriteScrubbed(fd, text, static_cast<size_t>(length));
     }
+#ifdef _WIN32
+    tpw::win32::DrainLog();   // the crash report is still in the pipe that launcher.log is fed through
+#endif
     std::signal(signal, SIG_DFL);
     std::raise(signal);
 }
@@ -802,6 +805,7 @@ void tpw_stub_called(const char* name, bool platform, bool first) {
 
 namespace {
 int LauncherMain(int argc, char** argv) {
+    tpw::EnsureScrubIdentity();   // before anything is logged: the log files never hold the player's name (platform/log_scrub.h)
     // a trap (a hardened library check), an illegal instruction and an abort (a failed stack check is a silent one) get
     // the backtrace too
 #ifdef _WIN32

@@ -153,9 +153,12 @@ int main() {
         Check(StartsWith(lines[2], "os: "), "header 3: the system: " + lines[2]);
         Check(StartsWith(lines[3], "hardware: "), "header 4: the hardware: " + lines[3]);
 #endif
-        Check(lines[4] == "args: /build/tpw_launcher --mute --data \"/Users/a b/STP-TPW Launcher\" \"\"",
+        // The argument was /Users/a b/STP-TPW Launcher: a home folder is ~ in the log (log_scrub.h).
+        Check(lines[4] == "args: /build/tpw_launcher --mute --data \"~/STP-TPW Launcher\" \"\"",
               "header 5: the command line, quoted where it has to be: " + lines[4]);
-        Check(lines[5] == "log: " + path.string(), "header 6: the file's own path");
+        // The path is scrubbed like every line: on Windows the temporary folder is under the home, so it reads %USERPROFILE%.
+        Check(lines[5] == "log: " + tpw::Scrub(tpw::gScrubIdentity.load(), path.string()),
+              "header 6: the file's own path, scrubbed: " + lines[5]);
         Check(lines[6] == "platform: game folder: /games/tpw", "a platform line, with logToStderr off: " + lines[6]);
         Check(lines[7] == "launcher: 0 of 158 stand-ins were reached (0 calls in all)", "a raw line, one newline");
         Check(lines[8] == "exit: code 0", "a file-only line");

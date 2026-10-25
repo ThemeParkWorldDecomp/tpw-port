@@ -16,7 +16,7 @@
 #   bin/themepark    the themepark command: starts build/tpw_launcher from any folder (see THE THEMEPARK COMMAND)
 #   channel.txt      "stable" or "dev": the launcher reads it to know that this script installed it; it records what
 #                    is installed and never chooses what an update gets
-#   last-build.log   the output of the last build
+#   last-build.log   the output of the last build, with no user name, home folder or computer name in it
 #   .tpw-installer   marks the folder as this script's, so that it never writes into a folder that is somebody else's
 # Game files and saves are not in DIR (they are in the launcher's data folder, ~/Library/Application Support/
 # STP-TPW Launcher), and this script never touches them.
@@ -30,7 +30,7 @@
 #
 # THE CONTRACT. The launcher's updater runs this script and reads its output, so these never change:
 #   STEP n/N some plain words     one line as each step starts
-#   RESULT ok VERSION             the last line when it worked, and the exit code is 0 (VERSION: 0.0.3, 0.0.4-dev)
+#   RESULT ok VERSION             the last line when it worked, and the exit code is 0 (VERSION: 0.1.0, 0.1.1-dev)
 #   RESULT fail SOME REASON       the last line when it did not, and the exit code is not 0
 # Exactly one RESULT line is printed, last. Other lines are for people and may change. Options are only ever added.
 #
@@ -69,7 +69,8 @@
 # Test hooks (for the maintainers' tests, not for players): TPW_INSTALL_REPO replaces the repository URL,
 # TPW_INSTALL_HOME the folder that holds .zprofile and .bash_profile, and TPW_INSTALL_STUB=1 puts a stand-in launcher in
 # place of the download and the build (the installer's CI tests the themepark command with it), of version
-# TPW_INSTALL_STUB_VERSION when set (a newer one stands in for a new release).
+# TPW_INSTALL_STUB_VERSION when set (a newer one stands in for a new release). TPW_INSTALL_SCRUB=FILE runs only the log
+# scrubber (devtools/test_install_log_scrub.sh), TPW_INSTALL_HOSTNAME stands in for this Mac's name there.
 #
 # Everything is inside functions and the last line calls main. That matters for `curl ... | sh`: the shell reads this
 # file while it runs, so a half-downloaded file runs nothing, and a program that reads standard input cannot eat the
@@ -353,10 +354,111 @@ get_source() {
 # Makes an empty DIR/build-next and fetches the build's tools into it, so that a lost connection shows up now. A CMake
 # the current build fetched is copied over first (the same pinned one, unless the Makefile's pin changed, and then the
 # build fetches the new one).
-# make TARGET in the source, into build-next, its output on the screen and in the log, its exit code in $RC.
+# make TARGET in the source, into build-next, its output on the screen (as it is) and in the log (with nothing personal
+# in it, see scrub_tee), its exit code in $RC.
 # shellcheck disable=SC2329  # called through wait_for
 make_logged() {
-    { make -C "$SRC" BUILD="$NEXT" "$1" </dev/null 2>&1; echo $? >"$RC"; } | tee -a "$LOG"
+    { make -C "$SRC" BUILD="$NEXT" "$1" </dev/null 2>&1; echo $? >"$RC"; } | scrub_tee "$LOG"
+}
+
+# Reads the build's output on stdin: it goes unchanged to the screen, and a copy with nothing personal in it is
+# appended to the log $1 (the log is what a player is asked to send; the screen is theirs). The home folder becomes ~,
+# any /Users/NAME ~ or /Users/<user>, a volume's name <volume>, /var/folders/xx/yyyy <id>, the account name <user> (only
+# after user=, owner: and the like, so a name that is a common word is not changed elsewhere) and this Mac's name
+# <computer> (4 letters or more). Scrubbing again changes nothing. It mirrors platform/log_scrub.h.
+scrub_tee() {
+    TPW_S_LOG=$1 \
+        TPW_S_HOMES="$(printf '%s\n%s\n' "$HOME" "$(cd "$HOME" 2>/dev/null && pwd -P)")" \
+        TPW_S_USER="${USER:-$(id -un 2>/dev/null)}" \
+        TPW_S_HOST="${TPW_INSTALL_HOSTNAME:-$(hostname 2>/dev/null)}" \
+        TPW_S_VOLUMES="$(ls /Volumes 2>/dev/null)" \
+        LC_ALL=C awk '
+function isname(c) { return c ~ /[A-Za-z0-9_.-]/ || c >= "\200" }
+function isword(c) { return c ~ /[A-Za-z0-9_-]/ || c >= "\200" }
+# find in s becomes rep. Mode 0, a path: nothing name-like may follow. Mode 1, a name: no word character on either
+# side. ci: ignore case.
+function lit(s, find, rep, mode, ci,   out, hay, need, i, n, before, after) {
+    n = length(find)
+    if (n == 0) return s
+    hay = ci ? tolower(s) : s
+    need = ci ? tolower(find) : find
+    out = ""
+    while ((i = index(hay, need)) > 0) {
+        before = i > 1 ? substr(hay, i - 1, 1) : ""
+        after = substr(hay, i + n, 1)
+        if (mode == 0 ? (after == "" || !isname(after)) : ((before == "" || !isword(before)) && (after == "" || !isword(after)))) {
+            out = out substr(s, 1, i - 1) rep
+        } else {
+            out = out substr(s, 1, i + n - 1)
+        }
+        s = substr(s, i + n)
+        hay = substr(hay, i + n)
+    }
+    return out s
+}
+function generic(s,   out, name, pre, rep) {
+    out = ""
+    while (match(s, /\/Users\/[^\/ \t"\047<>]+/)) {
+        name = substr(s, RSTART + 7, RLENGTH - 7)
+        pre = RSTART > 1 ? substr(s, RSTART - 1, 1) : ""
+        if (name == "Shared" || name == "Public" || name == "Default" || name == "All") rep = substr(s, RSTART, RLENGTH)
+        else if (RSTART == 1 || pre ~ /[ \t"\047=:(]/) rep = "~"
+        else rep = "/Users/<user>"
+        out = out substr(s, 1, RSTART - 1) rep
+        s = substr(s, RSTART + RLENGTH)
+    }
+    return out s
+}
+function account(s,   out, hay, i, n, before, after, key) {
+    n = length(U)
+    if (n == 0) return s
+    out = ""
+    hay = tolower(s)
+    while ((i = index(hay, tolower(U))) > 0) {
+        before = substr(hay, 1, i - 1)
+        after = substr(hay, i + n, 1)
+        if (before ~ /(user|username|user name|login|logname|owner|account)[ \t]*[=:][ \t]*$/ && (after == "" || !isword(after))) {
+            out = out substr(s, 1, i - 1) "<user>"
+        } else {
+            out = out substr(s, 1, i + n - 1)
+        }
+        s = substr(s, i + n)
+        hay = substr(hay, i + n)
+    }
+    return out s
+}
+function every(s, re, rep,   out) {
+    out = ""
+    while (match(s, re)) {
+        out = out substr(s, 1, RSTART - 1) rep
+        s = substr(s, RSTART + RLENGTH)
+    }
+    return out s
+}
+function scrub(s,   k) {
+    for (k = 1; k <= NH; k++) s = lit(s, H[k], "~", 0, 0)
+    for (k = 1; k <= NV; k++) s = lit(s, "/Volumes/" V[k], "/Volumes/<volume>", 0, 0)
+    s = generic(s)
+    s = every(s, "/Volumes/[^/ \t\"\047<>]+", "/Volumes/<volume>")
+    s = every(s, "/var/folders/[^/ \t\"\047<>]+/[^/ \t\"\047<>]+", "/var/folders/<id>")
+    if (length(C) >= 4) s = lit(s, C, "<computer>", 1, length(C) >= 6)
+    return account(s)
+}
+BEGIN {
+    NH = split(ENVIRON["TPW_S_HOMES"], H, "\n")
+    NV = split(ENVIRON["TPW_S_VOLUMES"], V, "\n")
+    for (k = 1; k <= NH; k++) if (length(H[k]) < 2 || H[k] == "/") H[k] = ""
+    U = ENVIRON["TPW_S_USER"]
+    C = ENVIRON["TPW_S_HOST"]
+    sub(/\..*/, "", C)
+    out = ENVIRON["TPW_S_LOG"]
+}
+{
+    print $0
+    fflush()
+    print scrub($0) >> out
+    fflush(out)
+}'
 }
 
 prepare_next() {
@@ -390,7 +492,7 @@ build_next() {
 
 # ---- 4. the check
 
-# The first line of a launcher's --version: "STP/TPW Launcher v0.0.3".
+# The first line of a launcher's --version: "STP/TPW Launcher v0.1.0".
 version_line() {
     "$1" --version </dev/null 2>&1 | sed -n '1p' | tr -d '\r'
 }
@@ -825,6 +927,11 @@ run_install() {
 # ---- main
 
 main() {
+    # Test hook: the text on standard input, scrubbed, is appended to the file TPW_INSTALL_SCRUB (and shown as it is).
+    if [ -n "${TPW_INSTALL_SCRUB:-}" ]; then
+        scrub_tee "$TPW_INSTALL_SCRUB"
+        return $?
+    fi
     REPO=${TPW_INSTALL_REPO:-https://github.com/ThemeParkWorldDecomp/tpw-port.git}
     DIR=""
     CHANNEL=""

@@ -199,21 +199,6 @@ bool IsLogName(const std::string& name) {
     return name.size() > 13 && name.compare(0, 9, "launcher-") == 0 && name.compare(name.size() - 4, 4, ".log") == 0;
 }
 
-void WriteAll(int fd, const char* data, size_t length) {
-    while (length > 0) {
-#ifdef _WIN32
-        // Windows: _write takes and answers an int count (the header is a few hundred bytes) and has no EINTR.
-        const int wrote = _write(fd, data, static_cast<unsigned>(length));
-#else
-        const ssize_t wrote = write(fd, data, length);
-        if (wrote < 0 && errno == EINTR) continue;
-#endif
-        if (wrote <= 0) return;
-        data += wrote;
-        length -= static_cast<size_t>(wrote);
-    }
-}
-
 }  // namespace
 
 std::string LogFileName(std::time_t when) {
@@ -297,9 +282,10 @@ bool OpenLogFile(const std::filesystem::path& folder, const std::string& firstLi
         return false;
     }
     CloseLogFile();
+    EnsureScrubIdentity();   // before the first byte: the header holds the folders and the command line
     gPath = path.string();
     const std::string header = firstLine + "\n" + LogHeaderLines(argc, argv, gPath);
-    WriteAll(fd, header.data(), header.size());
+    WriteScrubbed(fd, header.data(), header.size());
     gLogFileFd.store(fd);
     RemoveOldLogs(folder, kLogFilesKept);
     return true;

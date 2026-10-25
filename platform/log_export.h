@@ -8,6 +8,8 @@
 #include <filesystem>
 #include <string>
 
+#include "log_scrub.h"
+
 namespace tpw {
 
 // What an export did. `message` is for the player: "Saved to Downloads: <name>" when ok, else a plain reason and nothing
@@ -40,9 +42,10 @@ bool RevealFile(const std::filesystem::path& file);
 std::string ExportedLogName(std::time_t when, int copy);
 
 // Copies the newest launcher-*.log of `logsFolder` into `downloads` as ExportedLogName(when, ...), the first copy number
-// whose name is free. Fails, writing nothing, when the logs folder has no log, `downloads` is not a folder, the log cannot
+// whose name is free. The copy is scrubbed again (log_scrub.h) with `identity` (null: this computer's), a safety net for a
+// log an older launcher wrote. Fails, writing nothing, when the logs folder has no log, `downloads` is not a folder, the log cannot
 // be read or the copy cannot be written (a partly written copy is removed again).
 LogExportResult ExportLog(const std::filesystem::path& logsFolder, const std::filesystem::path& downloads,
-                          std::time_t when);
+                          std::time_t when, const ScrubIdentity* identity = nullptr);
 
 }  // namespace tpw

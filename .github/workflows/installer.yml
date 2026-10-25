@@ -16,9 +16,9 @@ name: installer
 on:
   push:
     branches-ignore: [ci-play]
-    paths: [install.sh, install.ps1, .github/workflows/installer.yml]
+    paths: [install.sh, install.ps1, devtools/test_install_log_scrub.sh, .github/workflows/installer.yml]
   pull_request:
-    paths: [install.sh, install.ps1, .github/workflows/installer.yml]
+    paths: [install.sh, install.ps1, devtools/test_install_log_scrub.sh, .github/workflows/installer.yml]
   workflow_dispatch:
 
 permissions:
@@ -38,6 +38,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - name: The build log keeps no user name, home folder or computer name
+        run: sh devtools/test_install_log_scrub.sh
       # Once with zsh (macOS's shell) and once with bash as the player's shell, each with an empty home folder, and an
       # install folder with a space and a ' in its name.
       - name: Install, then themepark --version in a new login shell

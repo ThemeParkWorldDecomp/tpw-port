@@ -6,7 +6,7 @@ You need your own copy of the game. Nothing from the game is in here.
 Not affiliated with or endorsed by Electronic Arts. Sim Theme Park and Theme Park World are trademarks of their
 respective owners.
 
-**Reporting a problem? Always say which launcher version you run** (for example 0.0.3). The launcher's window title,
+**Reporting a problem? Always say which launcher version you run** (for example 0.1.0). The launcher's window title,
 its About box and the first line of its log all show it. See [Reporting a problem](#reporting-a-problem).
 
 **What's new:** [CHANGELOG.md](CHANGELOG.md) lists what each version adds and fixes.
@@ -83,16 +83,16 @@ opens the Releases page.
   `xattr -d com.apple.quarantine ` followed by the unpacked tpw_launcher (drag it onto the Terminal window), then
   double-click tpw_launcher.
 
-A release is fixed: 0.0.3 is the same code on every Mac and PC and never changes afterwards, and fixes come in the next
+A release is fixed: 0.1.0 is the same code on every Mac and PC and never changes afterwards, and fixes come in the next
 version. The Mac and Windows downloads of a release and the installers' builds of it are all built from the same commit,
-its tag (v0.0.3).
+its tag (v0.1.0).
 
 Then see [Playing](#playing).
 
 ### Building from source by hand
 
 Follow the steps below. Their clone uses `--branch stable`, the newest release (the stable branch follows the
-releases). `--branch v0.0.3` gives one release in particular. A clone without `--branch` is main: the next version
+releases). `--branch v0.1.0` gives one release in particular. A clone without `--branch` is main: the next version
 while it is being made (its launcher says so, 0.0.4-dev for example), for contributors and testers.
 
 ### Building on macOS
@@ -250,7 +250,7 @@ on the Mac, bugs included. This repository adds what it takes to play:
   "Playable offline").
 - platform/: the Mac Toolbox, Sound Sprockets, QuickTime and the game's Windows-style shims, done on SDL3, OpenGL and
   CoreText (on Windows, stb_truetype in place of CoreText).
-- overrides/: the port's fixes, 197 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
+- overrides/: the port's fixes, 198 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
   the port does and why. Each file there is built in place of the tpw-decomp file of the same path. Headers are read
   from a copy of tpw-decomp's headers in the build folder with the overridden ones laid over it.
 - mods/: the [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) submodule, for optional changes to how the game plays. It holds no mods yet
@@ -395,7 +395,7 @@ The recipes' pass numbers are timed without the 60 frames a second pacing, so th
 
 Open an issue (the form asks for each of these) or post on Discord, and say:
 
-1. **The launcher version**, for example 0.0.3. The window title, the About box and the log's first line show it, and
+1. **The launcher version**, for example 0.1.0. The window title, the About box and the log's first line show it, and
    `tpw_launcher --version` prints it. A report without it cannot be checked, since each version is different code. A
    version ending in -dev (0.0.4-dev) is a build of main, not a release: give the build too, which the log's first line
    names (`build: ...`).
@@ -405,6 +405,8 @@ Open an issue (the form asks for each of these) or post on Discord, and say:
    saves in your Downloads folder ("STP-TPW Launcher log" and the date). The log's own folder is
    `~/Library/Application Support/STP-TPW Launcher/logs` on a Mac and `%APPDATA%\STP-TPW Launcher\logs` on Windows
    (the About box's Show logs button opens it).
+   The log holds no username, computer name or home folder (each shows as `~`, `<user>` or `<computer>`), so it is safe
+   to share.
 5. What you clicked before it went wrong, and whether it happens again when you do the same.
 
 Before reporting, check that you run the newest release: a fix comes in the next version, never in a release already

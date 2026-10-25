@@ -25,7 +25,7 @@
 #   bin\themepark.cmd the themepark command: starts build\tpw_launcher.exe from any folder (see THE THEMEPARK COMMAND)
 #   channel.txt      "stable" or "dev": the launcher reads it to know that this script installed it; it records what
 #                    is installed and never chooses what an update gets
-#   last-build.log   the output of the last build
+#   last-build.log   the output of the last build, with no user name, profile folder or PC name in it
 #   .tpw-installer   marks the folder as this script's, so that it never writes into a folder that is somebody else's
 # Game files and saves are not in DIR (they are in the launcher's data folder, %APPDATA%\STP-TPW Launcher), and this
 # script never touches them.
@@ -39,7 +39,7 @@
 #
 # THE CONTRACT. The launcher's updater runs this script and reads its output, so these never change:
 #   STEP n/N some plain words     one line as each step starts
-#   RESULT ok VERSION             the last line when it worked, and the exit code is 0 (VERSION: 0.0.3, 0.0.4-dev)
+#   RESULT ok VERSION             the last line when it worked, and the exit code is 0 (VERSION: 0.1.0, 0.1.1-dev)
 #   RESULT fail SOME REASON       the last line when it did not, and the exit code is not 0
 # Exactly one RESULT line is printed, last. Other lines are for people and may change. Options are only ever added.
 # Run through iex (no file) the script never calls exit, which would close the PowerShell window; it sets
@@ -409,11 +409,45 @@ $TpwInstallCode = @(& {
 
     # ---- 3. the build
 
+    # What the build's output may keep in DIR\last-build.log (the screen shows it as it is): nothing that names the player
+    # or the PC. The profile folder (and a C:\Users\NAME of any other drive or spelling) becomes %USERPROFILE%, a
+    # Windows SID <sid>, the PC's name <computer> (4 letters or more) and the account name <user>, only after user=,
+    # owner: and the like, so that a name that is a common word is not changed elsewhere. Scrubbing again changes
+    # nothing. It mirrors platform\log_scrub.h.
+    function Get-LogRules {
+        $rules = New-Object System.Collections.ArrayList
+        $word = '(?![\w.-])'
+        $profileDir = $env:USERPROFILE
+        if ($profileDir -and $profileDir.Length -ge 4) {
+            $spelled = [regex]::Escape($profileDir.TrimEnd('\', '/')).Replace('\\', '[\\/]')
+            [void]$rules.Add(@('(?i)' + $spelled + $word, '%USERPROFILE%'))
+        }
+        [void]$rules.Add(@('(?i)[A-Za-z]:[\\/]Users[\\/](?!(?:Public|Default|Shared|All Users|Default User)(?:[\\/]|$|[\s"''<>]))[^\\/\s"''<>%]+', '%USERPROFILE%'))
+        [void]$rules.Add(@('S-1-5-21(?:-\d+){3,5}', '<sid>'))
+        $pc = $env:COMPUTERNAME
+        if ($pc -and $pc.Length -ge 4) {
+            $case = ''
+            if ($pc.Length -ge 6) { $case = '(?i)' }
+            [void]$rules.Add(@($case + '(?<![\w-])' + [regex]::Escape($pc) + '(?![\w-])', '<computer>'))
+        }
+        $user = $env:USERNAME
+        if ($user) {
+            [void]$rules.Add(@('(?i)\b(user|username|user name|login|logname|owner|account)(\s*[=:]\s*)' + [regex]::Escape($user) + '(?![\w-])', '${1}${2}<user>'))
+        }
+        return ,$rules
+    }
+
+    function ConvertTo-LogLine([string]$line, $rules) {
+        foreach ($rule in $rules) { $line = [regex]::Replace($line, $rule[0], $rule[1]) }
+        return $line
+    }
+
     # devtools\win\build.ps1, its output on the screen and in DIR\last-build.log. TOOLS=fetch: the pinned tools, the same
     # as the release builds, whatever this PC's PATH has. Its exit codes: 0 done, 10 no curl.exe or tar.exe, 20 a
     # download failed, 21 a download did not match its checksum, 22 unpacking failed, 30 configure, 40 build, 45 a DLL.
     function Invoke-Build {
         $buildPs1 = Join-Path $Src 'devtools\win\build.ps1'
+        $rules = Get-LogRules
         $writer = New-Object System.IO.StreamWriter($Log, $false, (New-Object System.Text.UTF8Encoding($false)))
         # CI=1: build.ps1 downloads without a progress bar, which would be one long line here.
         $oldCI = $env:CI
@@ -422,7 +456,7 @@ $TpwInstallCode = @(& {
             & (Get-WindowsPowerShell) -NoLogo -NoProfile -ExecutionPolicy Bypass -File $buildPs1 "BUILD=$Next" 'TOOLS=fetch' 2>&1 | ForEach-Object {
                 if ($_ -is [System.Management.Automation.ErrorRecord]) { $line = $_.Exception.Message } else { $line = "$_" }
                 Write-Host $line
-                $writer.WriteLine($line)
+                $writer.WriteLine((ConvertTo-LogLine $line $rules))
             }
             $code = $LASTEXITCODE
         } finally {
@@ -439,7 +473,7 @@ $TpwInstallCode = @(& {
 
     # ---- 4. the check
 
-    # The first line of a launcher's --version ("STP/TPW Launcher v0.0.3"). The launcher has no console, so its output
+    # The first line of a launcher's --version ("STP/TPW Launcher v0.1.0"). The launcher has no console, so its output
     # goes through a file, in the build folder.
     function Get-VersionLine([string]$folder) {
         $exe = Join-Path $folder 'tpw_launcher.exe'

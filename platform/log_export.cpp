@@ -139,7 +139,8 @@ bool WriteAll(int fd, const std::string& bytes) {
 
 }  // namespace
 
-LogExportResult ExportLog(const fs::path& logsFolder, const fs::path& downloads, std::time_t when) {
+LogExportResult ExportLog(const fs::path& logsFolder, const fs::path& downloads, std::time_t when,
+                          const ScrubIdentity* identity) {
     const fs::path source = NewestLog(logsFolder);
     if (source.empty()) return Failed("There is no launcher log to export.");
     std::error_code ec;
@@ -154,6 +155,13 @@ LogExportResult ExportLog(const fs::path& logsFolder, const fs::path& downloads,
         bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
         if (in.bad()) return Failed("Could not read the launcher log.");
     }
+    ScrubIdentity own;
+    if (identity == nullptr) identity = gScrubIdentity.load();
+    if (identity == nullptr) {
+        own = MakeScrubIdentity(CollectScrubInputs());
+        identity = &own;
+    }
+    bytes = Scrub(identity, bytes);
 
     for (int copy = 1; copy < 100; ++copy) {
         const fs::path target = downloads / ExportedLogName(when, copy);
