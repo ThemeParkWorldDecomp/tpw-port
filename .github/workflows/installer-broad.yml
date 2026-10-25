@@ -1,0 +1,194 @@
+# The broad installer tests: the one-line installers run in every kind of situation a player can be in, on every kind of
+# machine the launcher is built for (the runners of build.yml). installer.yml is the quick test of the themepark command
+# with a stand-in launcher; this one runs install.sh and install.ps1 for real (clone, tags, submodule, build, check,
+# switch, PATH) against a local fake release: a git repository the driver makes on the runner, with tags vX.Y.Z and a
+# build that makes a stand-in launcher in a moment (or hangs, or fails, when a case asks). Each case has an empty home
+# folder (profile folder on Windows) of its own; the runner's real one is never written to.
+#
+# The cases (.github/installer-ci/mac.sh and win.ps1 hold them, one function each): a fresh machine; an old clone made
+# the README's old way, with saves and settings, which must stay byte for byte as it was and be named; the line run
+# again with nothing new (nothing changes) and with a newer release (updates); the launcher's Update button
+# (--update --stage, then --swap-and-launch); a --dev install, then the plain line and --update, which move it to the
+# newest release; which tags are releases; refusals; folders with spaces, apostrophes and non-ASCII letters; tools the
+# machine lacks (a plain message, nothing half-installed, exit not 0); a build that fails; an install stopped in the
+# middle (the one in use keeps working, the next run recovers). After each: themepark works in a new shell, the launcher
+# starts, saves and settings are untouched. The cases are split in groups so that each job stays well under 20 minutes.
+#
+# The `real` jobs make one real build per runner (no stand-in): a local tag on a copy of this checkout, built by the
+# installer the way a player's machine builds it, with no build tools on the PATH. They need the checkout's submodules
+# with their relative addresses (tpw-port's .gitmodules), so they only run in tpw-port.
+#
+# The `public` jobs run only by hand (Run workflow, with "public" ticked): the README's one-liner, exactly as a player
+# types it, against the newest real release on GitHub (or main, with public args -Dev / --dev). They need a release to
+# exist.
+name: installer-broad
+
+on:
+  push:
+    branches-ignore: [ci-play]
+    paths: [install.sh, install.ps1, '.github/installer-ci/**', .github/workflows/installer-broad.yml]
+  pull_request:
+    paths: [install.sh, install.ps1, '.github/installer-ci/**', .github/workflows/installer-broad.yml]
+  workflow_dispatch:
+    inputs:
+      public:
+        description: Also run the README one-liner against the newest real release (needs a release)
+        type: boolean
+        default: false
+      public_args:
+        description: 'Options for the public one-liner (Mac: --dev; Windows: -Dev), or empty for the newest release'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installer-broad-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mac:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+        cases:
+          - fresh shells legacy
+          - rerun updater dev tags
+          - refusals paths missing buildfail interrupt interrupt_first
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: The driver parses and passes shellcheck
+        shell: bash
+        run: |
+          sh -n install.sh
+          bash -n .github/installer-ci/mac.sh
+          if command -v shellcheck >/dev/null 2>&1; then
+            shellcheck -s sh install.sh
+            shellcheck -s bash -S warning .github/installer-ci/mac.sh
+          else
+            echo "shellcheck is not on this runner; skipped"
+          fi
+      - name: Cases ${{ matrix.cases }}
+        shell: bash
+        env:
+          TPW_CI_WORK: ${{ runner.temp }}/tpw-broad
+        run: bash .github/installer-ci/mac.sh ${{ matrix.cases }}
+
+  mac-real:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: One real build by the installer, from a local tag of this checkout
+        shell: bash
+        env:
+          TPW_CI_WORK: ${{ runner.temp }}/tpw-broad
+          TPW_CI_SOURCE: ${{ github.workspace }}
+          TPW_CI_VERSION: 0.0.99
+        run: bash .github/installer-ci/mac.sh real
+
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025, windows-11-arm]
+        cases:
+          - fresh legacy rerun
+          - updater dev tags refusals
+          - paths missing buildfail interrupt interrupt_first
+    runs-on: ${{ matrix.os }}
+    # The ARM runner is new and scarcer; its result is reported but does not fail the workflow yet (as in build.yml).
+    continue-on-error: ${{ matrix.os == 'windows-11-arm' }}
+    timeout-minutes: 30
+    steps:
+      # The installer's clone keeps line endings as stored (core.autocrlf=false); this checkout must too, so that the
+      # install.ps1 the driver copies into the fake release is byte for byte the one under test.
+      - name: Keep line endings as stored
+        shell: powershell
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - name: Cases ${{ matrix.cases }}
+        shell: powershell
+        env:
+          TPW_CI_WORK: ${{ runner.temp }}\tpw-broad
+        run: |
+          $ErrorActionPreference = 'Continue'
+          & .\.github\installer-ci\win.ps1 ${{ matrix.cases }}
+          exit $LASTEXITCODE
+
+  windows-real:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os == 'windows-11-arm' }}
+    timeout-minutes: ${{ matrix.os == 'windows-11-arm' && 90 || 60 }}
+    steps:
+      - name: Keep line endings as stored
+        shell: powershell
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: One real build by the installer, from a local tag of this checkout
+        shell: powershell
+        env:
+          TPW_CI_WORK: ${{ runner.temp }}\tpw-broad
+          TPW_CI_SOURCE: ${{ github.workspace }}
+          TPW_CI_VERSION: 0.0.99
+        run: |
+          $ErrorActionPreference = 'Continue'
+          & .\.github\installer-ci\win.ps1 real
+          exit $LASTEXITCODE
+
+  public-mac:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.public }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: The README one-liner against the newest real release
+        shell: bash
+        env:
+          TPW_CI_WORK: ${{ runner.temp }}/tpw-broad
+          PUBLIC_ARGS: ${{ inputs.public_args }}
+        run: bash .github/installer-ci/mac.sh public
+
+  public-windows:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.public }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os == 'windows-11-arm' }}
+    timeout-minutes: ${{ matrix.os == 'windows-11-arm' && 90 || 60 }}
+    steps:
+      - name: Keep line endings as stored
+        shell: powershell
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - name: The README one-liner against the newest real release
+        shell: powershell
+        env:
+          TPW_CI_WORK: ${{ runner.temp }}\tpw-broad
+          PUBLIC_ARGS: ${{ inputs.public_args }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          & .\.github\installer-ci\win.ps1 public
+          exit $LASTEXITCODE

@@ -181,7 +181,11 @@ $TpwInstallCode = @(& {
         $special = @($env:USERPROFILE, $env:LOCALAPPDATA, $env:APPDATA, $env:SystemRoot, $env:ProgramFiles,
                      ${env:ProgramFiles(x86)}, $env:ProgramData, $env:TEMP, $env:PUBLIC, (Split-Path $env:USERPROFILE))
         foreach ($s in $special) {
-            if ($s -and $path.TrimEnd('\') -eq $s.TrimEnd('\')) { return $true }
+            if (-not $s) { continue }
+            # %TEMP% is often spelled with a short name (C:\Users\JOHNDO~1\AppData\Local\Temp); GetFullPath spells it as
+            # the install folder was spelled.
+            try { $s = [System.IO.Path]::GetFullPath($s) } catch {}
+            if ($path.TrimEnd('\') -eq $s.TrimEnd('\')) { return $true }
         }
         return $false
     }
@@ -509,6 +513,20 @@ $TpwInstallCode = @(& {
 
     # ---- 5. the switch
 
+    # Moves a folder, trying again for a few seconds: Windows refuses while a virus scan or the search indexer still has a
+    # new file in it open.
+    function Move-Folder([string]$from, [string]$to) {
+        $tries = 0
+        while ($true) {
+            try { Move-Item -LiteralPath $from -Destination $to -ErrorAction Stop; return }
+            catch {
+                $tries++
+                if ($tries -ge 10) { Say "Windows said: $($_.Exception.Message)"; throw }
+                Start-Sleep -Milliseconds 500
+            }
+        }
+    }
+
     function Switch-Build {
         $info = Join-Path $Next 'install-info.txt'
         if (-not (Test-Path -LiteralPath $info)) { Fail "There is no finished new build in $Next to switch to." }
@@ -527,13 +545,13 @@ $TpwInstallCode = @(& {
         Remove-Own 'build-prev'
         $hadBuild = $false
         if (Test-Path -LiteralPath $build) {
-            try { Move-Item -LiteralPath $build -Destination $prev -ErrorAction Stop }
+            try { Move-Folder $build $prev }
             catch { Fail "Couldn't move the old launcher aside. Close it and try again. Nothing was switched." }
             $hadBuild = $true
         }
-        try { Move-Item -LiteralPath $Next -Destination $build -ErrorAction Stop }
+        try { Move-Folder $Next $build }
         catch {
-            if ($hadBuild) { try { Move-Item -LiteralPath $prev -Destination $build -ErrorAction Stop } catch {} }
+            if ($hadBuild) { try { Move-Folder $prev $build } catch {} }
             Fail "Couldn't move the new launcher into place. The old one was put back."
         }
         Write-Channel $newChannel
@@ -727,9 +745,14 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
     # most.
     function Test-NewWindow {
         $out = Join-Path $Dir 'themepark-check.txt'
+        # The new window compares the command it finds with ours and answers with one word: its output file is in the
+        # console's code page, which cannot spell every folder name (the command itself is UTF-16).
+        $expected = (Join-Path $Dir 'bin\themepark.cmd') -replace "'", "''"
         $check = "`$env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + " +
                  "[Environment]::GetEnvironmentVariable('Path', 'User'); " +
-                 "Get-Command themepark -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object { [Console]::Out.WriteLine(`$_.Path) }"
+                 "`$c = Get-Command themepark -ErrorAction SilentlyContinue | Select-Object -First 1; " +
+                 "if (`$c -and `$c.Path -ieq '$expected') { [Console]::Out.WriteLine('ours') } " +
+                 "elseif (`$c) { [Console]::Out.WriteLine('other') } else { [Console]::Out.WriteLine('none') }"
         $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($check))
         $found = ''
         try {
@@ -740,7 +763,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
             if (Test-Path -LiteralPath $out) { $found = ([string](Get-Content -LiteralPath $out -TotalCount 1)).Trim() }
         } catch {}
         Remove-Item -LiteralPath $out -Force -ErrorAction SilentlyContinue
-        return ($found -and ((Split-Path $found -Leaf) -ieq 'themepark.cmd') -and (Test-SameFolder (Split-Path $found) (Join-Path $Dir 'bin')))
+        return ($found -eq 'ours')
     }
 
     function Wait-Exit([int]$id) {

@@ -26,6 +26,7 @@ The first release: play Sim Theme Park and Theme Park World from your own discs,
 - Logs no longer contain your username or computer name, so they're safe to share.
 - Install and update the launcher by pasting one line into Terminal or PowerShell. It builds on your computer, so there are no security warnings to click through.
 - Type themepark in any new Terminal or PowerShell window to start the launcher, from any folder.
+- The installer's --dir takes a folder written as ./name or with a trailing slash, and refuses a folder name the build cannot hold before anything is downloaded.
 - The launcher tells you when a new version is out and its Update button installs it, and it stays quiet when you're offline. (Thanks @samueleagle91)
 
 ### Fixed

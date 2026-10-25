@@ -978,11 +978,24 @@ main() {
     case "$WAIT_PID" in *[!0-9]*) die "--wait-pid needs a process number." ;; esac
 
     [ -n "$DIR" ] || DIR="$HOME/Applications/STP-TPW-Launcher"
+    # --dir . and --dir ./name mean the current folder and a folder in it; "$HOME/." is the home folder, which is refused
+    while :; do
+        case "$DIR" in ./?*) DIR=${DIR#./} ;; *) break ;; esac
+    done
     case "$DIR" in /*) ;; *) DIR="$PWD/$DIR" ;; esac
     while :; do
-        case "$DIR" in ?*/) DIR=${DIR%/} ;; *) break ;; esac
+        case "$DIR" in
+            ?*/) DIR=${DIR%/} ;;
+            ?*/.) DIR=${DIR%/.} ;;
+            *) break ;;
+        esac
     done
-    unsafe_path "$DIR" && die "Not using \"$DIR\" as the install folder. Choose another with --dir."
+    # (a line break in the name must not split the one RESULT line)
+    unsafe_path "$DIR" && die "Not using \"$(printf '%s' "$DIR" | tr '\n' ' ')\" as the install folder. Choose another with --dir."
+    # make and the shell lines of the Makefile cannot hold these in a folder name: the build would fail after the download
+    case "$DIR" in
+        *[\"\$\`\\]*) die "Not using \"$DIR\" as the install folder: a double quote, \$, backtick or backslash in its name breaks the build. Choose another with --dir." ;;
+    esac
 
     SRC="$DIR/source"
     NEXT="$DIR/build-next"
