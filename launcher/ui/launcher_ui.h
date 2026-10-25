@@ -51,6 +51,19 @@ const std::vector<SamOption>& SamOptions();
 // The index in `values` launcher.ini's value names, or -1 for the detail level's own (default, absent or not a choice).
 int SamChoice(const SamOption& option, const std::string& value);
 
+// What the About box's Export logs button did (the launcher's platform/log_export.h): `message` is for the player ("Saved to
+// Downloads: <name>", or why nothing was saved) and `folder` is where the copy is, to show (empty: none was made).
+struct LogsExport {
+    bool ok = false;
+    std::string message;
+    std::string folder;
+};
+// Shows the newest log of the logs folder selected in the system's file manager; false when it could not (the About box's
+// Show logs then opens the folder). launcher/main.cpp supplies it.
+using ShowLogsFn = bool (*)(const std::string& logsFolder);
+// Copies the newest log of the logs folder into the player's Downloads folder (launcher/main.cpp supplies it).
+using ExportLogsFn = LogsExport (*)(const std::string& logsFolder);
+
 // What the player chose to start.
 struct LaunchChoice {
     assets::Edition edition = assets::kEditionEur;
@@ -76,6 +89,10 @@ public:
     void SetWindow(SDL_Window* window) { window_ = window; }
     // The folder of the launcher's log files (launcher/main.cpp): the About box's Show logs opens it. Empty: no button.
     void SetLogsFolder(const std::string& folder) { logsFolder_ = folder; }
+    // What the About box's Show logs button calls first (null: it opens the folder).
+    void SetShowLogs(ShowLogsFn showLogs) { showLogs_ = showLogs; }
+    // What the About box's Export logs button calls (with a logs folder). Null: no such button.
+    void SetExportLogs(ExportLogsFn exportLogs) { exportLogs_ = exportLogs; }
     // Pointer coordinates are the window's, in points.
     void HandleEvent(const SDL_Event& event);
     // Updates and draws one frame of `width` x `height` points at `scale` pixels per point. Does not present.
@@ -122,6 +139,10 @@ public:
     Rect VersionRect() const { return versionRect_; }
     // The About box's Show logs button in the last frame, in points (empty when not shown).
     Rect ShowLogsRect() const { return showLogsRect_; }
+    // The About box's Export logs button, and the Open Downloads button that follows a saved export, in the last frame, in
+    // points (empty when not shown).
+    Rect ExportLogsRect() const { return exportLogsRect_; }
+    Rect OpenDownloadsRect() const { return openDownloadsRect_; }
     // The title row in the last frame, in points: the product's name, the version label drawn to its right, and the
     // header's buttons (About, Settings and the header's Play when shown; empty on screens without them).
     Rect TitleRect() const { return titleRect_; }
@@ -185,10 +206,15 @@ private:
     bool readyShown_ = false;
     Rect versionRect_;         // last frame's version text (VersionRect)
     Rect showLogsRect_;        // last frame's Show logs button
+    Rect exportLogsRect_;      // last frame's Export logs button
+    Rect openDownloadsRect_;   // last frame's Open Downloads button (after a saved export)
     Rect titleRect_;           // last frame's title, its version label and the header's buttons
     Rect titleVersionRect_;
     Rect headerButtonsRect_;
     std::string logsFolder_;
+    ShowLogsFn showLogs_ = nullptr;
+    ExportLogsFn exportLogs_ = nullptr;
+    LogsExport exported_;      // the last Export logs that saved a copy (ok), shown in the About box until it closes
 
     // The editions' states, refreshed every frame.
     assets::EditionStatus status_[3];

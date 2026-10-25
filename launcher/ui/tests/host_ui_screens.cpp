@@ -322,7 +322,30 @@ struct Shot {
     LauncherUi::Screen screen = LauncherUi::Screen::Home;
 };
 
+// The About box's Export logs: a scripted export that counts its calls and says ok or not.
+int gExportCalls = 0;
+bool gExportOk = true;
+std::string gExportFolder;
+LogsExport FakeExportLogs(const std::string& logsFolder) {
+    ++gExportCalls;
+    gExportFolder = logsFolder;
+    LogsExport result;
+    result.ok = gExportOk;
+    result.message = gExportOk ? "Saved to Downloads: STP-TPW Launcher log 2026-10-25 10-12.txt" : "The Downloads folder was not found.";
+    result.folder = gExportOk ? "/Users/player/Downloads" : "";
+    return result;
+}
+
 constexpr float kDt = 1.0f / 60;
+
+// The About box's Show logs: a scripted reveal that counts its calls and says it worked (so the folder is not opened).
+int gShowCalls = 0;
+std::string gShowFolder;
+bool FakeShowLogs(const std::string& logsFolder) {
+    ++gShowCalls;
+    gShowFolder = logsFolder;
+    return true;
+}
 
 SDL_Event DropEvent(SDL_EventType type, float x = 0, float y = 0, const char* data = nullptr) {
     SDL_Event e{};
@@ -600,6 +623,23 @@ std::vector<Shot> Shots() {
                      },
                      Screen::Home});
 
+    shots.push_back({"12b-about-exported", metric::kStartWidth, metric::kStartHeight, nullptr,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         ui.SetLogsFolder("/Users/player/Library/Application Support/STP-TPW Launcher/logs");
+                         ui.SetExportLogs(&FakeExportLogs);
+                         ui.ShowAbout(true);
+                         frames(2);
+                         const Rect r = ui.ExportLogsRect();
+                         ui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+                         frames(1);
+                         ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+                         frames(1);
+                         ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+                         frames(2);
+                         Check(ui.OpenDownloadsRect().w > 0, "About picture: the export saved");
+                     },
+                     Screen::Home});
+
     shots.push_back({"13-home-wide", 1100, 760, PartialUsEur, nullptr, Screen::Home});
 
     shots.push_back({"14-home-smallest", metric::kMinWidth, metric::kMinHeight, nullptr, nullptr, Screen::Home});
@@ -703,7 +743,16 @@ std::vector<Shot> Shots() {
 void CheckTexts() {
     CheckEq(FileUrl("/Users/a b/Library/Application Support/STP-TPW Launcher/logs"),
             "file:///Users/a%20b/Library/Application%20Support/STP-TPW%20Launcher/logs", "FileUrl: spaces");
-    CheckEq(FileUrl("/Users/Ren\xC3\xA9" "e/logs#1"), "file:///Users/Ren%C3%A9e/logs%231", "FileUrl: UTF-8 and '#'");
+    CheckEq(FileUrl("/Users/Ren\xC3\xA9" "e/logs#1", false), "file:///Users/Ren%C3%A9e/logs%231",
+            "FileUrl: UTF-8 and '#'");
+    CheckEq(FileUrl("/Users/a b/logs", false), "file:///Users/a%20b/logs", "FileUrl: Unix path");
+    CheckEq(FileUrl("C:\\x", false), "file://C%3A%5Cx", "FileUrl: Unix rules encode ':' and '\\'");
+    CheckEq(FileUrl("C:\\Users\\Dan\\AppData\\Roaming\\STP-TPW Launcher\\logs", true),
+            "file:///C:/Users/Dan/AppData/Roaming/STP-TPW%20Launcher/logs", "FileUrl: Windows drive path");
+    CheckEq(FileUrl("d:/Games/TPW\\logs#1", true), "file:///d:/Games/TPW/logs%231", "FileUrl: Windows mixed slashes");
+    CheckEq(FileUrl("C:\\Users\\Ren\xC3\xA9" "e\\logs", true), "file:///C:/Users/Ren\xC3\xA9" "e/logs",
+            "FileUrl: Windows keeps UTF-8");
+    CheckEq(FileUrl("\\\\server\\share\\logs", true), "file://server/share/logs", "FileUrl: Windows UNC path");
     CheckEq(FormatCount(0), "0", "FormatCount 0");
     CheckEq(FormatCount(999), "999", "FormatCount 999");
     CheckEq(FormatCount(1683), "1,683", "FormatCount 1683");
@@ -1112,6 +1161,60 @@ void CheckVersionAndLogs(SDL_Renderer* renderer) {
     ui.ShowAbout(false);
     ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
     Check(ui.ShowLogsRect().w == 0, "About closed: no Show logs");
+
+    // Export logs: there only with a logs folder and an export function, beside Show logs, and it calls the function once
+    // per click with the logs folder; a saved copy shows Open Downloads (until the box closes), a refusal does not.
+    FakeBackend eb;
+    LauncherUi eui(renderer, eb);
+    eui.ShowAbout(true);
+    eui.SetLogsFolder("/Users/player/logs");
+    eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+    Check(eui.ExportLogsRect().w == 0, "About: no Export logs without an export function");
+    eui.SetExportLogs(&FakeExportLogs);
+    eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+    const Rect exp = eui.ExportLogsRect();
+    Check(exp.w > 0 && exp.Bottom() < metric::kStartHeight && exp.x >= eui.ShowLogsRect().Right() && exp.y == eui.ShowLogsRect().y,
+          "About: Export logs is drawn beside Show logs");
+    eui.Frame(kDt, metric::kMinWidth, metric::kMinHeight, 1);
+    Check(eui.ExportLogsRect().w > 0 && eui.ExportLogsRect().Right() < metric::kMinWidth &&
+              eui.ExportLogsRect().Bottom() < metric::kMinHeight,
+          "About: Export logs fits the smallest window");
+    eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+    auto clickExport = [&] {
+        const Rect r = eui.ExportLogsRect();
+        eui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+        eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        eui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+        eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        eui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+        eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+    };
+    // Show logs calls the reveal first, with the logs folder (when it works the folder is not opened as well).
+    eui.SetShowLogs(&FakeShowLogs);
+    {
+        const Rect r = eui.ShowLogsRect();
+        eui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+        eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        eui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+        eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        eui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+        eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(gShowCalls == 1 && gShowFolder == "/Users/player/logs", "About: a click on Show logs reveals the newest log once");
+    }
+    gExportCalls = 0;
+    gExportOk = false;
+    clickExport();
+    Check(gExportCalls == 1 && gExportFolder == "/Users/player/logs", "About: a click on Export logs exports once, from the logs folder");
+    Check(eui.OpenDownloadsRect().w == 0, "About: a refused export shows no Open Downloads");
+    gExportOk = true;
+    clickExport();
+    Check(gExportCalls == 2 && eui.OpenDownloadsRect().w > 0 && eui.OpenDownloadsRect().y > exp.Bottom(),
+          "About: a saved export shows Open Downloads below");
+    eui.ShowAbout(false);
+    eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+    eui.ShowAbout(true);
+    eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+    Check(eui.OpenDownloadsRect().w == 0 && eui.ExportLogsRect().w > 0, "About: Open Downloads is gone once the box was closed");
 }
 
 // The launcher's version beside the large title on both homes, at the smallest window, the start size and two large

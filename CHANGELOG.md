@@ -22,9 +22,11 @@ The first release: play Sim Theme Park and Theme Park World from your own discs,
 - The date shows on the control panel.
 - The Load panel shows save times in your own time zone.
 - Wide screens: the game fits your screen, and the advisor, menus and Options screen are no longer stretched.
+- Export logs, in the About box, saves the launcher's newest log to your Downloads folder, ready to attach to a bug report.
 
 ### Fixed
 
+- Windows: Show logs now opens the logs folder, with the newest log selected. (Thanks Dan on Discord)
 - Fixed a crash when renaming a ride, shop or sign. (Thanks slappyhead and Fladfisk on Discord)
 - Fixed a crash when closing the Save or Load panel.
 - Fixed a crash when sending a postcard.

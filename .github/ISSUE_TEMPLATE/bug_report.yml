@@ -59,7 +59,8 @@ body:
     attributes:
       label: Log
       description: >-
-        Drag the launcher's newest log file here. It is in ~/Library/Application Support/STP-TPW Launcher/logs on a Mac
-        and %APPDATA%\STP-TPW Launcher\logs on Windows; the About box's Show logs button opens the folder.
+        Open the launcher's About box, click Export logs, then drag the file it saves in your Downloads folder here. (The
+        logs are in ~/Library/Application Support/STP-TPW Launcher/logs on a Mac and %APPDATA%\STP-TPW Launcher\logs on
+        Windows; the About box's Show logs button opens the folder.)
     validations:
       required: true

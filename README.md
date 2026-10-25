@@ -101,7 +101,7 @@ The Settings box has these rows:
 
 Your checked game files and your saves live in `~/Library/Application Support/STP-TPW Launcher` on a Mac and in
 `%APPDATA%\STP-TPW Launcher` on Windows. `make clean` and `build.cmd clean` never touch that folder. Each run's log goes to its logs folder
-(launcher-YYYYMMDD-HHMMSS.log, the 10 most recent runs kept; the About box's Show logs button opens it), and
+(launcher-YYYYMMDD-HHMMSS.log, the 10 most recent runs kept; the About box's Show logs button opens it with the newest log selected, and its Export logs button saves the newest to your Downloads folder), and
 `tpw_launcher --version` prints the launcher's version. On Windows the launcher has no console: what it prints goes to
 launcher.log in that folder too, unless its output is redirected (`build\tpw_launcher.exe 2> log.txt`).
 
@@ -313,8 +313,10 @@ Open an issue (the form asks for each of these) or post on Discord, and say:
    names (`build: ...`).
 2. Your system (macOS or Windows and its version, Apple Silicon, Intel or AMD).
 3. Your edition: US, European or Gold.
-4. The launcher's newest log, attached: `~/Library/Application Support/STP-TPW Launcher/logs` on a Mac,
-   `%APPDATA%\STP-TPW Launcher\logs` on Windows (the About box's Show logs button opens the folder).
+4. The launcher's newest log, attached. Open the launcher's About box, click **Export logs**, then attach the file it
+   saves in your Downloads folder ("STP-TPW Launcher log" and the date). The log's own folder is
+   `~/Library/Application Support/STP-TPW Launcher/logs` on a Mac and `%APPDATA%\STP-TPW Launcher\logs` on Windows
+   (the About box's Show logs button opens it).
 5. What you clicked before it went wrong, and whether it happens again when you do the same.
 
 Before reporting, check that you run the newest release: a fix comes in the next version, never in a release already

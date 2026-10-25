@@ -46,6 +46,10 @@ struct WindowPlacement {
     void (*windowShown)() = nullptr;
     // The folder of the log files, which the About box's Show logs opens (empty: no such button).
     std::string logsFolder;
+    // What the About box's Show logs calls first, to select the newest log in the file manager (null: it opens the folder).
+    ShowLogsFn showLogs = nullptr;
+    // What the About box's Export logs calls (null: no such button).
+    ExportLogsFn exportLogs = nullptr;
 };
 
 // Initialises SDL's video subsystem if it is not yet, and leaves it initialised. On Play the window is not closed: it

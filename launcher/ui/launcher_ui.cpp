@@ -1080,6 +1080,7 @@ void LauncherUi::DrawAbout(const Rect& w) {
                      text_.LineHeight(style::kBody) * text_.Wrap(style::kBody, kTagline, inW).size() + 6 +
                      text_.LineHeight(style::kSmallBold) * text_.Wrap(style::kSmallBold, kDisclaimer, inW).size() + 12 +
                      (logsFolder_.empty() ? 0.0f : kLogsRowH + 12) +
+                     (logsFolder_.empty() || !exported_.ok ? 0.0f : kLogsRowH + 12) +
                      text_.LineHeight(style::kBodyBold) + 4 + kRows * (text_.LineHeight(style::kSmall) + 6);
     float ph = std::min(w.h - 2 * metric::kMargin, contentH + 44);
     Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
@@ -1100,15 +1101,42 @@ void LauncherUi::DrawAbout(const Rect& w) {
         const char* label = "Show logs";
         float lw = ui_.ButtonWidth(label);
         showLogsRect_ = {in.x, y, lw, kLogsRowH};
+        // The newest log selected in the file manager when it can; else the folder, as before.
         if (ui_.Button("about-logs", showLogsRect_, label, ButtonKind::Quiet) &&
-            !SDL_OpenURL(FileUrl(logsFolder_).c_str()))
+            !(showLogs_ != nullptr && showLogs_(logsFolder_)) && !SDL_OpenURL(FileUrl(logsFolder_).c_str()))
             ShowNotice(std::string("Could not open the logs folder: ") + SDL_GetError(), true);
         float tx = in.x + lw + 12;
+        if (exportLogs_ != nullptr) {
+            // Export logs: the newest log into the Downloads folder, to attach to a bug report without a hunt for hidden folders.
+            const char* exportLabel = "Export logs";
+            float ew = ui_.ButtonWidth(exportLabel);
+            exportLogsRect_ = {tx, y, ew, kLogsRowH};
+            if (ui_.Button("about-export-logs", exportLogsRect_, exportLabel, ButtonKind::Quiet)) {
+                exported_ = exportLogs_(logsFolder_);
+                ShowNotice(exported_.message, !exported_.ok);
+                if (!exported_.ok) exported_ = LogsExport{};
+            }
+            tx += ew + 12;
+        }
         text_.Draw(style::kSmall, tx, y + (kLogsRowH - text_.LineHeight(style::kSmall)) * 0.5f,
-                   text_.Fit(style::kSmall, "The logs of the last runs. A bug report attaches the newest.",
+                   text_.Fit(style::kSmall,
+                             exportLogs_ != nullptr ? "Attach the exported file to a bug report."
+                                                    : "The logs of the last runs. A bug report attaches the newest.",
                              in.Right() - tx, false),
                    colour::kInkSoft);
         y += kLogsRowH + 12;
+        if (exported_.ok) {   // where the copy went, and a button to show that folder
+            const char* openLabel = "Open Downloads";
+            float ow = ui_.ButtonWidth(openLabel);
+            openDownloadsRect_ = {in.x, y, ow, kLogsRowH};
+            if (ui_.Button("about-open-downloads", openDownloadsRect_, openLabel, ButtonKind::Quiet) &&
+                !SDL_OpenURL(FileUrl(exported_.folder).c_str()))
+                ShowNotice(std::string("Could not open the Downloads folder: ") + SDL_GetError(), true);
+            float sx = in.x + ow + 12;
+            text_.Draw(style::kSmallBold, sx, y + (kLogsRowH - text_.LineHeight(style::kSmallBold)) * 0.5f,
+                       text_.Fit(style::kSmallBold, exported_.message, in.Right() - sx, false), colour::kInk);
+            y += kLogsRowH + 12;
+        }
     }
 
     text_.Draw(style::kBodyBold, in.x, y, "Made with", colour::kInk);
@@ -1146,6 +1174,8 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
     tilesShown_ = false;
     readyShown_ = false;
     versionRect_ = showLogsRect_ = titleRect_ = titleVersionRect_ = headerButtonsRect_ = Rect{};
+    exportLogsRect_ = openDownloadsRect_ = Rect{};
+    if (!aboutOpen_) exported_ = LogsExport{};
     DrawBackdrop(window);
     switch (screen_) {
         case Screen::Home: DrawHome(window); break;

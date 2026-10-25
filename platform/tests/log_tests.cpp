@@ -1,10 +1,12 @@
 // log_tests.cpp: the launcher's log file (platform/log_file.h), in a temporary folder: the file's name, its header,
 // the lines it takes and the ten-file rotation. No window and no game.
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <set>
 #include <sstream>
 #include <string>
@@ -14,6 +16,7 @@
 #include <unistd.h>
 #endif
 
+#include "log_export.h"
 #include "log_file.h"
 #include "platform.h"
 
@@ -173,6 +176,146 @@ int main() {
     // A folder that cannot be made: false and why.
     Touch(root / "a-file");
     Check(!tpw::OpenLogFile(root / "a-file" / "logs", "x", 1, argv, err) && !err.empty(), "OpenLogFile on a file's path fails");
+
+
+    // ---- Export logs (platform/log_export.h)
+    {
+        // The Downloads rule, a pure function: the Known Folder first on Windows, then %USERPROFILE%\Downloads; $HOME/Downloads
+        // elsewhere; nothing to go on gives an empty path.
+        Check(tpw::DownloadsFolderFor(false, "", "/Users/a b", "") == fs::path("/Users/a b") / "Downloads",
+              "Downloads: HOME/Downloads, with a space");
+        Check(tpw::DownloadsFolderFor(false, "/known", "", "/profile").empty(), "Downloads: no HOME, nothing (not Windows)");
+        Check(tpw::DownloadsFolderFor(true, "D:/Moved/Downloads", "/home", "/profile") == fs::path("D:/Moved/Downloads"),
+              "Downloads: the Known Folder wins on Windows");
+        Check(tpw::DownloadsFolderFor(true, "", "/home", "/profile") == fs::path("/profile") / "Downloads",
+              "Downloads: USERPROFILE/Downloads when the Known Folder is not there");
+        Check(tpw::DownloadsFolderFor(true, "", "/home", "").empty(), "Downloads: nothing on Windows without either");
+        const fs::path accents = fs::u8path("/Users/Ren\xC3\xA9" "e \xC3\x85ngstr\xC3\xB6m");
+        Check(tpw::DownloadsFolderFor(false, "", accents, "") == accents / "Downloads", "Downloads: accents in the user's name");
+
+        // DownloadsFolder() reads the environment: HOME (POSIX) or USERPROFILE (Windows, when the Known Folder is not asked;
+        // there the Known Folder is asked and only checked to be an absolute path).
+        const fs::path fakeHome = root / fs::u8path("home dir \xC3\xA9");
+        fs::create_directories(fakeHome / "Downloads");
+#ifdef _WIN32
+        Check(tpw::DownloadsFolder().empty() || tpw::DownloadsFolder().is_absolute(),
+              "DownloadsFolder() on Windows is an absolute path (the player may have moved the folder)");
+#else
+        const char* oldHome = std::getenv("HOME");
+        const std::string savedHome = oldHome != nullptr ? oldHome : "";
+        setenv("HOME", fakeHome.c_str(), 1);
+        Check(tpw::DownloadsFolder() == fakeHome / "Downloads", "DownloadsFolder() is HOME/Downloads: " + tpw::DownloadsFolder().string());
+        unsetenv("HOME");
+        Check(tpw::DownloadsFolder().empty(), "DownloadsFolder() without HOME is empty");
+        if (oldHome != nullptr) setenv("HOME", savedHome.c_str(), 1);
+#endif
+
+        // Explorer's /select argument: quoted, backslashes (also from a Unix-style path), accents and spaces kept.
+        Check(tpw::ExplorerSelectArguments(fs::path(L"C:\\Users\\Ren\u00E9e a\\logs\\launcher-1.log")) ==
+                  L"/select,\"C:\\Users\\Ren\u00E9e a\\logs\\launcher-1.log\"",
+              "Explorer arguments: a Windows path, quoted");
+        Check(tpw::ExplorerSelectArguments(fs::u8path("D:/My Logs/\xC3\xA9/a.log")) == L"/select,\"D:\\My Logs\\\u00E9\\a.log\"",
+              "Explorer arguments: slashes become backslashes");
+
+#ifdef __APPLE__
+        // The Finder call is started and waited for without showing anything when the file is not there: open -R refuses.
+        Check(!tpw::RevealFile(root / "no such file.log"), "RevealFile: a missing file is not shown");
+#endif
+
+        // The name: no colon, the minutes, then " (2)" for a second copy.
+        std::tm tmWhen{};
+        tmWhen.tm_year = 126;
+        tmWhen.tm_mon = 9;
+        tmWhen.tm_mday = 25;
+        tmWhen.tm_hour = 10;
+        tmWhen.tm_min = 12;
+        tmWhen.tm_isdst = -1;
+        const std::time_t when = std::mktime(&tmWhen);
+        Check(tpw::ExportedLogName(when, 1) == "STP-TPW Launcher log 2026-10-25 10-12.txt",
+              "exported name: " + tpw::ExportedLogName(when, 1));
+        Check(tpw::ExportedLogName(when, 2) == "STP-TPW Launcher log 2026-10-25 10-12 (2).txt", "exported name, copy 2");
+
+        // A logs folder with three runs: the newest by name is the one copied, with its bytes (binary-safe: a CR, a NUL and
+        // a high byte) and the original left where it is.
+        const fs::path logs = root / fs::u8path("export logs \xC3\xA9") / "logs";
+        const fs::path out = root / fs::u8path("Downloads \xC3\xA9 x");
+        fs::create_directories(logs);
+        fs::create_directories(out);
+        Check(tpw::NewestLog(logs).empty() && tpw::NewestLog(root / "no such folder").empty(), "NewestLog: none");
+        const std::string oldBytes = "older run\n", newBytes = std::string("newest run\r\n\0\xFF end\n", 19);
+        std::ofstream(logs / "launcher-20261024-090000.log", std::ios::binary) << oldBytes;
+        std::ofstream(logs / "launcher-20261025-101100.log", std::ios::binary) << "second\n";
+        std::ofstream(logs / "launcher-20261025-101100-2.log", std::ios::binary).write(newBytes.data(), newBytes.size());
+        std::ofstream(logs / "notes.txt") << "not a log\n";
+        std::ofstream(logs / "launcher-99999999-999999.txt") << "not a log either\n";
+        // By modification time first, then (same time) by name; non-log files and folders never count, however new.
+        const auto now = fs::file_time_type::clock::now();
+        const auto stamp = [&](const char* name, int minutesAgo) {
+            fs::last_write_time(logs / name, now - std::chrono::minutes(minutesAgo));
+        };
+        fs::create_directories(logs / "launcher-20270101-000000.log");   // a folder with a log's name
+        stamp("launcher-20261024-090000.log", 30);
+        stamp("launcher-20261025-101100.log", 5);
+        stamp("launcher-20261025-101100-2.log", 20);
+        stamp("notes.txt", 0);
+        stamp("launcher-99999999-999999.txt", 0);
+        Check(tpw::NewestLog(logs) == logs / "launcher-20261025-101100.log", "NewestLog: the latest modification time wins over the name");
+        stamp("launcher-20261024-090000.log", 1);
+        Check(tpw::NewestLog(logs) == logs / "launcher-20261024-090000.log", "NewestLog: an older name with a newer time wins");
+        for (const char* name : {"launcher-20261024-090000.log", "launcher-20261025-101100.log", "launcher-20261025-101100-2.log"})
+            fs::last_write_time(logs / name, now - std::chrono::minutes(10));
+        Check(tpw::NewestLog(logs) == logs / "launcher-20261025-101100-2.log", "NewestLog: the same time goes by name, -2 after the plain one");
+        Check(tpw::NewestLog(logs / "notes.txt").empty(), "NewestLog: a file is not a logs folder");
+
+        const tpw::LogExportResult first = tpw::ExportLog(logs, out, when);
+        Check(first.ok && first.message == "Saved to Downloads: STP-TPW Launcher log 2026-10-25 10-12.txt",
+              "export: saved, with the message: " + first.message);
+        Check(first.file == out / "STP-TPW Launcher log 2026-10-25 10-12.txt" && first.folder == out, "export: where it went");
+        const auto slurp = [](const fs::path& file) {
+            std::ifstream in(file, std::ios::binary);
+            return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        };
+        Check(slurp(first.file) == newBytes && newBytes.size() == 19, "export: the copied bytes equal the source");
+        Check(slurp(logs / "launcher-20261025-101100-2.log") == newBytes && fs::exists(logs / "launcher-20261024-090000.log"),
+              "export: the original is left as it was");
+
+        // The name is taken: " (2)", " (3)"; the earlier copies are not touched.
+        std::ofstream(first.file, std::ios::binary) << "someone edited this\n";
+        const tpw::LogExportResult second = tpw::ExportLog(logs, out, when);
+        Check(second.ok && second.file == out / "STP-TPW Launcher log 2026-10-25 10-12 (2).txt", "export: a taken name gets (2)");
+        const tpw::LogExportResult third = tpw::ExportLog(logs, out, when);
+        Check(third.ok && third.file == out / "STP-TPW Launcher log 2026-10-25 10-12 (3).txt", "export: and then (3)");
+        Check(slurp(first.file) == "someone edited this\n" && slurp(second.file) == newBytes, "export: nothing was overwritten");
+        size_t filesBefore = Names(out).size();
+        Check(filesBefore == 3, "export: three files in Downloads");
+
+        // Failures write nothing and say why.
+        const tpw::LogExportResult noLogs = tpw::ExportLog(root / "no such folder", out, when);
+        Check(!noLogs.ok && noLogs.message == "There is no launcher log to export." && noLogs.file.empty() && Names(out).size() == filesBefore,
+              "export: a missing logs folder: " + noLogs.message);
+        fs::create_directories(root / "empty logs");
+        Check(!tpw::ExportLog(root / "empty logs", out, when).ok && Names(out).size() == filesBefore, "export: a logs folder without logs");
+        const tpw::LogExportResult noDownloads = tpw::ExportLog(logs, root / "no such Downloads", when);
+        Check(!noDownloads.ok && noDownloads.message == "The Downloads folder was not found." &&
+                  !fs::exists(root / "no such Downloads"),
+              "export: a missing Downloads folder is not made: " + noDownloads.message);
+        Check(!tpw::ExportLog(logs, fs::path(), when).ok, "export: no Downloads folder at all");
+        Touch(root / "downloads-is-a-file");
+        Check(!tpw::ExportLog(logs, root / "downloads-is-a-file", when).ok && fs::is_regular_file(root / "downloads-is-a-file"),
+              "export: Downloads that is a file");
+#ifndef _WIN32
+        // A Downloads folder that cannot be written (not for root, which ignores the mode).
+        const fs::path locked = root / "locked Downloads";
+        fs::create_directories(locked);
+        fs::permissions(locked, fs::perms::owner_read | fs::perms::owner_exec, fs::perm_options::replace);
+        if (geteuid() != 0) {
+            const tpw::LogExportResult denied = tpw::ExportLog(logs, locked, when);
+            Check(!denied.ok && StartsWith(denied.message, "Could not save to the Downloads folder: ") && Names(locked).empty(),
+                  "export: an unwritable Downloads folder: " + denied.message);
+        }
+        fs::permissions(locked, fs::perms::owner_all, fs::perm_options::replace);
+#endif
+    }
 
     std::error_code ec;
     fs::remove_all(root, ec);

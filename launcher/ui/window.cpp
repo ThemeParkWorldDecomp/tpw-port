@@ -207,6 +207,8 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
         LauncherUi& ui = *owned;
         ui.SetWindow(window);
         ui.SetLogsFolder(placement.logsFolder);
+        ui.SetShowLogs(placement.showLogs);
+        ui.SetExportLogs(placement.exportLogs);
         if (!ui.Ok()) {
             err = ui.Error();
             outcome = WindowOutcome::Failed;

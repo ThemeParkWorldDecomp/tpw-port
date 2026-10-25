@@ -168,6 +168,8 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
     target_include_directories(tpw_platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/platform/win)
     target_compile_options(tpw_platform PRIVATE "SHELL:-include \"${CMAKE_CURRENT_SOURCE_DIR}/platform/win/posix_win.h\"")
     target_link_libraries(tpw_platform PUBLIC ws2_32 glu32)
+    # platform/log_export.cpp: the Downloads folder is a Known Folder (SHGetKnownFolderPath, shell32; CoTaskMemFree, ole32).
+    target_link_libraries(tpw_platform PUBLIC shell32 ole32)
   endif()
 
   # The game's films (QuickTime, Sorenson video) play through FFmpeg (platform/quicktime.cpp), built from source here

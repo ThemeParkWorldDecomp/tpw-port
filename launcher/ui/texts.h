@@ -58,6 +58,11 @@ bool DescribeProgress(const assets::ImportProgress& progress, LogRow& row);
 
 // A folder's file:// URL, for SDL_OpenURL (the About box's Show logs): "/Users/a b/x" becomes "file:///Users/a%20b/x".
 // Bytes other than letters, digits, '/' and "-._~" are percent-encoded, so a space or a non-ASCII name survives.
+// Windows paths (windows true): '\' becomes '/', the drive's colon stays and a third slash leads ("C:\Users\a b" becomes
+// "file:///C:/Users/a%20b"), "\\server\share" becomes "file://server/share", and non-ASCII bytes are left as they are:
+// SDL hands ShellExecuteW the URL as UTF-16, and Windows may read a percent-encoded byte in the ANSI code page.
+std::string FileUrl(const std::string& path, bool windows);
+// The host's: Windows paths on Windows, Unix paths elsewhere.
 std::string FileUrl(const std::string& path);
 
 }  // namespace tpw::ui

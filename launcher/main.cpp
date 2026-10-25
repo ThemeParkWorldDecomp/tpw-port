@@ -46,6 +46,7 @@
 #include "packs.h"
 #include "platform.h"
 #include "handoff.h"
+#include "log_export.h"
 #ifdef _WIN32
 #include "host_win.h"
 #endif
@@ -543,7 +544,21 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
         placement.videoStarted = [] { tpw::LogDisplayOnce(); };
         // While the launcher window is up the menu bar names it with its version; Play renames it after the game below.
         placement.windowShown = [] { NameAppMenu(tpw::ui::kProductNameWithVersion); };
-        if (!tpw::LogFilePath().empty()) placement.logsFolder = std::filesystem::path(tpw::LogFilePath()).parent_path().string();
+        if (!tpw::LogFilePath().empty()) placement.logsFolder = std::filesystem::path(tpw::LogFilePath()).parent_path().u8string();   // UTF-8: SDL_OpenURL takes it
+        placement.showLogs = [](const std::string& logsFolder) {
+            const std::filesystem::path newest = tpw::NewestLog(std::filesystem::u8path(logsFolder));
+            return !newest.empty() && tpw::RevealFile(newest);
+        };
+        placement.exportLogs = [](const std::string& logsFolder) {
+            const tpw::LogExportResult done =
+                tpw::ExportLog(std::filesystem::u8path(logsFolder), tpw::DownloadsFolder(), std::time(nullptr));
+            tpw::LogFileF("export logs: %s", done.ok ? done.file.u8string().c_str() : done.message.c_str());
+            tpw::ui::LogsExport shown;
+            shown.ok = done.ok;
+            shown.message = done.message;
+            shown.folder = done.folder.u8string();
+            return shown;
+        };
         if (!config.display.empty()) {
             if (config.background) {   // before SDL's video starts, as the game's window sets them
                 SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
