@@ -33,6 +33,27 @@ jobs:
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+      # The release page opens with the version's section of CHANGELOG.md, the players' list of what changed
+      # (CONTRIBUTING.md, The changelog). A release needs it dated; a trial takes it as it is, as a preview.
+      - name: The version's changelog section
+        run: |
+          version=$(head -n 1 launcher/VERSION.txt | tr -d '\r'); number=${version%-dev}
+          heading=$(grep -m 1 "^## $number " CHANGELOG.md || true)
+          if [ "$GITHUB_EVENT_NAME" = push ] && ! printf '%s\n' "$heading" | grep -Eq "^## $number \([0-9]{4}-[0-9]{2}-[0-9]{2}\)$"; then
+            echo "::error::CHANGELOG.md has no dated section for $number (found: '$heading')"
+            exit 1
+          fi
+          awk -v h="$heading" '$0 == h {on = 1; next} on && /^## / {exit} on' CHANGELOG.md > changes.md
+          if ! grep -q '[^[:space:]]' changes.md; then
+            echo "::error::CHANGELOG.md's section for $number is empty"
+            exit 1
+          fi
+          cat changes.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: changelog
+          path: changes.md
+          if-no-files-found: error
 
   windows:
     needs: check
@@ -118,7 +139,8 @@ jobs:
         run: |
           cd dist
           sha256sum STP-TPW-Launcher-* > SHA256SUMS.txt
-          cat > notes.md <<EOF
+          { sed -n '/[^[:space:]]/,$p' changes.md; printf '\n## Downloads\n\n'; } > notes.md
+          cat >> notes.md <<EOF
           The STP/TPW Launcher $VERSION, built from the tag $GITHUB_REF_NAME. The Mac and Windows downloads are the same code.
           You need your own copy of the game: the launcher imports it from your discs.
 

@@ -9,6 +9,8 @@ respective owners.
 **Reporting a problem? Always say which launcher version you run** (for example 0.0.3). The launcher's window title,
 its About box and the first line of its log all show it. See [Reporting a problem](#reporting-a-problem).
 
+**What's new:** [CHANGELOG.md](CHANGELOG.md) lists what each version adds and fixes.
+
 ## Quick start
 
 Download the newest release from the [Releases page](https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest). A release is fixed: 0.0.3 is the
@@ -358,6 +360,7 @@ changed or replaced afterwards, so a fix accepted after it ships in the next ver
 
 - [tpw-decomp](https://github.com/ThemeParkWorldDecomp/tpw-decomp): the translation and its differential tests.
 - [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods): optional changes to how the game plays.
+- [CHANGELOG.md](CHANGELOG.md): what each version adds and fixes, in plain words.
 - [FIXES.md](FIXES.md): every place the port behaves differently from the Mac.
 
 No license has been chosen yet for the port's own code. third_party/ffmpeg is FFmpeg 9.0.2 (trimmed), under the GNU LGPL

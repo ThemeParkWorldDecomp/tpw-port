@@ -57,6 +57,25 @@ Players set it in the launcher or a game menu, never by editing a .sam file.
   version.
 - Only the maintainers change launcher/VERSION.txt and cut releases. A pull request leaves it as it is.
 
+## The changelog
+
+CHANGELOG.md tells players what changed in each version, and each release's page shows its section. Every change a
+player can notice gets a line there, written when the change lands, not at release time. A pull request gives its line
+under "Changelog line" in the template, and the maintainers add it.
+
+- Write for players, not programmers. Say what they will notice: "Fixed a crash when renaming a ride." Not why it
+  happened or how it was fixed: that goes in the commit message and FIXES.md.
+- One short, plain sentence. No file, function or code names and no technical words (memory, thread, pointer, heap,
+  lock, offset).
+- It goes under the top heading, the next version ("not released yet"), in New, Changed or Fixed.
+- Thank the people we know reported or made it, in brackets at the end: GitHub users as @name, anyone else by name and
+  where, such as (Thanks Fladfisk on Discord). Never put @ before a name that is not a GitHub account: GitHub would tag a
+  stranger.
+- A change players cannot notice (tests, build scripts, CI, tidying code) gets no line.
+- When a version is released, "not released yet" becomes the release date, and the next landing adds the next
+  version's heading. The export refuses a top heading that does not match launcher/VERSION.txt, and a release refuses
+  to publish without its dated section.
+
 ## How a change lands
 
 Both tpw-decomp and tpw-port are exported from one private working tree. An accepted pull request is merged here and is
