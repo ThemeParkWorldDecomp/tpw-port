@@ -65,6 +65,8 @@ using ShowLogsFn = bool (*)(const std::string& logsFolder);
 using ExportLogsFn = LogsExport (*)(const std::string& logsFolder);
 
 // What the player chose to start.
+class Updater;   // updater.h
+
 struct LaunchChoice {
     assets::Edition edition = assets::kEditionEur;
     bool gold = false;        // with the Gold bonus rides
@@ -93,6 +95,9 @@ public:
     void SetShowLogs(ShowLogsFn showLogs) { showLogs_ = showLogs; }
     // What the About box's Export logs button calls (with a logs folder). Null: no such button.
     void SetExportLogs(ExportLogsFn exportLogs) { exportLogs_ = exportLogs; }
+    // The update check (updater.h), owned by the window: its banner on the homes, the Settings box's "Check for
+    // updates", and on the first launch a line saying that it checks. Null: none of these.
+    void SetUpdater(Updater* updater);
     // Pointer coordinates are the window's, in points.
     void HandleEvent(const SDL_Event& event);
     // Updates and draws one frame of `width` x `height` points at `scale` pixels per point. Does not present.
@@ -101,6 +106,8 @@ public:
     bool Animating() const;
     // True once, after the Play button: the choice to start.
     bool TakePlay(LaunchChoice& out);
+    // True once, after "Restart to update": the update waits for this launcher to quit, and the window closes.
+    bool TakeQuit();
     // After Play (launcher/ui/starting.cpp): the Starting screen, the screen Play was pressed on dimmed under a box with
     // a progress bar. `behind`: a picture of that screen to show instead of drawing it again (the window's, which keeps
     // drawing after its backend is gone); not owned, kept until the Starting screen ends.
@@ -132,6 +139,10 @@ public:
     // The Settings box's Interface size switch, its last row, where the last frame drew it (scrolled with the box), in
     // points (empty when the box is closed).
     Rect InterfaceSizeRect() const { return settingsOpen_ ? interfaceSizeRect_ : Rect{}; }
+    // The Settings box's "Check for updates" switch in the last frame, in points (empty when the box is closed).
+    Rect CheckUpdatesRect() const { return settingsOpen_ ? checkUpdatesRect_ : Rect{}; }
+    // The update banner in the last frame, in points (empty when not shown).
+    Rect UpdateBannerRect() const { return updateBannerRect_; }
     // Whether the last frame scrolled the Settings box, with its clip and its bar (false when the box is closed).
     bool SettingsScrolls() const { return settingsOpen_ && settingsScrolls_; }
     // Where the last frame drew the launcher's version ("v" and the version, the footer's bottom right corner), in
@@ -168,6 +179,7 @@ private:
 
     void DrawBackdrop(const Rect& window);
     float DrawHeader(const Rect& window, bool buttons);
+    float DrawUpdateBanner(const Rect& window, float top);   // returns where the screen goes on
     void DrawTiles(const Rect& row, bool dropTargets);
     Rect DrawFooter(const Rect& window);   // the tagline, the disclaimer and the version; returns where it drew
     void DrawHome(const Rect& window);
@@ -194,6 +206,8 @@ private:
     bool smoothZoom_ = false;       // the Settings box's "Smooth wheel zoom", as launcher.ini keeps it
     int interfaceSize_ = 0;         // the Settings box's "Interface size": 0 100%, 1 85%, 2 70%
     std::vector<int> samChoices_;   // the Graphics section: for each of SamOptions(), 0 the detail level's own, else 1 + its choice
+    bool checkUpdates_ = true;      // the Settings box's "Check for updates", as launcher.ini keeps it (on when absent)
+    Updater* updater_ = nullptr;
 
     // A drag over the window.
     bool dragging_ = false;
@@ -211,6 +225,7 @@ private:
     Rect titleRect_;           // last frame's title, its version label and the header's buttons
     Rect titleVersionRect_;
     Rect headerButtonsRect_;
+    Rect updateBannerRect_;    // last frame's update banner
     std::string logsFolder_;
     ShowLogsFn showLogs_ = nullptr;
     ExportLogsFn exportLogs_ = nullptr;
@@ -245,6 +260,7 @@ private:
     int armedRemove_ = -1;
     std::string settingsMessage_;
     Rect interfaceSizeRect_;   // last frame's (InterfaceSizeRect)
+    Rect checkUpdatesRect_;    // last frame's (CheckUpdatesRect)
     bool settingsScrolls_ = false;   // last frame's (SettingsScrolls)
 
     std::string notice_;

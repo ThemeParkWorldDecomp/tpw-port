@@ -330,8 +330,10 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   configure_file(${TPW_UI_FONTS_CPP}.new ${TPW_UI_FONTS_CPP} COPYONLY)
 
   file(GLOB TPW_LAUNCHER_UI_SOURCES CONFIGURE_DEPENDS launcher/ui/*.cpp)
-  add_library(tpw_launcher_ui STATIC ${TPW_LAUNCHER_UI_SOURCES} ${TPW_UI_FONTS_CPP})
-  target_include_directories(tpw_launcher_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/launcher/ui)
+  # launcher/net/: the only network code of the port (the update check's questions, over the system's curl). Nothing else
+  # may talk to the internet: devtools/check_offline.py holds the tree to that (port_CONTRIBUTING.md, "Playable offline").
+  add_library(tpw_launcher_ui STATIC ${TPW_LAUNCHER_UI_SOURCES} launcher/net/net.cpp ${TPW_UI_FONTS_CPP})
+  target_include_directories(tpw_launcher_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/launcher/ui ${CMAKE_CURRENT_SOURCE_DIR}/launcher/net)
   target_include_directories(tpw_launcher_ui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
   target_link_libraries(tpw_launcher_ui PUBLIC SDL3::SDL3 tpw_assets ZLIB::ZLIB)
   # The launcher's version: launcher/VERSION.txt is the one place it is written (not launcher/VERSION: launcher/ is an
@@ -405,6 +407,12 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   endif()
   target_compile_definitions(tpw_launcher_ui_tests PRIVATE TPW_UI_SCREENS_DEFAULT="${CMAKE_CURRENT_BINARY_DIR}/ui-screens")
   add_test(NAME launcher_ui COMMAND tpw_launcher_ui_tests)
+  # The network module (launcher/net/) and the update check (launcher/ui/updater.h): no answer, fast, when nothing
+  # answers; junk refused; the Update button's runs of the script. Its curl is the test program itself (TPW_NET_CURL), so
+  # it needs no internet and runs where networking is blocked (the CI's offline runs).
+  add_executable(tpw_update_tests launcher/net/tests/update_tests.cpp)
+  target_link_libraries(tpw_update_tests PRIVATE tpw_launcher_ui)
+  add_test(NAME update COMMAND tpw_update_tests)
   # The run-time table loader (platform/game_tables.cpp) against the configure-time tables, where the build has them (the
   # differential tests' or TPW_TABLES_AT_CONFIGURE's): every table it reads from the CD's 2.0.1 program and from the 2.04b3
   # patch's, by the program's SHA-1 and by the content search, must equal the generated arrays byte for byte. The scorers

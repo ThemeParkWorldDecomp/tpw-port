@@ -1,5 +1,6 @@
 // launcher_ui.cpp: the launcher's screens (launcher_ui.h).
 #include "launcher_ui.h"
+#include "updater.h"
 #include "versions.h"
 
 #include <algorithm>
@@ -26,6 +27,7 @@ constexpr float kTileHeight = 158;
 constexpr size_t kLogLimit = 4000;     // rows kept in the checking log
 constexpr float kNoticeSeconds = 4.5f;
 constexpr float kStartupNoticeSeconds = 9.0f;   // the startup check's notice: the window may still be opening
+constexpr float kBannerHeight = 44;    // the update banner under the title (DrawUpdateBanner)
 
 // The tiles' header bands.
 constexpr Rgba kAccents[3] = {colour::kSkyChip, colour::kOrange, colour::kYellow};
@@ -114,6 +116,7 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     smoothZoom_ = backend_.Setting(kSmoothZoomKey) == "1";   // tpw-port PR #20 by samueleagle91
     for (const SamOption& option : SamOptions()) samChoices_.push_back(SamChoice(option, backend_.Setting(option.key)) + 1);
     pcSoundPicks_ = backend_.Setting(kPcSoundPicksKey) != "0";
+    checkUpdates_ = backend_.Setting(kCheckUpdatesKey) != "0";   // on by default (updater.h says why)
     {   // tpw-port PR #24 by samueleagle91
         const std::string size = backend_.Setting(kInterfaceSizeKey);
         interfaceSize_ = size == "85" ? 1 : size == "70" ? 2 : 0;
@@ -391,7 +394,21 @@ void LauncherUi::ChoosePlay(Edition edition, bool gold) {
 }
 
 bool LauncherUi::Animating() const {
-    return ui_.Animating() || dragging_ || noticeLeft_ > 0 || screen_ == Screen::Checking || verify_.valid();
+    return ui_.Animating() || dragging_ || noticeLeft_ > 0 || screen_ == Screen::Checking || verify_.valid() ||
+           (updater_ != nullptr && updater_->Moving());
+}
+
+void LauncherUi::SetUpdater(Updater* updater) {
+    updater_ = updater;
+    // The first launch says once that the launcher checks, unless the startup check's notice is showing.
+    if (updater_ != nullptr && !(noticeLeft_ > 0) && updater_->TakeFirstLaunch()) {
+        ShowNotice("The launcher looks for a new version once a day. Settings turns this off.", false);
+        noticeLeft_ = kStartupNoticeSeconds;
+    }
+}
+
+bool LauncherUi::TakeQuit() {
+    return updater_ != nullptr && updater_->TakeQuit();
 }
 
 bool LauncherUi::TakePlay(LaunchChoice& out) {
@@ -486,6 +503,76 @@ float LauncherUi::DrawHeader(const Rect& w, bool buttons) {
     return kContentTop;
 }
 
+// The update banner (updater.h) under the title on both homes, while there is something to say: the version the check
+// found, with What's new and Update; the update's steps while it builds; "Restart to update" once it is built; why it did
+// not finish. Returns where the screen goes on below it.
+float LauncherUi::DrawUpdateBanner(const Rect& w, float top) {
+    updateBannerRect_ = Rect{};
+    if (updater_ == nullptr || !updater_->Visible()) return top;
+    using Phase = Updater::Phase;
+    const Phase phase = updater_->CurrentPhase();
+    const float m = metric::kMargin, bh = 30;
+    const Rect r{m, top, w.w - 2 * m, kBannerHeight};
+    updateBannerRect_ = r;
+    const Rgba fill = phase == Phase::Failed ? Mix(colour::kRed, colour::kPaper, 0.55f) : colour::kYellowSoft;
+    canvas_.Outlined(r, 12, 2.5f, fill, colour::kInk);
+    const float by = r.CentreY() - bh * 0.5f;
+    float x = r.Right() - 8;   // the right end of what is still free, buttons placed from the right
+    auto button = [&](const char* id, const char* label, ButtonKind kind, bool enabled) {
+        const float bw = ui_.ButtonWidth(label);
+        x -= bw;
+        const bool pressed = ui_.Button(id, {x, by, bw, bh}, label, kind, enabled);
+        x -= 8;
+        return pressed;
+    };
+    auto openPage = [&](const std::string& url) {
+        if (!SDL_OpenURL(url.c_str())) ShowNotice(std::string("Could not open the page: ") + SDL_GetError(), true);
+    };
+    std::string line;
+    switch (phase) {
+        case Phase::Probing:
+        case Phase::Staging:
+            line = phase == Phase::Probing ? std::string("Looking for the update") : "Updating: " + updater_->StepText();
+            x -= 140;
+            ui_.ProgressBar({x, r.CentreY() - 9, 140, 18}, -1);
+            x -= 12;
+            break;
+        case Phase::Staged:
+            line = "Version " + updater_->StagedVersion() + " is ready";
+            if (button("update-restart", "Restart to update", ButtonKind::Go, true)) updater_->Restart();
+            break;
+        case Phase::Failed:
+            line = "Not updated: " + updater_->FailReason();
+            if (button("update-ok", "OK", ButtonKind::Quiet, true)) updater_->Dismiss();
+            if (!logsFolder_.empty() && button("update-logs", "Show logs", ButtonKind::Quiet, true) &&
+                !SDL_OpenURL(FileUrl(logsFolder_).c_str()))
+                ShowNotice(std::string("Could not open the logs folder: ") + SDL_GetError(), true);
+            break;
+        default: {
+            line = "Version " + updater_->Found() + " is out";
+            // A launcher installed by the install script updates itself; any other opens the release page.
+            if (button("update-go", "Update", ButtonKind::Go, !updater_->Offline() && phase == Phase::Idle)) {
+                if (updater_->ScriptInstall()) updater_->Update();
+                else openPage(updater_->WhatsNewUrl());
+            }
+            if (button("update-whats-new", "What's new", ButtonKind::Quiet, true)) openPage(updater_->WhatsNewUrl());
+            if (updater_->Offline()) {
+                const char* offline = "No internet connection";
+                const float ow = text_.Width(style::kSmallBold, offline);
+                x -= ow;
+                text_.Draw(style::kSmallBold, x, r.CentreY() - text_.LineHeight(style::kSmallBold) * 0.5f, offline,
+                           colour::kInkSoft);
+                x -= 12;
+            }
+            break;
+        }
+    }
+    const float tx = r.x + 14;
+    text_.Draw(style::kBodyBold, tx, r.CentreY() - text_.LineHeight(style::kBodyBold) * 0.5f,
+               text_.Fit(style::kBodyBold, line, std::max(0.0f, x - tx), false), colour::kInk);
+    return r.Bottom() + metric::kGap;
+}
+
 void LauncherUi::DrawTiles(const Rect& row, bool dropTargets) {
     float tw = (row.w - 2 * metric::kGap) / 3;
     for (int i = 0; i < 3; ++i) {
@@ -531,7 +618,7 @@ void LauncherUi::DrawHome(const Rect& w) {
         DrawReady(w);
         return;
     }
-    float top = DrawHeader(w, true);
+    float top = DrawUpdateBanner(w, DrawHeader(w, true));
     const float m = metric::kMargin;
 
     // The footer: the descriptive line and the disclaimer, word for word, and the version.
@@ -546,9 +633,12 @@ void LauncherUi::DrawHome(const Rect& w) {
     const float iconH = 44, buttonH = 38;
     float headH = text_.LineHeight(style::kHeading), subH = text_.LineHeight(style::kSmall);
     float block = iconH + 10 + headH + 4 + subH + 14 + buttonH;
+    // Under the update banner the field can be short: the icon goes, the words and the buttons stay.
+    const bool icon = field.h >= block + 28;
+    if (!icon) block -= iconH + 10;
     float cy = field.y + std::max(14.0f, (field.h - block) * 0.5f);
-    ui_.DropField("field", field, fieldHover, cy);
-    cy += iconH + 10;
+    ui_.DropField("field", field, fieldHover, cy, icon);
+    if (icon) cy += iconH + 10;
     const char* heading = fieldHover ? "Let go to check them" : "Drop your game discs, images, zips or folders here";
     text_.DrawCentred(style::kHeading, {field.x, cy, field.w, headH},
                       text_.Fit(style::kHeading, heading, field.w - 40, false), colour::kInk);
@@ -573,7 +663,7 @@ void LauncherUi::DrawHome(const Rect& w) {
 // with its Gold badge and its Play button. The whole window still takes a drop; the tiles light up under it as the small
 // ones do, and "Game data" opens Settings.
 void LauncherUi::DrawReady(const Rect& w) {
-    float top = DrawHeader(w, true);
+    float top = DrawUpdateBanner(w, DrawHeader(w, true));
     const float m = metric::kMargin;
 
     // The footer, as on the home with the drop field.
@@ -848,7 +938,8 @@ void LauncherUi::DrawSettings(const Rect& w) {
     // Everything below the title, as drawn below.
     float bodyH = 2 * (text_.LineHeight(style::kBodyBold) + 4) + 40 + text_.LineHeight(style::kSmall) + 14 + 3 * rowH +
                   4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + 5 * rowH +
-                  text_.LineHeight(style::kBodyBold) + 4 + static_cast<float>(SamOptions().size()) * rowH;
+                  text_.LineHeight(style::kBodyBold) + 4 + static_cast<float>(SamOptions().size()) * rowH +
+                  text_.LineHeight(style::kBodyBold) + 4 + rowH;
     float ph = std::min(w.h - 2 * metric::kMargin, titleH + bodyH + 40);
     Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
     ui_.Panel(panel, colour::kPaper, colour::kCream);
@@ -1054,6 +1145,27 @@ void LauncherUi::DrawSettings(const Rect& w) {
         }
         y += rowH;
     }
+
+    text_.Draw(style::kBodyBold, in.x, y, "Launcher", colour::kInk);
+    y += text_.LineHeight(style::kBodyBold) + 4;
+    {   // on by default, unlike the others: updater.h's kCheckUpdatesKey says why
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, "Check for updates", colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, "Once a day, asks GitHub whether a new version is out", row.w - 12 - 56 - 24,
+                             false),
+                   colour::kInkSoft);
+        checkUpdatesRect_ = {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32};
+        if (ui_.Toggle("check-updates", checkUpdatesRect_, checkUpdates_)) {
+            std::string err;
+            if (!backend_.SaveSetting(kCheckUpdatesKey, checkUpdates_ ? "1" : "0", err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
+            if (updater_ != nullptr) updater_->SetEnabled(checkUpdates_);
+        }
+        y += rowH;
+    }
     y += 4;
     if (verify_.valid() && verifyIndex_ >= 0) {
         std::string msg = std::string("Checking every file of the ") + EditionTitle(kEditions[verifyIndex_]) + " again";
@@ -1161,6 +1273,11 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
     PollVerify();
     PollImport();
     RefreshStatus();
+    if (updater_ != nullptr) {
+        updater_->Poll();
+        const std::string notice = updater_->TakeNotice();
+        if (!notice.empty()) ShowNotice(notice, false);
+    }
     if (noticeLeft_ > 0) noticeLeft_ = std::max(0.0f, noticeLeft_ - dt);
 
     canvas_.Begin(scale);
@@ -1173,7 +1290,7 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
     ui_.SetInteractive(!overlay && !dragging_);
     tilesShown_ = false;
     readyShown_ = false;
-    versionRect_ = showLogsRect_ = titleRect_ = titleVersionRect_ = headerButtonsRect_ = Rect{};
+    versionRect_ = showLogsRect_ = titleRect_ = titleVersionRect_ = headerButtonsRect_ = updateBannerRect_ = Rect{};
     exportLogsRect_ = openDownloadsRect_ = Rect{};
     if (!aboutOpen_) exported_ = LogsExport{};
     DrawBackdrop(window);

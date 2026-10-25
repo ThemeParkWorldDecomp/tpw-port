@@ -88,7 +88,7 @@ public:
     bool Segmented(const std::string& id, const Rect& r, const std::vector<std::string>& options,
                    const std::vector<bool>& enabled, int& selected);
     // The big dashed field the player drops discs on, its icon's top at `iconTop`; `dropHover` while a drag is over it.
-    void DropField(const std::string& id, const Rect& r, bool dropHover, float iconTop);
+    void DropField(const std::string& id, const Rect& r, bool dropHover, float iconTop, bool icon = true);
     void DrawBadge(Badge badge, float cx, float cy, float radius, float fraction);
     // A message in a pill at the bottom of the window.
     void Notice(const Rect& window, std::string_view message, Rgba fill);

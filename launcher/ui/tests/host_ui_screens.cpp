@@ -11,11 +11,13 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <deque>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -24,6 +26,7 @@
 #include "manifest.h"
 #include "texts.h"
 #include "theme.h"
+#include "updater.h"
 #include "widgets.h"
 
 #ifndef TPW_UI_SCREENS_DEFAULT
@@ -320,6 +323,7 @@ struct Shot {
     std::function<void(FakeBackend&)> before;                    // the folder before the screen opens
     std::function<void(LauncherUi&, FakeBackend&, const std::function<void(int)>&)> drive;   // frames(n)
     LauncherUi::Screen screen = LauncherUi::Screen::Home;
+    std::string update;   // the update check's state (MakeUpdater), empty: no update check
 };
 
 // The About box's Export logs: a scripted export that counts its calls and says ok or not.
@@ -390,6 +394,67 @@ void FillEverything(FakeBackend& b) {
 
 std::vector<std::string> g_written;
 
+// An update check (updater.h) brought to `state` with no internet and no script, as the window would have it: "found"
+// (version 0.0.9 is out), "offline" (found on an earlier launch, Update pressed with no answer now), "staging" (the
+// script on its third step, until the updater goes), "staged" or "failed". "first": nothing found yet, on the first
+// launch.
+std::unique_ptr<Updater> MakeUpdater(FakeBackend& b, const std::string& state) {
+    update::Current current;
+    current.version = "0.0.3";
+    current.install.dir = "/Users/player/Applications/STP-TPW-Launcher";
+    UpdaterHooks hooks;
+    hooks.questions.latestRelease = [state](const tpw::net::Limits&) {
+        tpw::net::Release r;
+        r.answered = state != "offline";
+        r.version = state == "first" ? "" : "0.0.9";
+        r.why = r.answered ? "" : "curl failed (exit code 6)";
+        return r;
+    };
+    hooks.run = [state](const tpw::proc::Options& o) {
+        o.onLine("STEP 1/4 Checking this computer");
+        o.onLine("STEP 2/4 Downloading the source");
+        tpw::proc::Result r;
+        r.started = true;
+        if (state == "staging") {
+            o.onLine("STEP 3/4 Building the new version (a few minutes)");
+            while (!o.cancel->load()) SDL_Delay(5);
+            r.cancelled = true;
+        } else if (state == "failed") {
+            o.onLine("RESULT fail Couldn't download the source. Check the internet connection and try again.");
+            r.exitCode = 1;
+        } else {
+            o.onLine("RESULT ok 0.0.9");
+            r.exitCode = 0;
+        }
+        return r;
+    };
+    hooks.exists = [](const std::string&) { return true; };
+    if (state != "first") b.settings[kUpdateToldKey] = "1";
+    if (state == "offline") {
+        b.settings[kUpdateFoundKey] = "0.0.9";
+        b.settings[kUpdateLastCheckKey] = std::to_string(static_cast<long long>(std::time(nullptr)));
+    }
+    auto updater = std::make_unique<Updater>(b, current, nullptr, hooks);
+    auto settle = [&](bool staging) {
+        for (int i = 0; i < 2000; ++i) {
+            updater->Poll();
+            const Updater::Phase p = updater->CurrentPhase();
+            if (staging ? p == Updater::Phase::Staging && updater->StepText().find("step 3") != std::string::npos
+                        : p != Updater::Phase::Checking && p != Updater::Phase::Probing && p != Updater::Phase::Staging)
+                return;
+            SDL_Delay(2);
+        }
+        Check(false, "update check " + state + ": did not settle");
+    };
+    updater->StartupCheck(static_cast<long long>(std::time(nullptr)));
+    settle(false);
+    if (state != "found" && state != "first") {
+        updater->Update();
+        settle(state == "staging");
+    }
+    return updater;
+}
+
 void Render(const std::string& dir, const Shot& shot, int scale) {
     std::string label = shot.name + " @" + std::to_string(scale) + "x";
     int pw = shot.width * scale, ph = shot.height * scale;
@@ -407,6 +472,11 @@ void Render(const std::string& dir, const Shot& shot, int scale) {
         if (shot.before) shot.before(backend);
         LauncherUi ui(renderer, backend);
         Check(ui.Ok(), label + ": fonts: " + ui.Error());
+        std::unique_ptr<Updater> updater;   // goes before the window it is shown in
+        if (!shot.update.empty()) {
+            updater = MakeUpdater(backend, shot.update);
+            ui.SetUpdater(updater.get());
+        }
         auto step = [&](float dt) {
             ui.Frame(dt, static_cast<float>(shot.width), static_cast<float>(shot.height), static_cast<float>(scale));
         };
@@ -498,14 +568,14 @@ std::vector<Shot> Shots() {
     using Screen = LauncherUi::Screen;
     std::vector<Shot> shots;
 
-    shots.push_back({"01-home-empty", metric::kStartWidth, metric::kStartHeight, nullptr, nullptr, Screen::Home});
+    shots.push_back({"01-home-empty", metric::kStartWidth, metric::kStartHeight, nullptr, nullptr, Screen::Home, {}});
 
     shots.push_back({"02-home-drag-over-field", metric::kStartWidth, metric::kStartHeight, nullptr,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
                          ui.HandleEvent(DropEvent(SDL_EVENT_DROP_BEGIN));
                          ui.HandleEvent(DropEvent(SDL_EVENT_DROP_POSITION, 400, 200));
                      },
-                     Screen::Home});
+                     Screen::Home, {}});
 
     shots.push_back({"03-home-drag-over-eu-tile", metric::kStartWidth, metric::kStartHeight, nullptr,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
@@ -513,7 +583,7 @@ std::vector<Shot> Shots() {
                          ui.HandleEvent(DropEvent(SDL_EVENT_DROP_BEGIN));
                          ui.HandleEvent(DropEvent(SDL_EVENT_DROP_POSITION, t.CentreX(), t.CentreY()));
                      },
-                     Screen::Home});
+                     Screen::Home, {}});
 
     shots.push_back({"04-checking", metric::kStartWidth, metric::kStartHeight, nullptr,
                      [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>& frames) {
@@ -532,7 +602,7 @@ std::vector<Shot> Shots() {
                          frames(2);
                          ui.OfferPaths({"/home/player/SimTheme Park.dmg"});   // queued, with a notice
                      },
-                     Screen::Checking});
+                     Screen::Checking, {}});
 
     shots.push_back({"05-result-older-pressing", metric::kStartWidth, metric::kStartHeight, nullptr,
                      [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>&) {
@@ -542,7 +612,7 @@ std::vector<Shot> Shots() {
                          b.Queue(s);
                          ui.OfferPaths({"/media/PC CD"});
                      },
-                     Screen::Result});
+                     Screen::Result, {}});
 
     shots.push_back({"06-result-all-confirmed", metric::kStartWidth, metric::kStartHeight,
                      [](FakeBackend& b) {
@@ -561,7 +631,7 @@ std::vector<Shot> Shots() {
                          b.Queue(s);
                          ui.OfferPaths({"/media/Mac CD"});
                      },
-                     Screen::Result});
+                     Screen::Result, {}});
 
     shots.push_back({"07-result-mac-files-missing", metric::kStartWidth, metric::kStartHeight, nullptr,
                      [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>&) {
@@ -576,7 +646,7 @@ std::vector<Shot> Shots() {
                          b.Queue(s);
                          ui.OfferPaths({"/media/PC CD"});
                      },
-                     Screen::Result});
+                     Screen::Result, {}});
 
     shots.push_back({"08-home-mixed-hover-tile", metric::kStartWidth, metric::kStartHeight,
                      [](FakeBackend& b) {
@@ -589,7 +659,7 @@ std::vector<Shot> Shots() {
                          Rect t = ui.TileRect(1);
                          ui.HandleEvent(MotionEvent(t.CentreX(), t.CentreY()));
                      },
-                     Screen::Home});
+                     Screen::Home, {}});
 
     shots.push_back({"09-play-two-editions-gold", metric::kStartWidth, metric::kStartHeight,
                      [](FakeBackend& b) {
@@ -601,19 +671,19 @@ std::vector<Shot> Shots() {
                          ui.ShowScreen(LauncherUi::Screen::Play);
                          ui.ChoosePlay(assets::kEditionEur, true);
                      },
-                     Screen::Play});
+                     Screen::Play, {}});
 
     shots.push_back({"10-play-one-edition", metric::kStartWidth, metric::kStartHeight, PartialUsEur,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
                          ui.ShowScreen(LauncherUi::Screen::Play);
                      },
-                     Screen::Play});
+                     Screen::Play, {}});
 
     shots.push_back({"11-settings-remove-confirm", metric::kStartWidth, metric::kStartHeight, PartialUsEur,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
                          ui.ArmRemove(assets::kEditionUs);
                      },
-                     Screen::Home});
+                     Screen::Home, {}});
 
     shots.push_back({"12-about", metric::kStartWidth, metric::kStartHeight, nullptr,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
@@ -621,7 +691,7 @@ std::vector<Shot> Shots() {
                          ui.ShowAbout(true);
                          CheckAboutRows(ui);
                      },
-                     Screen::Home});
+                     Screen::Home, {}});
 
     shots.push_back({"12b-about-exported", metric::kStartWidth, metric::kStartHeight, nullptr,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
@@ -638,11 +708,11 @@ std::vector<Shot> Shots() {
                          frames(2);
                          Check(ui.OpenDownloadsRect().w > 0, "About picture: the export saved");
                      },
-                     Screen::Home});
+                     Screen::Home, {}});
 
-    shots.push_back({"13-home-wide", 1100, 760, PartialUsEur, nullptr, Screen::Home});
+    shots.push_back({"13-home-wide", 1100, 760, PartialUsEur, nullptr, Screen::Home, {}});
 
-    shots.push_back({"14-home-smallest", metric::kMinWidth, metric::kMinHeight, nullptr, nullptr, Screen::Home});
+    shots.push_back({"14-home-smallest", metric::kMinWidth, metric::kMinHeight, nullptr, nullptr, Screen::Home, {}});
 
     shots.push_back({"15-result-older-pressing-smallest", metric::kMinWidth, metric::kMinHeight, nullptr,
                      [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>&) {
@@ -651,7 +721,7 @@ std::vector<Shot> Shots() {
                          b.Queue(s);
                          ui.OfferPaths({"/media/PC CD"});
                      },
-                     Screen::Result});
+                     Screen::Result, {}});
 
     shots.push_back({"16-checking-smallest", metric::kMinWidth, metric::kMinHeight, nullptr,
                      [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>&) {
@@ -664,7 +734,7 @@ std::vector<Shot> Shots() {
                          b.Queue(s);
                          ui.OfferPaths({"/home/player/SimTheme Park.dmg"});
                      },
-                     Screen::Checking});
+                     Screen::Checking, {}});
 
     shots.push_back({"17-result-nothing-new", metric::kStartWidth, metric::kStartHeight, PartialUsEur,
                      [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>&) {
@@ -675,7 +745,7 @@ std::vector<Shot> Shots() {
                          b.Queue(s);
                          ui.OfferPaths({"/media/Mac CD"});
                      },
-                     Screen::Result});
+                     Screen::Result, {}});
 
     shots.push_back({"19-result-damaged", metric::kStartWidth, metric::kStartHeight, nullptr,
                      [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>&) {
@@ -686,13 +756,13 @@ std::vector<Shot> Shots() {
                          b.Queue(s);
                          ui.OfferPaths({"/media/Mac CD.zip"});
                      },
-                     Screen::Result});
+                     Screen::Result, {}});
 
     shots.push_back({"18-play-wide", 1100, 760, PartialUsEur,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
                          ui.ShowScreen(LauncherUi::Screen::Play);
                      },
-                     Screen::Play});
+                     Screen::Play, {}});
     // After Play (launcher/ui/starting.cpp): the Play screen dimmed under the Starting box, with the bar at 42% of the
     // last start's total, and with no total yet (the bar moves without a number).
     shots.push_back({"16-starting-eur-42-percent", metric::kStartWidth, metric::kStartHeight, PartialUsEur,
@@ -701,18 +771,18 @@ std::vector<Shot> Shots() {
                          ui.BeginStarting(assets::kEditionEur);
                          ui.SetStartingProgress(0.42f);
                      },
-                     Screen::Starting});
+                     Screen::Starting, {}});
     shots.push_back({"17-starting-indeterminate", metric::kStartWidth, metric::kStartHeight, PartialUsEur,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
                          ui.ShowScreen(LauncherUi::Screen::Play);
                          ui.BeginStarting(assets::kEditionEur);
                          ui.SetStartingProgress(-1.0f);
                      },
-                     Screen::Starting});
+                     Screen::Starting, {}});
 
     // Every edition confirmed: two large tiles with their Gold badges and Play buttons, no drop field.
     shots.push_back({"12-home-all-confirmed", metric::kStartWidth, metric::kStartHeight, FillEverything, nullptr,
-                     Screen::Home});
+                     Screen::Home, {}});
 
     shots.push_back({"13-home-all-confirmed-drag-over", metric::kStartWidth, metric::kStartHeight, FillEverything,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
@@ -720,7 +790,7 @@ std::vector<Shot> Shots() {
                          ui.HandleEvent(DropEvent(SDL_EVENT_DROP_BEGIN));
                          ui.HandleEvent(DropEvent(SDL_EVENT_DROP_POSITION, t.CentreX(), t.CentreY()));
                      },
-                     Screen::Home});
+                     Screen::Home, {}});
 
     // Settings taller than the window: scrolled to its end with the wheel (the pointer in the box's left margin), and
     // in the smallest window at its top, the last row cut off under the bar.
@@ -731,10 +801,27 @@ std::vector<Shot> Shots() {
                          ui.HandleEvent(MotionEvent(90, metric::kStartHeight * 0.5f));
                          ui.HandleEvent(WheelEvent(-10));
                      },
-                     Screen::Home});
+                     Screen::Home, {}});
     shots.push_back({"21-settings-smallest", metric::kMinWidth, metric::kMinHeight, PartialUsEur,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) { ui.ShowSettings(true); },
-                     Screen::Home});
+                     Screen::Home, {}});
+
+    // The update banner under the title (updater.h), in the smallest window: on the home with the drop field (whose
+    // icon makes room for it) and on the all-confirmed one; the first launch's line about the check.
+    shots.push_back({"22-update-found-smallest", metric::kMinWidth, metric::kMinHeight, nullptr, nullptr, Screen::Home,
+                     "found"});
+    shots.push_back({"23-update-found-ready-smallest", metric::kMinWidth, metric::kMinHeight, FillEverything, nullptr,
+                     Screen::Home, "found"});
+    shots.push_back({"24-update-offline", metric::kStartWidth, metric::kStartHeight, FillEverything, nullptr,
+                     Screen::Home, "offline"});
+    shots.push_back({"25-update-staging-smallest", metric::kMinWidth, metric::kMinHeight, nullptr, nullptr,
+                     Screen::Home, "staging"});
+    shots.push_back({"26-update-staged", metric::kStartWidth, metric::kStartHeight, FillEverything, nullptr,
+                     Screen::Home, "staged"});
+    shots.push_back({"27-update-failed-smallest", metric::kMinWidth, metric::kMinHeight, FillEverything, nullptr,
+                     Screen::Home, "failed"});
+    shots.push_back({"28-update-first-launch", metric::kStartWidth, metric::kStartHeight, nullptr, nullptr,
+                     Screen::Home, "first"});
     return shots;
 }
 
@@ -1251,6 +1338,85 @@ void CheckTitleVersion(SDL_Renderer* renderer) {
     }
 }
 
+// The update banner (updater.h) in each of its states, on both homes, in the smallest window and the start size: under
+// the title's row and clear of it, above the tiles, inside the window. The Settings box's "Check for updates": on by
+// default, a click turns it off, keeps check_updates=0 and hides the banner. The first launch's line, once.
+void CheckUpdateBanner(SDL_Renderer* renderer) {
+    for (const char* state : {"found", "offline", "staging", "staged", "failed"}) {
+        for (bool ready : {false, true}) {
+            for (int size = 0; size < 2; ++size) {
+                const float w = size == 0 ? metric::kStartWidth : metric::kMinWidth;
+                const float h = size == 0 ? metric::kStartHeight : metric::kMinHeight;
+                const std::string what = std::string("update banner ") + state + (ready ? ", all-confirmed home" : ", home") +
+                                         " at " + std::to_string(static_cast<int>(w)) + "x" +
+                                         std::to_string(static_cast<int>(h));
+                FakeBackend b;
+                if (ready) FillEverything(b);
+                LauncherUi ui(renderer, b);
+                std::unique_ptr<Updater> updater = MakeUpdater(b, state);
+                ui.SetUpdater(updater.get());
+                ui.Frame(kDt, w, h, 1);
+                const Rect banner = ui.UpdateBannerRect();
+                Check(banner.w > 0, what + ": shown");
+                Check(banner.y >= ui.HeaderButtonsRect().Bottom() + 4 && banner.y >= ui.TitleRect().Bottom(),
+                      what + ": below the title's row");
+                Check(banner.x >= 0 && banner.Right() <= w, what + ": inside the window");
+                for (int i = 0; i < 3; ++i)
+                    Check(!Overlaps(banner, ui.TileRect(i)), what + ": clear of tile " + std::to_string(i));
+                if (ready) Check(ui.ReadyPlayRect(0).y > banner.Bottom() + 100, what + ": the tiles keep their room");
+            }
+        }
+    }
+    {
+        FakeBackend b;
+        LauncherUi ui(renderer, b);
+        std::unique_ptr<Updater> updater = MakeUpdater(b, "found");
+        ui.SetUpdater(updater.get());
+        const float w = metric::kMinWidth, h = metric::kMinHeight;
+        auto frames = [&](int n) {
+            for (int i = 0; i < n; ++i) ui.Frame(kDt, w, h, 1);
+        };
+        ui.ShowSettings(true);
+        frames(1);
+        const auto inBox = [&](const Rect& r) { return r.y > metric::kMargin && r.Bottom() <= h - metric::kMargin; };
+        ui.HandleEvent(MotionEvent(w * 0.5f, h * 0.5f));
+        for (int notch = 0; notch < 60 && !inBox(ui.CheckUpdatesRect()); ++notch) {
+            ui.HandleEvent(WheelEvent(-1));
+            frames(1);
+        }
+        const Rect toggle = ui.CheckUpdatesRect();
+        Check(toggle.w > 0 && inBox(toggle), "settings: the Check for updates row scrolls into the box");
+        CheckEq(b.Setting(kCheckUpdatesKey), "", "settings: Check for updates is not written until changed");
+        Check(updater->Enabled(), "settings: Check for updates is on by default");
+        ui.HandleEvent(MotionEvent(toggle.CentreX(), toggle.CentreY()));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, toggle.CentreX(), toggle.CentreY()));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, toggle.CentreX(), toggle.CentreY()));
+        frames(1);
+        CheckEq(b.Setting(kCheckUpdatesKey), "0", "settings: a click turns Check for updates off and keeps it");
+        Check(!updater->Enabled(), "settings: the updater hears of it");
+        ui.ShowSettings(false);
+        frames(1);
+        Check(ui.UpdateBannerRect().w == 0, "settings: turned off, the banner goes");
+    }
+    {
+        FakeBackend b;
+        LauncherUi first(renderer, b);
+        std::unique_ptr<Updater> updater = MakeUpdater(b, "first");
+        first.SetUpdater(updater.get());
+        first.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(first.Animating(), "first launch: the line about the check shows");
+        CheckEq(b.Setting(kUpdateToldKey), "1", "first launch: told once");
+        Check(first.UpdateBannerRect().w == 0, "first launch: no banner when nothing was found");
+        LauncherUi second(renderer, b);
+        std::unique_ptr<Updater> again = std::make_unique<Updater>(b, update::Current{});
+        second.SetUpdater(again.get());
+        second.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(!second.Animating(), "second launch: no line");
+    }
+}
+
 // The real backend over an empty data folder: the European edition counts the US Mac program as one more required
 // file from the US Mac CD until a file of the program's size is in place (the program's content is not needed here: the
 // importer, too, counts a file of an accepted size as present). The folder is made under the screens folder and
@@ -1322,6 +1488,7 @@ int main(int argc, char** argv) {
         CheckSettingsScroll(renderer);
         CheckVersionAndLogs(renderer);
         CheckTitleVersion(renderer);
+        CheckUpdateBanner(renderer);
         SDL_DestroyRenderer(renderer);
     }
     SDL_DestroySurface(scratch);

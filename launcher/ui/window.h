@@ -13,7 +13,7 @@ namespace tpw::ui {
 
 enum class WindowOutcome {
     Play,    // `choice` says what to start
-    Quit,    // the window was closed
+    Quit,    // the window was closed (or "Restart to update": the update script waits for this process to end)
     Failed,  // `err` says why
 };
 

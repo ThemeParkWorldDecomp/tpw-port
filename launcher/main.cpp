@@ -57,6 +57,7 @@
 #include "ui_main.h"
 #include "ui/backend.h"
 #include "ui/theme.h"
+#include "ui/updater.h"
 #include "ui/window.h"
 
 namespace {
@@ -324,6 +325,8 @@ void Usage(const char* program) {
                  "  --stub-abort   abort at the first unimplemented function (for a debugger)\n"
                  "  --stub-trace   log every call of an unimplemented function, not only the first\n"
                  "  --version      print the launcher's version and build, and exit\n"
+                 "  --check-updates  ask GitHub once whether a newer version is out, print the answer, and exit 0\n"
+                 "                 (changes nothing; offline, it says there was no answer)\n"
                  "Every run's log is also written to logs/launcher-YYYYMMDD-HHMMSS.log in the data folder (the %zu most\n"
                  "recent runs are kept), with the launcher's version, the system and the hardware at its top: a bug report\n"
                  "attaches the newest one\n",
@@ -352,6 +355,21 @@ int EarlyOptions(int argc, char** argv, std::string& dataDir) {
         }
         if (arg == "--help" || arg == "-h") {
             Usage(argv[0]);
+            return 0;
+        }
+        if (arg == "--check-updates") {   // the update check of the window (updater.h), once, in the open
+            const char* base = SDL_GetBasePath();
+            const tpw::ui::update::Current current =
+                tpw::ui::update::DescribeCurrent(tpw::ui::kLauncherVersion, base ? base : "");
+            std::printf("%s (build: %s)\nasks: the newest release\n", tpw::ui::kProductNameWithVersion,
+                        TPW_LAUNCHER_BUILD);
+            if (current.install.Found()) std::printf("installed by the install script in %s\n", current.install.dir.c_str());
+            const auto start = std::chrono::steady_clock::now();
+            const tpw::ui::update::Answer answer = tpw::ui::update::Check(current, tpw::ui::update::Questions());
+            const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+            if (!answer.answered) std::printf("answer: none (%s) after %.1f s\n", answer.why.c_str(), seconds);
+            else if (answer.found.empty()) std::printf("answer: up to date, after %.1f s\n", seconds);
+            else std::printf("answer: %s is out, after %.1f s\n", answer.found.c_str(), seconds);
             return 0;
         }
         if (TakesValue(arg) && i + 1 < argc) {
@@ -476,6 +494,24 @@ void NameAppMenu(const char* name) {
 #endif
 }
 
+// The launcher's settings, written to launcher.ini again after the importer's last write of the file (the choice it saved
+// on Play, an import in the window), which kept the importer's older copy of the keys: on Play and when the window
+// closes. From tpw-port PRs #10, #20, #22 and #24 by samueleagle91; the update check's keys (updater.h) too.
+void KeepSettings(const tpw::ui::ImporterBackend& backend, const std::string& prefPath) {
+    for (const char* key : {tpw::ui::kSkipIntroKey, tpw::ui::kBackToLauncherKey, tpw::ui::kSmoothZoomKey,
+                            tpw::ui::kInterfaceSizeKey, tpw::ui::kPcSoundPicksKey, tpw::ui::kCheckUpdatesKey,
+                            tpw::ui::kUpdateLastCheckKey, tpw::ui::kUpdateFoundKey, tpw::ui::kUpdateToldKey}) {
+        const std::string value = backend.Setting(key);
+        std::string ignored;
+        if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, key, value, ignored);
+    }
+    for (const tpw::ui::SamOption& option : tpw::ui::SamOptions()) {   // the Graphics section's keys, as above
+        const std::string value = backend.Setting(option.key);
+        std::string ignored;
+        if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, option.key, value, ignored);
+    }
+}
+
 // No --game: the edition comes from the data folder, through the launcher's window or --play. Fills in the game
 // folder, the edition, the user folder and the program (each unless an option named it already) and returns -1 to
 // start the game; any other value is the launcher's exit code (0 when the window was closed).
@@ -570,7 +606,9 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
                 placement.display = tpw::ChosenDisplay();
             }
         }
-        switch (tpw::launcher::OpenLauncherWindow(backend, choice, err, placement)) {
+        const tpw::ui::WindowOutcome outcome = tpw::launcher::OpenLauncherWindow(backend, choice, err, placement);
+        if (outcome == tpw::ui::WindowOutcome::Quit) KeepSettings(backend, prefPath);
+        switch (outcome) {
             case tpw::ui::WindowOutcome::Quit: return 0;
             case tpw::ui::WindowOutcome::Failed:
                 tpw::LogRawF("launcher: the launcher's window failed: %s\n", err.c_str());
@@ -578,21 +616,9 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
             case tpw::ui::WindowOutcome::Play: break;
         }
     }
-    // The launcher's settings are written to launcher.ini again here, after the importer's last write of the file (the
-    // choice it saved on Play), which kept the importer's older copy of the keys. "Skip the intro films" is as
-    // --no-movies; "Back to the launcher after playing" opens the launcher again when a game started from its window
-    // quits (ReopenLauncher). From tpw-port PRs #10, #20, #22 and #24 by samueleagle91.
-    for (const char* key : {tpw::ui::kSkipIntroKey, tpw::ui::kBackToLauncherKey, tpw::ui::kSmoothZoomKey,
-                            tpw::ui::kInterfaceSizeKey, tpw::ui::kPcSoundPicksKey}) {
-        const std::string value = backend.Setting(key);
-        std::string ignored;
-        if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, key, value, ignored);
-    }
-    for (const tpw::ui::SamOption& option : tpw::ui::SamOptions()) {   // the Graphics section's keys, as above
-        const std::string value = backend.Setting(option.key);
-        std::string ignored;
-        if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, option.key, value, ignored);
-    }
+    // "Skip the intro films" is as --no-movies; "Back to the launcher after playing" opens the launcher again when a
+    // game started from its window quits (ReopenLauncher).
+    KeepSettings(backend, prefPath);
     gBackToLauncher = choice.backToLauncher;
     // The Park rules box (tpw-port PR #23: more visitors per bus, a higher visitor limit) left the port, which changes
     // only how the game is shown and driven, never how a park plays; it is to become a tpw-mods mod. A launcher.ini that

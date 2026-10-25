@@ -153,7 +153,27 @@ The Settings box has these rows:
 - Graphics: seven options of the original's options files (low.sam, med.sam, high.sam), each Default by default, which
   keeps the value of the game's own graphics quality: view distance (Short, Medium, Long, Max), sky layers (1, 2, 4),
   cloud shadows, ground blending (Off, 16, 32, 64), texture quality (Low, High), lighting and visitor shadows (Off, On).
+- Check for updates: on by default (the one launcher setting that is; see Updates below). Off, the launcher never asks.
 - Check again: rehashes every file.
+
+### Updates
+
+Once a day, when it starts, the launcher asks GitHub whether a newer version is out. It asks in the background and the
+window never waits for it. It sends nothing about you or your game: the question is the same for everyone, and GitHub
+sees only that someone asked. The first start says so in a line at the bottom of the window.
+
+- It looks only for releases. A build of main (a version ending in -dev, from the install script's dev option) hears of
+  a release newer than itself, and of the release of its own number once it is out, but never of newer commits of main.
+- When there is one, a banner under the title says "Version X.Y.Z is out", with What's new (the release's page) and
+  Update. Installed with the install script, Update builds the new release beside the one you run and says each step
+  (a dev install too: Update always goes to the newest release); when it is ready, Restart to update closes the
+  launcher and starts the new one. If anything goes wrong, nothing is changed and the banner says why, with Show logs.
+  Downloaded or built by hand, Update opens the release's page.
+- With no internet, or when GitHub does not answer, the launcher says nothing and asks again at the next start. Update
+  is greyed out with "No internet connection" until a later start reaches GitHub.
+- To turn it off: Settings, Check for updates. `tpw_launcher --check-updates` asks once and prints the answer.
+
+The game itself never needs the internet: everything plays offline.
 
 ## What you need
 
@@ -226,7 +246,8 @@ The translation is the [tpw-decomp](https://github.com/ThemeParkWorldDecomp/tpw-
 on the Mac, bugs included. This repository adds what it takes to play:
 
 - launcher/: the program (the launcher's window, the options, the game's start-up) and the generated stand-ins for the
-  names nothing defines yet.
+  names nothing defines yet. launcher/net/ is the only code that uses the internet (the update check; CONTRIBUTING.md,
+  "Playable offline").
 - platform/: the Mac Toolbox, Sound Sprockets, QuickTime and the game's Windows-style shims, done on SDL3, OpenGL and
   CoreText (on Windows, stb_truetype in place of CoreText).
 - overrides/: the port's fixes, 197 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what

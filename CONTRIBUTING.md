@@ -47,6 +47,30 @@ Players set it in the launcher or a game menu, never by editing a .sam file.
 - One concern per pull request, and one per commit.
 - Say in the pull request what you tested and on what: the edition and the system.
 
+## Playable offline
+
+The game is played offline, and the port keeps it that way:
+
+- Nothing needs the internet to start, play, save or load. The launcher, the game and their tests run the same with no
+  connection.
+- What does use the internet is optional and fails silently. Today that is the launcher's update check (README,
+  "Updates"): with no answer it says nothing and asks again at the next start. The Update button's script downloads
+  only when the player presses it.
+- All network code is in one place, launcher/net/. It asks with the system's own curl, a short time limit and a cap on
+  what it reads, and anything but an answer in the exact shape expected is no answer.
+
+CI checks this on every push and pull request (.github/workflows/build.yml):
+
+- `python3 -I devtools/check_offline.py` reads every C, C++ and Objective-C file and fails on a socket or HTTP header, a
+  network call, a web address in a string, or curl or wget started as a program, anywhere outside launcher/net/. Run it
+  before a pull request; it takes a few seconds. The original game's own online layer (the TPW Online world, its e-mail
+  and FTP client, and platform/winsock.cpp under them) is listed there by file and kept as the original had it: the port
+  never offers the online world, and its servers are gone. A vendored library's file is listed only with the reason it
+  never talks to the network (FFmpeg is built without its network code).
+- On the Macs, the tests run a second time with the network blocked (sandbox-exec), and `tpw_launcher --check-updates`
+  must come back at once with no answer and exit 0. There is no Linux build here, and Windows has no simple way to block
+  one program's network, so the Windows jobs do not repeat the tests offline.
+
 ## Versions and releases
 
 - Pull requests target main. Main is always the next version: launcher/VERSION.txt says it with -dev (0.0.4-dev).

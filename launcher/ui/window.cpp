@@ -6,11 +6,13 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <memory>
 #include <vector>
 
 #include "theme.h"
+#include "updater.h"
 
 namespace tpw::ui {
 
@@ -209,6 +211,12 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
         ui.SetLogsFolder(placement.logsFolder);
         ui.SetShowLogs(placement.showLogs);
         ui.SetExportLogs(placement.exportLogs);
+        // The update check: once a day, on a thread of its own; closing the window stops it (or an update's build).
+        const char* base = SDL_GetBasePath();
+        Updater updater(backend, update::DescribeCurrent(kLauncherVersion, base ? base : ""),
+                        placement.log);
+        ui.SetUpdater(&updater);
+        updater.StartupCheck(static_cast<long long>(std::time(nullptr)));
         if (!ui.Ok()) {
             err = ui.Error();
             outcome = WindowOutcome::Failed;
@@ -246,6 +254,8 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
             if (play) {
                 outcome = WindowOutcome::Play;
                 running = false;
+            } else if (ui.TakeQuit()) {
+                running = false;   // "Restart to update": Quit, and the update script takes over
             } else if (placement.maxFrames > 0 && drawn >= placement.maxFrames) {
                 running = false;   // --frames N: the window run ends by itself, exit 0 (Quit)
             }
@@ -255,6 +265,7 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
             backend.Cancel();
             backend.Wait();
         }
+        ui.SetUpdater(nullptr);   // it goes with this block; the Starting screen has no banner
         if (outcome == WindowOutcome::Play) {
             kept = std::move(owned);
             keptDumper = std::move(dumperOwned);
