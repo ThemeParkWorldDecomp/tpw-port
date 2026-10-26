@@ -655,12 +655,55 @@ ui_wait() {
 }
 
 # Prints the notes (the lines say kept) under the block, in $1.
+# The notes (the lines say kept) under the block, in $1 (a colour, or ""): a line that starts with a space (a command,
+# a list item) as it is; a line that does not end a sentence is joined to the next; each paragraph wrapped to the
+# block's text width and indented two spaces, with a blank line only between paragraphs (a word wider than a line, a
+# path, is kept whole).
 ui_notes() {
     [ -n "$UI_NOTES" ] || return 0
     printf '\n'
-    printf '%s' "$UI_NOTES" | while IFS= read -r _l; do
-        printf '  %s%s%s\n' "$1" "$(tilde "$_l")" "$RST"
-    done
+    printf '%s\n' "$UI_NOTES" | {
+        _para=""
+        _gap=0
+        _any=0
+        while IFS= read -r _l; do
+            case "$_l" in
+                "") ui_note_flush "$1"; [ "$_any" = 0 ] || _gap=1; continue ;;
+                " "*) ui_note_flush "$1"; _para=$_l; ui_note_flush "$1" raw; continue ;;
+            esac
+            _l=$(tilde "$_l")
+            _para="${_para:+$_para }$_l"
+            case "$_l" in *[.:?!\"]) ui_note_flush "$1" ;; esac
+        done
+    }
+}
+
+# ui_note_flush COLOUR [raw]: the paragraph gathered so far, if any, wrapped (or as it is when raw).
+ui_note_flush() {
+    [ -n "$_para" ] || return 0
+    [ "$_gap" = 0 ] || printf '\n'
+    _gap=0
+    _any=1
+    if [ "$2" = raw ]; then
+        printf '  %s%s%s\n' "$1" "$(tilde "$_para")" "$RST"
+    else
+        _w=$((UI_TW - 2))
+        _line=""
+        set -f
+        for _wd in $_para; do
+            if [ -z "$_line" ]; then
+                _line=$_wd
+            elif [ $((${#_line} + 1 + ${#_wd})) -le "$_w" ]; then
+                _line="$_line $_wd"
+            else
+                printf '  %s%s%s\n' "$1" "$_line" "$RST"
+                _line=$_wd
+            fi
+        done
+        set +f
+        [ -z "$_line" ] || printf '  %s%s%s\n' "$1" "$_line" "$RST"
+    fi
+    _para=""
 }
 
 # The last lines of the log and where it is, after a failure of the downloads or the build.
@@ -1227,9 +1270,12 @@ tell_old_copies() {
     copies=$(old_copies)
     [ -n "$copies" ] || return 0
     say ""
-    printf '%s\n' "$copies" | while IFS= read -r c; do
+    # not a pipe: the progress view keeps say's lines in a variable, which a pipe's subshell would lose
+    while IFS= read -r c; do
         say "An older copy of the launcher is in $c."
-    done
+    done <<EOF
+$copies
+EOF
     if [ "$(printf '%s\n' "$copies" | wc -l)" -gt 1 ]; then
         say "If you only used them to play, they are no longer needed: this install replaces them, and you can delete"
         say "those folders. Your games, saves and settings are not in them."

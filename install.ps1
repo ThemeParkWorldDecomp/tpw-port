@@ -650,11 +650,50 @@ $TpwInstallCode = @(& {
         Write-Host $text -ForegroundColor $fg
     }
 
-    # The notes (the lines Say kept) under the block, in $colour ('' for none).
+    # $text in lines no wider than $width where its words allow (a word wider than a line, a path, is kept whole).
+    function Get-UiNoteLines([int]$width, [string]$text) {
+        $lines = New-Object System.Collections.ArrayList
+        $line = ''
+        foreach ($word in ($text -split ' ')) {
+            if (-not $word) { continue }
+            if (-not $line) { $line = $word }
+            elseif ($line.Length + 1 + $word.Length -le $width) { $line = $line + ' ' + $word }
+            else { [void]$lines.Add($line); $line = $word }
+        }
+        if ($line) { [void]$lines.Add($line) }
+        return ,$lines
+    }
+
+    # The notes (the lines Say kept) under the block, in $colour ('' for none): a line that starts with a space (a
+    # command, a list item) as it is; a line that does not end a sentence is joined to the next; each paragraph
+    # wrapped to the block's text width and indented two spaces, with a blank line only between paragraphs.
     function Write-UiNotes([string]$colour) {
         if ($Ui.Notes.Count -eq 0) { return }
+        $items = New-Object System.Collections.ArrayList
+        $para = ''
+        foreach ($n in (@($Ui.Notes) + @(''))) {
+            if ($n -eq '') {
+                if ($para) { [void]$items.Add(@{ Text = $para; Raw = $false }); $para = '' }
+                if ($items.Count -gt 0 -and $null -ne $items[$items.Count - 1]) { [void]$items.Add($null) }
+                continue
+            }
+            if ($n.StartsWith(' ')) {
+                if ($para) { [void]$items.Add(@{ Text = $para; Raw = $false }); $para = '' }
+                [void]$items.Add(@{ Text = $n; Raw = $true })
+                continue
+            }
+            if ($para) { $para = $para + ' ' + $n } else { $para = $n }
+            if ($n -match '[.:?!"]$') { [void]$items.Add(@{ Text = $para; Raw = $false }); $para = '' }
+        }
+        while ($items.Count -gt 0 -and $null -eq $items[$items.Count - 1]) { $items.RemoveAt($items.Count - 1) }
+        if ($items.Count -eq 0) { return }
         Write-Host ''
-        foreach ($n in $Ui.Notes) { Write-UiText ('  ' + (ConvertTo-Tilde $n)) $colour }
+        foreach ($it in $items) {
+            if ($null -eq $it) { Write-Host ''; continue }
+            $text = ConvertTo-Tilde $it.Text
+            if ($it.Raw) { Write-UiText ('  ' + $text) $colour; continue }
+            foreach ($l in (Get-UiNoteLines ($Ui.TW - 2) $text)) { Write-UiText ('  ' + $l) $colour }
+        }
     }
 
     # The last lines of the log and where it is, after a failure of the downloads or the build.
