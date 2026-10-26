@@ -10,6 +10,7 @@ The first release: play Sim Theme Park and Theme Park World from your own discs,
 ### New
 
 - A Windows version, alongside the Mac one.
+- A Linux version, drawn by the port's own Vulkan renderer (OpenGL when there is no Vulkan driver).
 - Setting: skip the intro films.
 - Setting: go back to the launcher when you quit the game.
 - Setting: Full screen can be switched off to play in a window; Alt+Enter switches it while playing on Windows (Cmd+Ctrl+F on a Mac).

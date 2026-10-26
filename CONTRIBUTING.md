@@ -5,7 +5,7 @@ The project is three repositories, and every change belongs in exactly one of th
 | Repository | What it holds | Pull requests |
 | --- | --- | --- |
 | [tpw-decomp](https://github.com/ThemeParkWorldDecomp/tpw-decomp) | The translation: the Mac program's own functions in C++, each behaving exactly as the Mac build does, bugs included, with the differential tests that check it. | None. A function that behaves differently from the Mac is reported as an issue on tpw-port. |
-| [tpw-port](https://github.com/ThemeParkWorldDecomp/tpw-port) | The original game on today's Macs and Windows PCs: the launcher, the platform layer, the builds, and the fixes that make it run as it did on the Mac. | Welcome, by its CONTRIBUTING.md. |
+| [tpw-port](https://github.com/ThemeParkWorldDecomp/tpw-port) | The original game on today's Macs, Windows PCs and Linux machines: the launcher, the platform layer, the builds, and the fixes that make it run as it did on the Mac. | Welcome, by its CONTRIBUTING.md. |
 | [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) | Optional changes to how the game plays, each one off until the player turns it on. tpw-port carries it as a submodule at mods/. | Welcome, by its CONTRIBUTING.md. |
 
 The test for where a change goes: does a park play the same with it on and with it off? If it does, the change belongs in
@@ -18,7 +18,7 @@ Players set it in the launcher or a game menu, never by editing a .sam file.
 
 ## What belongs here
 
-- Running the game: other systems (Linux, for example), builds, the launcher, tools.
+- Running the game: other systems (the BSDs, for example), builds, the launcher, tools.
 - Fixes that make the game run as it did on the Mac: a crash, something the Mac draws that the port did not, a file the
   port could not read.
 - A setting, only when all three hold:
@@ -69,8 +69,8 @@ CI checks this on every push and pull request (.github/workflows/build.yml):
   and FTP client, and platform/winsock.cpp under them) is listed there by file and kept as the original had it: the port
   never offers the online world, and its servers are gone. A vendored library's file is listed only with the reason it
   never talks to the network (FFmpeg is built without its network code).
-- On the Macs, the tests run a second time with the network blocked (sandbox-exec), and `tpw_launcher --check-updates`
-  must come back at once with no answer and exit 0. There is no Linux build here, and Windows has no simple way to block
+- On the Macs, the tests run a second time with the network blocked (sandbox-exec), and on Linux too (unshare -n), and
+  `tpw_launcher --check-updates` must come back at once with no answer and exit 0. Windows has no simple way to block
   one program's network, so the Windows jobs do not repeat the tests offline.
 
 ## Versions and releases
