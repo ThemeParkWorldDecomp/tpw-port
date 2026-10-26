@@ -45,6 +45,10 @@
 # Run through iex (no file) the script never calls exit, which would close the PowerShell window; it sets
 # $LASTEXITCODE instead.
 #
+# These are the lines of plain mode, which is what the updater gets (the output is a pipe). Run in a console the script
+# shows the same run as a progress view instead (see "output in a console" below), and -Plain asks for the lines in a
+# console too. The build's whole output goes to DIR\last-build.log either way; plain mode shows it as well.
+#
 # WHY IT BUILDS FROM SOURCE. A program downloaded from the internet is blocked by Windows (SmartScreen) and macOS
 # (Gatekeeper) unless its maker signed it with a paid certificate. A program the PC compiled itself is not marked as
 # downloaded, so there is nothing to block and nothing to sign. The price is a few minutes of compiling.
@@ -79,6 +83,8 @@
 # Test hooks (for the maintainers' tests, not for players): TPW_INSTALL_REPO replaces the repository URL, and
 # TPW_INSTALL_STUB=1 puts a stand-in launcher in place of the download and the build (the installer's CI tests the
 # themepark command with it), of version TPW_INSTALL_STUB_VERSION when set (a newer one stands in for a new release).
+# TPW_INSTALL_VIEW=plain, lines or vt forces that view of the output, whatever the output is (the CI runs the progress
+# view through a pipe with it).
 #
 # This file is plain ASCII on purpose: Windows PowerShell reads a file without a byte order mark as ANSI.
 
@@ -92,6 +98,7 @@ param(
     [switch]$SwapAndLaunch,
     [string]$WaitPid = '',
     [switch]$NoLaunch,
+    [switch]$Plain,
     [switch]$Help,
     # anything else, refused below with a RESULT line
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest
@@ -136,6 +143,7 @@ $TpwInstallCode = @(& {
         Write-Host '  -SwapAndLaunch   switch DIR\build-next in as DIR\build (the old one is kept as DIR\build-prev), then start it'
         Write-Host '  -WaitPid PID     with -SwapAndLaunch: first wait for that process (the running launcher) to exit'
         Write-Host '  -NoLaunch        do not start the launcher at the end'
+        Write-Host '  -Plain           one line per step and the build''s whole output, no colour, no redrawing (what a file gets)'
         Write-Host '  -Help            this text'
         Write-Host ''
         Write-Host 'After installing, type themepark in any PowerShell window to play, from any folder.'
@@ -143,24 +151,40 @@ $TpwInstallCode = @(& {
         Write-Host "the launcher's Update button, which never adds -Dev."
     }
 
-    # ---- output: the lines the launcher reads
+    # ---- output: the lines the launcher reads (plain mode)
+    #
+    # Two ways of showing the same run. Plain mode ($Ui.Mode plain: the output is not a console, -Plain, NO_COLOR,
+    # TERM=dumb or a window narrower than 60 columns) prints the lines below and the build's output as it comes: that is
+    # what the updater, the CI and a log get, and it never changes. In a console the same run is one block that redraws
+    # in place (the progress view further down): a row per stage, a bar for the build, the build's output only in the
+    # log.
 
     function Step([string]$text) {
         $St.StepNo += 1
-        Write-Host "STEP $($St.StepNo)/$($St.StepTotal) $text"
+        if ($Ui.Mode -eq 'plain') { Write-Host "STEP $($St.StepNo)/$($St.StepTotal) $text" }
     }
 
-    function Say([string]$text) { Write-Host $text }
+    # A line for people. In the progress view it is kept and shown under the block at the end (a notice, or what went
+    # wrong).
+    function Say([string]$text) {
+        if ($Ui.Mode -eq 'plain') { Write-Host $text } else { [void]$Ui.Notes.Add($text) }
+    }
 
-    # Prints the one RESULT fail line and unwinds to the end of the block.
+    # A line of plain mode only: the progress view shows the same thing in its rows.
+    function Info([string]$text) {
+        if ($Ui.Mode -eq 'plain') { Write-Host $text }
+    }
+
+    # Prints the one RESULT fail line (the progress view: what went wrong, under the block) and unwinds to the end of
+    # the block.
     function Fail([string]$reason) {
-        Write-Host "RESULT fail $reason"
+        if ($Ui.Mode -eq 'plain') { Write-Host "RESULT fail $reason" } else { Show-UiFail $reason }
         $St.Done = $true
         throw 'tpw-install-failed'
     }
 
     function Finish-Ok([string]$version) {
-        Write-Host "RESULT ok $version"
+        if ($Ui.Mode -eq 'plain') { Write-Host "RESULT ok $version" } else { Finish-Ui }
         $St.Done = $true
     }
 
@@ -169,6 +193,481 @@ $TpwInstallCode = @(& {
         if ($detail) { Say $detail }
         Say 'The launcher in use was not changed.'
         Fail "Couldn't reach GitHub, try again later."
+    }
+
+    # ---- output in a console: the progress view
+    #
+    # One block, redrawn in place: a title, a row per stage (a green check when done, a spinner while it runs, grey
+    # while it waits, a yellow ! for a notice, a red x when it failed), a blank line and a footer. The build's row is a
+    # bar with the percentage and the file being compiled, read from build.ps1's output as it comes (ninja's "[12/345]
+    # Building CXX object ..." lines). The cursor is hidden while the block redraws and shown again before anything
+    # else is printed. Rows are only ever added; the names are those of the design note (tools, source, build, command,
+    # start; installed, newest, swap on an update). Two console modes: vt (Windows Terminal, PowerShell 7, or the
+    # console host once SetConsoleMode turned its escape codes on) and lines (a console host without them: every
+    # finished row on its own line in colour, the running one in Write-Progress, nothing redrawn, ASCII glyphs). The
+    # width is read again at every frame: after a resize the block starts afresh below the old one rather than drawing
+    # over the wrong lines.
+
+    $Ui = @{ Mode = 'plain'; Rows = (New-Object System.Collections.ArrayList); Lines = 0; Cols = 80; LastCols = 0
+             Frame = 0; Pad = 20; Version = ''; Footer = ''; Closing = ''
+             Notes = (New-Object System.Collections.ArrayList); FailText = ''; FailDone = $false
+             Start = (Get-Date); BuildStart = (Get-Date); BuildT0 = $null; BuildP0 = 0; Pct = 0; File = ''
+             Src = 'source'; Got = ''; LastDraw = [DateTime]::MinValue; Header = $false; Progress = ''
+             G = @{ done = '[x]'; pending = '[ ]'; warn = '[!]'; fail = '[x]'; on = '#'; off = '.' }
+             Spin = @('[>]') }
+    # The escape codes of vt mode (empty in the other modes, so that the same text serves all of them).
+    $C = @{ Esc = [string][char]27; Rst = ''; Bold = ''; Dim = ''; Green = ''; Cyan = ''; Yellow = ''; Red = ''; Clr = '' }
+
+    # The console host's escape codes (ENABLE_VIRTUAL_TERMINAL_PROCESSING), turned on with one SetConsoleMode call.
+    # Windows Terminal and PowerShell 7 have them on already. False when the console refuses (an old Windows, or the
+    # legacy console).
+    function Enable-UiVt {
+        try {
+            if (-not ('TpwInstall.Con' -as [type])) {
+                Add-Type -Namespace TpwInstall -Name Con -MemberDefinition @'
+[DllImport("kernel32.dll", SetLastError = true)] public static extern IntPtr GetStdHandle(int nStdHandle);
+[DllImport("kernel32.dll", SetLastError = true)] public static extern bool GetConsoleMode(IntPtr hConsoleHandle, out uint lpMode);
+[DllImport("kernel32.dll", SetLastError = true)] public static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint dwMode);
+'@
+            }
+            $handle = [TpwInstall.Con]::GetStdHandle(-11)
+            $mode = [uint32]0
+            if (-not [TpwInstall.Con]::GetConsoleMode($handle, [ref]$mode)) { return $false }
+            if (($mode -band 4) -ne 0) { return $true }
+            return [bool][TpwInstall.Con]::SetConsoleMode($handle, [uint32]($mode -bor 4))
+        } catch { return $false }
+    }
+
+    # The console's width in columns: the window's, else 80.
+    function Get-UiCols {
+        $w = 0
+        try { $w = [int]$Host.UI.RawUI.WindowSize.Width } catch {}
+        if ($w -le 0) { try { $w = [int][Console]::WindowWidth } catch {} }
+        if ($w -le 0) { $w = 80 }
+        return $w
+    }
+
+    # Chooses the view, once the options are read, and sets up the colours and glyphs of the console view.
+    function Start-Ui {
+        $Ui.Mode = 'plain'
+        $want = "$env:TPW_INSTALL_VIEW"
+        if ($Plain -or $want -eq 'plain') { return }
+        if ($want -ne 'vt' -and $want -ne 'lines') {
+            $want = ''
+            if ($env:NO_COLOR -or $env:TERM -eq 'dumb') { return }
+            try { if ([Console]::IsOutputRedirected) { return } } catch { return }
+            if ($Host.Name -ne 'ConsoleHost' -and -not $Host.UI.SupportsVirtualTerminal) { return }
+        }
+        $Ui.Cols = Get-UiCols
+        if (-not $want -and $Ui.Cols -lt 60) { return }
+        $vt = $false
+        if ($want -eq 'vt') { $vt = $true }
+        elseif (-not $want) {
+            if ($Host.UI.SupportsVirtualTerminal) { $vt = $true } else { $vt = Enable-UiVt }
+        }
+        $Ui.LastCols = $Ui.Cols
+        $Ui.Start = Get-Date
+        if ($vt) {
+            $Ui.Mode = 'vt'
+            $e = $C.Esc
+            $C.Rst = $e + '[0m'; $C.Bold = $e + '[1m'; $C.Dim = $e + '[38;5;243m'; $C.Green = $e + '[32m'
+            $C.Cyan = $e + '[36m'; $C.Yellow = $e + '[33m'; $C.Red = $e + '[31m'; $C.Clr = $e + '[K'
+            # the glyphs of the design note, which Consolas and Cascadia have (no emoji): a check, a middle dot, an x,
+            # the blocks of the bar, the braille spinner
+            $Ui.G = @{ done = [string][char]0x2714; pending = [string][char]0x00B7; warn = '!'
+                       fail = [string][char]0x2716; on = [string][char]0x2588; off = [string][char]0x2591 }
+            $Ui.Spin = @(@(0x280B, 0x2819, 0x2839, 0x2838, 0x283C, 0x2834, 0x2826, 0x2827, 0x2807, 0x280F) | ForEach-Object { [string][char]$_ })
+            Write-Host -NoNewline ($e + '[?25l')
+        } else {
+            $Ui.Mode = 'lines'
+        }
+        # the text column: 4 spaces, the glyph, 2 spaces, the name in 13, a space
+        $Ui.Pad = 4 + $Ui.G.done.Length + 2 + 13 + 1
+    }
+
+    # $seconds as "48 s", "3 min 40 s" or "3 min".
+    function Format-Duration([int]$seconds) {
+        if ($seconds -lt 60) { return "$seconds s" }
+        $min = [math]::Floor($seconds / 60)
+        if ($seconds % 60 -eq 0) { return "$min min" }
+        return "$min min $($seconds % 60) s"
+    }
+
+    # The seconds since $from, whole.
+    function Get-Elapsed($from) { return [int][math]::Floor(((Get-Date) - $from).TotalSeconds) }
+
+    # $text with the profile folder written ~, for the rows (the log and plain mode keep paths as they are).
+    function ConvertTo-Tilde([string]$text) {
+        $profileDir = "$env:USERPROFILE"
+        if ($profileDir.Length -le 3) { return $text }
+        return [regex]::Replace($text, '(?i)' + [regex]::Escape($profileDir.TrimEnd('\')), '~')
+    }
+
+    # The row named $name, or $null.
+    function Get-UiRow([string]$name) {
+        foreach ($row in $Ui.Rows) { if ($row.Name -eq $name) { return $row } }
+        return $null
+    }
+
+    # Set-UiRow NAME STATE TEXT: the row's state (done, active, pending, warn, fail) and text; a new row goes at the
+    # end.
+    function Set-UiRow([string]$name, [string]$state, [string]$text) {
+        if ($Ui.Mode -eq 'plain') { return }
+        $row = Get-UiRow $name
+        if ($null -eq $row) {
+            $row = @{ Name = $name; State = ''; Text = ''; Shown = '' }
+            [void]$Ui.Rows.Add($row)
+        }
+        $row.State = $state
+        $row.Text = $text
+        if ($Ui.Mode -eq 'vt') { Write-UiFrame } else { Write-UiRowLine $row }
+    }
+
+    function Set-UiActive([string]$name, [string]$text) { Set-UiRow $name 'active' $text }
+    function Set-UiDone([string]$name, [string]$text) { Set-UiRow $name 'done' $text }
+    function Set-UiPending([string]$name, [string]$text) { Set-UiRow $name 'pending' $text }
+    function Set-UiWarn([string]$name, [string]$text) { Set-UiRow $name 'warn' $text }
+
+    # The state of the row named $name ('' when there is none).
+    function Get-UiState([string]$name) {
+        $row = Get-UiRow $name
+        if ($null -eq $row) { return '' }
+        return $row.State
+    }
+
+    # The row named $name is called $new from now on.
+    function Rename-UiRow([string]$name, [string]$new) {
+        $row = Get-UiRow $name
+        if ($null -ne $row) { $row.Name = $new }
+    }
+
+    # The row that runs now (the last one), or $null.
+    function Get-UiActiveRow {
+        for ($i = $Ui.Rows.Count - 1; $i -ge 0; $i--) {
+            if ($Ui.Rows[$i].State -eq 'active') { return $Ui.Rows[$i] }
+        }
+        return $null
+    }
+
+    # $text in lines no wider than $width, split at spaces; a word wider than a line is clipped, so that a line never
+    # wraps by itself.
+    function Get-UiWrapped([int]$width, [string]$text) {
+        if ($width -lt 8) { $width = 8 }
+        $lines = New-Object System.Collections.ArrayList
+        $line = ''
+        foreach ($word in ($text -split ' ')) {
+            if (-not $word) { continue }
+            if ($word.Length -gt $width) { $word = $word.Substring(0, $width - 3) + '...' }
+            if (-not $line) { $line = $word }
+            elseif ($line.Length + 1 + $word.Length -le $width) { $line = $line + ' ' + $word }
+            else { [void]$lines.Add($line); $line = $word }
+        }
+        [void]$lines.Add($line)
+        return ,$lines
+    }
+
+    # A row of vt mode: its lines (the name padded to 13; the text wrapped, or the bar as the build laid it out).
+    function Format-UiRow($row) {
+        switch ($row.State) {
+            'done' { $g = $C.Green + $Ui.G.done + $C.Rst }
+            'active' { $g = $C.Cyan + $Ui.Spin[$Ui.Frame % $Ui.Spin.Count] + $C.Rst }
+            'pending' { $g = $C.Dim + $Ui.G.pending + $C.Rst }
+            'warn' { $g = $C.Yellow + $Ui.G.warn + $C.Rst }
+            default { $g = $C.Red + $Ui.G.fail + $C.Rst }
+        }
+        $name = $row.Name.PadRight(13)
+        if ($row.State -eq 'pending') { $first = '    ' + $g + '  ' + $C.Dim + $name + ' '; $more = $C.Dim }
+        else { $first = '    ' + $g + '  ' + $C.Bold + $name + $C.Rst + ' '; $more = '' }
+        $out = New-Object System.Collections.ArrayList
+        if ($row.Text.Contains($C.Esc)) {
+            [void]$out.Add($first + $row.Text)
+            return ,$out
+        }
+        $indent = ' ' * $Ui.Pad
+        $i = 0
+        foreach ($l in (Get-UiWrapped ($Ui.Cols - $Ui.Pad - 1) $row.Text)) {
+            if ($i -eq 0) { [void]$out.Add($first + $l + $C.Rst) } else { [void]$out.Add($indent + $more + $l + $C.Rst) }
+            $i++
+        }
+        return ,$out
+    }
+
+    # Draws the block, over the last frame when there is one (vt mode).
+    function Write-UiFrame {
+        if ($Ui.Mode -ne 'vt') { return }
+        $Ui.Cols = Get-UiCols
+        $sb = New-Object System.Text.StringBuilder
+        if ($Ui.Cols -ne $Ui.LastCols) {
+            if ($Ui.Lines -gt 0) { [void]$sb.Append("`r`n") }
+            $Ui.Lines = 0
+            $Ui.LastCols = $Ui.Cols
+        }
+        $prev = $Ui.Lines
+        if ($prev -gt 0) { [void]$sb.Append($C.Esc + '[' + $prev + 'A' + "`r") }
+        $lines = New-Object System.Collections.ArrayList
+        $title = '  ' + $C.Bold + 'STP/TPW Launcher'
+        if ($Ui.Version) { $title = $title + ' ' + $Ui.Version }
+        [void]$lines.Add($title + $C.Rst)
+        [void]$lines.Add('')
+        foreach ($row in $Ui.Rows) { foreach ($l in (Format-UiRow $row)) { [void]$lines.Add($l) } }
+        [void]$lines.Add('')
+        foreach ($l in (Get-UiWrapped ($Ui.Cols - 3) $Ui.Footer)) { [void]$lines.Add('  ' + $l) }
+        foreach ($l in $lines) { [void]$sb.Append($l).Append($C.Clr).Append("`r`n") }
+        # a frame shorter than the one before: what is left of the old one is cleared
+        if ($lines.Count -lt $prev) {
+            for ($k = $lines.Count; $k -lt $prev; $k++) { [void]$sb.Append($C.Clr).Append("`r`n") }
+            [void]$sb.Append($C.Esc + '[' + ($prev - $lines.Count) + 'A' + "`r")
+        }
+        $Ui.Lines = $lines.Count
+        $Ui.LastDraw = Get-Date
+        Write-Host -NoNewline $sb.ToString()
+    }
+
+    # The title, once, before the first line of lines mode.
+    function Write-UiHeader {
+        if ($Ui.Header) { return }
+        $Ui.Header = $true
+        $title = 'STP/TPW Launcher'
+        if ($Ui.Version) { $title = $title + ' ' + $Ui.Version }
+        Write-Host ('  ' + $title) -ForegroundColor White
+        Write-Host ''
+    }
+
+    function Complete-UiProgress {
+        if (-not $Ui.Progress) { return }
+        $ProgressPreference = 'Continue'
+        try { Write-Progress -Id 1 -Activity $Ui.Progress -Completed } catch {}
+        $Ui.Progress = ''
+    }
+
+    # A row of lines mode: a finished row (done, warn, fail) on its own line, once; the running one in Write-Progress.
+    function Write-UiRowLine($row) {
+        if ($row.State -eq 'active') {
+            $ProgressPreference = 'Continue'
+            $status = $row.Text
+            if (-not $status) { $status = '...' }
+            try {
+                if ($row.Name -eq 'build' -and $Ui.Pct -gt 0) {
+                    Write-Progress -Id 1 -Activity $row.Name -Status $status -PercentComplete $Ui.Pct
+                } else {
+                    Write-Progress -Id 1 -Activity $row.Name -Status $status
+                }
+                $Ui.Progress = $row.Name
+            } catch {}
+            return
+        }
+        if ($row.State -eq 'pending') { return }
+        $key = $row.State + '|' + $row.Text
+        if ($row.Shown -eq $key) { return }
+        $row.Shown = $key
+        Complete-UiProgress
+        Write-UiHeader
+        switch ($row.State) {
+            'done' { $g = $Ui.G.done; $colour = 'Green' }
+            'warn' { $g = $Ui.G.warn; $colour = 'Yellow' }
+            default { $g = $Ui.G.fail; $colour = 'Red' }
+        }
+        $i = 0
+        foreach ($l in (Get-UiWrapped ($Ui.Cols - $Ui.Pad - 1) $row.Text)) {
+            if ($i -eq 0) {
+                Write-Host -NoNewline '    '
+                Write-Host -NoNewline $g -ForegroundColor $colour
+                Write-Host -NoNewline ('  ' + $row.Name.PadRight(13) + ' ') -ForegroundColor White
+                Write-Host $l
+            } else {
+                Write-Host ((' ' * $Ui.Pad) + $l)
+            }
+            $i++
+        }
+    }
+
+    # The build row's text: the bar (20 cells, 10 under 70 columns), the percentage, the time left (from the pace so
+    # far, once 10 points and 5 seconds are done) and the file being compiled, in what is left of the line. Lines mode
+    # has no bar of its own (Write-Progress draws one): the percentage, the time left and the file.
+    function Format-UiBuild {
+        $pct = $Ui.Pct
+        $left = ''
+        if ($null -ne $Ui.BuildT0 -and $pct -lt 100) {
+            $gain = $pct - $Ui.BuildP0
+            $spent = ((Get-Date) - $Ui.BuildT0).TotalSeconds
+            if ($gain -ge 10 -and $spent -ge 5) {
+                $left = 'about ' + (Format-Duration ([int][math]::Floor($spent * (100 - $pct) / $gain))) + ' left'
+            }
+        }
+        $pc = "$pct".PadLeft(2) + ' %'
+        if ($Ui.Mode -ne 'vt') {
+            $t = $pc
+            if ($left) { $t = $t + '   ' + $left }
+            if ($Ui.File) { $t = $t + '   ' + $Ui.File }
+            return $t
+        }
+        $w = 20
+        if ($Ui.Cols -lt 70) { $w = 10; $left = '' }
+        $on = [int][math]::Floor($pct * $w / 100)
+        $bar = $C.Cyan + ($Ui.G.on * $on) + $C.Dim + ($Ui.G.off * ($w - $on)) + $C.Rst
+        $t = $bar + '  ' + $pc
+        $used = $w + 6
+        if ($left) { $t = $t + '   ' + $left; $used = $used + 3 + $left.Length }
+        $room = $Ui.Cols - $Ui.Pad - $used - 4
+        if ($Ui.File -and $room -ge 8) {
+            $f = $Ui.File
+            if ($f.Length -gt $room) { $f = '...' + $f.Substring($f.Length - $room + 3) }
+            $t = $t + '   ' + $C.Dim + $f + $C.Rst
+        }
+        return $t
+    }
+
+    # The build's row from a line of build.ps1's output: the percentage (ninja's "[12/345]", or make's "[ 58%]"), the
+    # file being compiled or linked, what the tools are up to before that; redrawn a few times a second at most.
+    function Update-UiBuild([string]$line) {
+        $changed = $false
+        $rest = $null
+        if ($line -match '^\[\s*(\d+)/(\d+)\]\s*(.*)$') {
+            $a = [int]$Matches[1]
+            $b = [int]$Matches[2]
+            $rest = $Matches[3]
+            if ($b -gt 0) { $Ui.Pct = [int][math]::Floor($a * 100 / $b) }
+            $changed = $true
+        } elseif ($line -match '^\[\s*(\d+)%\]\s*(.*)$') {
+            $Ui.Pct = [int]$Matches[1]
+            $rest = $Matches[2]
+            $changed = $true
+        } elseif ($line -match '^==> Configuring') {
+            $Ui.File = 'configuring'
+            $changed = $true
+        } elseif ($line -match '^==> Fetching (\S+)') {
+            $Ui.File = 'fetching ' + $Matches[1]
+            $changed = $true
+        }
+        if ($null -ne $rest) {
+            if ($rest -match '^Building .*? object (.*)$') {
+                $Ui.File = ($Matches[1] -replace 'CMakeFiles[\\/][^\\/]*\.dir[\\/]', '') -replace '\.(o|obj)$', ''
+            } elseif ($rest -match '^Linking \S+ \S+ (.*)$') {
+                $Ui.File = 'linking ' + $Matches[1]
+            }
+        }
+        if ($Ui.Pct -gt 100) { $Ui.Pct = 100 }
+        if ($Ui.Pct -gt 0 -and $null -eq $Ui.BuildT0) { $Ui.BuildT0 = Get-Date; $Ui.BuildP0 = $Ui.Pct }
+        if (-not $changed) { return }
+        if (((Get-Date) - $Ui.LastDraw).TotalMilliseconds -lt 200 -and $Ui.Pct -lt 100) { return }
+        $Ui.Frame += 1
+        Set-UiActive 'build' (Format-UiBuild)
+        $Ui.LastDraw = Get-Date
+    }
+
+    # A line under the block, in colour ($colour: Green, Yellow, Red, Dim or '').
+    function Write-UiText([string]$text, [string]$colour) {
+        if (-not $colour) { Write-Host $text; return }
+        if ($Ui.Mode -eq 'vt') { Write-Host ($C[$colour] + $text + $C.Rst); return }
+        $fg = $colour
+        if ($colour -eq 'Dim') { $fg = 'DarkGray' }
+        Write-Host $text -ForegroundColor $fg
+    }
+
+    # The notes (the lines Say kept) under the block, in $colour ('' for none).
+    function Write-UiNotes([string]$colour) {
+        if ($Ui.Notes.Count -eq 0) { return }
+        Write-Host ''
+        foreach ($n in $Ui.Notes) { Write-UiText ('  ' + (ConvertTo-Tilde $n)) $colour }
+    }
+
+    # The last lines of the log and where it is, after a failure of the downloads or the build.
+    function Write-UiLogTail {
+        if (-not (Test-Path -LiteralPath $Log -PathType Leaf)) { return }
+        $tail = @(Get-Content -LiteralPath $Log -Tail 15 -ErrorAction SilentlyContinue)
+        if ($tail.Count -eq 0) { return }
+        Write-Host ''
+        Write-Host '  The last lines of its output:'
+        foreach ($l in $tail) { Write-UiText ('      ' + $l) 'Dim' }
+        Write-Host ''
+        Write-Host "  The whole output is in $(ConvertTo-Tilde $Log) (it holds nothing personal)."
+        Write-Host '  Please attach it to a bug report: https://github.com/ThemeParkWorldDecomp/tpw-port/issues'
+        Write-Host '  Run the line again with -Plain to see everything.'
+    }
+
+    # The block's last frame, with the cursor back. $state and $text: what the row that was running becomes ('' leaves
+    # it as it is).
+    function Close-Ui([string]$state, [string]$text) {
+        if ($state) {
+            $row = Get-UiActiveRow
+            if ($null -ne $row) { $row.State = $state; $row.Text = $text }
+        }
+        if ($Ui.Mode -eq 'vt') {
+            if ($Ui.Rows.Count -gt 0 -or $Ui.Lines -gt 0) { Write-UiFrame }
+            Write-Host -NoNewline ($C.Esc + '[?25h')
+            return
+        }
+        Complete-UiProgress
+        foreach ($row in $Ui.Rows) { if ($row.State -ne 'active' -and $row.State -ne 'pending') { Write-UiRowLine $row } }
+        Write-UiHeader
+        Write-Host ''
+        if ($Ui.Footer) { Write-Host ('  ' + $Ui.Footer) }
+    }
+
+    # What went wrong: the running row turns red with the first sentence of the reason, then the notes, then the log's
+    # last lines when a download or the build failed.
+    function Show-UiFail([string]$reason) {
+        if ($Ui.FailDone) { Write-UiNotes ''; return }
+        $short = $reason
+        $cut = $short.IndexOf('. ')
+        if ($cut -ge 0) { $short = $short.Substring(0, $cut) }
+        $short = $short.TrimEnd('.')
+        $row = Get-UiActiveRow
+        $name = ''
+        if ($null -ne $row) {
+            $name = $row.Name
+            $text = $Ui.FailText
+            if (-not $text) { $text = ConvertTo-Tilde $short }
+            Close-Ui 'fail' $text
+        } else {
+            Close-Ui '' ''
+            Write-Host ''
+            if ($Ui.Mode -eq 'vt') {
+                Write-Host ('    ' + $C.Red + $Ui.G.fail + $C.Rst + '  ' + (ConvertTo-Tilde $short))
+            } else {
+                Write-Host -NoNewline '    '
+                Write-Host -NoNewline $Ui.G.fail -ForegroundColor Red
+                Write-Host ('  ' + (ConvertTo-Tilde $short))
+            }
+        }
+        Write-UiNotes ''
+        if ($name -eq 'source' -or $name -eq 'build' -or $name -eq 'newest') { Write-UiLogTail }
+        Write-Host ''
+    }
+
+    # The run worked: the last frame, the notes (yellow) and the closing line (green).
+    function Finish-Ui {
+        Close-Ui '' ''
+        Write-UiNotes 'Yellow'
+        Write-Host ''
+        Write-UiText ('  ' + (ConvertTo-Tilde $Ui.Closing)) 'Green'
+        Write-Host ''
+    }
+
+    # Ctrl+C: the block stays as it was and the text goes under it, with the cursor back.
+    function Show-UiStopped {
+        if ($Ui.Mode -eq 'vt') { Write-Host ($C.Esc + '[?25h' + "`r" + $C.Clr) } else { Complete-UiProgress; Write-Host '' }
+        Write-UiText '  Stopped. Nothing is half installed: the new build was in its own staging folder' 'Yellow'
+        Write-UiText '  and the old launcher is as it was. Run the line again to continue.' 'Yellow'
+    }
+
+    # A git command whose output is for the screen: shown as it comes in plain mode, kept in the log (scrubbed) by the
+    # progress view. Its exit code is in $LASTEXITCODE, as for any program.
+    function Invoke-Git {
+        if ($Ui.Mode -eq 'plain') {
+            & git.exe @GitCfg @args | Out-Host
+            return
+        }
+        $rules = Get-LogRules
+        $writer = New-Object System.IO.StreamWriter($Log, $true, (New-Object System.Text.UTF8Encoding($false)))
+        try {
+            & git.exe @GitCfg @args 2>&1 | ForEach-Object {
+                if ($_ -is [System.Management.Automation.ErrorRecord]) { $line = $_.Exception.Message } else { $line = "$_" }
+                $writer.WriteLine((ConvertTo-LogLine $line $rules))
+            }
+            $code = $LASTEXITCODE
+        } finally { $writer.Close() }
+        $global:LASTEXITCODE = $code
     }
 
     # ---- paths
@@ -252,7 +751,7 @@ $TpwInstallCode = @(& {
         }
         if (-not [Environment]::Is64BitOperatingSystem) { Fail 'This needs 64-bit Windows 10 or 11.' }
         $os = [Environment]::OSVersion.Version
-        Say "Windows $($os.Major).$($os.Minor) build $($os.Build), $env:PROCESSOR_ARCHITECTURE"
+        Info "Windows $($os.Major).$($os.Minor) build $($os.Build), $env:PROCESSOR_ARCHITECTURE"
 
         $missing = @()
         $how = @()
@@ -277,13 +776,14 @@ $TpwInstallCode = @(& {
             $how += 'Git: run  winget install --id Git.Git -e  (or get it from https://git-scm.com/download/win), then open a new PowerShell window.'
         }
         if ($missing.Count) {
+            $Ui.FailText = "not installed: $($missing -join ', ')"
             Say "Missing: $($missing -join ', ')."
             foreach ($h in $how) { Say "  $h" }
             Say 'Then run this command again. Nothing was changed.'
             Fail "Missing: $($missing -join ', '). See the lines above for how to get it, then run this again."
         }
         $gitVersion = (& git.exe --version 2>$null | Out-String).Trim()
-        Say "Git: $gitVersion"
+        Info "Git: $gitVersion"
 
         # Estimates (the README says 2.5 GB for a clone and its build): the source is about 150 MB and a build folder
         # with its tools (the compiler is the biggest) about 2 GB. An update makes a second build folder beside the one
@@ -333,33 +833,37 @@ $TpwInstallCode = @(& {
         }
         $newest = ($versions | Sort-Object | Select-Object -Last 1)
         $St.Tag = "v$newest"
-        Say "Newest release: $newest"
+        Info "Newest release: $newest"
+        $Ui.Version = "$newest"
     }
 
     # Clones or fetches the source and checks out the wanted commit, submodules included. Sets $St.Commit and
     # $St.Version.
     function Get-Source {
         if (Test-Path -LiteralPath (Join-Path $Src '.git')) {
-            & git.exe @GitCfg -C $Src remote set-url origin $Repo | Out-Host
+            Invoke-Git -C $Src remote set-url origin $Repo
             if ($LASTEXITCODE -ne 0) { Fail "Couldn't use the source folder $Src." }
         } elseif (Test-Path -LiteralPath $Src) {
             Say "$Src exists but is not a git clone, so this script cannot use it. Move it away and run this again."
             Fail "$Src is in the way. Move it away and run this again."
         } else {
-            Say "Downloading the source (a clone of $Repo)"
+            Info "Downloading the source (a clone of $Repo)"
+            Set-UiActive $Ui.Src 'downloading tpw-port'
             # -c on clone keeps the settings in the clone, for every later git command too.
-            & git.exe @GitCfg clone -c core.autocrlf=false -c core.longpaths=true --no-checkout $Repo $Src | Out-Host
+            Invoke-Git clone -c core.autocrlf=false -c core.longpaths=true --no-checkout $Repo $Src
             if ($LASTEXITCODE -ne 0) { Fail-Network 'The download of the source did not finish.' }
         }
 
         if ($St.Channel -eq 'dev') {
-            Say 'Fetching main'
-            & git.exe @GitCfg -C $Src fetch --force --no-tags origin '+refs/heads/main:refs/remotes/origin/main' | Out-Host
+            Info 'Fetching main'
+            Set-UiActive $Ui.Src 'fetching main'
+            Invoke-Git -C $Src fetch --force --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
             if ($LASTEXITCODE -ne 0) { Fail-Network 'The download of the source did not finish.' }
             $ref = 'refs/remotes/origin/main'
         } else {
-            Say "Fetching $($St.Tag)"
-            & git.exe @GitCfg -C $Src fetch --force --no-tags origin "+refs/tags/$($St.Tag):refs/tags/$($St.Tag)" | Out-Host
+            Info "Fetching $($St.Tag)"
+            Set-UiActive $Ui.Src "fetching $($St.Tag)"
+            Invoke-Git -C $Src fetch --force --no-tags origin "+refs/tags/$($St.Tag):refs/tags/$($St.Tag)"
             if ($LASTEXITCODE -ne 0) { Fail-Network 'The download of the source did not finish.' }
             $ref = "refs/tags/$($St.Tag)"
         }
@@ -378,12 +882,13 @@ $TpwInstallCode = @(& {
                 Fail "The source folder has changes of its own: $Src"
             }
         }
-        & git.exe @GitCfg -C $Src checkout -q --detach $commit | Out-Host
+        Invoke-Git -C $Src checkout -q --detach $commit
         if ($LASTEXITCODE -ne 0) { Fail "Couldn't switch the source to $commit." }
-        & git.exe @GitCfg -C $Src submodule sync -q --recursive | Out-Host
+        Invoke-Git -C $Src submodule sync -q --recursive
         if ($LASTEXITCODE -ne 0) { Fail "Couldn't read the source's submodules." }
-        Say 'Downloading the submodules'
-        & git.exe @GitCfg -C $Src submodule update --init --recursive --force | Out-Host
+        Info 'Downloading the submodules'
+        Set-UiActive $Ui.Src 'downloading the submodules'
+        Invoke-Git -C $Src submodule update --init --recursive --force
         if ($LASTEXITCODE -ne 0) { Fail-Network 'The download of the submodules did not finish.' }
 
         $versionFile = Join-Path $Src 'launcher\VERSION.txt'
@@ -395,7 +900,8 @@ $TpwInstallCode = @(& {
             Fail "The release $($St.Tag) says it is version $version. Not installing it."
         }
         $St.Version = $version
-        Say "Source: $commit (version $version)"
+        Info "Source: $commit (version $version)"
+        $Ui.Version = $version
     }
 
     # Makes an empty DIR\build-next and copies in the tools the build in use fetched (build.ps1 keeps each with its
@@ -405,9 +911,11 @@ $TpwInstallCode = @(& {
         [void](New-Item -ItemType Directory -Force -Path $Next)
         $oldTools = Join-Path $Dir 'build\tools'
         if (Test-Path -LiteralPath $oldTools) {
-            Say 'Copying the build tools of the launcher in use'
+            Info 'Copying the build tools of the launcher in use'
+            Set-UiActive $Ui.Src 'copying the build tools of the launcher in use'
             & robocopy.exe $oldTools (Join-Path $Next 'tools') /E /NFL /NDL /NJH /NJS /NP | Out-Null
             if ($LASTEXITCODE -ge 8) { Say 'Copying them did not work; the build fetches them again.' }
+            if ($Ui.Mode -ne 'plain') { Set-UiDone $Ui.Src $Ui.Got }   # the row gets its text back
         }
     }
 
@@ -447,20 +955,27 @@ $TpwInstallCode = @(& {
         return $line
     }
 
-    # devtools\win\build.ps1, its output on the screen and in DIR\last-build.log. TOOLS=fetch: the pinned tools, the same
-    # as the release builds, whatever this PC's PATH has. Its exit codes: 0 done, 10 no curl.exe or tar.exe, 20 a
-    # download failed, 21 a download did not match its checksum, 22 unpacking failed, 30 configure, 40 build, 45 a DLL.
+    # devtools\win\build.ps1, its output on the screen (plain mode) or in the build's row (the progress view), and in
+    # DIR\last-build.log either way. TOOLS=fetch: the pinned tools, the same as the release builds, whatever this PC's
+    # PATH has. Its exit codes: 0 done, 10 no curl.exe or tar.exe, 20 a download failed, 21 a download did not match its
+    # checksum, 22 unpacking failed, 30 configure, 40 build, 45 a DLL.
     function Invoke-Build {
         $buildPs1 = Join-Path $Src 'devtools\win\build.ps1'
         $rules = Get-LogRules
-        $writer = New-Object System.IO.StreamWriter($Log, $false, (New-Object System.Text.UTF8Encoding($false)))
+        # the progress view's log holds the downloads' output too; the build's goes after it
+        $writer = New-Object System.IO.StreamWriter($Log, ($Ui.Mode -ne 'plain'), (New-Object System.Text.UTF8Encoding($false)))
         # CI=1: build.ps1 downloads without a progress bar, which would be one long line here.
         $oldCI = $env:CI
         $env:CI = '1'
+        $Ui.BuildStart = Get-Date
+        $Ui.BuildT0 = $null
+        $Ui.Pct = 0
+        $Ui.File = 'configuring'
+        if ($Ui.Mode -ne 'plain') { Set-UiActive 'build' (Format-UiBuild) }
         try {
             & (Get-WindowsPowerShell) -NoLogo -NoProfile -ExecutionPolicy Bypass -File $buildPs1 "BUILD=$Next" 'TOOLS=fetch' 2>&1 | ForEach-Object {
                 if ($_ -is [System.Management.Automation.ErrorRecord]) { $line = $_.Exception.Message } else { $line = "$_" }
-                Write-Host $line
+                if ($Ui.Mode -eq 'plain') { Write-Host $line } else { Update-UiBuild $line }
                 $writer.WriteLine((ConvertTo-LogLine $line $rules))
             }
             $code = $LASTEXITCODE
@@ -468,10 +983,23 @@ $TpwInstallCode = @(& {
             $writer.Close()
             $env:CI = $oldCI
         }
-        if ($code -eq 0) { return }
+        $spent = Format-Duration (Get-Elapsed $Ui.BuildStart)
+        if ($code -eq 0) {
+            Set-UiDone 'build' "done in $spent"
+            return
+        }
         if ($code -eq 20) { Fail-Network 'A download of the build tools did not finish.' }
-        Say "The build failed (build.ps1 exit $code). Its output is above and in $Log."
-        Say "The launcher in use ($(Join-Path $Dir 'build')) was not changed."
+        if ($Ui.Mode -ne 'plain') {
+            Close-Ui 'fail' "failed after $spent"
+            if (Test-Path -LiteralPath (Join-Path $Dir 'build\tpw_launcher.exe')) {
+                Write-Host ''
+                Write-Host "  The launcher in use ($(Get-Info (Join-Path $Dir 'build\install-info.txt') 'version')) is untouched and still works."
+            }
+            Write-UiLogTail
+            $Ui.FailDone = $true
+        }
+        Info "The build failed (build.ps1 exit $code). Its output is above and in $Log."
+        Info "The launcher in use ($(Join-Path $Dir 'build')) was not changed."
         if ($code -eq 21) { Fail 'A download of the build tools did not match its checksum. The launcher in use was not changed.' }
         Fail "The build failed. The launcher in use was not changed. The output is in $Log."
     }
@@ -505,7 +1033,7 @@ $TpwInstallCode = @(& {
             Say "The new launcher says `"$first`", not version $($St.Version)."
             Fail "The new launcher did not answer with version $($St.Version). The launcher in use was not changed."
         }
-        Say $first
+        Info $first
         try {
             Write-Text (Join-Path $Next 'install-info.txt') "version=$($St.Version)`nchannel=$($St.Channel)`ncommit=$($St.Commit)`n"
         } catch { Fail "Couldn't write $(Join-Path $Next 'install-info.txt')." }
@@ -556,15 +1084,26 @@ $TpwInstallCode = @(& {
         }
         Write-Channel $newChannel
         $St.Version = $newVersion
-        if ($hadBuild) { Say "Switched to version $newVersion. The one before is kept in $prev." }
-        else { Say "Installed version $newVersion." }
+        if ($hadBuild) {
+            Info "Switched to version $newVersion. The one before is kept in $prev."
+            Set-UiDone 'swap' "switched to $newVersion; the one before is kept in build-prev"
+        } else {
+            Info "Installed version $newVersion."
+            if ((Get-UiState 'swap') -eq 'active') { Set-UiDone 'swap' "installed version $newVersion" }
+        }
     }
 
     function Start-Launcher {
         $exe = Join-Path $Dir 'build\tpw_launcher.exe'
-        Say "Starting $exe"
-        try { Start-Process -FilePath $exe -WorkingDirectory $Dir -ErrorAction Stop | Out-Null }
-        catch { Say "Couldn't start the launcher. Start it yourself: $exe" }
+        Info "Starting $exe"
+        Set-UiActive 'start' 'opening the launcher'
+        try {
+            Start-Process -FilePath $exe -WorkingDirectory $Dir -ErrorAction Stop | Out-Null
+            Set-UiDone 'start' 'the launcher is open'
+        } catch {
+            Say "Couldn't start the launcher. Start it yourself: $exe"
+            Set-UiWarn 'start' 'the launcher did not start (see below)'
+        }
     }
 
     # ---- the test build (TPW_INSTALL_STUB=1, for the installer's CI only)
@@ -574,7 +1113,8 @@ $TpwInstallCode = @(& {
     # a line to DIR\stub-launch.txt, so a test can see that themepark started it.
     function New-StubLauncher {
         [void](New-Item -ItemType Directory -Force -Path $Next)
-        Say 'Test build: a stand-in launcher.'
+        Info 'Test build: a stand-in launcher.'
+        Set-UiActive 'build' 'a test build: a stand-in launcher'
         $csc = @('FrameworkArm64', 'Framework64', 'Framework') |
             ForEach-Object { Join-Path $env:SystemRoot "Microsoft.NET\$_\v4.0.30319\csc.exe" } |
             Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
@@ -596,9 +1136,14 @@ static class Stub {
     }
 }
 "@
-        & $csc /nologo /target:winexe "/out:$(Join-Path $Next 'tpw_launcher.exe')" $source | Out-Host
+        if ($Ui.Mode -eq 'plain') {
+            & $csc /nologo /target:winexe "/out:$(Join-Path $Next 'tpw_launcher.exe')" $source | Out-Host
+        } else {
+            & $csc /nologo /target:winexe "/out:$(Join-Path $Next 'tpw_launcher.exe')" $source | Out-Null
+        }
         if ($LASTEXITCODE -ne 0) { Fail 'Test build: the stand-in launcher did not compile.' }
         Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue
+        Set-UiDone 'build' 'a stand-in launcher (test build)'
     }
 
     # ---- the themepark command
@@ -727,7 +1272,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
             Say "Couldn't add $bin to your Path."
             return $false
         }
-        Say "Added $bin to your Path."
+        Info "Added $bin to your Path."
         Send-EnvironmentChange
         return $true
     }
@@ -781,11 +1326,15 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
         $St.StepTotal = 1
         if ($WaitPid) { $St.StepTotal += 1 }
         if (-not $NoLaunch) { $St.StepTotal += 1 }
+        $Ui.Footer = 'Your games, saves and settings are not touched by an update.'
         if ($WaitPid) {
             Step 'Waiting for the launcher to close'
+            Set-UiActive 'launcher' 'waiting for the launcher to close'
             Wait-Exit ([int]$WaitPid)
+            Set-UiDone 'launcher' 'closed'
         }
         Step 'Switching to the new version'
+        Set-UiActive 'swap' 'switching to the new version'
         if (Test-Path -LiteralPath (Join-Path $Next 'install-info.txt')) {
             Switch-Build
             [void](Write-Command)
@@ -793,6 +1342,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
             Say "No new version is waiting in $Next, so there is nothing to switch."
             if (-not (Test-Path -LiteralPath (Join-Path $Dir 'build\tpw_launcher.exe'))) { Fail "There is no launcher in $(Join-Path $Dir 'build')." }
             $St.Version = Get-Info (Join-Path $Dir 'build\install-info.txt') 'version'
+            Set-UiDone 'swap' 'nothing was waiting in build-next'
         }
         if (-not $NoLaunch) {
             Step 'Starting the launcher'
@@ -800,6 +1350,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
         }
         $v = $St.Version
         if (-not $v) { $v = 'unknown' }
+        $Ui.Closing = "Done in $(Format-Duration (Get-Elapsed $Ui.Start)). The launcher is version $v."
         Finish-Ok $v
     }
 
@@ -850,8 +1401,30 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
         # Only -Dev on this very run gives main; -Update included, channel.txt only records what is installed (ONE LINE
         # FOR EVERYONE).
         if (-not $St.Channel) { $St.Channel = 'stable' }
+        # The progress view's rows. An install in place gets an "installed" row (and a swap row later) instead of the
+        # tools row, as the design note draws them.
+        $hadBuild = Test-Path -LiteralPath (Join-Path $Dir 'build\tpw_launcher.exe')
+        $oldVersion = ''
+        if ($hadBuild) { $oldVersion = Get-Info (Join-Path $Dir 'build\install-info.txt') 'version' }
+        $oldShown = $oldVersion
+        if (-not $oldShown) { $oldShown = 'unknown' }
+        if ($hadBuild) {
+            $Ui.Footer = 'Your games, saves and settings are not touched by an update.'
+            Set-UiActive 'installed' "version $oldShown found"
+        } else {
+            $Ui.Footer = "All of this stays inside $(ConvertTo-Tilde $Dir)."
+            Set-UiActive 'tools' 'looking for Git and Windows PowerShell'
+            Set-UiPending $Ui.Src ''
+            Set-UiPending 'build' ''
+            if (-not $Update) { Set-UiPending 'command' 'themepark' }
+            if (-not $Stage -and -not $NoLaunch) { Set-UiPending 'start' '' }
+        }
         if ($St.Channel -eq 'stable' -and (Read-Channel) -eq 'dev') {
             Say 'This install followed main (-Dev); it now follows the newest release. Add -Dev to stay on main.'
+            if ($Ui.Mode -ne 'plain') {
+                $Ui.Notes.Clear()
+                Set-UiWarn 'installed' "this install follows main ($oldShown). Without -Dev the line switches it to the newest release. Add -Dev to stay on main."
+            }
         }
 
         # check, download, build, verify; then switch and start unless -Stage
@@ -861,19 +1434,25 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
 
         Step 'Checking this computer'
         Test-Computer
+        if (-not $hadBuild) { Set-UiDone 'tools' 'Git and Windows PowerShell found' }
 
         Step "Downloading the source"
+        Set-UiActive $Ui.Src 'looking for the newest version'
         if (-not $Stub) { Select-Target }
         try {
             [void](New-Item -ItemType Directory -Force -Path $Dir -ErrorAction Stop)
             Write-Text (Join-Path $Dir '.tpw-installer') ''
         } catch { Fail "Couldn't make the folder $Dir." }
         if ($Stub) {
-            Say 'Test build: nothing is downloaded.'
+            Info 'Test build: nothing is downloaded.'
+            Set-UiActive $Ui.Src 'a test build: nothing is downloaded'
             $St.Version = '0.0.0-dev'
             if ($env:TPW_INSTALL_STUB_VERSION) { $St.Version = $env:TPW_INSTALL_STUB_VERSION }
             $St.Commit = "stub-$($St.Version)"
+            $Ui.Version = $St.Version
         } else {
+            # the log holds the downloads' output too in the progress view
+            if ($Ui.Mode -ne 'plain') { try { Write-Text $Log '' } catch { Fail "Couldn't write $Log." } }
             Get-Source
         }
 
@@ -883,23 +1462,57 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
         $ready = (-not $current) -and ((Get-Info $nextInfo 'commit') -eq $St.Commit) -and
                  ((Get-Info $nextInfo 'channel') -eq $St.Channel) -and (Test-Path -LiteralPath (Join-Path $Next 'tpw_launcher.exe'))
 
+        # The progress view, now that the version is known: an install in place is current (two rows and done), or
+        # gets the rows of an update; a fresh install's source row is done.
+        if ($Ui.Mode -ne 'plain') {
+            $shortCommit = $St.Commit
+            if ($shortCommit.Length -gt 10) { $shortCommit = $shortCommit.Substring(0, 10) }
+            if ($St.Channel -eq 'dev') {
+                $got = "tpw-port main downloaded ($($St.Version), $shortCommit)"
+                $newest = "main is at $($St.Version), which is installed"
+            } else {
+                $got = "tpw-port $($St.Version) downloaded"
+                $newest = "$($St.Version) is the newest release"
+            }
+            $Ui.Got = $got
+            $warned = (Get-UiState 'installed') -eq 'warn'
+            if ($hadBuild -and $current) {
+                $Ui.Footer = ''   # nothing happens to the install, so nothing to promise about it
+                $shownVersion = $oldVersion
+                if (-not $shownVersion) { $shownVersion = $St.Version }
+                if (-not $warned) { Set-UiDone 'installed' "$(ConvertTo-Tilde $Dir), version $shownVersion" }
+                Rename-UiRow $Ui.Src 'newest'
+                Set-UiDone 'newest' $newest
+            } elseif ($hadBuild) {
+                if (-not $warned) { Set-UiDone 'installed' "version $oldShown found, updating to $($St.Version)" }
+                Set-UiDone $Ui.Src $got
+                Set-UiPending 'build' ''
+                Set-UiPending 'swap' 'the new launcher replaces the old one when the build is done'
+                if (-not $Update) { Set-UiPending 'command' 'themepark' }
+                if (-not $Stage -and -not $NoLaunch) { Set-UiPending 'start' '' }
+            } else {
+                Set-UiDone $Ui.Src $got
+            }
+        }
+
         if ($current) {
-            Say "Already up to date: version $($St.Version)."
+            Info "Already up to date: version $($St.Version)."
             # A build staged earlier is of another commit now: drop it, so that a later -SwapAndLaunch cannot switch to it.
             Remove-Own 'build-next'
             Step 'Building the launcher'
-            Say 'Nothing to build.'
+            Info 'Nothing to build.'
             Step 'Checking the new launcher'
-            Say 'Nothing to check.'
+            Info 'Nothing to check.'
             if ((Read-Channel) -ne $St.Channel) {
                 Write-Channel $St.Channel
                 $lines = @(Get-Content -LiteralPath $buildInfo | ForEach-Object { if ($_ -like 'channel=*') { "channel=$($St.Channel)" } else { $_ } })
                 Write-Text $buildInfo (($lines -join "`n") + "`n")
             }
         } elseif ($ready) {
-            Say "This version was built earlier and is waiting in $Next."
+            Info "This version was built earlier and is waiting in $Next."
             Step 'Building the launcher'
-            Say 'Nothing to build.'
+            Info 'Nothing to build.'
+            Set-UiDone 'build' 'built earlier, waiting in build-next'
             Step 'Checking the new launcher'
             Test-Next
         } elseif ($Stub) {
@@ -917,17 +1530,30 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
         }
 
         if ($Stage) {
-            if (-not $current) { Say "The new version is ready in $Next. Nothing was switched." }
+            if (-not $current) {
+                Info "The new version is ready in $Next. Nothing was switched."
+                $Ui.Closing = "The new version is ready in $Next. Nothing was switched."
+            } else {
+                $Ui.Closing = "Nothing to do: version $($St.Version) is installed."
+            }
             Finish-Ok $St.Version
             return
         }
         Step 'Switching to the new version'
-        if (-not $current) { Switch-Build } else { Say 'Nothing to switch.' }
+        if (-not $current) {
+            if ($hadBuild) { Set-UiActive 'swap' 'switching to the new version' }
+            Switch-Build
+        } else {
+            Info 'Nothing to switch.'
+        }
         # THE THEMEPARK COMMAND: the file at every switch, the Path entry only on an install
         $play = "Start it with: $(Join-Path $Dir 'build\tpw_launcher.exe')"
         $everyWindow = 'From now on, type themepark in any new PowerShell window to play. It works from any folder.'
+        $commandRow = 'themepark is not set up (see below)'
+        if (-not $Update -and -not $current) { Set-UiActive 'command' 'adding the themepark command' }
         if (Write-Command) {
             $play = "To play later, run: $(Join-Path $Dir 'bin\themepark.cmd')"
+            $commandRow = "themepark, from $(Join-Path $Dir 'bin') (see below)"
             if ($Update) {
                 if (Test-UserPath) { $play = $everyWindow }
             } elseif (Add-UserPath) {
@@ -938,21 +1564,33 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
                 }
                 if (Test-NewWindow) {
                     $play = $everyWindow
+                    $commandRow = 'themepark, in any new PowerShell window'
                 } else {
                     # not a failure of the install: the launcher is in place, only the shortcut needs this
                     $bin = (Join-Path $Dir 'bin') -replace "'", "''"
                     Say 'A new PowerShell window does not find themepark yet.'
                     Say 'To fix it, run this line once in PowerShell, then open a new window:'
                     Say "  [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';$bin', 'User')"
+                    $commandRow = 'themepark, once the line below is run'
                 }
             }
+        }
+        if ($Update -or $current) {
+        } elseif ($commandRow -eq 'themepark, in any new PowerShell window') {
+            Set-UiDone 'command' $commandRow
+        } else {
+            Set-UiWarn 'command' $commandRow
         }
         if (-not $NoLaunch) {
             Step 'Starting the launcher'
             Start-Launcher
         }
-        Say $play
+        Info $play
         if (-not $Update) { Show-OldCopies }
+        $closing = $play
+        if ($play -eq $everyWindow) { $closing = 'Type themepark in a new PowerShell window to play.' }
+        if ($current) { $Ui.Closing = "Nothing to do. $closing" }
+        else { $Ui.Closing = "Done in $(Format-Duration (Get-Elapsed $Ui.Start)). $closing" }
         Finish-Ok $St.Version
     }
 
@@ -961,6 +1599,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
     try {
         if ($Help) { Show-Usage; $St.Done = $true; return 0 }
         if ($Rest) { Fail "Unknown option $($Rest -join ' ') (-Help lists them)." }
+        Start-Ui
         if ($Stage -and -not $Update) { Fail '-Stage goes with -Update.' }
         if ($SwapAndLaunch -and $Update) { Fail '-SwapAndLaunch does not go with -Update.' }
         if ($WaitPid -and -not $SwapAndLaunch) { Fail '-WaitPid goes with -SwapAndLaunch.' }
@@ -992,13 +1631,17 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
         return 0
     } catch {
         if ("$_" -ne 'tpw-install-failed') {
-            Write-Host "RESULT fail Unexpected error: $("$_" -replace '\s+', ' ')"
+            $unexpected = "Unexpected error: $("$_" -replace '\s+', ' ')"
+            if ($Ui.Mode -eq 'plain') { Write-Host "RESULT fail $unexpected" } else { Show-UiFail $unexpected }
             $St.Done = $true
         }
         return 1
     } finally {
-        # Ctrl+C runs this and nothing else: the one RESULT line still comes.
-        if (-not $St.Done) { Write-Host 'RESULT fail Stopped before it finished. The launcher in use was not changed.' }
+        # Ctrl+C runs this and nothing else: the one RESULT line still comes (the progress view: the Stopped text).
+        if (-not $St.Done) {
+            if ($Ui.Mode -eq 'plain') { Write-Host 'RESULT fail Stopped before it finished. The launcher in use was not changed.' }
+            else { Show-UiStopped }
+        }
     }
 })[-1]
 

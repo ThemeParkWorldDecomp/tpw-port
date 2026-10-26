@@ -165,7 +165,7 @@ function Restore-Base {
     $env:APPDATA = $Base.APPDATA
     $env:Path = $Base.Path
     $env:SystemRoot = $Base.SystemRoot
-    Remove-Item -Path Env:TPW_INSTALL_REPO, Env:TPW_INSTALL_STUB, Env:TPW_INSTALL_STUB_VERSION, Env:TPW_FAKE_BUILD -ErrorAction SilentlyContinue
+    Remove-Item -Path Env:TPW_INSTALL_REPO, Env:TPW_INSTALL_STUB, Env:TPW_INSTALL_STUB_VERSION, Env:TPW_FAKE_BUILD, Env:TPW_INSTALL_VIEW -ErrorAction SilentlyContinue
     Set-Location -LiteralPath $Base.Location
 }
 
@@ -1276,7 +1276,45 @@ function Restore-UserPath {
     } catch { Write-Host "::warning::the user's Path could not be put back: $_" }
 }
 
-$all = @('fresh', 'legacy', 'rerun', 'updater', 'dev', 'tags', 'refusals', 'paths', 'missing', 'buildfail', 'interrupt', 'interrupt_first')
+# The progress view (what a console gets instead of the STEP/RESULT lines), forced through the pipe with
+# TPW_INSTALL_VIEW: the vt view (escape codes, redrawn in place) and the lines view (one line per finished row); a
+# build that fails shows the log's last lines and names -Plain. Nothing of plain mode's lines, the build's output only
+# in the log, scrubbed.
+function Invoke-Case_tui {
+    New-Case 'tui'
+    Initialize-Fake
+    New-FakeRelease '0.0.1'
+    foreach ($view in @('vt', 'lines')) {
+        $env:TPW_INSTALL_VIEW = $view
+        $dir = Join-Path $script:C "install-$view"
+        $out = Invoke-Line @{ NoLaunch = $true; Dir = $dir }
+        Expect-Eq "the exit code ($view view)" $script:RC 0
+        # the lines view prints its title at the first finished row, before the version is known; its source row names it
+        if ($view -eq 'vt') { Expect-Text $out 'STP/TPW Launcher 0.0.1' } else { Expect-Text $out 'STP/TPW Launcher' }
+        Expect-Text $out 'tpw-port 0.0.1 downloaded'
+        Expect-Text $out 'Done in'
+        if (@($out | Where-Object { "$_" -match '^(STEP|RESULT) ' })) { Bad "the $view view printed a line of plain mode" }
+        Expect-NoText $out '==> profile'
+        $log = Join-Path $dir 'last-build.log'
+        if (-not (Test-Path -LiteralPath $log)) { Bad "the $view view left no last-build.log" }
+        Expect-Text (Get-Content -LiteralPath $log) '==> profile %USERPROFILE% user=<user>'
+        if ($view -eq 'lines') { Expect-Text $out 'Git and Windows PowerShell found' }
+        if (-not (Test-Path -LiteralPath (Join-Path $dir 'build\tpw_launcher.exe'))) { Bad "the $view view made no launcher" }
+    }
+    $env:TPW_INSTALL_VIEW = 'vt'
+    $env:TPW_FAKE_BUILD = 'fail'
+    $dir = Join-Path $script:C 'install-fail'
+    $out = Invoke-Line @{ NoLaunch = $true; Dir = $dir }
+    if ($script:RC -eq 0) { Bad 'a failed build in the vt view returned 0' }
+    Expect-Text $out 'failed after'
+    Expect-Text $out 'fake compiler error'
+    Expect-Text $out 'Run the line again with -Plain'
+    if (@($out | Where-Object { "$_" -match '^(STEP|RESULT) ' })) { Bad 'the vt view printed a line of plain mode after a failed build' }
+    if (Test-Path -LiteralPath (Join-Path $dir 'build')) { Bad 'a failed first build left a build folder' }
+    Remove-Item -Path Env:TPW_FAKE_BUILD, Env:TPW_INSTALL_VIEW -ErrorAction SilentlyContinue
+}
+
+$all = @('fresh', 'legacy', 'rerun', 'updater', 'dev', 'tags', 'refusals', 'paths', 'missing', 'buildfail', 'interrupt', 'interrupt_first', 'tui')
 if (-not $Cases -or $Cases.Count -eq 0) { $Cases = $all }
 $failed = @()
 foreach ($c in $Cases) {

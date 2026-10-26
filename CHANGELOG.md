@@ -28,6 +28,7 @@ The first release: play Sim Theme Park and Theme Park World from your own discs,
 - Install and update the launcher by pasting one line into Terminal or PowerShell. It builds on your computer, so there are no security warnings to click through.
 - Type themepark in any new Terminal or PowerShell window to start the launcher, from any folder.
 - The installer's --dir takes a folder written as ./name or with a trailing slash, and refuses a folder name the build cannot hold before anything is downloaded.
+- The installer shows a clean progress bar instead of compiler output; run it with --plain (-Plain in PowerShell) for the full text.
 - The launcher tells you when a new version is out and its Update button installs it, and it stays quiet when you're offline. (Thanks @samueleagle91)
 - Sim Theme Park is listed first everywhere, Theme Park World second; the launcher shows the US tile on the left.
 - Gold Edition switch on each play tile: play the plain edition even when the Gold data is installed; the launcher remembers it.

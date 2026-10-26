@@ -16,7 +16,8 @@
 #   bin/themepark    the themepark command: starts build/tpw_launcher from any folder (see THE THEMEPARK COMMAND)
 #   channel.txt      "stable" or "dev": the launcher reads it to know that this script installed it; it records what
 #                    is installed and never chooses what an update gets
-#   last-build.log   the output of the last build, with no user name, home folder or computer name in it
+#   last-build.log   the output of the last build (on a terminal, of the downloads too), with no user name, home folder
+#                    or computer name in it
 #   .tpw-installer   marks the folder as this script's, so that it never writes into a folder that is somebody else's
 # Game files and saves are not in DIR (they are in the launcher's data folder, ~/Library/Application Support/
 # STP-TPW Launcher), and this script never touches them.
@@ -33,6 +34,9 @@
 #   RESULT ok VERSION             the last line when it worked, and the exit code is 0 (VERSION: 0.1.0, 0.1.1-dev)
 #   RESULT fail SOME REASON       the last line when it did not, and the exit code is not 0
 # Exactly one RESULT line is printed, last. Other lines are for people and may change. Options are only ever added.
+# These are the lines of plain mode, which is what the updater gets (the output is a pipe). Run from a Terminal window
+# the script shows the same run as a progress view instead (see "output on a terminal" below), and --plain asks for the
+# lines anyway.
 #
 # WHY IT BUILDS FROM SOURCE. A program downloaded from the internet is blocked by macOS (Gatekeeper) and Windows
 # (SmartScreen) unless its maker signed it with a paid certificate. A program the computer compiled itself is not marked
@@ -94,6 +98,7 @@ Options:
   --swap-and-launch     switch DIR/build-next in as DIR/build (the old one is kept as DIR/build-prev), then start it
   --wait-pid PID        with --swap-and-launch: first wait for that process (the running launcher) to exit
   --no-launch           do not start the launcher at the end
+  --plain               one line per step and the build's whole output, no colour, no redrawing (what a file gets)
   --help                this text
 
 After installing, open a new Terminal window and type themepark to play, from any folder.
@@ -102,37 +107,516 @@ the launcher's Update button, which never adds --dev.
 EOF
 }
 
-# ---- output: the lines the launcher reads
+# ---- output: the lines the launcher reads (plain mode)
+#
+# Two ways of showing the same run. Plain mode (UI=plain: the output is not a terminal, --plain, NO_COLOR, TERM=dumb or
+# a window narrower than 60 columns) prints the lines below and the build's output as it comes: that is what the
+# updater, the CI and a log get, and it never changes. On a terminal (UI=tty) the same run is one block that redraws
+# in place (the progress view further down): a row per stage, a bar for the build, the build's output only in the log.
 
 STEP_NO=0
 STEP_TOTAL=0
 
 step() {
     STEP_NO=$((STEP_NO + 1))
-    printf 'STEP %s/%s %s\n' "$STEP_NO" "$STEP_TOTAL" "$*"
+    [ "$UI" = tty ] || printf 'STEP %s/%s %s\n' "$STEP_NO" "$STEP_TOTAL" "$*"
 }
 
+# A line for people. On a terminal it is kept and shown under the block at the end (a notice, or what went wrong).
 say() {
-    printf '%s\n' "$*"
+    if [ "$UI" = tty ]; then
+        UI_NOTES="$UI_NOTES$*
+"
+    else
+        printf '%s\n' "$*"
+    fi
+}
+
+# A line of plain mode only: the progress view shows the same thing in its rows.
+info() {
+    [ "$UI" = tty ] || printf '%s\n' "$*"
+}
+
+# The stop traps: Ctrl+C, the updater's TERM, a closed terminal.
+arm_traps() {
+    trap 'stopped INT' INT
+    trap 'stopped TERM' TERM
+    trap 'stopped HUP' HUP
+}
+
+disarm_traps() {
+    trap - INT TERM HUP
 }
 
 die() {
-    trap - INT TERM HUP
-    printf 'RESULT fail %s\n' "$*"
+    disarm_traps
+    if [ "$UI" = tty ]; then
+        ui_fail "$*"
+    else
+        printf 'RESULT fail %s\n' "$*"
+    fi
     exit 1
 }
 
 finish_ok() {
-    trap - INT TERM HUP
-    printf 'RESULT ok %s\n' "$1"
+    disarm_traps
+    if [ "$UI" = tty ]; then
+        ui_finish
+    else
+        printf 'RESULT ok %s\n' "$1"
+    fi
     exit 0
 }
 
-# shellcheck disable=SC2329  # called by the trap in main
+# shellcheck disable=SC2329  # called by the traps in main, with the signal's name
 stopped() {
+    # in the middle of a frame: the frame finishes first (ui_draw then calls this again), or the cursor would be on an
+    # unknown line
+    if [ "$UI_DRAWING" = 1 ]; then
+        UI_SIGNAL=$1
+        return 0
+    fi
+    disarm_traps
+    if [ "$UI" = tty ]; then
+        stop_children
+        ui_stopped
+        case "$1" in INT) exit 130 ;; TERM) exit 143 ;; *) exit 129 ;; esac
+    fi
     printf '\n'
     stop_children
     die "Stopped before it finished. The launcher in use was not changed."
+}
+
+# ---- output on a terminal: the progress view
+#
+# One block, redrawn in place: a title, a row per stage (a green check when done, a spinner while it runs, grey while it
+# waits, a yellow ! for a notice, a red x when it failed), a blank line and a footer. The build's row is a bar with the
+# percentage and the file being compiled, read from the log (cmake's "[ 58%] Building CXX object ..." lines). The
+# cursor is hidden while the block redraws and shown again before anything else is printed. Rows are only ever added,
+# the names are those of the design note (tools, source, build, command, start; installed, newest, swap on an update).
+# Without a UTF-8 locale the glyphs are ASCII ([x] done, [>] active, [ ] waiting). Under 70 columns the bar has 10
+# cells and the time left is dropped. The width is read again at every frame: after a resize the block starts afresh
+# below the old one rather than drawing over the wrong lines.
+
+UI=plain
+UI_SRC=source
+UI_ROWS=0
+UI_LINES=0
+UI_COLS=80
+UI_LAST_COLS=0
+UI_FRAME=0
+UI_TICK=""
+UI_VERSION=""
+UI_FOOTER=""
+UI_GOT=""
+UI_DRAWING=0
+UI_SIGNAL=""
+UI_NOTES=""
+UI_FAIL_TEXT=""
+UI_FAIL_DONE=0
+UI_START=0
+UI_BUILD_START=0
+UI_BUILD_T0=0
+UI_BUILD_P0=0
+
+# Chooses the view, once the options are read. Sets up the colours and glyphs of the terminal view.
+ui_start() {
+    UI=plain
+    [ "$PLAIN" = 0 ] || return 0
+    [ -t 1 ] || return 0
+    [ -z "${NO_COLOR:-}" ] || return 0
+    case "${TERM:-}" in '' | dumb) return 0 ;; esac
+    ui_cols
+    [ "$UI_COLS" -ge 60 ] || return 0
+    UI="tty"
+    UI_LAST_COLS=$UI_COLS
+    ESC=$(printf '\033')
+    RST="${ESC}[0m"
+    BOLD="${ESC}[1m"
+    DIM="${ESC}[38;5;243m"
+    GREEN="${ESC}[32m"
+    CYAN="${ESC}[36m"
+    YELLOW="${ESC}[33m"
+    RED="${ESC}[31m"
+    CLR="${ESC}[K"
+    case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+        *[Uu][Tt][Ff]-8* | *[Uu][Tt][Ff]8*)
+            UI_UTF=1 G_DONE='✔' G_PEND='·' G_WARN='!' G_FAIL='✖' B_ON='█' B_OFF='░' ;;
+        *)
+            UI_UTF=0 G_DONE='[x]' G_PEND='[ ]' G_WARN='[!]' G_FAIL='[x]' B_ON='#' B_OFF='.' ;;
+    esac
+    # the text column: 4 spaces, the glyph, 2 spaces, the name in 13, a space
+    UI_PAD=$((4 + ${#G_DONE} + 2 + 13 + 1))
+    UI_IND=""
+    _k=0
+    while [ "$_k" -lt "$UI_PAD" ]; do UI_IND="$UI_IND "; _k=$((_k + 1)); done
+    UI_START=$(date +%s)
+    printf '%s[?25l' "$ESC"
+}
+
+# The terminal's width: from the terminal itself (standard input is a pipe under curl | sh), else tput, else 80.
+ui_cols() {
+    size=$(stty size 2>/dev/null </dev/tty) || size=""
+    UI_COLS=${size#* }
+    case "$UI_COLS" in '' | *[!0-9]*) UI_COLS=$(tput cols 2>/dev/null) ;; esac
+    case "$UI_COLS" in '' | *[!0-9]* | 0) UI_COLS=80 ;; esac
+}
+
+# $1 seconds -> DUR ("48 s", "3 min 40 s", "3 min").
+fmt_dur() {
+    if [ "$1" -lt 60 ]; then
+        DUR="$1 s"
+    elif [ $(($1 % 60)) = 0 ]; then
+        DUR="$(($1 / 60)) min"
+    else
+        DUR="$(($1 / 60)) min $(($1 % 60)) s"
+    fi
+}
+
+# $1 with the home folder written ~, for the rows (the log and plain mode keep paths as they are).
+tilde() {
+    _s=$1
+    _o=""
+    if [ "${#HOME}" -gt 1 ]; then
+        while :; do
+            case "$_s" in
+                *"$HOME"*) _o="$_o${_s%%"$HOME"*}~"; _s=${_s#*"$HOME"} ;;
+                *) break ;;
+            esac
+        done
+    fi
+    printf '%s\n' "$_o$_s"
+}
+
+# The row named $1: its index in UI_I, or 0 and false when there is none.
+ui_find() {
+    UI_I=0
+    _n=""
+    _i=1
+    while [ "$_i" -le "$UI_ROWS" ]; do
+        eval "_n=\$UI_N_$_i"
+        if [ "$_n" = "$1" ]; then
+            UI_I=$_i
+            return 0
+        fi
+        _i=$((_i + 1))
+    done
+    return 1
+}
+
+# ui_set NAME STATE TEXT: the row's state (done, active, pending, warn, fail) and text; a new row goes at the end.
+ui_set() {
+    [ "$UI" = tty ] || return 0
+    if ! ui_find "$1"; then
+        UI_ROWS=$((UI_ROWS + 1))
+        UI_I=$UI_ROWS
+        eval "UI_N_$UI_I=\$1"
+        eval "UI_P_$UI_I=\$(printf '%-13s' \"\$1\")"
+    fi
+    eval "UI_S_$UI_I=\$2"
+    eval "UI_T_$UI_I=\$3"
+    ui_draw
+}
+
+ui_active() { ui_set "$1" active "$2"; }
+ui_done() { ui_set "$1" "done" "$2"; }
+ui_pending() { ui_set "$1" pending "$2"; }
+ui_warn() { ui_set "$1" warn "$2"; }
+
+# The state of the row named $1 -> UI_S (empty when there is none).
+ui_state() {
+    UI_S=""
+    [ "$UI" = tty ] || return 0
+    ui_find "$1" || return 0
+    eval "UI_S=\$UI_S_$UI_I"
+}
+
+# The row named $1 is called $2 from now on.
+ui_rename() {
+    [ "$UI" = tty ] || return 0
+    ui_find "$1" || return 0
+    eval "UI_N_$UI_I=\$2"
+    eval "UI_P_$UI_I=\$(printf '%-13s' \"\$2\")"
+}
+
+# The row that runs now: its index in UI_I, or 0.
+ui_active_row() {
+    UI_I=0
+    _i=$UI_ROWS
+    while [ "$_i" -ge 1 ]; do
+        eval "_s=\$UI_S_$_i"
+        if [ "$_s" = active ]; then
+            UI_I=$_i
+            return 0
+        fi
+        _i=$((_i - 1))
+    done
+    return 1
+}
+
+ui_spin() {
+    if [ "$UI_UTF" = 0 ]; then
+        SPIN='[>]'
+        return 0
+    fi
+    case $((UI_FRAME % 10)) in
+        0) SPIN='⠋' ;; 1) SPIN='⠙' ;; 2) SPIN='⠹' ;; 3) SPIN='⠸' ;; 4) SPIN='⠼' ;;
+        5) SPIN='⠴' ;; 6) SPIN='⠦' ;; 7) SPIN='⠧' ;; 8) SPIN='⠇' ;; *) SPIN='⠏' ;;
+    esac
+}
+
+# One line of the block, cleared to the right.
+ui_line() {
+    printf '%s%s\n' "$1" "$CLR"
+    UI_LINES=$((UI_LINES + 1))
+}
+
+# A row's text in lines no wider than $3, the first after $1, the others after the indent (and $2 before each, for a
+# grey row). The text is split at spaces; a word wider than a line is clipped, so that a line never wraps by itself.
+ui_wrap() {
+    _pre=$1
+    _cpre=$2
+    _w=$3
+    _text=$4
+    _ind=${5:-$UI_IND}
+    _line=""
+    _first=1
+    set -f
+    for _wd in $_text; do
+        if [ "${#_wd}" -gt "$_w" ]; then
+            _wd=$(printf '%s\n' "$_wd" | awk -v n="$_w" '{ print substr($0, 1, n - 3) "..." }')
+        fi
+        if [ -z "$_line" ]; then
+            _line=$_wd
+        elif [ $((${#_line} + 1 + ${#_wd})) -le "$_w" ]; then
+            _line="$_line $_wd"
+        else
+            ui_wrap_line
+            _line=$_wd
+        fi
+    done
+    set +f
+    ui_wrap_line
+}
+
+ui_wrap_line() {
+    if [ "$_first" = 1 ]; then
+        ui_line "$_pre$_line$RST"
+        _first=0
+    else
+        ui_line "$_ind$_cpre$_line$RST"
+    fi
+}
+
+# ui_row STATE NAME TEXT (the name padded to 13)
+ui_row() {
+    case "$1" in
+        done) _g="${GREEN}${G_DONE}${RST}" ;;
+        active) ui_spin; _g="${CYAN}${SPIN}${RST}" ;;
+        pending) _g="${DIM}${G_PEND}${RST}" ;;
+        warn) _g="${YELLOW}${G_WARN}${RST}" ;;
+        *) _g="${RED}${G_FAIL}${RST}" ;;
+    esac
+    if [ "$1" = pending ]; then
+        _p="    $_g  $DIM$2 "
+        _c=$DIM
+    else
+        _p="    $_g  $BOLD$2$RST "
+        _c=""
+    fi
+    case "$3" in
+        *"$ESC"*) ui_line "$_p$3" ;;   # the bar: laid out by ui_build_tick to fit the line
+        *) ui_wrap "$_p" "$_c" $((UI_COLS - UI_PAD - 1)) "$3" ;;
+    esac
+}
+
+# Draws the block, over the last frame when there is one.
+ui_draw() {
+    [ "$UI" = tty ] || return 0
+    UI_DRAWING=1
+    ui_cols
+    if [ "$UI_COLS" != "$UI_LAST_COLS" ]; then
+        [ "$UI_LINES" = 0 ] || printf '\n'
+        UI_LINES=0
+        UI_LAST_COLS=$UI_COLS
+    fi
+    _prev=$UI_LINES
+    [ "$_prev" = 0 ] || printf '%s[%sA\r' "$ESC" "$_prev"
+    UI_LINES=0
+    ui_line "  ${BOLD}STP/TPW Launcher${UI_VERSION:+ $UI_VERSION}${RST}"
+    ui_line ""
+    _r=1
+    while [ "$_r" -le "$UI_ROWS" ]; do
+        eval "_n=\$UI_P_$_r"
+        eval "_s=\$UI_S_$_r"
+        eval "_t=\$UI_T_$_r"
+        ui_row "$_s" "$_n" "$_t"
+        _r=$((_r + 1))
+    done
+    ui_line ""
+    ui_wrap "  " "" $((UI_COLS - 3)) "$UI_FOOTER" "  "
+    # a frame shorter than the one before: what is left of the old one is cleared
+    if [ "$UI_LINES" -lt "$_prev" ]; then
+        _k=$UI_LINES
+        while [ "$_k" -lt "$_prev" ]; do printf '%s\n' "$CLR"; _k=$((_k + 1)); done
+        printf '%s[%sA\r' "$ESC" "$((_prev - UI_LINES))"
+    fi
+    UI_DRAWING=0
+    if [ -n "$UI_SIGNAL" ]; then
+        _sig=$UI_SIGNAL
+        UI_SIGNAL=""
+        stopped "$_sig"
+    fi
+}
+
+# The bar for $1 percent -> BAR (and its width in cells -> BAR_W).
+ui_bar() {
+    BAR_W=20
+    [ "$UI_COLS" -ge 70 ] || BAR_W=10
+    _f=$(($1 * BAR_W / 100))
+    BAR=$CYAN
+    _k=0
+    while [ "$_k" -lt "$_f" ]; do BAR="$BAR$B_ON"; _k=$((_k + 1)); done
+    BAR="$BAR$DIM"
+    while [ "$_k" -lt "$BAR_W" ]; do BAR="$BAR$B_OFF"; _k=$((_k + 1)); done
+    BAR="$BAR$RST"
+}
+
+# Where the build is, from the last progress line in the log: UI_PCT and UI_FILE (the source file being compiled,
+# "linking tpw_launcher", or "configuring" before the first progress line).
+ui_build_status() {
+    _p=$(tail -n 80 "$LOG" 2>/dev/null | LC_ALL=C awk '
+        /^\[ *[0-9]+%\]/ {
+            p = $0; sub(/^\[ */, "", p); sub(/%\].*/, "", p)
+            t = $0; sub(/^\[[^]]*\] */, "", t)
+            if (t ~ /^Building .* object /) {
+                sub(/^Building .* object /, "", t); sub(/CMakeFiles\/[^\/]*\.dir\//, "", t); sub(/\.o$/, "", t); f = t
+            } else if (t ~ /^Linking /) {
+                sub(/^Linking [^ ]* [^ ]* /, "", t); f = "linking " t
+            }
+            pct = p + 0
+        }
+        /^==> Configuring/ { f = "configuring" }
+        END { if (pct == "") pct = 0; if (f == "" && pct == 0) f = "configuring"; print pct "|" f }')
+    UI_PCT=${_p%%|*}
+    UI_FILE=${_p#*|}
+    case "$UI_PCT" in '' | *[!0-9]*) UI_PCT=0 ;; esac
+    [ "$UI_PCT" -le 100 ] || UI_PCT=100
+}
+
+# The build's row at every frame: the bar, the percentage, the time left (from the pace so far, once 10 points are
+# done) and the file being compiled, in what is left of the line.
+# shellcheck disable=SC2329  # called through UI_TICK
+ui_build_tick() {
+    ui_build_status
+    _now=$(date +%s)
+    if [ "$UI_BUILD_T0" = 0 ] && [ "$UI_PCT" -gt 0 ]; then
+        UI_BUILD_T0=$_now
+        UI_BUILD_P0=$UI_PCT
+    fi
+    ui_bar "$UI_PCT"
+    if [ "$UI_PCT" -lt 10 ]; then _pc=" $UI_PCT"; else _pc=$UI_PCT; fi
+    _t="$BAR  $_pc %"
+    _used=$((BAR_W + 6))
+    _gain=$((UI_PCT - UI_BUILD_P0))
+    if [ "$UI_COLS" -ge 70 ] && [ "$UI_BUILD_T0" != 0 ] && [ "$_gain" -ge 10 ] && [ $((_now - UI_BUILD_T0)) -ge 5 ] \
+        && [ "$UI_PCT" -lt 100 ]; then
+        fmt_dur $(((_now - UI_BUILD_T0) * (100 - UI_PCT) / _gain))
+        _t="$_t   about $DUR left"
+        _used=$((_used + 3 + 6 + ${#DUR} + 5))
+    fi
+    _room=$((UI_COLS - UI_PAD - _used - 4))
+    if [ -n "$UI_FILE" ] && [ "$_room" -ge 8 ]; then
+        _f=$UI_FILE
+        if [ "${#_f}" -gt "$_room" ]; then
+            _f=$(printf '%s\n' "$_f" | awk -v n="$_room" '{ print "..." substr($0, length($0) - n + 4) }')
+        fi
+        _t="$_t   ${DIM}$_f${RST}"
+    fi
+    ui_set build active "$_t"
+}
+
+# Waits for the background job $1, redrawing the block a few times a second (the spinner, the build's bar).
+ui_wait() {
+    while kill -0 "$1" 2>/dev/null; do
+        UI_FRAME=$((UI_FRAME + 1))
+        if [ -n "$UI_TICK" ]; then $UI_TICK; else ui_draw; fi
+        sleep 0.25
+    done
+    wait "$1"
+}
+
+# Prints the notes (the lines say kept) under the block, in $1.
+ui_notes() {
+    [ -n "$UI_NOTES" ] || return 0
+    printf '\n'
+    printf '%s' "$UI_NOTES" | while IFS= read -r _l; do
+        printf '  %s%s%s\n' "$1" "$(tilde "$_l")" "$RST"
+    done
+}
+
+# The last lines of the log and where it is, after a failure of the downloads or the build.
+ui_log_tail() {
+    [ -s "$LOG" ] || return 0
+    printf '\n  The last lines of its output:\n'
+    tail -n 15 "$LOG" | while IFS= read -r _l; do
+        printf '      %s%s%s\n' "$DIM" "$_l" "$RST"
+    done
+    printf '\n  The whole output is in %s (it holds nothing personal).\n' "$(tilde "$LOG")"
+    printf '  Please attach it to a bug report: https://github.com/ThemeParkWorldDecomp/tpw-port/issues\n'
+    printf '  Run the line again with --plain to see everything.\n'
+}
+
+# The block's last frame, with the cursor back. $1: the state and text of the row that was running (none: left as is).
+ui_close() {
+    if [ -n "$1" ] && ui_active_row; then
+        eval "UI_S_$UI_I=\$1"
+        eval "UI_T_$UI_I=\$2"
+    fi
+    if [ "$UI_ROWS" -gt 0 ] || [ "$UI_LINES" -gt 0 ]; then
+        ui_draw
+    fi
+    printf '%s[?25h' "$ESC"
+}
+
+# What went wrong: the running row turns red with the first sentence of the reason, then the notes, then the log's
+# last lines when a download or the build failed.
+ui_fail() {
+    if [ "$UI_FAIL_DONE" = 1 ]; then
+        ui_notes ""
+        return 0
+    fi
+    _reason=$1
+    _short=${_reason%%. *}
+    _short=${_short%.}
+    if ui_active_row; then
+        eval "_name=\$UI_N_$UI_I"
+        ui_close fail "${UI_FAIL_TEXT:-$(tilde "$_short")}"
+    else
+        _name=""
+        ui_close
+        printf '\n    %s%s%s  %s\n' "$RED" "$G_FAIL" "$RST" "$(tilde "$_short")"
+    fi
+    ui_notes ""
+    case "$_name" in source | build | newest) ui_log_tail ;; esac
+    printf '\n'
+}
+
+# The run worked: the last frame, the notes (yellow) and the closing line (green).
+ui_finish() {
+    ui_close
+    ui_notes "$YELLOW"
+    printf '\n  %s%s%s\n\n' "$GREEN" "$(tilde "$UI_CLOSING")" "$RST"
+}
+
+# shellcheck disable=SC2329  # called by stopped
+ui_stopped() {
+    # The block stays as it was and the text goes under it. (No last frame: a Ctrl+C that lands while a line of the
+    # frame is being written makes the shell write the end of that line twice, so the block can be a line taller than
+    # drawn, and moving up to redraw it would miss by one.)
+    printf '%s[?25h\r%s\n' "$ESC" "$CLR"
+    printf '  %sStopped. Nothing is half installed: the new build was in its own staging folder%s\n' "$YELLOW" "$RST"
+    printf '  %sand the old launcher is as it was. Run the line again to continue.%s\n\n' "$YELLOW" "$RST"
 }
 
 # Ends everything this script started that still runs (a download, the build with its compilers): the updater stops
@@ -156,7 +640,28 @@ stop_children() {
 # then runs stopped at once, which ends the command, instead of only after the command finished by itself.
 wait_for() {
     "$@" &
-    wait "$!"
+    if [ "$UI" = tty ]; then
+        ui_wait "$!"
+    else
+        wait "$!"
+    fi
+}
+
+# A download, with its output on the screen in plain mode and only in the log in the progress view.
+fetch_logged() {
+    if [ "$UI" = tty ]; then
+        wait_for logged "$@"
+    else
+        wait_for "$@"
+    fi
+}
+
+# Runs a command with its output appended to the log, scrubbed, and nothing on the screen; its exit code in $RC and
+# as the result.
+# shellcheck disable=SC2329  # called through wait_for
+logged() {
+    { "$@" </dev/null 2>&1; echo $? >"$RC"; } | scrub_tee "$LOG" >/dev/null
+    [ "$(cat "$RC")" = 0 ]
 }
 
 # A lost connection, said the same way wherever it shows up.
@@ -234,7 +739,7 @@ check_computer() {
         say "This needs macOS 11 or newer. This Mac has macOS $macos."
         die "macOS 11 or newer is needed."
     fi
-    say "macOS $macos, $(uname -m)"
+    info "macOS $macos, $(uname -m)"
 
     # Apple's Command Line Tools bring git, make, the compiler and Python 3. Ask xcode-select first: with the tools
     # missing, running git or make would pop up Apple's installer window in the middle of this script.
@@ -247,6 +752,7 @@ check_computer() {
         done
     fi
     if [ -n "$missing" ]; then
+        UI_FAIL_TEXT="not installed: $missing"
         say "Missing: $missing."
         say "Apple's Command Line Tools have all of these (git, make, the compiler and Python 3). To get them:"
         say "  1. Run: xcode-select --install"
@@ -255,7 +761,7 @@ check_computer() {
         say "Nothing was changed."
         die "Missing: $missing. Run xcode-select --install, wait for it to finish, then run this again."
     fi
-    say "Command Line Tools: $(xcode-select -p)"
+    info "Command Line Tools: $(xcode-select -p)"
 
     # The source is about 150 MB and a build folder about 150 MB (more with a fetched CMake), and an update keeps three
     # build folders for a while (build, build-next, build-prev).
@@ -293,7 +799,8 @@ pick_target() {
         die "No release has been published yet. Use --dev to install the development version."
     fi
     TAG="v$newest"
-    say "Newest release: $newest"
+    info "Newest release: $newest"
+    UI_VERSION=$newest
 }
 
 git_src() {
@@ -308,18 +815,21 @@ get_source() {
         say "$SRC exists but is not a git clone, so this script cannot use it. Move it away and run this again."
         die "$SRC is in the way. Move it away and run this again."
     else
-        say "Downloading the source (a clone of $REPO)"
-        wait_for git clone --no-checkout "$REPO" "$SRC" </dev/null || no_network "The download of the source did not finish."
+        info "Downloading the source (a clone of $REPO)"
+        ui_active "$UI_SRC" "downloading tpw-port"
+        fetch_logged git clone --no-checkout "$REPO" "$SRC" </dev/null || no_network "The download of the source did not finish."
     fi
 
     if [ "$CHANNEL" = dev ]; then
-        say "Fetching main"
-        wait_for git_src fetch --force --no-tags origin "+refs/heads/main:refs/remotes/origin/main" \
+        info "Fetching main"
+        ui_active "$UI_SRC" "fetching main"
+        fetch_logged git_src fetch --force --no-tags origin "+refs/heads/main:refs/remotes/origin/main" \
             || no_network "The download of the source did not finish."
         ref="refs/remotes/origin/main"
     else
-        say "Fetching $TAG"
-        wait_for git_src fetch --force --no-tags origin "+refs/tags/$TAG:refs/tags/$TAG" \
+        info "Fetching $TAG"
+        ui_active "$UI_SRC" "fetching $TAG"
+        fetch_logged git_src fetch --force --no-tags origin "+refs/tags/$TAG:refs/tags/$TAG" \
             || no_network "The download of the source did not finish."
         ref="refs/tags/$TAG"
     fi
@@ -335,8 +845,9 @@ get_source() {
     fi
     git_src checkout -q --detach "$COMMIT" || die "Couldn't switch the source to $COMMIT."
     git_src submodule sync -q --recursive || die "Couldn't read the source's submodules."
-    say "Downloading the submodules"
-    wait_for git_src submodule update --init --recursive --force \
+    info "Downloading the submodules"
+    ui_active "$UI_SRC" "downloading the submodules"
+    fetch_logged git_src submodule update --init --recursive --force \
         || no_network "The download of the submodules did not finish."
 
     VERSION=$(sed -n '1p' "$SRC/launcher/VERSION.txt" 2>/dev/null | tr -d '\r')
@@ -348,7 +859,8 @@ get_source() {
     if [ "$CHANNEL" = stable ] && [ "v$VERSION" != "$TAG" ]; then
         die "The release $TAG says it is version $VERSION. Not installing it."
     fi
-    say "Source: $COMMIT (version $VERSION)"
+    info "Source: $COMMIT (version $VERSION)"
+    UI_VERSION=$VERSION
 }
 
 # Makes an empty DIR/build-next and fetches the build's tools into it, so that a lost connection shows up now. A CMake
@@ -358,7 +870,11 @@ get_source() {
 # in it, see scrub_tee), its exit code in $RC.
 # shellcheck disable=SC2329  # called through wait_for
 make_logged() {
-    { make -C "$SRC" BUILD="$NEXT" "$1" </dev/null 2>&1; echo $? >"$RC"; } | scrub_tee "$LOG"
+    if [ "$UI" = tty ]; then
+        { make -C "$SRC" BUILD="$NEXT" "$1" </dev/null 2>&1; echo $? >"$RC"; } | scrub_tee "$LOG" >/dev/null
+    else
+        { make -C "$SRC" BUILD="$NEXT" "$1" </dev/null 2>&1; echo $? >"$RC"; } | scrub_tee "$LOG"
+    fi
 }
 
 # Reads the build's output on stdin: it goes unchanged to the screen, and a copy with nothing personal in it is
@@ -467,8 +983,9 @@ prepare_next() {
     if [ -d "$DIR/build/cmake" ]; then
         cp -R "$DIR/build/cmake" "$NEXT/cmake" 2>/dev/null || true
     fi
-    : >"$LOG"
-    say "Getting the build's tools (CMake, if this Mac has none)"
+    [ "$UI" = tty ] || : >"$LOG"   # the progress view started the log at the downloads
+    info "Getting the build's tools (CMake, if this Mac has none)"
+    ui_active "$UI_SRC" "getting the build's tools (CMake, if this Mac has none)"
     wait_for make_logged find-cmake
     if [ "$(cat "$RC")" != 0 ]; then
         if grep -q "Could not download CMake" "$LOG"; then
@@ -476,18 +993,34 @@ prepare_next() {
         fi
         die "Getting the build's tools failed. The output is above and in $LOG."
     fi
+    [ "$UI" = tty ] && ui_done "$UI_SRC" "$UI_GOT"   # the row gets its text back
+    return 0
 }
 
 # ---- 3. the build
 
 build_next() {
-    say "Compiling into $NEXT. The first time takes a few minutes."
+    info "Compiling into $NEXT. The first time takes a few minutes."
+    UI_BUILD_START=$(date +%s)
+    UI_TICK=ui_build_tick
+    [ "$UI" = tty ] && ui_build_tick
     wait_for make_logged launcher
+    UI_TICK=""
+    fmt_dur $(($(date +%s) - UI_BUILD_START))
     if [ "$(cat "$RC")" != 0 ]; then
-        say "The build failed. Its output is above and in $LOG."
-        say "The launcher in use ($DIR/build) was not changed."
+        if [ "$UI" = tty ]; then
+            ui_close fail "failed after $DUR"
+            if [ -x "$DIR/build/tpw_launcher" ]; then
+                printf '\n  The launcher in use (%s) is untouched and still works.\n' "$(info_get "$DIR/build/install-info.txt" version)"
+            fi
+            ui_log_tail
+            UI_FAIL_DONE=1
+        fi
+        info "The build failed. Its output is above and in $LOG."
+        info "The launcher in use ($DIR/build) was not changed."
         die "The build failed. The launcher in use was not changed. The output is in $LOG."
     fi
+    ui_done build "done in $DUR"
 }
 
 # ---- 4. the check
@@ -507,7 +1040,7 @@ verify_next() {
             die "The new launcher did not answer with version $VERSION. The launcher in use was not changed."
             ;;
     esac
-    say "$first"
+    info "$first"
     {
         printf 'version=%s\n' "$VERSION"
         printf 'channel=%s\n' "$CHANNEL"
@@ -544,9 +1077,12 @@ do_swap() {
     write_channel "$new_channel"
     VERSION=$new_version
     if [ "$had_build" = 1 ]; then
-        say "Switched to version $VERSION. The one before is kept in $DIR/build-prev."
+        info "Switched to version $VERSION. The one before is kept in $DIR/build-prev."
+        ui_done swap "switched to $VERSION; the one before is kept in build-prev"
     else
-        say "Installed version $VERSION."
+        info "Installed version $VERSION."
+        ui_state swap
+        [ "$UI_S" = active ] && ui_done swap "installed version $VERSION"
     fi
 }
 
@@ -590,9 +1126,14 @@ tell_old_copies() {
 }
 
 launch() {
-    say "Starting $DIR/build/tpw_launcher"
-    (cd "$DIR" && nohup "$DIR/build/tpw_launcher" >/dev/null 2>&1 </dev/null &) \
-        || say "Couldn't start the launcher. Start it yourself: $DIR/build/tpw_launcher"
+    info "Starting $DIR/build/tpw_launcher"
+    ui_active start "opening the launcher"
+    if (cd "$DIR" && nohup "$DIR/build/tpw_launcher" >/dev/null 2>&1 </dev/null &); then
+        ui_done start "the launcher is open"
+    else
+        say "Couldn't start the launcher. Start it yourself: $DIR/build/tpw_launcher"
+        ui_warn start "the launcher did not start (see below)"
+    fi
 }
 
 # ---- the themepark command
@@ -644,7 +1185,7 @@ put_line() {
             printf '\n' >>"$profile" || return 1
         fi
         printf '%s\n' "$line" >>"$profile" || return 1
-        say "Added to $profile: $line"
+        info "Added to $profile: $line"
         return 0
     fi
     if [ "$(grep -cF "$CMD_MARK" "$profile")" = 1 ] && grep -qxF "$line" "$profile"; then
@@ -655,7 +1196,7 @@ put_line() {
         index($0, ENVIRON["TPW_MARK"]) { if (!done) print ENVIRON["TPW_LINE"]; done = 1; next }
         { print }' "$profile") || return 1
     printf '%s\n' "$kept" >"$profile" || return 1
-    say "Changed in $profile: $line"
+    info "Changed in $profile: $line"
 }
 
 # The PATH line of THE THEMEPARK COMMAND for this DIR.
@@ -751,17 +1292,20 @@ fix_line() {
 # Instead of the download and the build: a stand-in launcher that answers --version as the real one does and, run from
 # DIR/build (by themepark), adds a line to DIR/stub-launch.txt, so a test can see that themepark started it.
 stub_source() {
-    say "Test build: nothing is downloaded."
+    info "Test build: nothing is downloaded."
+    ui_active "$UI_SRC" "a test build: nothing is downloaded"
     mkdir -p "$DIR" || die "Couldn't make the folder $DIR."
     : >"$DIR/.tpw-installer" || die "Couldn't write in $DIR."
     VERSION=${TPW_INSTALL_STUB_VERSION:-0.0.0-dev}
     COMMIT=stub-$VERSION
+    UI_VERSION=$VERSION
 }
 
 stub_build() {
     remove_own build-next
     mkdir -p "$NEXT" || die "Couldn't make $NEXT."
-    say "Test build: a stand-in launcher."
+    info "Test build: a stand-in launcher."
+    ui_active build "a test build: a stand-in launcher"
     cat >"$NEXT/tpw_launcher" <<EOF || die "Couldn't write the stand-in launcher."
 #!/bin/sh
 if [ "\$1" = --version ]; then printf 'STP/TPW Launcher v$VERSION\nbuild: stub\n'; fi
@@ -771,6 +1315,7 @@ if [ "\$(basename "\$here")" = build ]; then
 fi
 EOF
     chmod 755 "$NEXT/tpw_launcher"
+    ui_done build "a stand-in launcher (test build)"
 }
 
 wait_for_exit() {
@@ -791,11 +1336,15 @@ run_swap() {
     STEP_TOTAL=1
     [ -z "$WAIT_PID" ] || STEP_TOTAL=$((STEP_TOTAL + 1))
     [ "$LAUNCH" = 0 ] || STEP_TOTAL=$((STEP_TOTAL + 1))
+    UI_FOOTER="Your games, saves and settings are not touched by an update."
     if [ -n "$WAIT_PID" ]; then
         step "Waiting for the launcher to close"
+        ui_active launcher "waiting for the launcher to close"
         wait_for_exit "$WAIT_PID"
+        ui_done launcher "closed"
     fi
     step "Switching to the new version"
+    ui_active swap "switching to the new version"
     if [ -f "$NEXT/install-info.txt" ]; then
         do_swap
         write_command || :
@@ -803,11 +1352,14 @@ run_swap() {
         say "No new version is waiting in $NEXT, so there is nothing to switch."
         [ -x "$DIR/build/tpw_launcher" ] || die "There is no launcher in $DIR/build."
         VERSION=$(info_get "$DIR/build/install-info.txt" version)
+        ui_done swap "nothing was waiting in build-next"
     fi
     if [ "$LAUNCH" = 1 ]; then
         step "Starting the launcher"
         launch
     fi
+    fmt_dur $(($(date +%s) - UI_START))
+    UI_CLOSING="Done in $DUR. The launcher is version ${VERSION:-unknown}."
     finish_ok "${VERSION:-unknown}"
 }
 
@@ -818,8 +1370,31 @@ run_install() {
     # Only --dev on this very run gives main; --update included, channel.txt only records what is installed (ONE LINE
     # FOR EVERYONE).
     [ -n "$CHANNEL" ] || CHANNEL=stable
+    # The progress view's rows. An install in place gets an "installed" row (and a swap row later) instead of the
+    # tools row, as the design note draws them.
+    had_build=0
+    old_version=""
+    if [ -x "$DIR/build/tpw_launcher" ]; then
+        had_build=1
+        old_version=$(info_get "$DIR/build/install-info.txt" version)
+    fi
+    if [ "$had_build" = 1 ]; then
+        UI_FOOTER="Your games, saves and settings are not touched by an update."
+        ui_active installed "version ${old_version:-unknown} found"
+    else
+        UI_FOOTER="All of this stays inside $(tilde "$DIR")."
+        ui_active tools "looking for the Xcode command line tools"
+        ui_pending "$UI_SRC" ""
+        ui_pending build ""
+        [ "$UPDATE" = 1 ] || ui_pending command "themepark"
+        [ "$STAGE" = 1 ] || [ "$LAUNCH" = 0 ] || ui_pending start ""
+    fi
     if [ "$CHANNEL" = stable ] && [ "$(read_channel)" = dev ]; then
         say "This install followed main (--dev); it now follows the newest release. Add --dev to stay on main."
+        if [ "$UI" = tty ]; then
+            UI_NOTES=""
+            ui_warn installed "this install follows main (${old_version:-unknown}). Without --dev the line switches it to the newest release. Add --dev to stay on main."
+        fi
     fi
 
     # check, download, build, verify; then switch and start unless --stage
@@ -829,14 +1404,17 @@ run_install() {
 
     step "Checking this computer"
     check_computer
+    [ "$had_build" = 1 ] || ui_done tools "Xcode command line tools found"
 
     step "Downloading the source and the build's tools"
+    ui_active "$UI_SRC" "looking for the newest version"
     if [ -n "${TPW_INSTALL_STUB:-}" ]; then
         stub_source
     else
         pick_target
         mkdir -p "$DIR" || die "Couldn't make the folder $DIR."
         : >"$DIR/.tpw-installer" || die "Couldn't write in $DIR."
+        [ "$UI" = tty ] && : >"$LOG"   # the log holds the downloads' output too in the progress view
         get_source
     fi
 
@@ -853,23 +1431,53 @@ run_install() {
         ready=1
     fi
 
+    # The progress view, now that the version is known: an install in place is current (two rows and done), or gets
+    # the rows of an update; a fresh install's source row is done.
+    if [ "$UI" = tty ]; then
+        if [ "$CHANNEL" = dev ]; then
+            got="tpw-port main downloaded ($VERSION, $(printf '%.10s' "$COMMIT"))"
+            newest="main is at $VERSION, which is installed"
+        else
+            got="tpw-port $VERSION downloaded"
+            newest="$VERSION is the newest release"
+        fi
+        UI_GOT=$got
+        ui_state installed
+        if [ "$had_build" = 1 ] && [ "$current" = 1 ]; then
+            UI_FOOTER=""   # nothing happens to the install, so nothing to promise about it
+            [ "$UI_S" = warn ] || ui_done installed "$(tilde "$DIR"), version ${old_version:-$VERSION}"
+            ui_rename "$UI_SRC" newest
+            ui_done newest "$newest"
+        elif [ "$had_build" = 1 ]; then
+            [ "$UI_S" = warn ] || ui_done installed "version ${old_version:-unknown} found, updating to $VERSION"
+            ui_done "$UI_SRC" "$got"
+            ui_pending build ""
+            ui_pending swap "the new launcher replaces the old one when the build is done"
+            [ "$UPDATE" = 1 ] || ui_pending command "themepark"
+            [ "$STAGE" = 1 ] || [ "$LAUNCH" = 0 ] || ui_pending start ""
+        else
+            ui_done "$UI_SRC" "$got"
+        fi
+    fi
+
     if [ "$current" = 1 ]; then
-        say "Already up to date: version $VERSION."
+        info "Already up to date: version $VERSION."
         # A build staged earlier is of another commit now: drop it, so that a later --swap-and-launch cannot switch to it.
         remove_own build-next
         step "Building the launcher"
-        say "Nothing to build."
+        info "Nothing to build."
         step "Checking the new launcher"
-        say "Nothing to check."
+        info "Nothing to check."
         if [ "$(read_channel)" != "$CHANNEL" ]; then
             write_channel "$CHANNEL"
             sed "s/^channel=.*/channel=$CHANNEL/" "$DIR/build/install-info.txt" >"$DIR/build/install-info.tmp" \
                 && mv -f "$DIR/build/install-info.tmp" "$DIR/build/install-info.txt"
         fi
     elif [ "$ready" = 1 ]; then
-        say "This version was built earlier and is waiting in $NEXT."
+        info "This version was built earlier and is waiting in $NEXT."
         step "Building the launcher"
-        say "Nothing to build."
+        info "Nothing to build."
+        ui_done build "built earlier, waiting in build-next"
         step "Checking the new launcher"
         verify_next
     elif [ -n "${TPW_INSTALL_STUB:-}" ]; then
@@ -887,40 +1495,64 @@ run_install() {
 
     if [ "$STAGE" = 1 ]; then
         if [ "$current" = 0 ]; then
-            say "The new version is ready in $NEXT. Nothing was switched."
+            info "The new version is ready in $NEXT. Nothing was switched."
+            UI_CLOSING="The new version is ready in $NEXT. Nothing was switched."
+        else
+            UI_CLOSING="Nothing to do: version $VERSION is installed."
         fi
         finish_ok "$VERSION"
     fi
     step "Switching to the new version"
     if [ "$current" = 0 ]; then
+        [ "$had_build" = 0 ] || ui_active swap "switching to the new version"
         do_swap
     else
-        say "Nothing to switch."
+        info "Nothing to switch."
     fi
     # THE THEMEPARK COMMAND: the file at every switch, the PATH line only on an install
     play="Start it with: $DIR/build/tpw_launcher"
     every_window="From now on, type themepark in any new Terminal window to play. It works from any folder."
+    command_row="themepark is not set up (see below)"
+    [ "$UPDATE" = 1 ] || [ "$current" = 1 ] || ui_active command "adding the themepark command"
     if write_command; then
         play="To play later, run: $DIR/bin/themepark"
+        command_row="themepark, from $DIR/bin (see below)"
         if [ "$UPDATE" = 1 ]; then
             has_path_line && play=$every_window
         elif setup_path; then
             if new_shell_finds_command; then
                 play=$every_window
+                command_row="themepark, in any new Terminal window"
             else
                 # not a failure of the install: the launcher is in place, only the shortcut needs this
                 say "A new Terminal window does not find themepark yet (your shell is ${SHELL:-unknown})."
                 say "To fix it, run this line once, then open a new Terminal window:"
                 say "  $(fix_line)"
+                command_row="themepark, once the line below is run"
             fi
         fi
+    fi
+    if [ "$UPDATE" = 1 ] || [ "$current" = 1 ]; then
+        :
+    elif [ "$command_row" = "themepark, in any new Terminal window" ]; then
+        ui_done command "$command_row"
+    else
+        ui_warn command "$command_row"
     fi
     if [ "$LAUNCH" = 1 ]; then
         step "Starting the launcher"
         launch
     fi
-    say "$play"
+    info "$play"
     [ "$UPDATE" = 1 ] || tell_old_copies
+    closing=$play
+    [ "$play" != "$every_window" ] || closing="Type themepark in a new Terminal window to play."
+    if [ "$current" = 1 ]; then
+        UI_CLOSING="Nothing to do. $closing"
+    else
+        fmt_dur $(($(date +%s) - UI_START))
+        UI_CLOSING="Done in $DUR. $closing"
+    fi
     finish_ok "$VERSION"
 }
 
@@ -940,9 +1572,10 @@ main() {
     SWAP=0
     WAIT_PID=""
     LAUNCH=1
+    PLAIN=0
     GIT_TERMINAL_PROMPT=0   # a wrong address must fail, never wait for a password nobody sees
     export GIT_TERMINAL_PROMPT
-    trap stopped INT TERM HUP
+    arm_traps
 
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -964,6 +1597,7 @@ main() {
                 ;;
             --wait-pid=*) WAIT_PID=${1#--wait-pid=} ;;
             --no-launch) LAUNCH=0 ;;
+            --plain) PLAIN=1 ;;
             -h | --help)
                 usage
                 exit 0
@@ -972,6 +1606,7 @@ main() {
         esac
         shift
     done
+    ui_start
     [ "$STAGE" = 0 ] || [ "$UPDATE" = 1 ] || die "--stage goes with --update."
     [ "$SWAP" = 0 ] || [ "$UPDATE" = 0 ] || die "--swap-and-launch does not go with --update."
     [ -z "$WAIT_PID" ] || [ "$SWAP" = 1 ] || die "--wait-pid goes with --swap-and-launch."
