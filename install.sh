@@ -13,7 +13,8 @@
 #   build/           the launcher in use (build/tpw_launcher)
 #   build-next/      a new build being made, or made and waiting to be switched in
 #   build-prev/      the build before the last switch, kept until the next one
-#   bin/themepark    the themepark command: starts build/tpw_launcher from any folder (see THE THEMEPARK COMMAND)
+#   bin/themepark    the themepark command: starts build/tpw_launcher from any folder, and themepark update runs this
+#                    script from source/ (see THE THEMEPARK COMMAND)
 #   channel.txt      "stable" or "dev": the launcher reads it to know that this script installed it; it records what
 #                    is installed and never chooses what an update gets
 #   last-build.log   the output of the last build (on a terminal, of the downloads too), with no user name, home folder
@@ -54,7 +55,12 @@
 # nothing; it is not found after ten minutes of compiling.
 #
 # THE THEMEPARK COMMAND. Players start the game by typing themepark in any Terminal window. DIR/bin/themepark starts
-# DIR/build/tpw_launcher (where the Update button is) and returns at once. DIR/bin gets on the PATH of new Terminal
+# DIR/build/tpw_launcher (where the Update button is) and returns at once. Three arguments are different: `themepark
+# update` runs this script from DIR/source in the foreground (--update --dir DIR, any further options passed on, so
+# `themepark update --dev` follows main), with the progress view in the window, and first refuses when this install's
+# launcher is running (the Update button updates a running launcher; this run replaces build/ under it and would start a
+# second one); `themepark --version` and `themepark --help` run the launcher in the foreground, so that its answer shows
+# in the window. DIR/bin gets on the PATH of new Terminal
 # windows through one line in ~/.zprofile (zsh is macOS's shell), and in bash's login file when bash is the player's
 # shell (or ~/.bash_profile when there is one), marked with CMD_MARK so that it is found again and never added twice.
 # `curl | sh` cannot change the window it runs in, so the command works from the next window on (the first install
@@ -123,8 +129,8 @@ Options:
 
 After installing, open STP/TPW Launcher from your Applications folder (Launchpad, Spotlight or the Finder), or open
 a new Terminal window and type themepark, from any folder, to play.
-Run the same line again to update. It follows the newest release unless --dev is added each time; so does
-the launcher's Update button, which never adds --dev.
+Run the same line again, or type themepark update, to update. Both follow the newest release unless --dev is added
+each time; so does the launcher's Update button, which never adds --dev.
 EOF
 }
 
@@ -1340,15 +1346,43 @@ write_command_file() {
     cat >"$1" <<'EOF'
 #!/bin/sh
 # tpw-port installer: the themepark command
-# Starts the STP/TPW Launcher of this install (the folder above this one) and returns at once. The installer
-# (install.sh) writes this file. To remove the command, delete the install folder and the line in ~/.zprofile (and
-# ~/.bash_profile) that ends with the comment above.
+# The STP/TPW Launcher of this install (the folder above this one), from any folder:
+#   themepark             opens the launcher and returns at once
+#   themepark update      updates this install to the newest release (themepark update --dev: to main) in this window,
+#                         by running the installer that came with it (source/install.sh --update), then opens it
+#   themepark --version   prints the launcher's version in this window (--help: its options)
+# Anything else is passed on to the launcher, which is opened detached. The installer (install.sh) writes this file.
+# To remove the command, delete the install folder and the line in ~/.zprofile (and ~/.bash_profile) that ends with
+# the comment above.
 dir=$(cd "$(dirname "$0")/.." && pwd) || exit 1
-if [ ! -x "$dir/build/tpw_launcher" ]; then
+launcher="$dir/build/tpw_launcher"
+cd "$dir" || exit 1
+if [ "$1" = update ]; then
+    shift
+    if [ ! -f "$dir/source/install.sh" ]; then
+        echo "themepark: there is no installer in $dir/source. Run the install line from the README again." >&2
+        exit 1
+    fi
+    # the installer replaces build/ and opens the new launcher: one that is running must be quit first (its own
+    # Update button updates it while it runs)
+    running=$(ps -A -ww -o pid= -o command= | while read -r pid command; do
+        case "$command" in ("$launcher" | "$launcher "*) printf '%s ' "$pid" ;; esac
+    done)
+    if [ -n "$running" ]; then
+        echo "themepark: the launcher is running (process ${running% })." >&2
+        echo "Quit it, or press its Update button, then run themepark update again." >&2
+        exit 1
+    fi
+    exec /bin/sh "$dir/source/install.sh" --update --dir "$dir" "$@"
+fi
+if [ ! -x "$launcher" ]; then
     echo "themepark: there is no launcher in $dir/build. Run the installer again." >&2
     exit 1
 fi
-cd "$dir" && nohup "$dir/build/tpw_launcher" "$@" >/dev/null 2>&1 </dev/null &
+case "$1" in
+    --version | --help | -h) exec "$launcher" "$@" ;;
+esac
+nohup "$launcher" "$@" >/dev/null 2>&1 </dev/null &
 EOF
 }
 

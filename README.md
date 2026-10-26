@@ -5,9 +5,7 @@ You need your own copy of the game. Nothing from the game is in here.
 
 ## Quick start
 
-The easiest way is one line. It downloads the source of the newest release and builds the launcher on your computer,
-in a few minutes. A launcher your computer built is not blocked by macOS or Windows SmartScreen, so there are no
-warnings to click through. Run the same line again to update.
+To install, follow these instructions. To update, run the same command again or run `themepark update`.
 
 - Mac (macOS 11 or newer, Apple Silicon or Intel), in Terminal:
 
@@ -19,8 +17,9 @@ warnings to click through. Run the same line again to update.
 
       irm https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.ps1 | iex
 
-  It needs Git (`winget install Git.Git`, then a new PowerShell window). The launcher goes in
-  `%LOCALAPPDATA%\STP-TPW-Launcher\build\tpw_launcher.exe`.
+  Nothing to install first: a Git on the PATH is used, and a PC without one gets a portable Git (MinGit) fetched into
+  the launcher's own folder, checked against its SHA-256; no winget, no setup program, no Path entry for it. The
+  launcher goes in `%LOCALAPPDATA%\STP-TPW-Launcher\build\tpw_launcher.exe`.
 
 ### Play after install
 
@@ -31,6 +30,7 @@ Type this in a Terminal (Mac) or PowerShell (Windows) window, in any folder:
 On a Mac it works in every new Terminal window (the first install opens the launcher for you), and the installer
 also puts **STP/TPW Launcher** in your Applications folder, with the game's icon, so you can open it from Launchpad,
 Spotlight or the Dock too. On Windows it works straight away, in the window you installed from too.
+`themepark --version` shows the installed version.
 
 ### Playing
 
@@ -162,10 +162,11 @@ on the Mac, bugs included. This repository adds what it takes to play:
 ### The Windows build
 
 It was built and tested with llvm-mingw 20261006 (UCRT, x86-64, clang 23.1.3), CMake 4.4.4, Ninja 1.13.2, Python 3.14.7
-and Git 2.55.0 on Windows 10 22H2. build.cmd hands to devtools/win/build.ps1 (Windows PowerShell 5.1, part of Windows,
-run with -ExecutionPolicy Bypass), which fetches those versions of the first four (Python as the embeddable package) and
-pins each with its SHA-256. It takes a tool from the PATH instead when the version there is usable: a MinGW clang for
-x86-64 not older than 23.1.3, CMake 3.20 or newer, Ninja 1.10 or newer, Python 3.10 or newer. It prints which it chose.
+and Git 2.55.0 on Windows 10 22H2 (install.ps1 fetches MinGit 2.56.0.4, pinned by its SHA-256, when the PC has no Git).
+build.cmd hands to devtools/win/build.ps1 (Windows PowerShell 5.1, part of Windows, run with -ExecutionPolicy Bypass),
+which fetches those versions of the first four (Python as the embeddable package) and pins each with its SHA-256. It
+takes a tool from the PATH instead when the version there is usable: a MinGW clang for x86-64 not older than 23.1.3,
+CMake 3.20 or newer, Ninja 1.10 or newer, Python 3.10 or newer. It prints which it chose.
 `.\build.cmd TOOLS=fetch` fetches all four whatever the PATH has, `.\build.cmd test` builds everything and runs the
 tests, `BUILD=<folder>` builds in another folder, and each step's output is kept in build\logs\. Every build checks the
 launcher's DLL imports, and test builds check the test programs too: only Windows system libraries are allowed. The

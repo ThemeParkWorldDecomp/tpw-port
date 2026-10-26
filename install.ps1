@@ -22,7 +22,9 @@
 #   build\           the launcher in use (build\tpw_launcher.exe), with the build's tools in build\tools
 #   build-next\      a new build being made, or made and waiting to be switched in
 #   build-prev\      the build before the last switch, kept until the next one
-#   bin\themepark.cmd the themepark command: starts build\tpw_launcher.exe from any folder (see THE THEMEPARK COMMAND)
+#   tools\MinGit\    a portable Git (MinGit), fetched here only when the PC has no Git on its PATH (see SAFETY)
+#   bin\themepark.cmd the themepark command: starts build\tpw_launcher.exe from any folder, and themepark update runs
+#                    this script from source\ (see THE THEMEPARK COMMAND)
 #   channel.txt      "stable" or "dev": the launcher reads it to know that this script installed it; it records what
 #                    is installed and never chooses what an update gets
 #   last-build.log   the output of the last build, with no user name, profile folder or PC name in it
@@ -66,7 +68,12 @@
 # versions changed.
 #
 # THE THEMEPARK COMMAND. Players start the game by typing themepark in any PowerShell or Command Prompt window.
-# DIR\bin\themepark.cmd starts DIR\build\tpw_launcher.exe (where the Update button is) and returns at once. DIR\bin is
+# DIR\bin\themepark.cmd starts DIR\build\tpw_launcher.exe (where the Update button is) and returns at once. Three
+# arguments are different: `themepark update` runs this script from DIR\source in the foreground (-Update -Dir DIR, any
+# further options passed on, so `themepark update -Dev` follows main), with the progress view in the window, and first
+# refuses when a launcher is running (the Update button updates a running launcher; this run would fail at the switch
+# and would start a second one); `themepark --version` and `themepark --help` run the launcher in the foreground through
+# a pipe (it has no console of its own), so that its answer shows in the window. DIR\bin is
 # added to the user's Path (HKCU\Environment, no administrator rights), once, and Windows is told so that new windows
 # see it. Through irm | iex the script runs in the player's own window, so DIR\bin goes on that window's Path too and
 # themepark works there at once. At the end a new PowerShell, with the Path a new window gets, checks that it finds
@@ -76,13 +83,16 @@
 # told the full path instead.
 #
 # SAFETY. No administrator rights, nothing written outside DIR but that Path entry (the launcher is started at the end,
-# from DIR\build). The only folders deleted are DIR\build-next and DIR\build-prev, by Remove-Own below, which refuses
-# any other name, an odd install folder and a link or junction. Nothing is installed on the PC: Git for Windows must be
-# there already.
+# from DIR\build). The only folders deleted are DIR\build-next, DIR\build-prev and DIR\tools\MinGit (with its .tmp),
+# by Remove-Own below, which refuses any other name, an odd install folder and a link or junction. Nothing is installed
+# on the PC: a Git on the PATH is used as it is, and when there is none a portable Git (MinGit, the zip of a pinned Git
+# for Windows release, checked against its SHA-256 below) is fetched into DIR\tools\MinGit and run from there. No
+# winget, no setup program, no registry key, no Path entry for it; it goes with DIR.
 #
 # Test hooks (for the maintainers' tests, not for players): TPW_INSTALL_REPO replaces the repository URL, and
 # TPW_INSTALL_STUB=1 puts a stand-in launcher in place of the download and the build (the installer's CI tests the
-# themepark command with it), of version TPW_INSTALL_STUB_VERSION when set (a newer one stands in for a new release).
+# themepark command with it; Git is still looked for, and fetched when there is none, so the CI tests the fetch with
+# it too), of version TPW_INSTALL_STUB_VERSION when set (a newer one stands in for a new release).
 # TPW_INSTALL_VIEW=plain, lines or vt forces that view of the output, whatever the output is (the CI runs the progress
 # view through a pipe with it).
 #
@@ -122,11 +132,22 @@ $TpwInstallCode = @(& {
     $env:GCM_INTERACTIVE = 'never'
 
     # The state the functions share (a hashtable, so that a function's change is seen by all): the step counter, whether
-    # the RESULT line is out, and what is being installed.
-    $St = @{ StepNo = 0; StepTotal = 0; Done = $false; Channel = ''; Tag = ''; Commit = ''; Version = '' }
+    # the RESULT line is out, what is being installed, and which git runs the git commands (Git: git.exe from the PATH,
+    # or the fetched DIR\tools\MinGit\cmd\git.exe; GitFetched: this run fetched it).
+    $St = @{ StepNo = 0; StepTotal = 0; Done = $false; Channel = ''; Tag = ''; Commit = ''; Version = ''; Git = 'git.exe'; GitFetched = $false }
     # Every git command gets these: files kept with their line endings as stored (as the build expects), paths longer
     # than 260 characters allowed, and no credential window.
     $GitCfg = @('-c', 'core.autocrlf=false', '-c', 'core.longpaths=true', '-c', 'credential.helper=')
+    # The portable Git fetched when the PC has none (Get-MinGit below): MinGit is Git for Windows without the GUI,
+    # Perl and Bash (it has sh, which git submodule needs). The 64-bit one runs on Windows on Arm too, emulated, as the
+    # build's tools do. To move it on: the newest release's MinGit-VERSION-64-bit.zip, with the size and the SHA-256
+    # the release page shows for it.
+    $MinGit = @{
+        Version = '2.56.0.4'
+        Url     = 'https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.4/MinGit-2.56.0.4-64-bit.zip'
+        Sha256  = 'e3bf78351fe777fba47ddee5950082f8a98bb0f02604fdc7ba3ee2cb68ffa877'
+        Size    = '38 MB'
+    }
 
     function Show-Usage {
         Write-Host 'Installs or updates the STP/TPW Launcher, compiled on this PC from its source.'
@@ -147,8 +168,8 @@ $TpwInstallCode = @(& {
         Write-Host '  -Help            this text'
         Write-Host ''
         Write-Host 'After installing, type themepark in any PowerShell window to play, from any folder.'
-        Write-Host 'Run the same line again to update. It follows the newest release unless -Dev is added each time; so does'
-        Write-Host "the launcher's Update button, which never adds -Dev."
+        Write-Host 'Run the same line again, or type themepark update, to update. Both follow the newest release unless -Dev is'
+        Write-Host "added each time; so does the launcher's Update button, which never adds -Dev."
     }
 
     # ---- output: the lines the launcher reads (plain mode)
@@ -782,13 +803,13 @@ $TpwInstallCode = @(& {
     # progress view. Its exit code is in $LASTEXITCODE, as for any program.
     function Invoke-Git {
         if ($Ui.Mode -eq 'plain') {
-            & git.exe @GitCfg @args | Out-Host
+            & $St.Git @GitCfg @args | Out-Host
             return
         }
         $rules = Get-LogRules
         $writer = New-Object System.IO.StreamWriter($Log, $true, (New-Object System.Text.UTF8Encoding($false)))
         try {
-            & git.exe @GitCfg @args 2>&1 | ForEach-Object {
+            & $St.Git @GitCfg @args 2>&1 | ForEach-Object {
                 if ($_ -is [System.Management.Automation.ErrorRecord]) { $line = $_.Exception.Message } else { $line = "$_" }
                 $writer.WriteLine((ConvertTo-LogLine $line $rules))
             }
@@ -821,9 +842,10 @@ $TpwInstallCode = @(& {
         return ($null -ne $item -and ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint))
     }
 
-    # Deletes DIR\build-next or DIR\build-prev and nothing else. This is the only place the script deletes a folder.
+    # Deletes DIR\build-next, DIR\build-prev, DIR\tools\MinGit or DIR\tools\MinGit.tmp and nothing else. This is the
+    # only place the script deletes a folder.
     function Remove-Own([string]$name) {
-        if ($name -ne 'build-next' -and $name -ne 'build-prev') { Fail "Internal error: this script never deletes `"$name`"." }
+        if (@('build-next', 'build-prev', 'tools\MinGit', 'tools\MinGit.tmp') -cnotcontains $name) { Fail "Internal error: this script never deletes `"$name`"." }
         if (Test-UnsafePath $Dir) { Fail "Internal error: refusing to delete inside `"$Dir`"." }
         $target = Join-Path $Dir $name
         if (-not (Test-Path -LiteralPath $target)) { return }
@@ -871,6 +893,68 @@ $TpwInstallCode = @(& {
 
     # ---- 1. this computer
 
+    # The portable Git, DIR\tools\MinGit\cmd\git.exe: fetched now, unless an earlier run fetched the same pinned zip (the
+    # .sha256 file beside it says which). The way build.ps1 fetches its tools: into a .tmp folder, checked against the
+    # pinned SHA-256, unpacked with tar.exe, moved into place. Returns the git.exe to run.
+    function Get-MinGit {
+        $tools = Join-Path $Dir 'tools'
+        $gitDir = Join-Path $tools 'MinGit'
+        $exe = Join-Path $gitDir 'cmd\git.exe'
+        $stamp = Join-Path $gitDir '.sha256'
+        if ((Test-Path -LiteralPath $exe -PathType Leaf) -and (Test-Path -LiteralPath $stamp -PathType Leaf) -and
+            ([System.IO.File]::ReadAllText($stamp).Trim() -eq $MinGit.Sha256)) {
+            Info "Git fetched earlier: $gitDir"
+            return $exe
+        }
+        $tmp = Join-Path $tools 'MinGit.tmp'
+        $zip = Join-Path $tmp 'download.zip'
+        $unpacked = Join-Path $tmp 'x'
+        Remove-Own 'tools\MinGit.tmp'
+        Remove-Own 'tools\MinGit'
+        # DIR is made here already (step 2 makes it otherwise), marked as this script's. The install folder is $Dir: PowerShell
+        # variable names ignore case and a called function sees this one's locals, so no local may be named dir (this one is gitDir).
+        try {
+            [void](New-Item -ItemType Directory -Force -Path $Dir -ErrorAction Stop)
+            Write-Text (Join-Path $Dir '.tpw-installer') ''
+            [void](New-Item -ItemType Directory -Force -Path $unpacked -ErrorAction Stop)
+        } catch { Fail "Couldn't make the folder $tmp." }
+        Info "No Git on this PC. Fetching Git (MinGit $($MinGit.Version), about $($MinGit.Size), once) into $gitDir"
+        Set-UiActive 'tools' "fetching Git (MinGit $($MinGit.Version), about $($MinGit.Size), once)"
+        $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
+        $out = & $curl -fsSL --retry 2 -o $zip $MinGit.Url 2>&1 | ForEach-Object { "$_" }
+        if ($LASTEXITCODE -ne 0) {
+            $detail = "Could not download $($MinGit.Url) (curl exit $LASTEXITCODE). $(($out -join ' ').Trim())"
+            Remove-Own 'tools\MinGit.tmp'
+            Fail-Network $detail.Trim()
+        }
+        $sum = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($sum -ne $MinGit.Sha256) {
+            Remove-Own 'tools\MinGit.tmp'
+            Say 'The download of Git does not match the checksum in this script, so it was deleted.'
+            Say "  expected $($MinGit.Sha256)"
+            Say "  got      $sum"
+            Say 'Run this again. If it fails the same way, the download has changed: report it, do not use it.'
+            Fail 'The download of Git did not match its checksum.'
+        }
+        $tar = Join-Path $env:SystemRoot 'System32\tar.exe'
+        & $tar -xf $zip -C $unpacked 2>&1 | Out-Null
+        $tarCode = $LASTEXITCODE
+        $moved = $false
+        if ($tarCode -eq 0) {
+            try { Move-Item -LiteralPath $unpacked -Destination $gitDir -ErrorAction Stop; $moved = $true } catch { $moved = $false }
+        }
+        Remove-Own 'tools\MinGit.tmp'
+        if (-not $moved -or -not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+            Remove-Own 'tools\MinGit'
+            Fail "Couldn't unpack the download of Git (tar exit $tarCode). Run this again."
+        }
+        Write-Text $stamp $MinGit.Sha256
+        Info "Fetched Git: MinGit $($MinGit.Version) from $($MinGit.Url); its SHA-256 checksum matched"
+        Set-UiDone 'tools' "Windows PowerShell found; Git $($MinGit.Version) fetched into tools\MinGit"
+        $St.GitFetched = $true
+        return $exe
+    }
+
     function Test-Computer {
         if ($env:OS -ne 'Windows_NT') {
             Say 'This installer is for Windows. On a Mac, use install.sh (see the README).'
@@ -898,10 +982,6 @@ $TpwInstallCode = @(& {
             $missing += 'Windows PowerShell'
             $how += 'Windows PowerShell: part of Windows 10 and 11. This Windows has it removed; it cannot build the launcher.'
         }
-        if ($null -eq (Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue)) {
-            $missing += 'Git'
-            $how += 'Git: run  winget install --id Git.Git -e  (or get it from https://git-scm.com/download/win), then open a new PowerShell window.'
-        }
         if ($missing.Count) {
             $Ui.FailText = "not installed: $($missing -join ', ')"
             Say "Missing: $($missing -join ', ')."
@@ -909,9 +989,6 @@ $TpwInstallCode = @(& {
             Say 'Then run this command again. Nothing was changed.'
             Fail "Missing: $($missing -join ', '). See the lines above for how to get it, then run this again."
         }
-        $gitVersion = (& git.exe --version 2>$null | Out-String).Trim()
-        Info "Git: $gitVersion"
-
         # Estimates (the README says 2.5 GB for a clone and its build): the source is about 150 MB and a build folder
         # with its tools (the compiler is the biggest) about 2 GB. An update makes a second build folder beside the one
         # in use, and the old build-prev goes only at the switch.
@@ -930,6 +1007,22 @@ $TpwInstallCode = @(& {
         } catch {
             if ($St.Done) { throw }   # the Fail above; any other error only means the free space is unknown
         }
+
+        # Git: the one on the PATH, or else the portable one in DIR\tools\MinGit, fetched now when it is not there
+        # (nothing is installed; see SAFETY). With TPW_INSTALL_STUB nothing is cloned, but Git is still looked for and
+        # fetched when missing, so that the installer's CI tests the fetch with the stub.
+        if ($null -ne (Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue)) {
+            $St.Git = 'git.exe'
+            $gitVersion = (& git.exe --version 2>$null | Out-String).Trim()
+            Info "Git: $gitVersion"
+        } else {
+            $St.Git = Get-MinGit
+            $gitVersion = (& $St.Git --version 2>$null | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or -not $gitVersion) {
+                Fail "The fetched Git in $(Join-Path $Dir 'tools\MinGit') does not run. Delete that folder and run this again."
+            }
+            Info "Git: $gitVersion (MinGit, in $(Join-Path $Dir 'tools\MinGit'); nothing is installed on the PC)"
+        }
     }
 
     # ---- 2. the downloads
@@ -939,12 +1032,12 @@ $TpwInstallCode = @(& {
     function Select-Target {
         if ($St.Channel -eq 'dev') {
             $St.Tag = ''
-            $out = & git.exe @GitCfg ls-remote $Repo refs/heads/main 2>&1 | ForEach-Object { "$_" }
+            $out = & $St.Git @GitCfg ls-remote $Repo refs/heads/main 2>&1 | ForEach-Object { "$_" }
             if ($LASTEXITCODE -ne 0) { Fail-Network ($out -join "`n") }
             if (-not $out) { Fail 'The repository has no main branch.' }
             return
         }
-        $out = & git.exe @GitCfg ls-remote --tags --refs $Repo 2>&1 | ForEach-Object { "$_" }
+        $out = & $St.Git @GitCfg ls-remote --tags --refs $Repo 2>&1 | ForEach-Object { "$_" }
         if ($LASTEXITCODE -ne 0) { Fail-Network ($out -join "`n") }
         # Releases are the tags vX.Y.Z. The highest by number, not by letters (v0.0.10 comes after v0.0.9).
         $versions = @()
@@ -955,7 +1048,7 @@ $TpwInstallCode = @(& {
             Say 'No release has been published yet, so there is nothing to install by default.'
             Say 'To try the version that is being made (it can have bugs), run this with -Dev:'
             Say '  & ([scriptblock]::Create((irm https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.ps1))) -Dev'
-            Say 'Nothing was changed.'
+            if ($St.GitFetched) { Say "Nothing else was changed (Git was fetched into $(Join-Path $Dir 'tools\MinGit'))." } else { Say 'Nothing was changed.' }
             Fail 'No release has been published yet. Use -Dev to install the development version.'
         }
         $newest = ($versions | Sort-Object | Select-Object -Last 1)
@@ -994,7 +1087,7 @@ $TpwInstallCode = @(& {
             if ($LASTEXITCODE -ne 0) { Fail-Network 'The download of the source did not finish.' }
             $ref = "refs/tags/$($St.Tag)"
         }
-        $commit = (& git.exe @GitCfg -C $Src rev-parse --verify "$ref^{commit}" 2>$null | Out-String).Trim()
+        $commit = (& $St.Git @GitCfg -C $Src rev-parse --verify "$ref^{commit}" 2>$null | Out-String).Trim()
         if ($LASTEXITCODE -ne 0 -or -not $commit) { Fail "The source has no $ref." }
         $St.Commit = $commit
         # The view's title names the version as soon as the commit is known (the checkout and the submodules take a
@@ -1002,7 +1095,7 @@ $TpwInstallCode = @(& {
         # that check.
         if ($Ui.Mode -ne 'plain') {
             $early = ''
-            try { $early = ([string](& git.exe @GitCfg -C $Src show "${commit}:launcher/VERSION.txt" 2>$null | Select-Object -First 1)).Trim() } catch {}
+            try { $early = ([string](& $St.Git @GitCfg -C $Src show "${commit}:launcher/VERSION.txt" 2>$null | Select-Object -First 1)).Trim() } catch {}
             if ($early -match '^\d+\.\d+\.\d+(-dev)?$') { $Ui.Version = $early }
         }
 
@@ -1010,7 +1103,7 @@ $TpwInstallCode = @(& {
         # clone not checked out yet has no index (and git would call every file deleted). Submodules are left out of the
         # check: they differ from the pinned commits between a checkout and their update.
         if (Test-Path -LiteralPath (Join-Path $Src '.git\index')) {
-            $changes = (& git.exe @GitCfg -C $Src status --porcelain --ignore-submodules=all 2>$null | Out-String).Trim()
+            $changes = (& $St.Git @GitCfg -C $Src status --porcelain --ignore-submodules=all 2>$null | Out-String).Trim()
             if ($changes) {
                 Say "$Src has changes that this script did not make, and switching versions would overwrite them."
                 Say 'Move that folder away (or the changes out of it) and run this again.'
@@ -1298,16 +1391,51 @@ static class Stub {
         $text = (@(
             '@echo off',
             "rem $CmdMark",
-            'rem Starts the STP/TPW Launcher of this install (the folder above this one) and returns at once. The installer',
-            'rem (install.ps1) writes this file. To remove the command, delete the install folder and remove its bin folder',
-            'rem from your Path (Settings, search for "environment variables for your account").',
+            'rem The STP/TPW Launcher of this install (the folder above this one), from any folder:',
+            'rem   themepark             opens the launcher and returns at once',
+            'rem   themepark update      updates this install to the newest release (themepark update -Dev: to main) in this',
+            'rem                         window, by running the installer that came with it (source\install.ps1 -Update)',
+            'rem   themepark --version   prints the launcher''s version in this window (--help: its options)',
+            'rem Anything else is passed on to the launcher, which is opened detached. The installer (install.ps1) writes',
+            'rem this file. To remove the command, delete the install folder and remove its bin folder from your Path',
+            'rem (Settings, search for "environment variables for your account").',
             'setlocal',
             'set "TPW_DIR=%~dp0.."',
-            'if exist "%TPW_DIR%\build\tpw_launcher.exe" goto start',
+            'if /i "%~1"=="update" goto update',
+            'if not exist "%TPW_DIR%\build\tpw_launcher.exe" goto missing',
+            'if /i "%~1"=="--version" goto show',
+            'if /i "%~1"=="--help" goto show',
+            'if /i "%~1"=="-h" goto show',
+            'start "" /d "%TPW_DIR%" "%TPW_DIR%\build\tpw_launcher.exe" %*',
+            'exit /b 0',
+            ':show',
+            'rem the launcher has no console: its output reaches this window only through a pipe',
+            '"%TPW_DIR%\build\tpw_launcher.exe" %* 2>&1 | find /v ""',
+            'exit /b %errorlevel%',
+            ':update',
+            'if not exist "%TPW_DIR%\source\install.ps1" goto noinstaller',
+            'rem the installer replaces build\ and opens the new launcher: one that is running must be quit first (its own',
+            'rem Update button updates it while it runs)',
+            'tasklist /fi "imagename eq tpw_launcher.exe" /nh 2>nul | findstr /i /c:"tpw_launcher.exe" >nul',
+            'if not errorlevel 1 goto running',
+            'set "TPW_ARGS="',
+            ':more',
+            'shift',
+            'if "%~1"=="" goto run',
+            'set "TPW_ARGS=%TPW_ARGS% %1"',
+            'goto more',
+            ':run',
+            'powershell -NoProfile -ExecutionPolicy Bypass -File "%TPW_DIR%\source\install.ps1" -Update -Dir "%TPW_DIR%" %TPW_ARGS%',
+            'exit /b %errorlevel%',
+            ':missing',
             'echo themepark: there is no launcher in "%TPW_DIR%\build". Run the installer again.',
             'exit /b 1',
-            ':start',
-            'start "" /d "%TPW_DIR%" "%TPW_DIR%\build\tpw_launcher.exe" %*'
+            ':noinstaller',
+            'echo themepark: there is no installer in "%TPW_DIR%\source". Run the install line from the README again.',
+            'exit /b 1',
+            ':running',
+            'echo themepark: the launcher is running. Quit it, or press its Update button, then run themepark update again.',
+            'exit /b 1'
         ) -join "`r`n") + "`r`n"
         try {
             [void](New-Item -ItemType Directory -Force -Path (Join-Path $Dir 'bin') -ErrorAction Stop)
@@ -1550,7 +1678,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
             Set-UiActive 'installed' "version $oldShown found"
         } else {
             $Ui.Footer = "All of this stays inside $(ConvertTo-Tilde $Dir)."
-            Set-UiActive 'tools' 'looking for Git and Windows PowerShell'
+            Set-UiActive 'tools' 'looking for Git and Windows PowerShell'   # a fetch of Git, if needed, is shown by Get-MinGit
             Set-UiPending $Ui.Src ''
             Set-UiPending 'build' ''
             if (-not $Update) { Set-UiPending 'command' 'themepark' }
@@ -1571,7 +1699,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
 
         Step 'Checking this computer'
         Test-Computer
-        if (-not $hadBuild) { Set-UiDone 'tools' 'Git and Windows PowerShell found' }
+        if (-not $hadBuild -and -not $St.GitFetched) { Set-UiDone 'tools' 'Git and Windows PowerShell found' }
 
         Step "Downloading the source"
         Set-UiActive $Ui.Src 'looking for the newest version'
