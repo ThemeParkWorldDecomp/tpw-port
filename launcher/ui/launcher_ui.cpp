@@ -1089,9 +1089,11 @@ void LauncherUi::DrawSettings(const Rect& w) {
         float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
         text_.Draw(style::kBodyBold, row.x + 12, ty, "Full screen", colour::kInk);
 #if defined(__APPLE__)
-        const char* fullScreenLine = "Off, the game plays in a window. Cmd+Ctrl+F switches while playing";
+        const char* fullScreenLine = fullScreen_ ? "On, the game fills the screen. Cmd+Ctrl+F switches while playing"
+                                                : "Off, the game plays in a window. Cmd+Ctrl+F switches while playing";
 #else
-        const char* fullScreenLine = "Off, the game plays in a window. Alt+Enter switches while playing";
+        const char* fullScreenLine = fullScreen_ ? "On, the game fills the screen. Alt+Enter switches while playing"
+                                                : "Off, the game plays in a window. Alt+Enter switches while playing";
 #endif
         text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
                    text_.Fit(style::kSmall, fullScreenLine, row.w - 12 - 56 - 24, false), colour::kInkSoft);
