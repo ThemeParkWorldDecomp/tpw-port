@@ -59,6 +59,7 @@ The first release: play Sim Theme Park and Theme Park World from your own discs,
 - Staff now show under the pointer when you place them, and in the hire and staff room panels.
 - The hire panel's staff figure stays inside its picture box.
 - Thought bubbles, balloons, litter, vomit, stink bombs, riders' heads and ride upgrade effects now show.
+- The close button of the slide-out panels on the control panel (staff locator with Ctrl+S, finances, and the others) answers clicks again.
 - Your park's name shows on the gate and on ride signs.
 - Message boxes now show their background.
 - The park no longer drifts into a corner when the game window isn't focused.
