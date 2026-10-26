@@ -189,14 +189,19 @@ stopped() {
 
 # ---- output on a terminal: the progress view
 #
-# One block, redrawn in place: a title, a row per stage (a green check when done, a spinner while it runs, grey while it
-# waits, a yellow ! for a notice, a red x when it failed), a blank line and a footer. The build's row is a bar with the
-# percentage and the file being compiled, read from the log (cmake's "[ 58%] Building CXX object ..." lines). The
-# cursor is hidden while the block redraws and shown again before anything else is printed. Rows are only ever added,
-# the names are those of the design note (tools, source, build, command, start; installed, newest, swap on an update).
-# Without a UTF-8 locale the glyphs are ASCII ([x] done, [>] active, [ ] waiting). Under 70 columns the bar has 10
-# cells and the time left is dropped. The width is read again at every frame: after a resize the block starts afresh
-# below the old one rather than drawing over the wrong lines.
+# One block, redrawn in place, in a frame of box-drawing characters (rounded corners, a blank line inside at the top
+# and the bottom): a title (the name and, once known, the version it installs), a row per stage (a green check when
+# done, a spinner while it runs, grey while it waits, a yellow ! for a notice, a red x when it failed), a blank line
+# and a footer. The build's row is a bar with the percentage and the file being compiled, read from the log (cmake's
+# "[ 58%] Building CXX object ..." lines); until the first percentage is in the log (the configure step) it says what
+# the build is doing instead ("configuring the build"), never a 0 % that reads as stuck. The cursor is hidden while the
+# block redraws and shown again before anything else is printed. Rows are only ever added, the names are those of the
+# design note (tools, source, build, command, start; installed, newest, swap on an update). Without a UTF-8 locale (or
+# a shell that counts bytes) the glyphs are ASCII ([x] done, [>] active, [ ] waiting, a frame of + - |). The frame is
+# as wide as the window less one column, at most 110; under 72 columns inside it the bar has 10 cells and the time
+# left is dropped; under 60 columns there is no frame (and the view is not chosen to begin with). The width is read
+# again at every frame: after a resize the block starts afresh below the old one rather than drawing over the wrong
+# lines.
 
 UI=plain
 UI_SRC=source
@@ -204,6 +209,12 @@ UI_ROWS=0
 UI_LINES=0
 UI_COLS=80
 UI_LAST_COLS=0
+UI_BOX=0
+UI_IN=0
+UI_TW=80
+UI_RULE=""
+UI_RULE_W=-1
+UI_STAGE=0
 UI_FRAME=0
 UI_TICK=""
 UI_VERSION=""
@@ -240,18 +251,72 @@ ui_start() {
     RED="${ESC}[31m"
     CLR="${ESC}[K"
     case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
-        *[Uu][Tt][Ff]-8* | *[Uu][Tt][Ff]8*)
-            UI_UTF=1 G_DONE='✔' G_PEND='·' G_WARN='!' G_FAIL='✖' B_ON='█' B_OFF='░' ;;
-        *)
-            UI_UTF=0 G_DONE='[x]' G_PEND='[ ]' G_WARN='[!]' G_FAIL='[x]' B_ON='#' B_OFF='.' ;;
+        *[Uu][Tt][Ff]-8* | *[Uu][Tt][Ff]8*) ui_glyphs utf ;;
+        *) ui_glyphs ascii ;;
     esac
+    # a shell that counts bytes rather than characters would put the frame's right edge off by the glyphs: ASCII then
+    [ "$UI_UTF" = 0 ] || [ "${#G_DONE}" = 1 ] || ui_glyphs ascii
     # the text column: 4 spaces, the glyph, 2 spaces, the name in 13, a space
     UI_PAD=$((4 + ${#G_DONE} + 2 + 13 + 1))
     UI_IND=""
     _k=0
     while [ "$_k" -lt "$UI_PAD" ]; do UI_IND="$UI_IND "; _k=$((_k + 1)); done
+    ui_geom
     UI_START=$(date +%s)
     printf '%s[?25l' "$ESC"
+}
+
+# The glyphs of the view: those of the design note (utf), or ASCII stand-ins.
+ui_glyphs() {
+    if [ "$1" = utf ]; then
+        UI_UTF=1 G_DONE='✔' G_PEND='·' G_WARN='!' G_FAIL='✖' B_ON='█' B_OFF='░'
+        BX_H='─' BX_V='│' BX_TL='╭' BX_TR='╮' BX_BL='╰' BX_BR='╯'
+    else
+        UI_UTF=0 G_DONE='[x]' G_PEND='[ ]' G_WARN='[!]' G_FAIL='[x]' B_ON='#' B_OFF='.'
+        BX_H='-' BX_V='|' BX_TL='+' BX_TR='+' BX_BL='+' BX_BR='+'
+    fi
+}
+
+# The frame for the width in UI_COLS: UI_BOX (1 when the block gets one: 60 columns or more), UI_IN (the columns inside
+# it), UI_TW (the columns a line of the block may use: inside the frame, or the whole window without one) and UI_RULE
+# (its top and bottom edge, without the corners).
+ui_geom() {
+    if [ "$UI_COLS" -ge 60 ]; then
+        UI_BOX=1
+        _out=$((UI_COLS - 1))
+        [ "$_out" -le 110 ] || _out=110
+        UI_IN=$((_out - 2))
+        UI_TW=$UI_IN
+    else
+        UI_BOX=0
+        UI_IN=0
+        UI_TW=$UI_COLS
+    fi
+    if [ "$UI_RULE_W" != "$UI_IN" ]; then
+        UI_RULE=""
+        _k=0
+        while [ "$_k" -lt "$UI_IN" ]; do UI_RULE="$UI_RULE$BX_H"; _k=$((_k + 1)); done
+        UI_RULE_W=$UI_IN
+    fi
+}
+
+# The width on the screen of $1, a line of the block, in UI_W: its characters less the escape codes (which all end in
+# a letter).
+ui_width() {
+    _s=$1
+    UI_W=0
+    while :; do
+        case "$_s" in
+            *"$ESC"*)
+                _h=${_s%%"$ESC"*}
+                UI_W=$((UI_W + ${#_h}))
+                _s=${_s#*"$ESC"}
+                _s=${_s#\[*[mKlhA]} ;;
+            *)
+                UI_W=$((UI_W + ${#_s}))
+                break ;;
+        esac
+    done
 }
 
 # The terminal's width: from the terminal itself (standard input is a pipe under curl | sh), else tput, else 80.
@@ -365,9 +430,28 @@ ui_spin() {
     esac
 }
 
-# One line of the block, cleared to the right.
+# One line of the block, cleared to the right: inside the frame when there is one (padded to its right edge; a line
+# wider than the frame, which the layout never makes, pushes the edge rather than being cut).
 ui_line() {
-    printf '%s%s\n' "$1" "$CLR"
+    if [ "$UI_BOX" = 1 ]; then
+        ui_width "$1"
+        _fill=""
+        while [ "$UI_W" -lt "$UI_IN" ]; do _fill="$_fill "; UI_W=$((UI_W + 1)); done
+        printf '%s%s%s%s%s%s%s%s%s\n' "$DIM" "$BX_V" "$RST" "$1" "$_fill" "$DIM" "$BX_V" "$RST" "$CLR"
+    else
+        printf '%s%s\n' "$1" "$CLR"
+    fi
+    UI_LINES=$((UI_LINES + 1))
+}
+
+# The frame's top ($1 = top) or bottom edge.
+ui_edge() {
+    [ "$UI_BOX" = 1 ] || return 0
+    if [ "$1" = top ]; then
+        printf '%s%s%s%s%s%s\n' "$DIM" "$BX_TL" "$UI_RULE" "$BX_TR" "$RST" "$CLR"
+    else
+        printf '%s%s%s%s%s%s\n' "$DIM" "$BX_BL" "$UI_RULE" "$BX_BR" "$RST" "$CLR"
+    fi
     UI_LINES=$((UI_LINES + 1))
 }
 
@@ -426,7 +510,7 @@ ui_row() {
     fi
     case "$3" in
         *"$ESC"*) ui_line "$_p$3" ;;   # the bar: laid out by ui_build_tick to fit the line
-        *) ui_wrap "$_p" "$_c" $((UI_COLS - UI_PAD - 1)) "$3" ;;
+        *) ui_wrap "$_p" "$_c" $((UI_TW - UI_PAD - 1)) "$3" ;;
     esac
 }
 
@@ -440,9 +524,12 @@ ui_draw() {
         UI_LINES=0
         UI_LAST_COLS=$UI_COLS
     fi
+    ui_geom
     _prev=$UI_LINES
     [ "$_prev" = 0 ] || printf '%s[%sA\r' "$ESC" "$_prev"
     UI_LINES=0
+    ui_edge top
+    [ "$UI_BOX" = 1 ] && ui_line ""
     ui_line "  ${BOLD}STP/TPW Launcher${UI_VERSION:+ $UI_VERSION}${RST}"
     ui_line ""
     _r=1
@@ -454,7 +541,9 @@ ui_draw() {
         _r=$((_r + 1))
     done
     ui_line ""
-    ui_wrap "  " "" $((UI_COLS - 3)) "$UI_FOOTER" "  "
+    ui_wrap "  " "" $((UI_TW - 3)) "$UI_FOOTER" "  "
+    [ "$UI_BOX" = 1 ] && ui_line ""
+    ui_edge bottom
     # a frame shorter than the one before: what is left of the old one is cleared
     if [ "$UI_LINES" -lt "$_prev" ]; then
         _k=$UI_LINES
@@ -472,7 +561,7 @@ ui_draw() {
 # The bar for $1 percent -> BAR (and its width in cells -> BAR_W).
 ui_bar() {
     BAR_W=20
-    [ "$UI_COLS" -ge 70 ] || BAR_W=10
+    [ "$UI_TW" -ge 72 ] || BAR_W=10
     _f=$(($1 * BAR_W / 100))
     BAR=$CYAN
     _k=0
@@ -482,8 +571,9 @@ ui_bar() {
     BAR="$BAR$RST"
 }
 
-# Where the build is, from the last progress line in the log: UI_PCT and UI_FILE (the source file being compiled,
-# "linking tpw_launcher", or "configuring" before the first progress line).
+# Where the build is, from the log: UI_PCT (the last progress line's percentage; empty before the first one), UI_FILE
+# (the source file being compiled, or "linking tpw_launcher") and UI_STAGE, what the build is doing before the
+# compiler's first progress line (0 nothing yet, 1 cmake configures, 2 the compiler is starting), which only advances.
 ui_build_status() {
     _p=$(tail -n 80 "$LOG" 2>/dev/null | LC_ALL=C awk '
         /^\[ *[0-9]+%\]/ {
@@ -496,21 +586,40 @@ ui_build_status() {
             }
             pct = p + 0
         }
-        /^==> Configuring/ { f = "configuring" }
-        END { if (pct == "") pct = 0; if (f == "" && pct == 0) f = "configuring"; print pct "|" f }')
+        /^==> Configuring/ || /^-- / { if (s < 1) s = 1 }
+        /^-- (Configuring|Generating) done/ || /^-- Build files have been written/ || /^==> Building/ || /^Scanning dependencies/ { if (s < 2) s = 2 }
+        END { print pct "|" (s + 0) "|" f }')
     UI_PCT=${_p%%|*}
+    _p=${_p#*|}
+    _s=${_p%%|*}
     UI_FILE=${_p#*|}
-    case "$UI_PCT" in '' | *[!0-9]*) UI_PCT=0 ;; esac
-    [ "$UI_PCT" -le 100 ] || UI_PCT=100
+    case "$UI_PCT" in *[!0-9]*) UI_PCT="" ;; esac
+    [ -z "$UI_PCT" ] || [ "$UI_PCT" -le 100 ] || UI_PCT=100
+    [ "$_s" -le "$UI_STAGE" ] 2>/dev/null || UI_STAGE=$_s
 }
 
-# The build's row at every frame: the bar, the percentage, the time left (from the pace so far, once 10 points are
-# done) and the file being compiled, in what is left of the line.
+# The build's row at every frame. Until the compiler's first percentage is in the log: the words of what the build is
+# doing (a "0 %" that stays through the configure step reads as stuck), no bar, no time left. Then the bar, the
+# percentage, the time left (from the pace so far, once 10 points are done) and the file being compiled, in what is
+# left of the line.
 # shellcheck disable=SC2329  # called through UI_TICK
 ui_build_tick() {
     ui_build_status
+    if [ -z "$UI_PCT" ] || [ "$UI_PCT" = 0 ]; then
+        if [ -n "$UI_PCT" ] && [ -n "$UI_FILE" ]; then
+            _t="compiling $UI_FILE"
+        else
+            case "$UI_STAGE" in
+                0) _t="preparing the build" ;;
+                1) _t="configuring the build" ;;
+                *) _t="starting the compiler" ;;
+            esac
+        fi
+        ui_set build active "$_t"
+        return 0
+    fi
     _now=$(date +%s)
-    if [ "$UI_BUILD_T0" = 0 ] && [ "$UI_PCT" -gt 0 ]; then
+    if [ "$UI_BUILD_T0" = 0 ]; then
         UI_BUILD_T0=$_now
         UI_BUILD_P0=$UI_PCT
     fi
@@ -519,13 +628,12 @@ ui_build_tick() {
     _t="$BAR  $_pc %"
     _used=$((BAR_W + 6))
     _gain=$((UI_PCT - UI_BUILD_P0))
-    if [ "$UI_COLS" -ge 70 ] && [ "$UI_BUILD_T0" != 0 ] && [ "$_gain" -ge 10 ] && [ $((_now - UI_BUILD_T0)) -ge 5 ] \
-        && [ "$UI_PCT" -lt 100 ]; then
+    if [ "$UI_TW" -ge 72 ] && [ "$_gain" -ge 10 ] && [ $((_now - UI_BUILD_T0)) -ge 5 ] && [ "$UI_PCT" -lt 100 ]; then
         fmt_dur $(((_now - UI_BUILD_T0) * (100 - UI_PCT) / _gain))
         _t="$_t   about $DUR left"
         _used=$((_used + 3 + 6 + ${#DUR} + 5))
     fi
-    _room=$((UI_COLS - UI_PAD - _used - 4))
+    _room=$((UI_TW - UI_PAD - _used - 4))
     if [ -n "$UI_FILE" ] && [ "$_room" -ge 8 ]; then
         _f=$UI_FILE
         if [ "${#_f}" -gt "$_room" ]; then
@@ -834,6 +942,12 @@ get_source() {
         ref="refs/tags/$TAG"
     fi
     COMMIT=$(git_src rev-parse --verify "$ref^{commit}" 2>/dev/null) || die "The source has no $ref."
+    # the view's title names the version as soon as the commit is known (the checkout and the submodules take a while);
+    # VERSION itself is read from the checkout below, and a version that does not parse is left to that check
+    if [ "$UI" = tty ]; then
+        _v=$(git_src show "$COMMIT:launcher/VERSION.txt" 2>/dev/null | sed -n '1p' | tr -d '\r')
+        case "$_v" in [0-9]*.[0-9]*.[0-9]* | [0-9]*.[0-9]*.[0-9]*-dev) UI_VERSION=$_v ;; esac
+    fi
 
     # The source is this script's own. A change somebody made in it would be lost by the checkout: stop instead. A
     # clone not checked out yet has no index (and git would call every file deleted). Submodules are left out of the
@@ -1002,6 +1116,7 @@ prepare_next() {
 build_next() {
     info "Compiling into $NEXT. The first time takes a few minutes."
     UI_BUILD_START=$(date +%s)
+    UI_STAGE=0
     UI_TICK=ui_build_tick
     [ "$UI" = tty ] && ui_build_tick
     wait_for make_logged launcher

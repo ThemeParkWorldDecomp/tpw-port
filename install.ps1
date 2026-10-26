@@ -197,23 +197,30 @@ $TpwInstallCode = @(& {
 
     # ---- output in a console: the progress view
     #
-    # One block, redrawn in place: a title, a row per stage (a green check when done, a spinner while it runs, grey
-    # while it waits, a yellow ! for a notice, a red x when it failed), a blank line and a footer. The build's row is a
-    # bar with the percentage and the file being compiled, read from build.ps1's output as it comes (ninja's "[12/345]
-    # Building CXX object ..." lines). The cursor is hidden while the block redraws and shown again before anything
-    # else is printed. Rows are only ever added; the names are those of the design note (tools, source, build, command,
-    # start; installed, newest, swap on an update). Two console modes: vt (Windows Terminal, PowerShell 7, or the
-    # console host once SetConsoleMode turned its escape codes on) and lines (a console host without them: every
-    # finished row on its own line in colour, the running one in Write-Progress, nothing redrawn, ASCII glyphs). The
-    # width is read again at every frame: after a resize the block starts afresh below the old one rather than drawing
-    # over the wrong lines.
+    # One block, redrawn in place inside a frame of box-drawing characters (rounded corners, grey): a blank line, the
+    # title with the version ("STP/TPW Launcher 0.1.0", as soon as the source's commit is known), a row per stage (a
+    # green check when done, a spinner while it runs, grey while it waits, a yellow ! for a notice, a red x when it
+    # failed), a blank line, a footer and a blank line, with two blank columns inside each side. The build's row says
+    # what the build is doing until the compiler reports a percentage (fetching a tool, configuring the build,
+    # starting the compiler, compiling the first file), then a bar with the percentage, the time left and the file
+    # being compiled, read from build.ps1's output as it comes (ninja's "[12/345] Building CXX object ..." lines). The
+    # cursor is hidden while the block redraws and shown again before anything else is printed. Rows are only ever
+    # added; the names are those of the design note (tools, source, build, command, start; installed, newest, swap on
+    # an update). Two console modes: vt (Windows Terminal, PowerShell 7, or the console host once SetConsoleMode
+    # turned its escape codes on) and lines (a console host without them: every finished row on its own line in
+    # colour, the running one in Write-Progress, nothing redrawn, no frame, ASCII glyphs). The width is read again at
+    # every frame: the frame is one column narrower than the window and at most 110 wide; inside it, under 72
+    # columns, the bar is 10 cells and the time left is dropped; under 60 columns there is no frame. After a resize
+    # the block starts afresh below the old one rather than drawing over the wrong lines.
 
     $Ui = @{ Mode = 'plain'; Rows = (New-Object System.Collections.ArrayList); Lines = 0; Cols = 80; LastCols = 0
-             Frame = 0; Pad = 20; Version = ''; Footer = ''; Closing = ''
+             Frame = 0; Pad = 20; Version = ''; Footer = ''; Closing = ''; Box = $false; In = 0; TW = 80
              Notes = (New-Object System.Collections.ArrayList); FailText = ''; FailDone = $false
-             Start = (Get-Date); BuildStart = (Get-Date); BuildT0 = $null; BuildP0 = 0; Pct = 0; File = ''
+             Start = (Get-Date); BuildStart = (Get-Date); BuildT0 = $null; BuildP0 = 0; Pct = $null; File = ''
+             Stage = 0; Words = ''
              Src = 'source'; Got = ''; LastDraw = [DateTime]::MinValue; Header = $false; Progress = ''
-             G = @{ done = '[x]'; pending = '[ ]'; warn = '[!]'; fail = '[x]'; on = '#'; off = '.' }
+             G = @{ done = '[x]'; pending = '[ ]'; warn = '[!]'; fail = '[x]'; on = '#'; off = '.'
+                    h = '-'; v = '|'; tl = '+'; tr = '+'; bl = '+'; br = '+' }
              Spin = @('[>]') }
     # The escape codes of vt mode (empty in the other modes, so that the same text serves all of them).
     $C = @{ Esc = [string][char]27; Rst = ''; Bold = ''; Dim = ''; Green = ''; Cyan = ''; Yellow = ''; Red = ''; Clr = '' }
@@ -247,6 +254,36 @@ $TpwInstallCode = @(& {
         return $w
     }
 
+    # The frame's width from the console's: one column narrower than the window, at most 110, with two columns of
+    # padding inside each side (vt mode, 60 columns or more; otherwise no frame and the text has the whole width).
+    # TW is the width the text may use.
+    function Set-UiGeometry {
+        if ($Ui.Mode -eq 'vt' -and $Ui.Cols -ge 60) {
+            $outer = $Ui.Cols - 1
+            if ($outer -gt 110) { $outer = 110 }
+            $Ui.Box = $true
+            $Ui.In = $outer - 2
+            $Ui.TW = $Ui.In
+        } else {
+            $Ui.Box = $false
+            $Ui.In = 0
+            $Ui.TW = $Ui.Cols
+        }
+    }
+
+    # The columns $text takes on the screen: its length without the escape codes.
+    function Get-UiWidth([string]$text) {
+        return ([regex]::Replace($text, '\x1b\[[0-9;?]*[A-Za-z]', '')).Length
+    }
+
+    # $text as one line of the frame: a grey bar each side, padded to the frame's inner width.
+    function Format-UiBoxed([string]$text) {
+        $w = Get-UiWidth $text
+        $fill = ''
+        if ($w -lt $Ui.In) { $fill = ' ' * ($Ui.In - $w) }
+        return $C.Dim + $Ui.G.v + $C.Rst + $text + $fill + $C.Dim + $Ui.G.v + $C.Rst
+    }
+
     # Chooses the view, once the options are read, and sets up the colours and glyphs of the console view.
     function Start-Ui {
         $Ui.Mode = 'plain'
@@ -273,9 +310,11 @@ $TpwInstallCode = @(& {
             $C.Rst = $e + '[0m'; $C.Bold = $e + '[1m'; $C.Dim = $e + '[38;5;243m'; $C.Green = $e + '[32m'
             $C.Cyan = $e + '[36m'; $C.Yellow = $e + '[33m'; $C.Red = $e + '[31m'; $C.Clr = $e + '[K'
             # the glyphs of the design note, which Consolas and Cascadia have (no emoji): a check, a middle dot, an x,
-            # the blocks of the bar, the braille spinner
+            # the blocks of the bar, the braille spinner, the frame's lines and rounded corners
             $Ui.G = @{ done = [string][char]0x2714; pending = [string][char]0x00B7; warn = '!'
-                       fail = [string][char]0x2716; on = [string][char]0x2588; off = [string][char]0x2591 }
+                       fail = [string][char]0x2716; on = [string][char]0x2588; off = [string][char]0x2591
+                       h = [string][char]0x2500; v = [string][char]0x2502; tl = [string][char]0x256D
+                       tr = [string][char]0x256E; bl = [string][char]0x2570; br = [string][char]0x256F }
             $Ui.Spin = @(@(0x280B, 0x2819, 0x2839, 0x2838, 0x283C, 0x2834, 0x2826, 0x2827, 0x2807, 0x280F) | ForEach-Object { [string][char]$_ })
             Write-Host -NoNewline ($e + '[?25l')
         } else {
@@ -283,6 +322,7 @@ $TpwInstallCode = @(& {
         }
         # the text column: 4 spaces, the glyph, 2 spaces, the name in 13, a space
         $Ui.Pad = 4 + $Ui.G.done.Length + 2 + 13 + 1
+        Set-UiGeometry
     }
 
     # $seconds as "48 s", "3 min 40 s" or "3 min".
@@ -385,7 +425,7 @@ $TpwInstallCode = @(& {
         }
         $indent = ' ' * $Ui.Pad
         $i = 0
-        foreach ($l in (Get-UiWrapped ($Ui.Cols - $Ui.Pad - 1) $row.Text)) {
+        foreach ($l in (Get-UiWrapped ($Ui.TW - $Ui.Pad - 1) $row.Text)) {
             if ($i -eq 0) { [void]$out.Add($first + $l + $C.Rst) } else { [void]$out.Add($indent + $more + $l + $C.Rst) }
             $i++
         }
@@ -396,6 +436,7 @@ $TpwInstallCode = @(& {
     function Write-UiFrame {
         if ($Ui.Mode -ne 'vt') { return }
         $Ui.Cols = Get-UiCols
+        Set-UiGeometry
         $sb = New-Object System.Text.StringBuilder
         if ($Ui.Cols -ne $Ui.LastCols) {
             if ($Ui.Lines -gt 0) { [void]$sb.Append("`r`n") }
@@ -404,14 +445,25 @@ $TpwInstallCode = @(& {
         }
         $prev = $Ui.Lines
         if ($prev -gt 0) { [void]$sb.Append($C.Esc + '[' + $prev + 'A' + "`r") }
-        $lines = New-Object System.Collections.ArrayList
+        $inner = New-Object System.Collections.ArrayList
         $title = '  ' + $C.Bold + 'STP/TPW Launcher'
         if ($Ui.Version) { $title = $title + ' ' + $Ui.Version }
-        [void]$lines.Add($title + $C.Rst)
-        [void]$lines.Add('')
-        foreach ($row in $Ui.Rows) { foreach ($l in (Format-UiRow $row)) { [void]$lines.Add($l) } }
-        [void]$lines.Add('')
-        foreach ($l in (Get-UiWrapped ($Ui.Cols - 3) $Ui.Footer)) { [void]$lines.Add('  ' + $l) }
+        [void]$inner.Add($title + $C.Rst)
+        [void]$inner.Add('')
+        foreach ($row in $Ui.Rows) { foreach ($l in (Format-UiRow $row)) { [void]$inner.Add($l) } }
+        [void]$inner.Add('')
+        foreach ($l in (Get-UiWrapped ($Ui.TW - 3) $Ui.Footer)) { [void]$inner.Add('  ' + $l) }
+        $lines = New-Object System.Collections.ArrayList
+        if ($Ui.Box) {
+            $rule = $Ui.G.h * $Ui.In
+            [void]$lines.Add($C.Dim + $Ui.G.tl + $rule + $Ui.G.tr + $C.Rst)
+            [void]$lines.Add((Format-UiBoxed ''))
+            foreach ($l in $inner) { [void]$lines.Add((Format-UiBoxed $l)) }
+            [void]$lines.Add((Format-UiBoxed ''))
+            [void]$lines.Add($C.Dim + $Ui.G.bl + $rule + $Ui.G.br + $C.Rst)
+        } else {
+            $lines = $inner
+        }
         foreach ($l in $lines) { [void]$sb.Append($l).Append($C.Clr).Append("`r`n") }
         # a frame shorter than the one before: what is left of the old one is cleared
         if ($lines.Count -lt $prev) {
@@ -447,7 +499,7 @@ $TpwInstallCode = @(& {
             $status = $row.Text
             if (-not $status) { $status = '...' }
             try {
-                if ($row.Name -eq 'build' -and $Ui.Pct -gt 0) {
+                if ($row.Name -eq 'build' -and $null -ne $Ui.Pct -and $Ui.Pct -gt 0) {
                     Write-Progress -Id 1 -Activity $row.Name -Status $status -PercentComplete $Ui.Pct
                 } else {
                     Write-Progress -Id 1 -Activity $row.Name -Status $status
@@ -481,11 +533,20 @@ $TpwInstallCode = @(& {
         }
     }
 
-    # The build row's text: the bar (20 cells, 10 under 70 columns), the percentage, the time left (from the pace so
-    # far, once 10 points and 5 seconds are done) and the file being compiled, in what is left of the line. Lines mode
-    # has no bar of its own (Write-Progress draws one): the percentage, the time left and the file.
+    # The build row's text. Until the compiler reports a percentage of at least 1 (no bare "0 %"): what the build is
+    # doing, in words (fetching a tool, configuring the build, starting the compiler, compiling the first file). Then
+    # the bar (20 cells, 10 under 72 columns of text), the percentage, the time left (from the pace so far, once 10
+    # points and 5 seconds are done) and the file being compiled, in what is left of the line. Lines mode has no bar
+    # of its own (Write-Progress draws one): the percentage, the time left and the file.
     function Format-UiBuild {
         $pct = $Ui.Pct
+        if ($null -eq $pct -or $pct -lt 1) {
+            if ($null -ne $pct -and $Ui.File -and $Ui.File -notmatch '^linking ') { return 'compiling ' + $Ui.File }
+            if ($Ui.Words) { return $Ui.Words }
+            if ($Ui.Stage -ge 2) { return 'starting the compiler' }
+            if ($Ui.Stage -ge 1) { return 'configuring the build' }
+            return 'preparing the build'
+        }
         $left = ''
         if ($null -ne $Ui.BuildT0 -and $pct -lt 100) {
             $gain = $pct - $Ui.BuildP0
@@ -502,13 +563,13 @@ $TpwInstallCode = @(& {
             return $t
         }
         $w = 20
-        if ($Ui.Cols -lt 70) { $w = 10; $left = '' }
+        if ($Ui.TW -lt 72) { $w = 10; $left = '' }
         $on = [int][math]::Floor($pct * $w / 100)
         $bar = $C.Cyan + ($Ui.G.on * $on) + $C.Dim + ($Ui.G.off * ($w - $on)) + $C.Rst
         $t = $bar + '  ' + $pc
         $used = $w + 6
         if ($left) { $t = $t + '   ' + $left; $used = $used + 3 + $left.Length }
-        $room = $Ui.Cols - $Ui.Pad - $used - 4
+        $room = $Ui.TW - $Ui.Pad - $used - 4
         if ($Ui.File -and $room -ge 8) {
             $f = $Ui.File
             if ($f.Length -gt $room) { $f = '...' + $f.Substring($f.Length - $room + 3) }
@@ -518,9 +579,12 @@ $TpwInstallCode = @(& {
     }
 
     # The build's row from a line of build.ps1's output: the percentage (ninja's "[12/345]", or make's "[ 58%]"), the
-    # file being compiled or linked, what the tools are up to before that; redrawn a few times a second at most.
+    # file being compiled or linked, and before the first percentage the stage the build is in (the tools being
+    # fetched, by name; cmake configuring; the compiler starting), which only ever advances; redrawn a few times a
+    # second at most.
     function Update-UiBuild([string]$line) {
         $changed = $false
+        $now = $false
         $rest = $null
         if ($line -match '^\[\s*(\d+)/(\d+)\]\s*(.*)$') {
             $a = [int]$Matches[1]
@@ -532,12 +596,14 @@ $TpwInstallCode = @(& {
             $Ui.Pct = [int]$Matches[1]
             $rest = $Matches[2]
             $changed = $true
-        } elseif ($line -match '^==> Configuring') {
-            $Ui.File = 'configuring'
-            $changed = $true
-        } elseif ($line -match '^==> Fetching (\S+)') {
-            $Ui.File = 'fetching ' + $Matches[1]
-            $changed = $true
+        } elseif ($line -match '^==> Fetching (\S+)(?: (\S+))?') {
+            $Ui.Words = 'fetching ' + $Matches[1]
+            if ($Matches[2]) { $Ui.Words = $Ui.Words + ' ' + $Matches[2] }
+            $changed = $true; $now = $true
+        } elseif ($line -match '^-- (Configuring|Generating) done|^-- Build files have been written|^==> Building|^Scanning dependencies') {
+            if ($Ui.Stage -lt 2) { $Ui.Stage = 2; $Ui.Words = ''; $changed = $true; $now = $true }
+        } elseif ($line -match '^==> Configuring|^==> Build folder|^-- ') {
+            if ($Ui.Stage -lt 1) { $Ui.Stage = 1; $Ui.Words = ''; $changed = $true; $now = $true }
         }
         if ($null -ne $rest) {
             if ($rest -match '^Building .*? object (.*)$') {
@@ -546,10 +612,13 @@ $TpwInstallCode = @(& {
                 $Ui.File = 'linking ' + $Matches[1]
             }
         }
-        if ($Ui.Pct -gt 100) { $Ui.Pct = 100 }
-        if ($Ui.Pct -gt 0 -and $null -eq $Ui.BuildT0) { $Ui.BuildT0 = Get-Date; $Ui.BuildP0 = $Ui.Pct }
+        if ($null -ne $Ui.Pct) {
+            if ($Ui.Pct -gt 100) { $Ui.Pct = 100 }
+            if ($Ui.Pct -ge 1 -and $null -eq $Ui.BuildT0) { $Ui.BuildT0 = Get-Date; $Ui.BuildP0 = $Ui.Pct }
+        }
         if (-not $changed) { return }
-        if (((Get-Date) - $Ui.LastDraw).TotalMilliseconds -lt 200 -and $Ui.Pct -lt 100) { return }
+        # the stage's few changes are drawn at once; the percentage a few times a second
+        if (-not $now -and ((Get-Date) - $Ui.LastDraw).TotalMilliseconds -lt 200 -and ($null -eq $Ui.Pct -or $Ui.Pct -lt 100)) { return }
         $Ui.Frame += 1
         Set-UiActive 'build' (Format-UiBuild)
         $Ui.LastDraw = Get-Date
@@ -870,6 +939,14 @@ $TpwInstallCode = @(& {
         $commit = (& git.exe @GitCfg -C $Src rev-parse --verify "$ref^{commit}" 2>$null | Out-String).Trim()
         if ($LASTEXITCODE -ne 0 -or -not $commit) { Fail "The source has no $ref." }
         $St.Commit = $commit
+        # The view's title names the version as soon as the commit is known (the checkout and the submodules take a
+        # while); $St.Version itself is read from the checkout below, and a version that does not parse is left to
+        # that check.
+        if ($Ui.Mode -ne 'plain') {
+            $early = ''
+            try { $early = ([string](& git.exe @GitCfg -C $Src show "${commit}:launcher/VERSION.txt" 2>$null | Select-Object -First 1)).Trim() } catch {}
+            if ($early -match '^\d+\.\d+\.\d+(-dev)?$') { $Ui.Version = $early }
+        }
 
         # The source is this script's own. A change somebody made in it would be lost by the checkout: stop instead. A
         # clone not checked out yet has no index (and git would call every file deleted). Submodules are left out of the
@@ -969,8 +1046,10 @@ $TpwInstallCode = @(& {
         $env:CI = '1'
         $Ui.BuildStart = Get-Date
         $Ui.BuildT0 = $null
-        $Ui.Pct = 0
-        $Ui.File = 'configuring'
+        $Ui.Pct = $null
+        $Ui.File = ''
+        $Ui.Stage = 0
+        $Ui.Words = ''
         if ($Ui.Mode -ne 'plain') { Set-UiActive 'build' (Format-UiBuild) }
         try {
             & (Get-WindowsPowerShell) -NoLogo -NoProfile -ExecutionPolicy Bypass -File $buildPs1 "BUILD=$Next" 'TOOLS=fetch' 2>&1 | ForEach-Object {
