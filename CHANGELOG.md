@@ -31,6 +31,7 @@ The first release: play Sim Theme Park and Theme Park World from your own discs,
 - The launcher tells you when a new version is out and its Update button installs it, and it stays quiet when you're offline. (Thanks @samueleagle91)
 - Sim Theme Park is listed first everywhere, Theme Park World second; the launcher shows the US tile on the left.
 - Gold Edition switch on each play tile: play the plain edition even when the Gold data is installed; the launcher remembers it.
+- Mac: the Dock, Cmd-Tab and Force Quit call the launcher STP/TPW Launcher, and show the game's own icon once your discs are imported (until then, a picture in the launcher's colours).
 
 ### Changed
 

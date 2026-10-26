@@ -42,6 +42,8 @@
 #include "TrueTypeRender.h"
 #include "analyser.h"
 #include "rsse.h"
+#include "app_bundle.h"
+#include "app_icon.h"
 #include "asset_packs.h"
 #include "packs.h"
 #include "platform.h"
@@ -362,9 +364,8 @@ int EarlyOptions(int argc, char** argv, std::string& dataDir) {
             return 0;
         }
         if (arg == "--check-updates") {   // the update check of the window (updater.h), once, in the open
-            const char* base = SDL_GetBasePath();
             const tpw::ui::update::Current current =
-                tpw::ui::update::DescribeCurrent(tpw::ui::kLauncherVersion, base ? base : "");
+                tpw::ui::update::DescribeCurrent(tpw::ui::kLauncherVersion, tpw::launcher::ProgramFolder());
             std::printf("%s (build: %s)\nasks: the newest release\n", tpw::ui::kProductNameWithVersion,
                         TPW_LAUNCHER_BUILD);
             if (current.install.Found()) std::printf("installed by the install script in %s\n", current.install.dir.c_str());
@@ -451,9 +452,10 @@ void AdoptOldSaves(const std::filesystem::path& prefPath, const std::filesystem:
 // Set through the Objective-C runtime (as platform/window.cpp sends orderBack:) on the menu SDL made when its video
 // started: [[[[NSApp mainMenu] itemAtIndex:0] submenu] setTitle:]. Nothing is created here: without a running
 // NSApplication (the --play path, whose video starts later in the game's own window code) the title is left alone and
-// the log says why; creating NSApplication this early would come before SDL's own application class. The Dock's and
-// Cmd-Tab's names cannot be changed this way: macOS takes them from the process and its bundle (CFBundleName), so they
-// stay the program's name until the launcher ships as a .app bundle.
+// the log says why; creating NSApplication this early would come before SDL's own application class. The Dock's,
+// Cmd-Tab's and Force Quit's names are not set here: Cmd-Tab and Force Quit take CFBundleName from the Info.plist the build
+// embeds in tpw_launcher (CMakeLists.txt, launcher/macos/Info.plist.in), and the Dock names the application bundle the
+// launcher runs from (launcher/app_bundle.h), so all three say "STP/TPW Launcher". The Dock's icon is launcher/app_icon.h.
 void NameAppMenu(const char* name) {
 #if defined(__APPLE__)
     const char* reason = nullptr;
@@ -588,6 +590,9 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
         placement.videoStarted = [] { tpw::LogDisplayOnce(); };
         // While the launcher window is up the menu bar names it with its version; Play renames it after the game below.
         placement.windowShown = [] { NameAppMenu(tpw::ui::kProductNameWithVersion); };
+        // The Dock's (taskbar's) icon: the game's own from the data folder once a disc was imported (launcher/app_icon.h).
+        placement.windowIcon = [](SDL_Window* window, const char* dataFolder) { tpw::launcher::ApplyAppIcon(dataFolder, window); };
+        placement.programFolder = tpw::launcher::ProgramFolder();   // the update check: where install.sh put the launcher
         if (!tpw::LogFilePath().empty()) placement.logsFolder = std::filesystem::path(tpw::LogFilePath()).parent_path().u8string();   // UTF-8: SDL_OpenURL takes it
         placement.showLogs = [](const std::string& logsFolder) {
             const std::filesystem::path newest = tpw::NewestLog(std::filesystem::u8path(logsFolder));
@@ -1150,8 +1155,14 @@ int main(int argc, char** argv) {
     std::string dataDir;
     const int early = EarlyOptions(argc, argv, dataDir);
     if (early >= 0) return early;
+    // macOS: a run with a window goes on from the application bundle beside the program (launcher/app_bundle.h), with the
+    // same arguments and process; it comes back here only when it cannot, and the log opens once either way.
+    std::string bundleNote;
+    tpw::launcher::RunFromAppBundle(argc, argv, bundleNote);
     OpenLog(argc, argv, dataDir);
     std::atexit(LogExitAtExit);
+    if (bundleNote.empty()) bundleNote = tpw::launcher::TakeBundleNote();
+    if (!bundleNote.empty()) tpw::Log("app bundle: %s", bundleNote.c_str());
     const int code = LauncherMain(argc, argv);
     LogExit(code);
     if (gReopenLauncher) ReopenLauncher(argc, argv);

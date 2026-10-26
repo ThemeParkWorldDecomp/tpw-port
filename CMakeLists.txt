@@ -187,8 +187,8 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
     message(STATUS "tpw: films play (FFmpeg 9.0.2, third_party/ffmpeg)")
   endif()
 
-  add_library(tpw_launcher_objects OBJECT launcher/main.cpp launcher/asset_packs.cpp launcher/pending_manual.cpp
-              launcher/static_init.cpp launcher/startup.cpp)
+  add_library(tpw_launcher_objects OBJECT launcher/main.cpp launcher/app_bundle.cpp launcher/app_icon.cpp launcher/asset_packs.cpp
+              launcher/pending_manual.cpp launcher/static_init.cpp launcher/startup.cpp)
   target_include_directories(tpw_launcher_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
   # main.cpp opens the launcher's own window (tpw_launcher_ui, below) when no --game is given.
   target_link_libraries(tpw_launcher_objects PRIVATE SDL3::SDL3 tpw_launcher_ui)
@@ -377,14 +377,21 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
     endif()
   endif()
   if(APPLE)
-    # A macOS .app bundle (tpw_launcher.app) with launcher/macos/Info.plist.in, so the Dock, Cmd-Tab and the application
-    # menu read the launcher's name. Off by default: the scripts, the README and CI run the bare tpw_launcher.
+    # The launcher's Info.plist (launcher/macos/Info.plist.in). The bare tpw_launcher, the one file the scripts, the README,
+    # the installer and CI all run (build/tpw_launcher), carries it embedded in its __TEXT,__info_plist section: that names
+    # the program in Cmd-Tab and Force Quit (CFBundleName, "STP/TPW Launcher"; the maintainer, 2026-10-25), gives it its identifier,
+    # and is the plist of the application bundle the launcher makes beside itself at run time and runs from, which names it
+    # in the Dock (launcher/app_bundle.cpp). Its icon is set at run time too (launcher/app_icon.cpp). TPW_BUNDLE (off by
+    # default) builds a .app bundle around it instead, with the same plist.
     option(TPW_BUNDLE "Build the macOS launcher as an .app bundle (launcher/macos/Info.plist.in)" OFF)
-    set(TPW_BUNDLE_IDENTIFIER "org.tpw-port.launcher" CACHE STRING "The .app bundle's CFBundleIdentifier (TPW_BUNDLE)")
+    set(TPW_BUNDLE_IDENTIFIER "org.tpw-port.launcher" CACHE STRING "The launcher's CFBundleIdentifier")
+    configure_file(launcher/macos/Info.plist.in ${CMAKE_CURRENT_BINARY_DIR}/Info.plist @ONLY)
     if(TPW_BUNDLE)
-      configure_file(launcher/macos/Info.plist.in ${CMAKE_CURRENT_BINARY_DIR}/Info.plist @ONLY)
       set_target_properties(tpw_launcher PROPERTIES MACOSX_BUNDLE ON
                             MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_BINARY_DIR}/Info.plist)
+    else()
+      target_link_options(tpw_launcher PRIVATE "LINKER:-sectcreate,__TEXT,__info_plist,${CMAKE_CURRENT_BINARY_DIR}/Info.plist")
+      set_property(TARGET tpw_launcher APPEND PROPERTY LINK_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/Info.plist)
     endif()
   endif()
   # The About box's versions (launcher/ui/versions.cpp) come from the libraries' own headers: libjpeg's and FFmpeg's

@@ -186,6 +186,7 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
         return WindowOutcome::Failed;
     }
     SDL_SetWindowMinimumSize(window, metric::kMinWidth, metric::kMinHeight);
+    if (placement.windowIcon != nullptr) placement.windowIcon(window, backend.DataFolder().c_str());
     if (placement.display != 0)
         SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED_DISPLAY(placement.display),
                               SDL_WINDOWPOS_CENTERED_DISPLAY(placement.display));
@@ -219,7 +220,7 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
         ui.SetExportLogs(placement.exportLogs);
         // The update check: once a day, on a thread of its own; closing the window stops it (or an update's build).
         const char* base = SDL_GetBasePath();
-        Updater updater(backend, update::DescribeCurrent(kLauncherVersion, base ? base : ""),
+        Updater updater(backend, update::DescribeCurrent(kLauncherVersion, !placement.programFolder.empty() ? placement.programFolder : base ? base : ""),
                         placement.log);
         ui.SetUpdater(&updater);
         updater.StartupCheck(static_cast<long long>(std::time(nullptr)));
@@ -231,6 +232,7 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
         auto dumperOwned = std::make_unique<FrameDumper>(placement);
         FrameDumper& dumper = *dumperOwned;
         int drawn = 0;
+        bool importing = backend.Running();
         while (running) {
             PushClicks(window, placement, drawn + 1);
             // Rest while nothing moves; wake for events (file dialogs push one when they close).
@@ -250,6 +252,10 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
             SDL_GetWindowSize(window, &w, &h);
             float density = SDL_GetWindowPixelDensity(window);
             ui.Frame(std::min(dt, 0.1f), static_cast<float>(w), static_cast<float>(h), density > 0 ? density : 1);
+            // An import that ended may have written the game's icon (icon.png): the Dock or taskbar icon follows at once.
+            const bool nowImporting = backend.Running();
+            if (importing && !nowImporting && placement.windowIcon != nullptr) placement.windowIcon(window, backend.DataFolder().c_str());
+            importing = nowImporting;
             dumper.NextFrame();
             dumper.Dump(renderer);
             const bool play = ui.TakePlay(choice);
