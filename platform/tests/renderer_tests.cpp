@@ -66,6 +66,9 @@ void glVertex2f(float x, float y);
 void glReadBuffer(uint32_t mode);
 void glReadPixels(int32_t x, int32_t y, int32_t width, int32_t height, uint32_t format, uint32_t type, void* pixels);
 uint32_t glGetError();
+void glFinish();
+int32_t gluBuild2DMipmaps(uint32_t target, int32_t internalFormat, int32_t width, int32_t height, uint32_t format, uint32_t type,
+                          const void* pixels);
 }
 
 namespace {
@@ -216,6 +219,31 @@ void DrawScene() {
     glPopMatrix();
     glPopAttrib();
     glDeleteTextures(1, &page);
+
+    // 7. A mipmapped page, as the texture cache makes one with mipmaps on (gluBuild2DMipmaps, GL_LINEAR_MIPMAP_NEAREST): a
+    // 4 x 4 checker of black and white, drawn into 2 x 2 pixels at the bottom middle, so its second level (every texel
+    // the mean of 2 x 2, grey) is the one sampled. glFinish in the middle of the frame, as the engine's flag 1 asks for.
+    glFinish();
+    uint32_t chain = 0;
+    glGenTextures(1, &chain);
+    glBindTexture(GL_TEXTURE_2D, chain);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    uint8_t checker[4 * 4 * 4];
+    for (int y = 0; y < 4; ++y)
+        for (int x = 0; x < 4; ++x) {
+            const uint8_t v = ((x + y) & 1) != 0 ? 255 : 0;
+            checker[(y * 4 + x) * 4] = checker[(y * 4 + x) * 4 + 1] = checker[(y * 4 + x) * 4 + 2] = v;
+            checker[(y * 4 + x) * 4 + 3] = 255;
+        }
+    gluBuild2DMipmaps(GL_TEXTURE_2D, GL_RGBA4, 4, 4, GL_RGBA, GL_UNSIGNED_BYTE, checker);
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    Quad(-2.0f / kWide, -1.0f, 2.0f / kWide, -1.0f + 4.0f / kHigh, 0.5f, 255, 255, 255, 255);
+    glDisable(GL_TEXTURE_2D);
+    glDeleteTextures(1, &chain);
 }
 
 struct Picture {
@@ -261,6 +289,9 @@ void ExpectScene(const Picture& picture, const char* renderer) {
     // right, over the page quad's pixels.
     Expect(picture, renderer, 204, kHigh - 12, 255, 255, 255, "the ortho quad's white texel (GL_REPLACE)");
     Expect(picture, renderer, 212, kHigh - 20, 255, 255, 0, "the ortho quad's yellow texel");
+    // 7. The mipmapped page minified: its second level's grey (the mean of black and white, 127 or 128).
+    Expect(picture, renderer, kWide / 2 - 1, 0, 128, 128, 128, "the mipmapped page's second level", 3);
+    Expect(picture, renderer, kWide / 2, 1, 128, 128, 128, "the mipmapped page's second level, the other pixel", 3);
 }
 
 // Draws the scene with the backend `api` and reads it back; false (and why) when the backend is not there.
@@ -291,6 +322,10 @@ bool Run(tpw::gfx::Api api, Picture& picture, Picture& presented, std::string& w
     glReadBuffer(GL_BACK);
     glReadPixels(0, 0, kWide, kHigh, GL_RGBA, GL_UNSIGNED_BYTE, picture.rgba.data());
     Check(glGetError() == GL_NO_ERROR, std::string(tpw::gfx::Name(api)) + ": no OpenGL error from the read");
+    // One pixel at an offset, as the engine's GetPixel reads it (x + 1, y + 1, the pack alignment 1).
+    uint8_t one[4] = {0, 0, 0, 0};
+    glReadPixels(16 + 1, 96 + 1, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, one);
+    Check(one[0] == 255 && one[1] == 0 && one[2] == 0, std::string(tpw::gfx::Name(api)) + ": one pixel read at an offset is the red quad's");
     // A present, as the swap does it: the picture copied, read for the dump, scaled into the window.
     tpw::gfx::BeginPresent();
     std::vector<uint8_t> rgb(static_cast<size_t>(kWide) * kHigh * 3);
@@ -305,6 +340,19 @@ bool Run(tpw::gfx::Api api, Picture& picture, Picture& presented, std::string& w
     again.rgba.assign(picture.rgba.size(), 0);
     glReadPixels(0, 0, kWide, kHigh, GL_RGBA, GL_UNSIGNED_BYTE, again.rgba.data());
     Check(again.rgba == picture.rgba, std::string(tpw::gfx::Name(api)) + ": the game's picture is kept across the present");
+    // The window resized (Alt+Enter, a drag of the frame): the next present goes into a swapchain of the new size, with
+    // the picture letterboxed; the game's picture is untouched by it.
+    SDL_SetWindowSize(window, 400, 300);
+    SDL_SyncWindow(window);
+    SDL_GetWindowSizeInPixels(window, &pixelsWide, &pixelsHigh);
+    tpw::gfx::BeginPresent();
+    const tpw::fit::PixelBox box = tpw::fit::RoundBox(tpw::fit::Letterbox(pixelsWide, pixelsHigh, kWide, kHigh));
+    tpw::gfx::EndPresent(box, pixelsWide, pixelsHigh);
+    tpw::gfx::BeginPresent();
+    tpw::gfx::EndPresent(box, pixelsWide, pixelsHigh);
+    glReadPixels(0, 0, kWide, kHigh, GL_RGBA, GL_UNSIGNED_BYTE, again.rgba.data());
+    Check(glGetError() == GL_NO_ERROR && again.rgba == picture.rgba,
+          std::string(tpw::gfx::Name(api)) + ": the game's picture is kept across a resize and two more presents");
     tpw::gfx::Destroy();
     SDL_DestroyWindow(window);
     return true;
