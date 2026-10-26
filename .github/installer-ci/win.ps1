@@ -1289,8 +1289,8 @@ function Invoke-Case_tui {
         $dir = Join-Path $script:C "install-$view"
         $out = Invoke-Line @{ NoLaunch = $true; Dir = $dir }
         Expect-Eq "the exit code ($view view)" $script:RC 0
-        # the lines view prints its title at the first finished row, before the version is known; its source row names it
-        if ($view -eq 'vt') { Expect-Text $out 'STP/TPW Launcher 0.0.1' } else { Expect-Text $out 'STP/TPW Launcher' }
+        # both views name the version in the title (the lines view holds its finished rows until it is known)
+        Expect-Text $out 'STP/TPW Launcher 0.0.1'
         Expect-Text $out 'tpw-port 0.0.1 downloaded'
         Expect-Text $out 'Done in'
         if (@($out | Where-Object { "$_" -match '^(STEP|RESULT) ' })) { Bad "the $view view printed a line of plain mode" }

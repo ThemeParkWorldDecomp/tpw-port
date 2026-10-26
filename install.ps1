@@ -208,7 +208,8 @@ $TpwInstallCode = @(& {
     # added; the names are those of the design note (tools, source, build, command, start; installed, newest, swap on
     # an update). Two console modes: vt (Windows Terminal, PowerShell 7, or the console host once SetConsoleMode
     # turned its escape codes on) and lines (a console host without them: every finished row on its own line in
-    # colour, the running one in Write-Progress, nothing redrawn, no frame, ASCII glyphs). The width is read again at
+    # colour, the running one in Write-Progress, nothing redrawn, no frame, ASCII glyphs; its title is printed once,
+    # so the finished rows wait until the version is known and the title can name it). The width is read again at
     # every frame: the frame is one column narrower than the window and at most 110 wide; inside it, under 72
     # columns, the bar is 10 cells and the time left is dropped; under 60 columns there is no frame. After a resize
     # the block starts afresh below the old one rather than drawing over the wrong lines.
@@ -217,7 +218,7 @@ $TpwInstallCode = @(& {
              Frame = 0; Pad = 20; Version = ''; Footer = ''; Closing = ''; Box = $false; In = 0; TW = 80
              Notes = (New-Object System.Collections.ArrayList); FailText = ''; FailDone = $false
              Start = (Get-Date); BuildStart = (Get-Date); BuildT0 = $null; BuildP0 = 0; Pct = $null; File = ''
-             Stage = 0; Words = ''
+             Stage = 0; Words = ''; Held = (New-Object System.Collections.ArrayList); Flush = $false
              Src = 'source'; Got = ''; LastDraw = [DateTime]::MinValue; Header = $false; Progress = ''
              G = @{ done = '[x]'; pending = '[ ]'; warn = '[!]'; fail = '[x]'; on = '#'; off = '.'
                     h = '-'; v = '|'; tl = '+'; tr = '+'; bl = '+'; br = '+' }
@@ -492,9 +493,20 @@ $TpwInstallCode = @(& {
         $Ui.Progress = ''
     }
 
-    # A row of lines mode: a finished row (done, warn, fail) on its own line, once; the running one in Write-Progress.
+    # The finished rows of lines mode that wait for the version (so that the title, printed once, names it): written
+    # now, in order, as they are now.
+    function Write-UiHeld {
+        if ($Ui.Held.Count -eq 0) { return }
+        $held = @($Ui.Held)
+        $Ui.Held.Clear()
+        foreach ($row in $held) { $row.Shown = ''; Write-UiRowLine $row }
+    }
+
+    # A row of lines mode: a finished row (done, warn, fail) on its own line, once, after the version is known (or at
+    # the close, whatever is known); the running one in Write-Progress.
     function Write-UiRowLine($row) {
         if ($row.State -eq 'active') {
+            if ($Ui.Version -or $Ui.Flush) { Write-UiHeld }
             $ProgressPreference = 'Continue'
             $status = $row.Text
             if (-not $status) { $status = '...' }
@@ -512,6 +524,11 @@ $TpwInstallCode = @(& {
         $key = $row.State + '|' + $row.Text
         if ($row.Shown -eq $key) { return }
         $row.Shown = $key
+        if (-not $Ui.Header -and -not $Ui.Version -and -not $Ui.Flush) {
+            if (-not $Ui.Held.Contains($row)) { [void]$Ui.Held.Add($row) }
+            return
+        }
+        if ($Ui.Held.Count -gt 0 -and -not $Ui.Held.Contains($row)) { Write-UiHeld }
         Complete-UiProgress
         Write-UiHeader
         switch ($row.State) {
@@ -667,6 +684,8 @@ $TpwInstallCode = @(& {
             return
         }
         Complete-UiProgress
+        $Ui.Flush = $true
+        Write-UiHeld
         foreach ($row in $Ui.Rows) { if ($row.State -ne 'active' -and $row.State -ne 'pending') { Write-UiRowLine $row } }
         Write-UiHeader
         Write-Host ''
@@ -715,7 +734,7 @@ $TpwInstallCode = @(& {
 
     # Ctrl+C: the block stays as it was and the text goes under it, with the cursor back.
     function Show-UiStopped {
-        if ($Ui.Mode -eq 'vt') { Write-Host ($C.Esc + '[?25h' + "`r" + $C.Clr) } else { Complete-UiProgress; Write-Host '' }
+        if ($Ui.Mode -eq 'vt') { Write-Host ($C.Esc + '[?25h' + "`r" + $C.Clr) } else { Complete-UiProgress; $Ui.Flush = $true; Write-UiHeld; Write-Host '' }
         Write-UiText '  Stopped. Nothing is half installed: the new build was in its own staging folder' 'Yellow'
         Write-UiText '  and the old launcher is as it was. Run the line again to continue.' 'Yellow'
     }
