@@ -346,7 +346,7 @@ bool Ui::Segmented(const std::string& id, const Rect& r, const std::vector<std::
     return changed;
 }
 
-void Ui::DropField(const std::string& id, const Rect& r, bool dropHover, float iconTop) {
+void Ui::DropField(const std::string& id, const Rect& r, bool dropHover, float iconTop, bool icon) {
     float k = Clamp01(Spring(id, dropHover ? 1.0f : 0.0f));
     const float radius = 22;
     canvas_.Shadow(r.Moved(0, metric::kShadowDrop), radius, metric::kShadowBlur, colour::kShadow);
@@ -358,6 +358,7 @@ void Ui::DropField(const std::string& id, const Rect& r, bool dropHover, float i
     float size = 44, cx = r.CentreX();
     float cy = iconTop + size * 0.5f + 4 * k * std::sin(static_cast<float>(time_) * 6.0f);
     if (dropHover) animating_ = true;
+    if (!icon) return;
     float trayY = iconTop + size * 0.72f;
     canvas_.Polyline({{cx - size * 0.5f, trayY - size * 0.12f},
                       {cx - size * 0.5f, trayY + size * 0.18f},

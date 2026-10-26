@@ -34,6 +34,16 @@ inline constexpr const char* kInterfaceSizeKey = "interface_size";
 // launcher.ini's key for the Settings box's "Varied sounds" (absent or "1": each of the sounds' random draws moves the seed,
 // as on the PC, so a sound varies among its recordings; "0": the Mac's draws, one recording a sound each launch).
 inline constexpr const char* kPcSoundPicksKey = "pc_sound_picks";
+// launcher.ini's key for the Settings box's "Full screen" (absent or "1": the game is a real full-screen window, as it has
+// always been; "0": it plays in a window with a title bar, as --windowed starts it). Alt+Enter in the game switches on
+// Windows, Cmd+Ctrl+F or the green button on a Mac.
+inline constexpr const char* kFullScreenKey = "fullscreen";
+// launcher.ini's keys for the "Gold Edition" switch, one an edition: on the play tiles of the all-confirmed home and on the
+// Play screen's card. "0": that edition plays plain although the Gold bonus rides are installed; absent or "1": with them
+// (the maintainer, 2026-10-25: players who have the Gold data must be able to play without it).
+inline constexpr const char* kGoldUsKey = "gold_us";
+inline constexpr const char* kGoldEurKey = "gold_eur";
+inline const char* GoldKey(assets::Edition edition) { return edition == assets::kEditionUs ? kGoldUsKey : kGoldEurKey; }
 
 // An option of the original's options files (low.sam, med.sam, high.sam) that the Settings box's Graphics section offers:
 // launcher.ini's key, its slot in the game's options table (gPortSamOptions, OptionsBalance.h), the row's title and line,
@@ -51,7 +61,22 @@ const std::vector<SamOption>& SamOptions();
 // The index in `values` launcher.ini's value names, or -1 for the detail level's own (default, absent or not a choice).
 int SamChoice(const SamOption& option, const std::string& value);
 
+// What the About box's Export logs button did (the launcher's platform/log_export.h): `message` is for the player ("Saved to
+// Downloads: <name>", or why nothing was saved) and `folder` is where the copy is, to show (empty: none was made).
+struct LogsExport {
+    bool ok = false;
+    std::string message;
+    std::string folder;
+};
+// Shows the newest log of the logs folder selected in the system's file manager; false when it could not (the About box's
+// Show logs then opens the folder). launcher/main.cpp supplies it.
+using ShowLogsFn = bool (*)(const std::string& logsFolder);
+// Copies the newest log of the logs folder into the player's Downloads folder (launcher/main.cpp supplies it).
+using ExportLogsFn = LogsExport (*)(const std::string& logsFolder);
+
 // What the player chose to start.
+class Updater;   // updater.h
+
 struct LaunchChoice {
     assets::Edition edition = assets::kEditionEur;
     bool gold = false;        // with the Gold bonus rides
@@ -76,6 +101,13 @@ public:
     void SetWindow(SDL_Window* window) { window_ = window; }
     // The folder of the launcher's log files (launcher/main.cpp): the About box's Show logs opens it. Empty: no button.
     void SetLogsFolder(const std::string& folder) { logsFolder_ = folder; }
+    // What the About box's Show logs button calls first (null: it opens the folder).
+    void SetShowLogs(ShowLogsFn showLogs) { showLogs_ = showLogs; }
+    // What the About box's Export logs button calls (with a logs folder). Null: no such button.
+    void SetExportLogs(ExportLogsFn exportLogs) { exportLogs_ = exportLogs; }
+    // The update check (updater.h), owned by the window: its banner on the homes, the Settings box's "Check for
+    // updates". Null: none of these.
+    void SetUpdater(Updater* updater);
     // Pointer coordinates are the window's, in points.
     void HandleEvent(const SDL_Event& event);
     // Updates and draws one frame of `width` x `height` points at `scale` pixels per point. Does not present.
@@ -84,6 +116,8 @@ public:
     bool Animating() const;
     // True once, after the Play button: the choice to start.
     bool TakePlay(LaunchChoice& out);
+    // True once, after "Restart to update": the update waits for this launcher to quit, and the window closes.
+    bool TakeQuit();
     // After Play (launcher/ui/starting.cpp): the Starting screen, the screen Play was pressed on dimmed under a box with
     // a progress bar. `behind`: a picture of that screen to show instead of drawing it again (the window's, which keeps
     // drawing after its backend is gone); not owned, kept until the Starting screen ends.
@@ -105,16 +139,23 @@ public:
     void ShowSettings(bool open);
     void ArmRemove(assets::Edition edition);
     void ShowNotice(const std::string& message, bool problem);
-    // Play's edition switch and Gold toggle, as if clicked.
+    // Play's edition switch and Gold Edition toggle, as if clicked (the toggle's state is kept in launcher.ini, GoldKey).
     void ChoosePlay(assets::Edition edition, bool gold);
     // Where the last frame drew the drop targets, in points (an empty rect when not shown). Index 0 US, 1 European,
     // 2 Gold (empty on the all-confirmed home, whose two tiles are the US and European ones).
     Rect TileRect(int index) const { return tilesShown_ ? tileRects_[index] : Rect{}; }
     // The all-confirmed home's Play button of a tile (0 US, 1 European) in the last frame, in points (empty when not shown).
     Rect ReadyPlayRect(int index) const { return readyShown_ ? readyPlay_[index] : Rect{}; }
+    // The all-confirmed home's Gold Edition switch of a tile (0 US, 1 European) in the last frame, in points (empty when
+    // not shown).
+    Rect ReadyGoldRect(int index) const { return readyShown_ ? readyGold_[index] : Rect{}; }
     // The Settings box's Interface size switch, its last row, where the last frame drew it (scrolled with the box), in
     // points (empty when the box is closed).
     Rect InterfaceSizeRect() const { return settingsOpen_ ? interfaceSizeRect_ : Rect{}; }
+    // The Settings box's "Check for updates" switch in the last frame, in points (empty when the box is closed).
+    Rect CheckUpdatesRect() const { return settingsOpen_ ? checkUpdatesRect_ : Rect{}; }
+    // The update banner in the last frame, in points (empty when not shown).
+    Rect UpdateBannerRect() const { return updateBannerRect_; }
     // Whether the last frame scrolled the Settings box, with its clip and its bar (false when the box is closed).
     bool SettingsScrolls() const { return settingsOpen_ && settingsScrolls_; }
     // Where the last frame drew the launcher's version ("v" and the version, the footer's bottom right corner), in
@@ -122,6 +163,10 @@ public:
     Rect VersionRect() const { return versionRect_; }
     // The About box's Show logs button in the last frame, in points (empty when not shown).
     Rect ShowLogsRect() const { return showLogsRect_; }
+    // The About box's Export logs button, and the Open Downloads button that follows a saved export, in the last frame, in
+    // points (empty when not shown).
+    Rect ExportLogsRect() const { return exportLogsRect_; }
+    Rect OpenDownloadsRect() const { return openDownloadsRect_; }
     // The title row in the last frame, in points: the product's name, the version label drawn to its right, and the
     // header's buttons (About, Settings and the header's Play when shown; empty on screens without them).
     Rect TitleRect() const { return titleRect_; }
@@ -143,10 +188,13 @@ private:
     bool AnyPlayable() const;
     bool AllConfirmed() const;   // US, European and Gold all unlocked: the home becomes two tiles to play from
     void OpenPlay();
+    // Flips an edition's Gold Edition switch (0 US, 1 European) and keeps it in launcher.ini (GoldKey).
+    void SetGold(int index, bool on);
     TileView TileFor(int index) const;
 
     void DrawBackdrop(const Rect& window);
     float DrawHeader(const Rect& window, bool buttons);
+    float DrawUpdateBanner(const Rect& window, float top);   // returns where the screen goes on
     void DrawTiles(const Rect& row, bool dropTargets);
     Rect DrawFooter(const Rect& window);   // the tagline, the disclaimer and the version; returns where it drew
     void DrawHome(const Rect& window);
@@ -170,9 +218,12 @@ private:
     bool skipIntro_ = false;   // the Settings box's "Skip the intro films", as launcher.ini keeps it
     bool backToLauncher_ = false;   // the Settings box's "Back to the launcher after playing", as launcher.ini keeps it
     bool pcSoundPicks_ = true;      // the Settings box's "Varied sounds", as launcher.ini keeps it (on when absent)
+    bool fullScreen_ = true;        // the Settings box's "Full screen", as launcher.ini keeps it (on when absent)
     bool smoothZoom_ = false;       // the Settings box's "Smooth wheel zoom", as launcher.ini keeps it
     int interfaceSize_ = 0;         // the Settings box's "Interface size": 0 100%, 1 85%, 2 70%
     std::vector<int> samChoices_;   // the Graphics section: for each of SamOptions(), 0 the detail level's own, else 1 + its choice
+    bool checkUpdates_ = true;      // the Settings box's "Check for updates", as launcher.ini keeps it (on when absent)
+    Updater* updater_ = nullptr;
 
     // A drag over the window.
     bool dragging_ = false;
@@ -182,13 +233,20 @@ private:
     Rect tileRects_[3];
     bool tilesShown_ = false;
     Rect readyPlay_[2];
+    Rect readyGold_[2];        // the all-confirmed home's Gold Edition switches
     bool readyShown_ = false;
     Rect versionRect_;         // last frame's version text (VersionRect)
     Rect showLogsRect_;        // last frame's Show logs button
+    Rect exportLogsRect_;      // last frame's Export logs button
+    Rect openDownloadsRect_;   // last frame's Open Downloads button (after a saved export)
     Rect titleRect_;           // last frame's title, its version label and the header's buttons
     Rect titleVersionRect_;
     Rect headerButtonsRect_;
+    Rect updateBannerRect_;    // last frame's update banner
     std::string logsFolder_;
+    ShowLogsFn showLogs_ = nullptr;
+    ExportLogsFn exportLogs_ = nullptr;
+    LogsExport exported_;      // the last Export logs that saved a copy (ok), shown in the About box until it closes
 
     // The editions' states, refreshed every frame.
     assets::EditionStatus status_[3];
@@ -205,7 +263,7 @@ private:
 
     // Play.
     int playIndex_ = 1;        // 0 US, 1 European
-    bool gold_[2] = {false, false};
+    bool gold_[2] = {true, true};   // the Gold Edition switch an edition (0 US, 1 European), as launcher.ini keeps it: on when absent
     bool playChosen_ = false;
     LaunchChoice choice_;
 
@@ -219,6 +277,7 @@ private:
     int armedRemove_ = -1;
     std::string settingsMessage_;
     Rect interfaceSizeRect_;   // last frame's (InterfaceSizeRect)
+    Rect checkUpdatesRect_;    // last frame's (CheckUpdatesRect)
     bool settingsScrolls_ = false;   // last frame's (SettingsScrolls)
 
     std::string notice_;

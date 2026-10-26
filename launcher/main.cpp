@@ -42,10 +42,14 @@
 #include "TrueTypeRender.h"
 #include "analyser.h"
 #include "rsse.h"
+#include "app_bundle.h"
+#include "app_icon.h"
 #include "asset_packs.h"
+#include "gold_rides.h"
 #include "packs.h"
 #include "platform.h"
 #include "handoff.h"
+#include "log_export.h"
 #ifdef _WIN32
 #include "host_win.h"
 #endif
@@ -54,8 +58,10 @@
 #include "static_init.h"
 #include "stubs.h"
 #include "ui_main.h"
+#include "ui_mainmenu.h"
 #include "ui/backend.h"
 #include "ui/theme.h"
+#include "ui/updater.h"
 #include "ui/window.h"
 
 namespace {
@@ -190,7 +196,7 @@ void CrashWrite(const char* text, int length) {
     if (length <= 0) return;
     (void)!write(2, text, static_cast<size_t>(length));
     const int fd = tpw::LogFileDescriptor();
-    if (fd >= 0) (void)!write(fd, text, static_cast<size_t>(length));
+    if (fd >= 0) tpw::WriteScrubbed(fd, text, static_cast<size_t>(length));
 }
 
 // A crash right after a stand-in returned is usually caused by it (a zero where the caller
@@ -222,8 +228,11 @@ void OnCrash(int signal) {
         gExitLogged = 1;
         const int length = signal == SIGABRT ? std::snprintf(text, sizeof text, "exit: abort\n")
                                              : std::snprintf(text, sizeof text, "exit: crashed (signal %d)\n", signal);
-        if (length > 0) (void)!write(fd, text, static_cast<size_t>(length));
+        if (length > 0) tpw::WriteScrubbed(fd, text, static_cast<size_t>(length));
     }
+#ifdef _WIN32
+    tpw::win32::DrainLog();   // the crash report is still in the pipe that launcher.log is fed through
+#endif
     std::signal(signal, SIG_DFL);
     std::raise(signal);
 }
@@ -265,6 +274,10 @@ void Usage(const char* program) {
                  "                 opens 800 x 560 points), pressed before its drawn frame F and released before F + 1\n"
                  "  --data DIR     the folder launcher.ini is in (default: the per-user folder SDL names for the\n"
                  "                 launcher, such as ~/Library/Application Support/STP-TPW Launcher on a Mac)\n"
+                 "  --write-icon FILE  without the window: write the launcher's icon (the game's own, icon.png in the\n"
+                 "                 data folder, or the stand-in until a game is imported) as this file and exit: a .ico\n"
+                 "                 when the name ends in .ico, a PNG otherwise; the install script makes the icon of the\n"
+                 "                 application it puts in Applications, or of the Start menu shortcut, from it\n"
                  "  --program FILE the game's data tables are read from this full Mac \"SimTheme Park\" or \"Theme Park\n"
                  "                 World\" application (its data fork; the CD's 2.0.1, the 2.04b3 patch's or a 2.1 release)\n"
                  "                 (default: $TPW_GAME_PROGRAM, else \"SimTheme Park\" in the game folder)\n"
@@ -279,7 +292,8 @@ void Usage(const char* program) {
                  "  --stp, --eur   the same as --edition stp, --edition tpw\n"
                  "  --windowed     run in a window with a title bar instead of full screen (by default the game is a real\n"
                  "                 full-screen window on its screen, a Space of its own with the menu bar and the dock\n"
-                 "                 hidden, as Cmd+Ctrl+F makes it; Cmd+Ctrl+F also leaves it)\n"
+                 "                 hidden, as Cmd+Ctrl+F makes it; Cmd+Ctrl+F also leaves it; on Windows Alt+Enter switches\n"
+                 "                 while playing). The Settings box's Full screen, off, does the same\n"
                  "  --resolution WxH  the game's resolution, named by its 4:3 size: a Resolution.sam preset (512x384,\n"
                  "                    640x480, 800x600, 1024x768, 1280x1024, 1600x1200, 2048x1536) or a larger one of the\n"
                  "                    port's (2560x1920, 3200x2400, 4096x3072; default: 4096x3072). The game renders at it\n"
@@ -323,6 +337,8 @@ void Usage(const char* program) {
                  "  --stub-abort   abort at the first unimplemented function (for a debugger)\n"
                  "  --stub-trace   log every call of an unimplemented function, not only the first\n"
                  "  --version      print the launcher's version and build, and exit\n"
+                 "  --check-updates  ask GitHub once whether a newer version is out, print the answer, and exit 0\n"
+                 "                 (changes nothing; offline, it says there was no answer)\n"
                  "Every run's log is also written to logs/launcher-YYYYMMDD-HHMMSS.log in the data folder (the %zu most\n"
                  "recent runs are kept), with the launcher's version, the system and the hardware at its top: a bug report\n"
                  "attaches the newest one\n",
@@ -334,15 +350,39 @@ bool TakesValue(const std::string& arg) {
     static const char* const kWithValue[] = {"--game",  "--data",        "--play",       "--import",     "--program",    "--window-click",
                                              "--user",  "--edition",     "--resolution", "--aspect",     "--frames",
                                              "--click", "--drag",        "--type",       "--dump-frames", "--dump-every",
-                                             "--dump-limit", "--display"};
+                                             "--dump-limit", "--display", "--write-icon"};
     for (const char* option : kWithValue)
         if (arg == option) return true;
     return false;
 }
 
+// The data folder as it is, for a run that must not make it (--write-icon, which the install script runs before the
+// launcher's first start): SDL's pref path makes the folder when it is missing, so the per-user place it names on a Mac
+// (~/Library/Application Support/<name>) and on Windows (%APPDATA%\<name>) is looked at first, and taken only when it is
+// there. Empty when there is none yet (the stand-in icon then).
+std::string ExistingDataFolder() {
+    std::error_code ec;
+    std::filesystem::path guess;
+#if defined(__APPLE__)
+    if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0')
+        guess = std::filesystem::path(home) / "Library" / "Application Support" / tpw::ui::kDataFolderName;
+#elif defined(_WIN32)
+    if (const char* appData = std::getenv("APPDATA"); appData != nullptr && *appData != '\0')
+        guess = std::filesystem::path(appData) / tpw::ui::kDataFolderName;
+#endif
+    if (!guess.empty()) return std::filesystem::is_directory(guess, ec) ? guess.string() : std::string();
+    std::string folder;
+    if (char* pref = SDL_GetPrefPath("", tpw::ui::kDataFolderName)) {
+        folder = pref;
+        SDL_free(pref);
+    }
+    return folder;
+}
+
 // --version and --help answer before the log file is opened (no file for them): the exit code, or -1 to run. `dataDir`
 // gets --data's value, where the log file goes.
 int EarlyOptions(int argc, char** argv, std::string& dataDir) {
+    std::string writeIcon;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--version") {
@@ -353,10 +393,34 @@ int EarlyOptions(int argc, char** argv, std::string& dataDir) {
             Usage(argv[0]);
             return 0;
         }
+        if (arg == "--check-updates") {   // the update check of the window (updater.h), once, in the open
+            const tpw::ui::update::Current current =
+                tpw::ui::update::DescribeCurrent(tpw::ui::kLauncherVersion, tpw::launcher::ProgramFolder());
+            std::printf("%s (build: %s)\nasks: the newest release\n", tpw::ui::kProductNameWithVersion,
+                        TPW_LAUNCHER_BUILD);
+            if (current.install.Found()) std::printf("installed by the install script in %s\n", current.install.dir.c_str());
+            const auto start = std::chrono::steady_clock::now();
+            const tpw::ui::update::Answer answer = tpw::ui::update::Check(current, tpw::ui::update::Questions());
+            const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+            if (!answer.answered) std::printf("answer: none (%s) after %.1f s\n", answer.why.c_str(), seconds);
+            else if (answer.found.empty()) std::printf("answer: up to date, after %.1f s\n", seconds);
+            else std::printf("answer: %s is out, after %.1f s\n", answer.found.c_str(), seconds);
+            return 0;
+        }
         if (TakesValue(arg) && i + 1 < argc) {
             if (arg == "--data") dataDir = argv[i + 1];
+            if (arg == "--write-icon") writeIcon = argv[i + 1];
             ++i;
         }
+    }
+    if (!writeIcon.empty()) {   // the icon as a PNG or a .ico, for the install script (app_icon.h WriteAppIcon)
+        std::string what, err;
+        if (!tpw::launcher::WriteAppIcon(dataDir.empty() ? ExistingDataFolder() : dataDir, writeIcon, what, err)) {
+            std::fprintf(stderr, "launcher: --write-icon: %s\n", err.c_str());
+            return 1;
+        }
+        std::printf("%s: %s\n", writeIcon.c_str(), what.c_str());
+        return 0;
     }
     return -1;
 }
@@ -422,15 +486,16 @@ void AdoptOldSaves(const std::filesystem::path& prefPath, const std::filesystem:
     }
 }
 
-// The application menu's title (the bold name beside the Apple menu): "Theme Park World" for the European edition, "Sim
-// Theme Park" for the US one, so the menu bar names the game being played rather than the launcher (the maintainer, 2026-10-22);
+// The application menu's title (the bold name beside the Apple menu): "Sim Theme Park" for the US edition, "Theme Park
+// World" for the European one, so the menu bar names the game being played rather than the launcher (the maintainer, 2026-10-22);
 // while the launcher's own window is up, the launcher's name with its version (kProductNameWithVersion, the maintainer, 2026-10-23).
 // Set through the Objective-C runtime (as platform/window.cpp sends orderBack:) on the menu SDL made when its video
 // started: [[[[NSApp mainMenu] itemAtIndex:0] submenu] setTitle:]. Nothing is created here: without a running
 // NSApplication (the --play path, whose video starts later in the game's own window code) the title is left alone and
-// the log says why; creating NSApplication this early would come before SDL's own application class. The Dock's and
-// Cmd-Tab's names cannot be changed this way: macOS takes them from the process and its bundle (CFBundleName), so they
-// stay the program's name until the launcher ships as a .app bundle.
+// the log says why; creating NSApplication this early would come before SDL's own application class. The Dock's,
+// Cmd-Tab's and Force Quit's names are not set here: Cmd-Tab and Force Quit take CFBundleName from the Info.plist the build
+// embeds in tpw_launcher (CMakeLists.txt, launcher/macos/Info.plist.in), and the Dock names the application bundle the
+// launcher runs from (launcher/app_bundle.h), so all three say "STP/TPW Launcher". The Dock's icon is launcher/app_icon.h.
 void NameAppMenu(const char* name) {
 #if defined(__APPLE__)
     const char* reason = nullptr;
@@ -475,6 +540,25 @@ void NameAppMenu(const char* name) {
 #endif
 }
 
+// The launcher's settings, written to launcher.ini again after the importer's last write of the file (the choice it saved
+// on Play, an import in the window), which kept the importer's older copy of the keys: on Play and when the window
+// closes. From tpw-port PRs #10, #20, #22 and #24 by samueleagle91; the update check's keys (updater.h) too.
+void KeepSettings(const tpw::ui::ImporterBackend& backend, const std::string& prefPath) {
+    for (const char* key : {tpw::ui::kSkipIntroKey, tpw::ui::kBackToLauncherKey, tpw::ui::kSmoothZoomKey,
+                            tpw::ui::kInterfaceSizeKey, tpw::ui::kPcSoundPicksKey, tpw::ui::kFullScreenKey,
+                            tpw::ui::kCheckUpdatesKey,
+                            tpw::ui::kUpdateLastCheckKey, tpw::ui::kUpdateFoundKey}) {
+        const std::string value = backend.Setting(key);
+        std::string ignored;
+        if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, key, value, ignored);
+    }
+    for (const tpw::ui::SamOption& option : tpw::ui::SamOptions()) {   // the Graphics section's keys, as above
+        const std::string value = backend.Setting(option.key);
+        std::string ignored;
+        if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, option.key, value, ignored);
+    }
+}
+
 // No --game: the edition comes from the data folder, through the launcher's window or --play. Fills in the game
 // folder, the edition, the user folder and the program (each unless an option named it already) and returns -1 to
 // start the game; any other value is the launcher's exit code (0 when the window was closed).
@@ -515,6 +599,9 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
     if (!play.empty()) {
         choice.edition = play == "us" ? tpw::assets::kEditionUs : tpw::assets::kEditionEur;
         choice.skipIntro = backend.Setting(tpw::ui::kSkipIntroKey) == "1";
+        // the tiles' Gold Edition switch, as the window's Play reads it: on while the Gold data is there and not switched off
+        choice.gold = backend.Status(tpw::assets::kEditionGold).unlocked &&
+                      backend.Setting(tpw::ui::GoldKey(choice.edition)) != "0";
         const tpw::assets::EditionStatus status = backend.Status(choice.edition);
         if (!status.unlocked) {
             tpw::LogRawF(
@@ -543,7 +630,24 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
         placement.videoStarted = [] { tpw::LogDisplayOnce(); };
         // While the launcher window is up the menu bar names it with its version; Play renames it after the game below.
         placement.windowShown = [] { NameAppMenu(tpw::ui::kProductNameWithVersion); };
-        if (!tpw::LogFilePath().empty()) placement.logsFolder = std::filesystem::path(tpw::LogFilePath()).parent_path().string();
+        // The Dock's (taskbar's) icon: the game's own from the data folder once a disc was imported (launcher/app_icon.h).
+        placement.windowIcon = [](SDL_Window* window, const char* dataFolder) { tpw::launcher::ApplyAppIcon(dataFolder, window); };
+        placement.programFolder = tpw::launcher::ProgramFolder();   // the update check: where install.sh put the launcher
+        if (!tpw::LogFilePath().empty()) placement.logsFolder = std::filesystem::path(tpw::LogFilePath()).parent_path().u8string();   // UTF-8: SDL_OpenURL takes it
+        placement.showLogs = [](const std::string& logsFolder) {
+            const std::filesystem::path newest = tpw::NewestLog(std::filesystem::u8path(logsFolder));
+            return !newest.empty() && tpw::RevealFile(newest);
+        };
+        placement.exportLogs = [](const std::string& logsFolder) {
+            const tpw::LogExportResult done =
+                tpw::ExportLog(std::filesystem::u8path(logsFolder), tpw::DownloadsFolder(), std::time(nullptr));
+            tpw::LogFileF("export logs: %s", done.ok ? done.file.u8string().c_str() : done.message.c_str());
+            tpw::ui::LogsExport shown;
+            shown.ok = done.ok;
+            shown.message = done.message;
+            shown.folder = done.folder.u8string();
+            return shown;
+        };
         if (!config.display.empty()) {
             if (config.background) {   // before SDL's video starts, as the game's window sets them
                 SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
@@ -555,7 +659,9 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
                 placement.display = tpw::ChosenDisplay();
             }
         }
-        switch (tpw::launcher::OpenLauncherWindow(backend, choice, err, placement)) {
+        const tpw::ui::WindowOutcome outcome = tpw::launcher::OpenLauncherWindow(backend, choice, err, placement);
+        if (outcome == tpw::ui::WindowOutcome::Quit) KeepSettings(backend, prefPath);
+        switch (outcome) {
             case tpw::ui::WindowOutcome::Quit: return 0;
             case tpw::ui::WindowOutcome::Failed:
                 tpw::LogRawF("launcher: the launcher's window failed: %s\n", err.c_str());
@@ -563,22 +669,15 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
             case tpw::ui::WindowOutcome::Play: break;
         }
     }
-    // The launcher's settings are written to launcher.ini again here, after the importer's last write of the file (the
-    // choice it saved on Play), which kept the importer's older copy of the keys. "Skip the intro films" is as
-    // --no-movies; "Back to the launcher after playing" opens the launcher again when a game started from its window
-    // quits (ReopenLauncher). From tpw-port PRs #10, #20, #22 and #24 by samueleagle91.
-    for (const char* key : {tpw::ui::kSkipIntroKey, tpw::ui::kBackToLauncherKey, tpw::ui::kSmoothZoomKey,
-                            tpw::ui::kInterfaceSizeKey, tpw::ui::kPcSoundPicksKey}) {
-        const std::string value = backend.Setting(key);
-        std::string ignored;
-        if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, key, value, ignored);
-    }
-    for (const tpw::ui::SamOption& option : tpw::ui::SamOptions()) {   // the Graphics section's keys, as above
-        const std::string value = backend.Setting(option.key);
-        std::string ignored;
-        if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, option.key, value, ignored);
-    }
+    // "Skip the intro films" is as --no-movies; "Back to the launcher after playing" opens the launcher again when a
+    // game started from its window quits (ReopenLauncher).
+    KeepSettings(backend, prefPath);
     gBackToLauncher = choice.backToLauncher;
+    // The Settings box's "Full screen" (on unless launcher.ini says 0): off is --windowed, a window with a title bar.
+    if (backend.Setting(tpw::ui::kFullScreenKey) == "0") {
+        config.debugOptions[1] = 0;
+        tpw::Log("full screen off (the launcher's Settings): the game plays in a window");
+    }
     // The Park rules box (tpw-port PR #23: more visitors per bus, a higher visitor limit) left the port, which changes
     // only how the game is shown and driven, never how a park plays; it is to become a tpw-mods mod. A launcher.ini that
     // still has its keys keeps them, and they are ignored.
@@ -636,7 +735,18 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
     tpw::LogFileF("play: %s (%s), from %s; game folder %s", us ? "Sim Theme Park, the US edition" : "Theme Park World, the European edition",
                   tpw::assets::EditionName(choice.edition), play.empty() ? "the launcher window's Play" : "--play",
                   config.gameDir.string().c_str());
-    if (choice.gold) tpw::Log("Gold rides: switched on, but this build does not add them to the game yet");
+    // The Gold Edition switch (launcher_ui.h GoldKey). The Gold data is kept in assets/gold, apart from the game folder
+    // chosen above; with the switch on, its rides are laid over the game folder (platform/gold_rides.h), each at the
+    // place the PC Gold installer copied it to, and the game finds them as it scans the ride folders.
+    if (choice.gold) {
+        const std::filesystem::path gold = backend.importer()->GameFolder(tpw::assets::kEditionGold);
+        size_t missing = 0;
+        const size_t rides = tpw::UseGoldRides(gold, &missing);
+        if (missing == 0) tpw::Log("Gold rides: on, %zu rides overlaid from assets/gold", rides);
+        else tpw::Log("Gold rides: on, %zu rides overlaid from assets/gold (%zu listed in RideConfig.txt are missing)", rides, missing);
+    }
+    else if (backend.Status(tpw::assets::kEditionGold).unlocked) tpw::Log("Gold rides: off (data present, switched off)");
+    else tpw::Log("Gold rides: no data");
     return -1;
 }
 
@@ -761,6 +871,7 @@ void tpw_stub_called(const char* name, bool platform, bool first) {
 
 namespace {
 int LauncherMain(int argc, char** argv) {
+    tpw::EnsureScrubIdentity();   // before anything is logged: the log files never hold the player's name (platform/log_scrub.h)
     // a trap (a hardened library check), an illegal instruction and an abort (a failed stack check is a silent one) get
     // the backtrace too
 #ifdef _WIN32
@@ -962,6 +1073,12 @@ int LauncherMain(int argc, char** argv) {
         }
         return ImportFromOptions(dataDir, imports);
     }
+    // Started detached from a shell, as the themepark command and the installer start it, the launcher's window (and
+    // the game's with --play or --game) opened behind the Terminal without the keyboard: macOS 14 and later ignore an
+    // app's own activation, and SDL's start-up activation (the Dock first, then this app) is off by default there.
+    // Asked for before the first SDL video start (the launcher window's or the game's), which reads the hint. A
+    // --background run stays behind.
+    if (!config.background) SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "0");
     if (config.gameDir.empty()) {
         const int exitCode = ChooseFromDataFolder(config, program, packs, dataDir, play);
         if (exitCode >= 0) {
@@ -1025,6 +1142,12 @@ int LauncherMain(int argc, char** argv) {
     gUIHighPresets = 1;
     // The online world's servers shut down: its globe button stays on the islands (include/lobby.h).
     gPortOnlineWorldGone = true;
+    // The Esc menu's "Enter Full Screen" / "Exit Full Screen" button (include/ui_mainmenu.h): the window's own switch, shown
+    // only while it can act (platform/window.cpp; never with --background). For this run only: the Settings box's Full screen
+    // still says how the next game starts.
+    gPortFullScreenHooks.canToggle = tpw::CanToggleFullScreen;
+    gPortFullScreenHooks.isFullScreen = tpw::IsFullScreen;
+    gPortFullScreenHooks.toggle = tpw::ToggleFullScreen;
     // The park map's destroy callback at the quit asks the advisor of a world already deleted (include/ui_main.h).
     gPortNoWorldAdvisorGuard = true;
     // The fixes of samueleagle91 (tpw-port PRs #2, #5, #7, #12 and #13): the advisor's aspect (TPAdvisor.h), the Options
@@ -1085,8 +1208,14 @@ int main(int argc, char** argv) {
     std::string dataDir;
     const int early = EarlyOptions(argc, argv, dataDir);
     if (early >= 0) return early;
+    // macOS: a run with a window goes on from the application bundle beside the program (launcher/app_bundle.h), with the
+    // same arguments and process; it comes back here only when it cannot, and the log opens once either way.
+    std::string bundleNote;
+    tpw::launcher::RunFromAppBundle(argc, argv, bundleNote);
     OpenLog(argc, argv, dataDir);
     std::atexit(LogExitAtExit);
+    if (bundleNote.empty()) bundleNote = tpw::launcher::TakeBundleNote();
+    if (!bundleNote.empty()) tpw::Log("app bundle: %s", bundleNote.c_str());
     const int code = LauncherMain(argc, argv);
     LogExit(code);
     if (gReopenLauncher) ReopenLauncher(argc, argv);

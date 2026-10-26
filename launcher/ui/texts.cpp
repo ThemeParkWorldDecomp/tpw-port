@@ -9,12 +9,27 @@ using assets::EditionStatus;
 using assets::ImportProgress;
 using assets::ImportReport;
 
-std::string FileUrl(const std::string& path) {
+std::string FileUrl(const std::string& path, bool windows) {
     static const char kHex[] = "0123456789ABCDEF";
     std::string url = "file://";
-    for (unsigned char c : path) {
+    size_t start = 0;
+    if (windows) {
+        const auto slash = [](char c) { return c == '\\' || c == '/'; };
+        const bool drive = path.size() >= 2 && path[1] == ':' &&
+                           ((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z'));
+        if (drive) {
+            url += '/';
+            url += path.substr(0, 2);
+            start = 2;
+        } else if (path.size() >= 2 && slash(path[0]) && slash(path[1])) {
+            start = 2;   // a UNC path: the server is the URL's host
+        }
+    }
+    for (size_t i = start; i < path.size(); ++i) {
+        unsigned char c = static_cast<unsigned char>(path[i]);
+        if (windows && c == '\\') c = '/';
         const bool plain = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '/' ||
-                           c == '-' || c == '.' || c == '_' || c == '~';
+                           c == '-' || c == '.' || c == '_' || c == '~' || (windows && c >= 0x80);
         if (plain) {
             url += static_cast<char>(c);
         } else {
@@ -24,6 +39,14 @@ std::string FileUrl(const std::string& path) {
         }
     }
     return url;
+}
+
+std::string FileUrl(const std::string& path) {
+#ifdef _WIN32
+    return FileUrl(path, true);
+#else
+    return FileUrl(path, false);
+#endif
 }
 
 std::string FormatCount(uint64_t n) {

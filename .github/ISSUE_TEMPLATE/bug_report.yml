@@ -12,9 +12,9 @@ body:
     attributes:
       label: Launcher version
       description: >-
-        As the window title, the About box or the log's first line shows it, for example 0.0.3. A build of main says
+        As the window title, the About box or the log's first line shows it, for example 0.1.0. A build of main says
         -dev (0.0.4-dev): then also give the build the log's first line names (build: ...).
-      placeholder: 0.0.3
+      placeholder: 0.1.0
     validations:
       required: true
   - type: dropdown
@@ -59,7 +59,8 @@ body:
     attributes:
       label: Log
       description: >-
-        Drag the launcher's newest log file here. It is in ~/Library/Application Support/STP-TPW Launcher/logs on a Mac
-        and %APPDATA%\STP-TPW Launcher\logs on Windows; the About box's Show logs button opens the folder.
+        Open the launcher's About box, click Export logs, then drag the file it saves in your Downloads folder here. (The
+        logs are in ~/Library/Application Support/STP-TPW Launcher/logs on a Mac and %APPDATA%\STP-TPW Launcher\logs on
+        Windows; the About box's Show logs button opens the folder.)
     validations:
       required: true

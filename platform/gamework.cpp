@@ -8,11 +8,18 @@
 #include <algorithm>
 #include <cctype>
 
+#include "fit.h"
 #include "platform.h"
 
 namespace SamsUtilities {
 
 namespace {
+#if defined(__APPLE__)
+constexpr bool kApple = true;    // Cmd+Ctrl+F and the green button toggle full screen; Alt+Enter is the game's
+#else
+constexpr bool kApple = false;   // Alt+Enter toggles full screen (platform/window.cpp ToggleFullScreen)
+#endif
+
 // What the original keeps in the object beyond the fields the game reads: the key that is
 // down (UGamework +0x34 character, +0x35 key code, +0x38 modifiers).
 struct KeyState {
@@ -153,6 +160,16 @@ void UGamework::Run() {
                 break;
             }
             case SDL_EVENT_KEY_DOWN: {
+                // Alt+Enter on Windows and Linux toggles full screen (fit::FullScreenToggleKey; never on a Mac). It is
+                // the host's key: the game is not told of the press, no key is remembered for it, and its release is
+                // the ordinary one (whichever key came up releases the remembered key, below).
+                if (tpw::fit::FullScreenToggleKey(
+                        kApple, sdl.key.scancode == SDL_SCANCODE_RETURN || sdl.key.scancode == SDL_SCANCODE_KP_ENTER,
+                        (sdl.key.mod & SDL_KMOD_ALT) != 0,
+                        (sdl.key.mod & (SDL_KMOD_SHIFT | SDL_KMOD_CTRL | SDL_KMOD_GUI)) != 0, sdl.key.repeat)) {
+                    tpw::ToggleFullScreen();
+                    break;
+                }
                 // 0x100054c4: a key still down is released first (the Mac reported one key
                 // at a time), with a Process pass in between.
                 if (!sdl.key.repeat && gKey.keyCode != 0) {

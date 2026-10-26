@@ -3,75 +3,42 @@
 An unofficial port of Sim Theme Park (AKA Theme Park World, 1999) for Macs (Apple Silicon and Intel) and 64-bit Windows.
 You need your own copy of the game. Nothing from the game is in here.
 
-Not affiliated with or endorsed by Electronic Arts. Sim Theme Park and Theme Park World are trademarks of their
-respective owners.
-
-**Reporting a problem? Always say which launcher version you run** (for example 0.0.3). The launcher's window title,
-its About box and the first line of its log all show it. See [Reporting a problem](#reporting-a-problem).
-
 ## Quick start
 
-Download the newest release from the [Releases page](https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest). A release is fixed: 0.0.3 is the
-same code on every Mac and PC and never changes afterwards, and fixes come in the next version. The Mac and Windows
-downloads of a release are built from the same commit, its tag (v0.0.3).
+To install, follow these instructions. To update, run the same command again or run `themepark update`.
 
-- Windows 10 or 11 (64-bit): the `-windows-x64.zip`. Unzip it and run tpw_launcher.exe. If Windows SmartScreen stops it,
-  click More info, then Run anyway.
-- Mac with Apple Silicon: the `-macos-arm64.tar.gz`. Mac with an Intel processor: the `-macos-x64.tar.gz`. Double-click it
-  to unpack it. The launcher is not signed yet, so macOS blocks it at first: in Terminal, run
-  `xattr -d com.apple.quarantine ` followed by the unpacked tpw_launcher (drag it onto the Terminal window), then
-  double-click tpw_launcher.
+- Mac (macOS 11 or newer, Apple Silicon or Intel), in Terminal:
 
-Then see [Playing](#playing). To build a release from its source instead, follow the steps below with `--branch` and the
-release's tag in the clone (`git clone --branch v0.0.3 --recurse-submodules ...`). A clone without `--branch` is main:
-the next version while it is being made (its launcher says so, 0.0.4-dev for example), for contributors and testers.
+      curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh
 
-### Building on macOS
+  It needs Apple's command line developer tools. If they are missing, it says so and how to get them, and changes
+  nothing. The launcher goes in `~/Applications/STP-TPW-Launcher/build/tpw_launcher`.
+- Windows 10 (version 1803 or newer) or 11, 64-bit, in PowerShell:
 
-On a Mac with Apple Silicon or an Intel processor, in Terminal:
+      irm https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.ps1 | iex
 
-    git clone --recurse-submodules https://github.com/ThemeParkWorldDecomp/tpw-port.git
-    cd tpw-port && make
-    make run
+  Nothing to install first: a Git on the PATH is used, and a PC without one gets a portable Git (MinGit) fetched into
+  the launcher's own folder, checked against its SHA-256; no winget, no setup program, no Path entry for it. The
+  launcher goes in `%LOCALAPPDATA%\STP-TPW-Launcher\build\tpw_launcher.exe`.
 
-For an app that opens with a double click, run `make app` and drag build/Theme Park World.app to Applications or the
-Dock.
+### Play after install
 
-If macOS asks to install the command line developer tools, click Install, wait, then run the first line again. The first
-build takes a few minutes. If your Mac has no CMake, `make` fetches it into the build
-folder. Nothing else is installed.
+Type this in a Terminal (Mac) or PowerShell (Windows) window, in any folder:
 
-### Building on Windows
+    themepark
 
-On a PC with 64-bit Windows 10 (version 1803 or newer) or Windows 11, Intel, AMD or Arm (an Arm PC needs Windows 11),
-install Git once if you do not have it:
-
-    winget install Git.Git
-
-After installing Git, open a new PowerShell or Command Prompt window. Paste these lines:
-
-    git -c core.autocrlf=false clone --recurse-submodules https://github.com/ThemeParkWorldDecomp/tpw-port.git
-    cd tpw-port
-    .\build.cmd
-    .\run.cmd
-
-The first build downloads its tools and compiles the launcher. No Visual Studio, CMake, Python or SDK installation is
-needed. Next time, open the tpw-port folder and double-click run.cmd, or run `.\run.cmd` there. You can also start
-build\tpw_launcher.exe directly. To update an existing clone, run `git pull`, `git submodule update --init --recursive`
-and `.\build.cmd`.
-
-Git for Windows is the only thing installed. build.cmd fetches the rest into build\tools\, in the versions the Windows
-build was tested with, each checked against its publisher's SHA-256: llvm-mingw (the compiler), CMake, Ninja and Python
-(about 250 MB to download, once). `.\build.cmd clean` deletes build\ with those tools. The clone keeps the files' line
-endings as they are (core.autocrlf=false). The first build takes a few minutes. The launcher is one .exe that needs
-nothing beside it.
+On a Mac it works in every new Terminal window (the first install opens the launcher for you), and the installer
+also puts **STP/TPW Launcher** in your Applications folder, with the game's icon, so you can open it from Launchpad,
+Spotlight or the Dock too. On Windows it works straight away, in the window you installed from too, and the installer
+puts **STP/TPW Launcher** in the Start menu, with the game's icon, so you can open it from there or find it with Search.
+`themepark --version` shows the installed version.
 
 ### Playing
 
-`make run` (on Windows, `.\run.cmd` or `build\tpw_launcher.exe`) opens the launcher. Drop your game disc on its window: the Mac CD, the
+`themepark` opens the launcher. Drop your game disc on its window: the Mac CD, the
 PC CD, or a zip or disc image of either. The launcher checks every file and ticks off the editions it finds. Press Play:
 a progress bar shows while the game starts, and the launcher's window closes when the game's window appears. Once the
-US, European and Gold discs are all checked, the window shows just two tiles, Theme Park World and Sim Theme Park, each
+US, European and Gold discs are all checked, the window shows just two tiles, Sim Theme Park and Theme Park World, each
 with its own Play button. At every start the launcher compares each file's size and date with what it recorded,
 rehashes only the files that changed and removes any that no longer match.
 
@@ -87,7 +54,27 @@ The Settings box has these rows:
 - Graphics: seven options of the original's options files (low.sam, med.sam, high.sam), each Default by default, which
   keeps the value of the game's own graphics quality: view distance (Short, Medium, Long, Max), sky layers (1, 2, 4),
   cloud shadows, ground blending (Off, 16, 32, 64), texture quality (Low, High), lighting and visitor shadows (Off, On).
+- Check for updates: on by default (the one launcher setting that is; see Updates below). Off, the launcher never asks.
 - Check again: rehashes every file.
+
+### Updates
+
+Once a day, when it starts, the launcher asks GitHub whether a newer version is out. It asks in the background and the
+window never waits for it. It sends nothing about you or your game: the question is the same for everyone, and GitHub
+sees only that someone asked.
+
+- It looks only for releases. A build of main (a version ending in -dev, from the install script's dev option) hears of
+  a release newer than itself, and of the release of its own number once it is out, but never of newer commits of main.
+- When there is one, a banner under the title says "Version X.Y.Z is out", with What's new (the release's page) and
+  Update. Installed with the install script, Update builds the new release beside the one you run and says each step
+  (a dev install too: Update always goes to the newest release); when it is ready, Restart to update closes the
+  launcher and starts the new one. If anything goes wrong, nothing is changed and the banner says why, with Show logs.
+  Downloaded or built by hand, Update opens the release's page.
+- With no internet, or when GitHub does not answer, the launcher says nothing and asks again at the next start. Update
+  is greyed out with "No internet connection" until a later start reaches GitHub.
+- To turn it off: Settings, Check for updates. `tpw_launcher --check-updates` asks once and prints the answer.
+
+The game itself never needs the internet: everything plays offline.
 
 ## What you need
 
@@ -97,12 +84,15 @@ The Settings box has these rows:
   - The US Mac CD gives Sim Theme Park.
   - The Mac CD plus the European PC CD give Theme Park World too. Only the 2000 pressings of the PC CD work (Redump
     66484 and 9465), and the 1999 pressing (Redump 66100) is refused.
-  - The PC Gold bonus CD unlocks the Gold bonus rides in the launcher. This build does not add them to the game yet.
+  - The PC Gold bonus CD adds its Gold bonus rides to either edition: 18 new rides and newer copies of 17 others, laid
+    over the game's files when you play (the Gold Edition switch on each play tile turns them off). A park saved
+    with a Gold ride built needs the switch on: with it off, the game refuses the park as the original does when a
+    downloaded ride is missing, and opens the theme's park afresh.
 - No patches. The port is built from the last Mac patch (2.04b3) and reads only the game's data files.
 
 Your checked game files and your saves live in `~/Library/Application Support/STP-TPW Launcher` on a Mac and in
 `%APPDATA%\STP-TPW Launcher` on Windows. `make clean` and `build.cmd clean` never touch that folder. Each run's log goes to its logs folder
-(launcher-YYYYMMDD-HHMMSS.log, the 10 most recent runs kept; the About box's Show logs button opens it), and
+(launcher-YYYYMMDD-HHMMSS.log, the 10 most recent runs kept; the About box's Show logs button opens it with the newest log selected, and its Export logs button saves the newest to your Downloads folder), and
 `tpw_launcher --version` prints the launcher's version. On Windows the launcher has no console: what it prints goes to
 launcher.log in that folder too, unless its output is redirected (`build\tpw_launcher.exe 2> log.txt`).
 
@@ -160,10 +150,11 @@ The translation is the [tpw-decomp](https://github.com/ThemeParkWorldDecomp/tpw-
 on the Mac, bugs included. This repository adds what it takes to play:
 
 - launcher/: the program (the launcher's window, the options, the game's start-up) and the generated stand-ins for the
-  names nothing defines yet.
+  names nothing defines yet. launcher/net/ is the only code that uses the internet (the update check; CONTRIBUTING.md,
+  "Playable offline").
 - platform/: the Mac Toolbox, Sound Sprockets, QuickTime and the game's Windows-style shims, done on SDL3, OpenGL and
   CoreText (on Windows, stb_truetype in place of CoreText).
-- overrides/: the port's fixes, 191 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
+- overrides/: the port's fixes, 206 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
   the port does and why. Each file there is built in place of the tpw-decomp file of the same path. Headers are read
   from a copy of tpw-decomp's headers in the build folder with the overridden ones laid over it.
 - mods/: the [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) submodule, for optional changes to how the game plays. It holds no mods yet
@@ -172,10 +163,11 @@ on the Mac, bugs included. This repository adds what it takes to play:
 ### The Windows build
 
 It was built and tested with llvm-mingw 20261006 (UCRT, x86-64, clang 23.1.3), CMake 4.4.4, Ninja 1.13.2, Python 3.14.7
-and Git 2.55.0 on Windows 10 22H2. build.cmd hands to devtools/win/build.ps1 (Windows PowerShell 5.1, part of Windows,
-run with -ExecutionPolicy Bypass), which fetches those versions of the first four (Python as the embeddable package) and
-pins each with its SHA-256. It takes a tool from the PATH instead when the version there is usable: a MinGW clang for
-x86-64 not older than 23.1.3, CMake 3.20 or newer, Ninja 1.10 or newer, Python 3.10 or newer. It prints which it chose.
+and Git 2.55.0 on Windows 10 22H2 (install.ps1 fetches MinGit 2.56.0.4, pinned by its SHA-256, when the PC has no Git).
+build.cmd hands to devtools/win/build.ps1 (Windows PowerShell 5.1, part of Windows, run with -ExecutionPolicy Bypass),
+which fetches those versions of the first four (Python as the embeddable package) and pins each with its SHA-256. It
+takes a tool from the PATH instead when the version there is usable: a MinGW clang for x86-64 not older than 23.1.3,
+CMake 3.20 or newer, Ninja 1.10 or newer, Python 3.10 or newer. It prints which it chose.
 `.\build.cmd TOOLS=fetch` fetches all four whatever the PATH has, `.\build.cmd test` builds everything and runs the
 tests, `BUILD=<folder>` builds in another folder, and each step's output is kept in build\logs\. Every build checks the
 launcher's DLL imports, and test builds check the test programs too: only Windows system libraries are allowed. The
@@ -308,14 +300,18 @@ The recipes' pass numbers are timed without the 60 frames a second pacing, so th
 
 Open an issue (the form asks for each of these) or post on Discord, and say:
 
-1. **The launcher version**, for example 0.0.3. The window title, the About box and the log's first line show it, and
+1. **The launcher version**, for example 0.1.0. The window title, the About box and the log's first line show it, and
    `tpw_launcher --version` prints it. A report without it cannot be checked, since each version is different code. A
    version ending in -dev (0.0.4-dev) is a build of main, not a release: give the build too, which the log's first line
    names (`build: ...`).
 2. Your system (macOS or Windows and its version, Apple Silicon, Intel or AMD).
 3. Your edition: US, European or Gold.
-4. The launcher's newest log, attached: `~/Library/Application Support/STP-TPW Launcher/logs` on a Mac,
-   `%APPDATA%\STP-TPW Launcher\logs` on Windows (the About box's Show logs button opens the folder).
+4. The launcher's newest log, attached. Open the launcher's About box, click **Export logs**, then attach the file it
+   saves in your Downloads folder ("STP-TPW Launcher log" and the date). The log's own folder is
+   `~/Library/Application Support/STP-TPW Launcher/logs` on a Mac and `%APPDATA%\STP-TPW Launcher\logs` on Windows
+   (the About box's Show logs button opens it).
+   The log holds no username, computer name or home folder (each shows as `~`, `<user>` or `<computer>`), so it is safe
+   to share.
 5. What you clicked before it went wrong, and whether it happens again when you do the same.
 
 Before reporting, check that you run the newest release: a fix comes in the next version, never in a release already
@@ -361,6 +357,7 @@ changed or replaced afterwards, so a fix accepted after it ships in the next ver
 
 - [tpw-decomp](https://github.com/ThemeParkWorldDecomp/tpw-decomp): the translation and its differential tests.
 - [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods): optional changes to how the game plays.
+- [CHANGELOG.md](CHANGELOG.md): what each version adds and fixes, in plain words.
 - [FIXES.md](FIXES.md): every place the port behaves differently from the Mac.
 
 No license has been chosen yet for the port's own code. third_party/ffmpeg is FFmpeg 9.0.2 (trimmed), under the GNU LGPL

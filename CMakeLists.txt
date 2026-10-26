@@ -168,6 +168,8 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
     target_include_directories(tpw_platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/platform/win)
     target_compile_options(tpw_platform PRIVATE "SHELL:-include \"${CMAKE_CURRENT_SOURCE_DIR}/platform/win/posix_win.h\"")
     target_link_libraries(tpw_platform PUBLIC ws2_32 glu32)
+    # platform/log_export.cpp: the Downloads folder is a Known Folder (SHGetKnownFolderPath, shell32; CoTaskMemFree, ole32).
+    target_link_libraries(tpw_platform PUBLIC shell32 ole32)
   endif()
 
   # The game's films (QuickTime, Sorenson video) play through FFmpeg (platform/quicktime.cpp), built from source here
@@ -185,8 +187,8 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
     message(STATUS "tpw: films play (FFmpeg 9.0.2, third_party/ffmpeg)")
   endif()
 
-  add_library(tpw_launcher_objects OBJECT launcher/main.cpp launcher/asset_packs.cpp launcher/pending_manual.cpp
-              launcher/static_init.cpp launcher/startup.cpp)
+  add_library(tpw_launcher_objects OBJECT launcher/main.cpp launcher/app_bundle.cpp launcher/app_icon.cpp launcher/app_icon_standin.cpp launcher/asset_packs.cpp
+              launcher/pending_manual.cpp launcher/static_init.cpp launcher/startup.cpp)
   target_include_directories(tpw_launcher_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
   # main.cpp opens the launcher's own window (tpw_launcher_ui, below) when no --game is given.
   target_link_libraries(tpw_launcher_objects PRIVATE SDL3::SDL3 tpw_launcher_ui)
@@ -292,6 +294,11 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   target_include_directories(tpw_log_tests PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
   target_link_libraries(tpw_log_tests PRIVATE tpw_platform)
   add_test(NAME log_file COMMAND tpw_log_tests)
+  # What the log files and Export logs scrub (platform/log_scrub.h): the rules for the Mac's and Windows' names and paths.
+  add_executable(tpw_log_scrub_tests platform/tests/log_scrub_tests.cpp)
+  target_include_directories(tpw_log_scrub_tests PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+  target_link_libraries(tpw_log_scrub_tests PRIVATE tpw_platform)
+  add_test(NAME log_scrub COMMAND tpw_log_scrub_tests)
 
   # Where the intro films are drawn (include/platform/filmbox.h): pure arithmetic, no game or window.
   add_executable(tpw_host_filmbox ${TPW_DECOMP_DIR}/tests/host_filmbox.cpp)
@@ -328,8 +335,10 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   configure_file(${TPW_UI_FONTS_CPP}.new ${TPW_UI_FONTS_CPP} COPYONLY)
 
   file(GLOB TPW_LAUNCHER_UI_SOURCES CONFIGURE_DEPENDS launcher/ui/*.cpp)
-  add_library(tpw_launcher_ui STATIC ${TPW_LAUNCHER_UI_SOURCES} ${TPW_UI_FONTS_CPP})
-  target_include_directories(tpw_launcher_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/launcher/ui)
+  # launcher/net/: the only network code of the port (the update check's questions, over the system's curl). Nothing else
+  # may talk to the internet: devtools/check_offline.py holds the tree to that (port_CONTRIBUTING.md, "Playable offline").
+  add_library(tpw_launcher_ui STATIC ${TPW_LAUNCHER_UI_SOURCES} launcher/net/net.cpp ${TPW_UI_FONTS_CPP})
+  target_include_directories(tpw_launcher_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/launcher/ui ${CMAKE_CURRENT_SOURCE_DIR}/launcher/net)
   target_include_directories(tpw_launcher_ui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
   target_link_libraries(tpw_launcher_ui PUBLIC SDL3::SDL3 tpw_assets ZLIB::ZLIB)
   # The launcher's version: launcher/VERSION.txt is the one place it is written (not launcher/VERSION: launcher/ is an
@@ -339,7 +348,7 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   # release. The Windows version resource and the macOS Info.plist take the numbers only (TPW_LAUNCHER_VERSION_NUMBER).
   file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/launcher/VERSION.txt TPW_LAUNCHER_VERSION LIMIT_COUNT 1)
   if(NOT TPW_LAUNCHER_VERSION MATCHES "^([0-9]+\\.[0-9]+\\.[0-9]+)(-dev)?$")
-    message(FATAL_ERROR "launcher/VERSION.txt: \"${TPW_LAUNCHER_VERSION}\" is not a version like 0.0.3 or 0.0.4-dev")
+    message(FATAL_ERROR "launcher/VERSION.txt: \"${TPW_LAUNCHER_VERSION}\" is not a version like 0.1.0 or 0.1.1-dev")
   endif()
   set(TPW_LAUNCHER_VERSION_NUMBER "${CMAKE_MATCH_1}")
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/launcher/VERSION.txt)
@@ -354,28 +363,51 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   set(TPW_BUNDLE_EXECUTABLE tpw_launcher)
   string(REPLACE "." "," TPW_LAUNCHER_VERSION_COMMAS "${TPW_LAUNCHER_VERSION_NUMBER}")
   if(WIN32)
-    # The executable's version resource (launcher/win/launcher.rc.in): FileVersion, ProductVersion, ProductName and a
-    # FileDescription of the name with its version, which Explorer's Details and the Task Manager show. Compiled by the
-    # toolchain's resource compiler (llvm-mingw's windres); without one the build goes on without the resource.
+    # The executable's resources (launcher/win/launcher.rc.in): the version resource (FileVersion, ProductVersion,
+    # ProductName and a FileDescription of the name with its version, which Explorer's Details and the Task Manager show)
+    # and the icon Explorer, the taskbar and the Start menu shortcut show for tpw_launcher.exe. The icon is the launcher's
+    # stand-in (launcher/app_icon_standin.cpp, the same code the window shows before a game is imported), written as a
+    # multi-size .ico into the build folder by tpw_make_ico (launcher/win/make_ico.cpp) at build time: no picture file is
+    # in the tree. Compiled by the toolchain's resource compiler (llvm-mingw's windres, or MSVC's rc); without one the
+    # build goes on without the resources, as before.
     include(CheckLanguage)
     check_language(RC)
     if(CMAKE_RC_COMPILER)
       enable_language(RC)
+      add_executable(tpw_make_ico launcher/win/make_ico.cpp launcher/app_icon_standin.cpp)
+      target_include_directories(tpw_make_ico PRIVATE launcher)
+      target_link_libraries(tpw_make_ico PRIVATE tpw_assets)
+      set(TPW_LAUNCHER_ICO ${CMAKE_CURRENT_BINARY_DIR}/tpw_launcher.ico)
+      add_custom_command(
+        OUTPUT ${TPW_LAUNCHER_ICO}
+        COMMAND tpw_make_ico ${TPW_LAUNCHER_ICO}
+        DEPENDS tpw_make_ico
+        VERBATIM
+        COMMENT "Drawing the launcher's icon")
       configure_file(launcher/win/launcher.rc.in ${CMAKE_CURRENT_BINARY_DIR}/launcher.rc @ONLY)
-      target_sources(tpw_launcher PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/launcher.rc)
+      # the .ico is listed as a source so that its command belongs to the target; the .rc is compiled again when it changes
+      set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/launcher.rc PROPERTIES OBJECT_DEPENDS ${TPW_LAUNCHER_ICO})
+      target_sources(tpw_launcher PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/launcher.rc ${TPW_LAUNCHER_ICO})
     else()
-      message(STATUS "tpw: no resource compiler, tpw_launcher.exe has no version resource")
+      message(STATUS "tpw: no resource compiler, tpw_launcher.exe has no version resource and no icon")
     endif()
   endif()
   if(APPLE)
-    # A macOS .app bundle (tpw_launcher.app) with launcher/macos/Info.plist.in, so the Dock, Cmd-Tab and the application
-    # menu read the launcher's name. Off by default: the scripts, the README and CI run the bare tpw_launcher.
+    # The launcher's Info.plist (launcher/macos/Info.plist.in). The bare tpw_launcher, the one file the scripts, the README,
+    # the installer and CI all run (build/tpw_launcher), carries it embedded in its __TEXT,__info_plist section: that names
+    # the program in Cmd-Tab and Force Quit (CFBundleName, "STP/TPW Launcher"; the maintainer, 2026-10-25), gives it its identifier,
+    # and is the plist of the application bundle the launcher makes beside itself at run time and runs from, which names it
+    # in the Dock (launcher/app_bundle.cpp). Its icon is set at run time too (launcher/app_icon.cpp). TPW_BUNDLE (off by
+    # default) builds a .app bundle around it instead, with the same plist.
     option(TPW_BUNDLE "Build the macOS launcher as an .app bundle (launcher/macos/Info.plist.in)" OFF)
-    set(TPW_BUNDLE_IDENTIFIER "org.tpw-port.launcher" CACHE STRING "The .app bundle's CFBundleIdentifier (TPW_BUNDLE)")
+    set(TPW_BUNDLE_IDENTIFIER "org.tpw-port.launcher" CACHE STRING "The launcher's CFBundleIdentifier")
+    configure_file(launcher/macos/Info.plist.in ${CMAKE_CURRENT_BINARY_DIR}/Info.plist @ONLY)
     if(TPW_BUNDLE)
-      configure_file(launcher/macos/Info.plist.in ${CMAKE_CURRENT_BINARY_DIR}/Info.plist @ONLY)
       set_target_properties(tpw_launcher PROPERTIES MACOSX_BUNDLE ON
                             MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_BINARY_DIR}/Info.plist)
+    else()
+      target_link_options(tpw_launcher PRIVATE "LINKER:-sectcreate,__TEXT,__info_plist,${CMAKE_CURRENT_BINARY_DIR}/Info.plist")
+      set_property(TARGET tpw_launcher APPEND PROPERTY LINK_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/Info.plist)
     endif()
   endif()
   # The About box's versions (launcher/ui/versions.cpp) come from the libraries' own headers: libjpeg's and FFmpeg's
@@ -403,6 +435,12 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   endif()
   target_compile_definitions(tpw_launcher_ui_tests PRIVATE TPW_UI_SCREENS_DEFAULT="${CMAKE_CURRENT_BINARY_DIR}/ui-screens")
   add_test(NAME launcher_ui COMMAND tpw_launcher_ui_tests)
+  # The network module (launcher/net/) and the update check (launcher/ui/updater.h): no answer, fast, when nothing
+  # answers; junk refused; the Update button's runs of the script. Its curl is the test program itself (TPW_NET_CURL), so
+  # it needs no internet and runs where networking is blocked (the CI's offline runs).
+  add_executable(tpw_update_tests launcher/net/tests/update_tests.cpp)
+  target_link_libraries(tpw_update_tests PRIVATE tpw_launcher_ui)
+  add_test(NAME update COMMAND tpw_update_tests)
   # The run-time table loader (platform/game_tables.cpp) against the configure-time tables, where the build has them (the
   # differential tests' or TPW_TABLES_AT_CONFIGURE's): every table it reads from the CD's 2.0.1 program and from the 2.04b3
   # patch's, by the program's SHA-1 and by the content search, must equal the generated arrays byte for byte. The scorers

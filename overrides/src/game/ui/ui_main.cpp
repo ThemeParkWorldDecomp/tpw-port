@@ -1176,7 +1176,8 @@ int32_t ContextMouseClick() {
             if (found == gClickNoResult) return 1;
             if (SamsUtilities::gKeyboard == nullptr) SamsUtilities::gKeyboard = new (std::nothrow) SamsUtilities::UKeyboard;
             const uint8_t commandDown = SamsUtilities::gKeyboard->IsCommandDown();
-            if (commandDown != 0) {
+            // TPW_PORT_FIX fix-input ContextMouseClick | Mac: copying the clicked object (placing a new one of its type at its rotation) needs Command (IsCommandDown) | Port: Control works too (GetModifiers' 0x1000, asked only when Command is up), as it already does for repeat placing (UIMain_GetShiftKeyState folds 0x100 and 0x1000 together) | Why: on Windows Command is the Windows key, which opens the Start menu, and the PC original copied with Ctrl (reported by Addable13, Fred and Piro on Discord)
+            if (commandDown != 0 || (SamsUtilities::gKeyboard->GetModifiers() & 0x1000u) != 0) {
                 const uint8_t* const object = static_cast<const uint8_t*>(ThingOf(found));
                 uint16_t objectType;
                 std::memcpy(&objectType, object + 0xe, sizeof(objectType));

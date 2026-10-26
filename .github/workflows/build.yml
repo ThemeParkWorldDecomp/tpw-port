@@ -21,6 +21,20 @@ permissions:
   contents: read
 
 jobs:
+  # The "playable offline" rule (CONTRIBUTING.md): no network code outside launcher/net/. A static read of the sources,
+  # so any runner does; the tests and the launcher also run with the network blocked on the Macs (the macos job). There
+  # is no Linux build to run them on here, and Windows has no switch a step can use to block one program's network
+  # (its firewall rules need the program installed first and apply to the whole runner), so its jobs do not.
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: No network code outside launcher/net
+        run: python3 -I devtools/check_offline.py
+
   windows:
     strategy:
       fail-fast: false   # one image failing must not hide the other's result
@@ -57,6 +71,38 @@ jobs:
           Get-Content $out, $err
           if ($p.ExitCode -ne 0) { throw "tpw_launcher.exe --version exited with $($p.ExitCode)" }
           if (-not (Select-String -LiteralPath $out -Pattern '^build: ' -Quiet)) { throw 'tpw_launcher.exe --version printed no build line' }
+      # The launcher's file has an icon (the resource launcher.rc.in names, drawn at build time), and --write-icon writes
+      # the same icon as a .ico that Windows reads (the install script makes the Start menu shortcut's icon from it).
+      - name: The launcher's icon
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          Add-Type -Namespace Tpw -Name Shell -MemberDefinition @'
+          [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+          public static extern uint ExtractIconExW(string file, int index, IntPtr[] large, IntPtr[] small, uint count);
+          '@
+          $exe = (Resolve-Path build\tpw_launcher.exe).Path
+          $icons = [Tpw.Shell]::ExtractIconExW($exe, -1, $null, $null, 0)
+          Write-Host "tpw_launcher.exe has $icons icon(s)"
+          if ($icons -lt 1) { throw 'tpw_launcher.exe has no icon resource' }
+          $ico = Join-Path $env:RUNNER_TEMP 'launcher-icon.ico'
+          $out = Join-Path $env:RUNNER_TEMP 'icon-out.txt'
+          $err = Join-Path $env:RUNNER_TEMP 'icon-err.txt'
+          $p = Start-Process -FilePath $exe -ArgumentList '--write-icon', "`"$ico`"" -NoNewWindow -Wait -PassThru `
+               -RedirectStandardOutput $out -RedirectStandardError $err
+          Get-Content $out, $err
+          if ($p.ExitCode -ne 0) { throw "tpw_launcher.exe --write-icon exited with $($p.ExitCode)" }
+          if (-not (Test-Path -LiteralPath $ico)) { throw "--write-icon wrote no $ico" }
+          $bytes = [System.IO.File]::ReadAllBytes($ico)
+          if ($bytes.Length -lt 22 -or $bytes[0] -ne 0 -or $bytes[1] -ne 0 -or $bytes[2] -ne 1 -or $bytes[3] -ne 0 -or $bytes[4] -lt 1) {
+            throw "$ico is not an icon file"
+          }
+          Write-Host "$ico`: $($bytes.Length) bytes, $($bytes[4]) picture(s)"
+          Add-Type -AssemblyName System.Drawing
+          $loaded = New-Object System.Drawing.Icon($ico, 256, 256)
+          Write-Host "Windows reads it as $($loaded.Width)x$($loaded.Height)"
+          if ($loaded.Width -lt 16) { throw 'Windows could not read the icon' }
+          $loaded.Dispose()
       - name: Build and run the tests (PowerShell)
         shell: pwsh
         run: .\build.cmd TOOLS=fetch test
@@ -104,6 +150,38 @@ jobs:
           Get-Content $out, $err
           if ($p.ExitCode -ne 0) { throw "tpw_launcher.exe --version exited with $($p.ExitCode)" }
           if (-not (Select-String -LiteralPath $out -Pattern '^build: ' -Quiet)) { throw 'tpw_launcher.exe --version printed no build line' }
+      # The launcher's file has an icon (the resource launcher.rc.in names, drawn at build time), and --write-icon writes
+      # the same icon as a .ico that Windows reads (the install script makes the Start menu shortcut's icon from it).
+      - name: The launcher's icon
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          Add-Type -Namespace Tpw -Name Shell -MemberDefinition @'
+          [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+          public static extern uint ExtractIconExW(string file, int index, IntPtr[] large, IntPtr[] small, uint count);
+          '@
+          $exe = (Resolve-Path build\tpw_launcher.exe).Path
+          $icons = [Tpw.Shell]::ExtractIconExW($exe, -1, $null, $null, 0)
+          Write-Host "tpw_launcher.exe has $icons icon(s)"
+          if ($icons -lt 1) { throw 'tpw_launcher.exe has no icon resource' }
+          $ico = Join-Path $env:RUNNER_TEMP 'launcher-icon.ico'
+          $out = Join-Path $env:RUNNER_TEMP 'icon-out.txt'
+          $err = Join-Path $env:RUNNER_TEMP 'icon-err.txt'
+          $p = Start-Process -FilePath $exe -ArgumentList '--write-icon', "`"$ico`"" -NoNewWindow -Wait -PassThru `
+               -RedirectStandardOutput $out -RedirectStandardError $err
+          Get-Content $out, $err
+          if ($p.ExitCode -ne 0) { throw "tpw_launcher.exe --write-icon exited with $($p.ExitCode)" }
+          if (-not (Test-Path -LiteralPath $ico)) { throw "--write-icon wrote no $ico" }
+          $bytes = [System.IO.File]::ReadAllBytes($ico)
+          if ($bytes.Length -lt 22 -or $bytes[0] -ne 0 -or $bytes[1] -ne 0 -or $bytes[2] -ne 1 -or $bytes[3] -ne 0 -or $bytes[4] -lt 1) {
+            throw "$ico is not an icon file"
+          }
+          Write-Host "$ico`: $($bytes.Length) bytes, $($bytes[4]) picture(s)"
+          Add-Type -AssemblyName System.Drawing
+          $loaded = New-Object System.Drawing.Icon($ico, 256, 256)
+          Write-Host "Windows reads it as $($loaded.Width)x$($loaded.Height)"
+          if ($loaded.Width -lt 16) { throw 'Windows could not read the icon' }
+          $loaded.Dispose()
       - name: Build and run the tests (PowerShell)
         shell: pwsh
         run: .\build.cmd TOOLS=fetch test
@@ -142,6 +220,18 @@ jobs:
         run: build/tpw_launcher --version
       - name: Build and run the tests
         run: make test
+      # The same tests with the network blocked for them and everything they start (sandbox-exec, deny network*): the
+      # game, the launcher and their tests need no internet.
+      - name: Run the tests offline
+        run: sandbox-exec -p '(version 1)(allow default)(deny network*)' make test
+      # The launcher's update check with the network blocked: no answer, said at once (the check's own seconds, printed
+      # on its answer line, under 5), and exit 0.
+      - name: Check for updates offline (--check-updates)
+        timeout-minutes: 2
+        run: |
+          out=$(sandbox-exec -p '(version 1)(allow default)(deny network*)' build/tpw_launcher --check-updates)
+          echo "$out"
+          echo "$out" | grep -Eq '^answer: none \(.*\) after [0-4]\.[0-9] s$'
       # One file, build/tpw_launcher (the zip drops its executable bit: chmod +x after unzipping).
       - name: Keep the launcher
         uses: actions/upload-artifact@v4

@@ -5,10 +5,21 @@
 
 #include <windows.h>
 
+#include <fcntl.h>
+#include <io.h>
+#include <sys/stat.h>
+
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <mutex>
+#include <string>
+#include <thread>
+
+#include "log_file.h"   // WriteScrubbed (log_scrub.h): launcher.log is scrubbed like the log files
 
 namespace tpw {
 void Log(const char* format, ...) __attribute__((format(printf, 1, 2)));   // platform.h
@@ -168,17 +179,89 @@ bool HasStandardError() {
     return handle != nullptr && handle != INVALID_HANDLE_VALUE && GetFileType(handle) != FILE_TYPE_UNKNOWN;
 }
 
+namespace {
+
+// launcher.log is fed through a pipe: stderr and stdout write into it, and a thread moves what arrives into the file one
+// whole line at a time, scrubbed (log_scrub.h), so the file never holds the player's name or the computer's. Lines are cut
+// where a line ends, never inside a name.
+struct LogPipe {
+    HANDLE read = nullptr;
+    int file = -1;
+    std::string pending;
+    std::mutex lock;
+};
+LogPipe* gLogPipe = nullptr;
+
+// What `pending` holds up to its last newline (all of it when `all`, or when a line has run very long) goes to the file.
+void WritePending(LogPipe& pipe, bool all) {
+    size_t end = all ? pipe.pending.size() : pipe.pending.rfind('\n') + 1;   // npos + 1 is 0: no whole line yet
+    if (!all && end == 0 && pipe.pending.size() > 8192) end = pipe.pending.size();
+    if (end == 0) return;
+    tpw::WriteScrubbed(pipe.file, pipe.pending.data(), end);
+    pipe.pending.erase(0, end);
+}
+
+// Moves what is in the pipe to the file. `all`: the unfinished line too.
+void PumpLog(LogPipe& pipe, bool all) {
+    std::unique_lock<std::mutex> guard(pipe.lock, std::defer_lock);
+    for (int tries = 0; !guard.try_lock(); ++tries) {   // a crash may come while the thread holds it: wait a little, no more
+        if (tries == 100) return;
+        Sleep(5);
+    }
+    for (;;) {
+        DWORD available = 0;
+        if (!PeekNamedPipe(pipe.read, nullptr, 0, nullptr, &available, nullptr) || available == 0) break;
+        char buffer[4096];
+        DWORD got = 0;
+        if (!ReadFile(pipe.read, buffer, (std::min<DWORD>)(available, static_cast<DWORD>(sizeof buffer)), &got, nullptr) || got == 0) break;
+        pipe.pending.append(buffer, got);
+        WritePending(pipe, false);
+    }
+    WritePending(pipe, all);
+}
+
+void DrainAtExit() { DrainLog(); }
+
+}  // namespace
+
+void DrainLog() {
+    if (gLogPipe != nullptr) PumpLog(*gLogPipe, true);
+}
+
 bool LogToFile(const std::string& path) {
     std::wstring wide(static_cast<size_t>(MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0)), L'\0');
     if (wide.empty() || MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, wide.data(), static_cast<int>(wide.size())) == 0)
         return false;
-    // Emptied first, then both streams append, so their lines interleave in the order they were written.
-    if (_wfreopen(wide.c_str(), L"w", stderr) == nullptr || _wfreopen(wide.c_str(), L"a", stderr) == nullptr ||
-        _wfreopen(wide.c_str(), L"a", stdout) == nullptr) {
+    tpw::EnsureScrubIdentity();
+    // Made new each start. _O_BINARY: every line ends in \n alone, as the log file's do.
+    const int file = _wopen(wide.c_str(), _O_WRONLY | _O_CREAT | _O_TRUNC | _O_NOINHERIT | _O_BINARY, _S_IREAD | _S_IWRITE);
+    if (file < 0) return false;
+    HANDLE readEnd = nullptr, writeEnd = nullptr;
+    if (!CreatePipe(&readEnd, &writeEnd, nullptr, 1 << 20)) {
+        _close(file);
         return false;
     }
-    std::setvbuf(stderr, nullptr, _IONBF, 0);
+    const int pipeFd = _open_osfhandle(reinterpret_cast<intptr_t>(writeEnd), _O_WRONLY | _O_BINARY);
+    if (pipeFd < 0 || _dup2(pipeFd, 2) != 0 || _dup2(pipeFd, 1) != 0) {
+        _close(file);
+        CloseHandle(readEnd);
+        if (pipeFd >= 0) _close(pipeFd); else CloseHandle(writeEnd);
+        return false;
+    }
+    SetStdHandle(STD_ERROR_HANDLE, writeEnd);
+    SetStdHandle(STD_OUTPUT_HANDLE, writeEnd);
+    std::setvbuf(stderr, nullptr, _IONBF, 0);   // unbuffered, so that a crash leaves the file complete
     std::setvbuf(stdout, nullptr, _IONBF, 0);
+    gLogPipe = new LogPipe;   // never freed: the thread and the crash report use it to the end
+    gLogPipe->read = readEnd;
+    gLogPipe->file = file;
+    std::atexit(DrainAtExit);
+    std::thread([] {
+        for (;;) {
+            PumpLog(*gLogPipe, false);
+            Sleep(20);
+        }
+    }).detach();
     return true;
 }
 
@@ -187,13 +270,21 @@ bool LogToFile(const std::string& path) {
 // The OpenGL calls past 1.1, the most opengl32.dll exports: GL_EXT_compiled_vertex_array's (include/platform/opengl.h) and
 // glWindowPos2i (OpenGL 1.4, platform/quicktime.cpp's films). They go to the driver's own entry points, asked of the
 // current context at the first call (both are made while drawing). A driver without them leaves them doing nothing: the
-// arrays' lock is a hint, and every driver of the last twenty years has glWindowPos2i.
+// arrays' lock is a hint, and every driver of the last twenty years has glWindowPos2i. The log says when one is
+// missing (a film drawn without glWindowPos2i is black with its sound playing), with whether a context was current:
+// wglGetProcAddress answers for the current context only, so a first call without one would leave the function
+// missing for good.
 namespace {
 template <class Function> Function DriverGLProc(const char* name) {
     const PROC proc = wglGetProcAddress(name);
     const auto value = reinterpret_cast<intptr_t>(proc);
     // Some drivers answer 1, 2, 3 or -1 for a name they do not have.
-    return value == 0 || value == 1 || value == 2 || value == 3 || value == -1 ? nullptr : reinterpret_cast<Function>(proc);
+    if (value == 0 || value == 1 || value == 2 || value == 3 || value == -1) {
+        tpw::Log("opengl: the driver has no %s%s", name,
+                 wglGetCurrentContext() == nullptr ? " (asked with no OpenGL context current)" : "");
+        return nullptr;
+    }
+    return reinterpret_cast<Function>(proc);
 }
 }  // namespace
 

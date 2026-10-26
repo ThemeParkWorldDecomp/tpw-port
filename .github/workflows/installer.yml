@@ -1,0 +1,516 @@
+# Tests the one-line installers' themepark command on a clean machine of every kind the launcher is built for (the
+# runners of build.yml). The install runs with TPW_INSTALL_STUB=1: no download and no build, a stand-in launcher that
+# answers --version like the real one and notes in DIR/stub-launch.txt that it was started. Then a new login shell (Mac)
+# or a new PowerShell with the Path a new window gets (Windows) types `themepark --version`, as a player would, and the
+# stand-in must have been started with --version. On Windows themepark must also work at once in the same window.
+# Then the one line every player is told to run, exactly as they run it (no options, the default folder, from the home
+# folder, which holds an old clone made the README's old way): it installs, run again it updates (once with nothing new,
+# once with a newer stand-in release), the PATH line stays one, themepark keeps working, and the old clone is named at
+# the end and never touched. Last, a --dev install, then the plain line, and a --dev install, then --update with no
+# option (the Update button's run): each must end on the newest release and say so.
+# The real download and build are tested by build.yml and release.yml; this is a few minutes of runner time.
+#
+# Linux joins the matrix when there is a Linux build of the launcher (and install.sh supports it).
+name: installer
+
+on:
+  push:
+    branches-ignore: [ci-play]
+    paths: [install.sh, install.ps1, devtools/test_install_log_scrub.sh, .github/workflows/installer.yml]
+  pull_request:
+    paths: [install.sh, install.ps1, devtools/test_install_log_scrub.sh, .github/workflows/installer.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: The build log keeps no user name, home folder or computer name
+        run: sh devtools/test_install_log_scrub.sh
+      # Once with zsh (macOS's shell) and once with bash as the player's shell, each with an empty home folder, and an
+      # install folder with a space and a ' in its name.
+      - name: Install, then themepark --version in a new login shell
+        shell: bash
+        run: |
+          for shell in /bin/zsh /bin/bash; do
+            name=$(basename "$shell")
+            home="$RUNNER_TEMP/home-$name"
+            dir="$RUNNER_TEMP/tpw port's $name"
+            mkdir -p "$home"
+            echo "::group::install with $name as the player's shell"
+            TPW_INSTALL_STUB=1 TPW_INSTALL_HOME="$home" HOME="$home" SHELL="$shell" TPW_INSTALL_APPS="$RUNNER_TEMP/apps-$name" sh install.sh --no-launch --dir "$dir" </dev/null | tee "$RUNNER_TEMP/out-$name.txt"
+            echo "::endgroup::"
+            if [ "$(tail -n 1 "$RUNNER_TEMP/out-$name.txt")" != "RESULT ok 0.0.0-dev" ]; then
+              echo "::error::$name: the install did not end with RESULT ok 0.0.0-dev"; exit 1
+            fi
+            if ! grep -qF 'From now on, type themepark in any new Terminal window to play.' "$RUNNER_TEMP/out-$name.txt"; then
+              echo "::error::$name: the installer's own check did not find themepark in a new login shell"; exit 1
+            fi
+            # themepark runs the launcher in the foreground for --version, so the version line shows in the window
+            if ! out=$(env -i HOME="$home" USER="$USER" TERM=dumb PATH=/usr/bin:/bin:/usr/sbin:/sbin "$shell" -l -c 'themepark --version' 2>&1); then
+              printf '%s\n' "$out"
+              echo "::error::$name: themepark --version in a new login shell did not exit with 0"; exit 1
+            fi
+            printf '%s\n' "$out"
+            if ! printf '%s\n' "$out" | grep -qxF 'STP/TPW Launcher v0.0.0-dev'; then
+              echo "::error::$name: themepark --version in a new login shell did not print the version line"; exit 1
+            fi
+            for _ in $(seq 20); do
+              grep -qF 'STP/TPW Launcher v0.0.0-dev args=--version' "$dir/stub-launch.txt" 2>/dev/null && break
+              sleep 0.5
+            done
+            if ! grep -qF 'STP/TPW Launcher v0.0.0-dev args=--version' "$dir/stub-launch.txt" 2>/dev/null; then
+              echo "::error::$name: themepark --version in a new login shell did not start the launcher"; exit 1
+            fi
+            cat "$dir/stub-launch.txt"
+            # the application: in the test folder that stands for /Applications, named for the Finder, pointing at DIR
+            app="$RUNNER_TEMP/apps-$name/STP:TPW Launcher.app"
+            if ! grep -q '<string>STP/TPW Launcher</string>' "$app/Contents/Info.plist"; then
+              echo "::error::$name: $app has no Info.plist naming STP/TPW Launcher"; exit 1
+            fi
+            if [ ! -x "$app/Contents/MacOS/STP-TPW-Launcher" ] || ! "$app/Contents/MacOS/STP-TPW-Launcher"; then
+              echo "::error::$name: the application's program did not run"; exit 1
+            fi
+            # the program starts the launcher detached and returns at once: give the stand-in a moment to write its line
+            for _ in $(seq 40); do
+              [ "$(grep -cF "STP/TPW Launcher v0.0.0-dev args= cwd=$dir" "$dir/stub-launch.txt" 2>/dev/null)" = 1 ] && break
+              sleep 0.5
+            done
+            if [ "$(grep -cF "STP/TPW Launcher v0.0.0-dev args= cwd=$dir" "$dir/stub-launch.txt" 2>/dev/null)" != 1 ]; then
+              echo "::error::$name: the application's program did not start the launcher in $dir"; exit 1
+            fi
+          done
+      - name: The same line installs, then updates, and leaves an old clone alone
+        shell: bash
+        run: |
+          home="$RUNNER_TEMP/home-everyone"
+          mkdir -p "$home/tpw-port/.git" "$home/tpw-port/launcher"
+          echo 0.0.2 >"$home/tpw-port/launcher/VERSION.txt"
+          home=$(cd "$home" && pwd -P)
+          clone="$home/tpw-port"
+          dir="$home/Applications/STP-TPW-Launcher"
+          snapshot() { (cd "$clone" && find . -exec stat -f '%N %z %m' {} + | sort); }
+          export TPW_INSTALL_APPS="$RUNNER_TEMP/apps-everyone"
+          before=$(snapshot)
+          # $1: the version the run must end with (a newer stand-in release when TPW_INSTALL_STUB_VERSION is set)
+          run_line() {
+            echo "::group::the line, expecting $1"
+            (cd "$home" && cat "$GITHUB_WORKSPACE/install.sh" | TPW_INSTALL_STUB=1 TPW_INSTALL_HOME="$home" HOME="$home" SHELL=/bin/zsh sh) \
+              | tee "$RUNNER_TEMP/everyone.txt"
+            echo "::endgroup::"
+            if [ "$(tail -n 1 "$RUNNER_TEMP/everyone.txt")" != "RESULT ok $1" ]; then
+              echo "::error::the line did not end with RESULT ok $1"; exit 1
+            fi
+            if ! grep -qxF "An older copy of the launcher is in $clone." "$RUNNER_TEMP/everyone.txt"; then
+              echo "::error::the line did not name the old clone"; exit 1
+            fi
+            n=$(grep -cF '# tpw-port installer: the themepark command' "$home/.zprofile" || true)
+            if [ "$n" != 1 ]; then echo "::error::~/.zprofile has $n PATH lines, not 1"; exit 1; fi
+            want="STP/TPW Launcher v$1 args=--version"
+            seen=$(grep -cF "$want" "$dir/stub-launch.txt" 2>/dev/null || true)
+            if ! env -i HOME="$home" USER="$USER" TERM=dumb PATH=/usr/bin:/bin:/usr/sbin:/sbin /bin/zsh -l -c 'themepark --version'; then
+              echo "::error::themepark --version in a new login shell did not exit with 0"; exit 1
+            fi
+            for _ in $(seq 20); do
+              [ "$(grep -cF "$want" "$dir/stub-launch.txt" 2>/dev/null || true)" -gt "$seen" ] && break
+              sleep 0.5
+            done
+            if [ "$(grep -cF "$want" "$dir/stub-launch.txt" 2>/dev/null || true)" -le "$seen" ]; then
+              echo "::error::themepark --version in a new login shell did not start version $1"; exit 1
+            fi
+          }
+          run_line 0.0.0-dev
+          run_line 0.0.0-dev
+          grep -qF 'Already up to date' "$RUNNER_TEMP/everyone.txt" || { echo "::error::the second run was not an update"; exit 1; }
+          export TPW_INSTALL_STUB_VERSION=0.0.1
+          run_line 0.0.1
+          [ -d "$dir/build-prev" ] || { echo "::error::the newer version was not switched in"; exit 1; }
+          if [ "$before" != "$(snapshot)" ]; then echo "::error::the old clone was changed"; exit 1; fi
+          cat "$dir/stub-launch.txt"
+
+      # Only --dev gives main, every time: the plain line switches a dev install back to the newest release, and says so.
+      - name: A --dev install, then the plain line, ends on the newest release
+        shell: bash
+        run: |
+          home="$RUNNER_TEMP/home-dev"
+          mkdir -p "$home"
+          dir="$home/Applications/STP-TPW-Launcher"
+          export TPW_INSTALL_STUB=1 TPW_INSTALL_HOME="$home" HOME="$home" SHELL=/bin/zsh TPW_INSTALL_APPS="$home/apps"
+          (cd "$home" && cat "$GITHUB_WORKSPACE/install.sh" | TPW_INSTALL_STUB_VERSION=0.0.2-dev sh -s -- --dev --no-launch) \
+            | tee "$RUNNER_TEMP/dev-1.txt"
+          if [ "$(tail -n 1 "$RUNNER_TEMP/dev-1.txt")" != "RESULT ok 0.0.2-dev" ] || [ "$(cat "$dir/channel.txt")" != dev ]; then
+            echo "::error::the --dev install did not end on dev 0.0.2-dev"; exit 1
+          fi
+          (cd "$home" && cat "$GITHUB_WORKSPACE/install.sh" | TPW_INSTALL_STUB_VERSION=0.0.1 sh) | tee "$RUNNER_TEMP/dev-2.txt"
+          if [ "$(tail -n 1 "$RUNNER_TEMP/dev-2.txt")" != "RESULT ok 0.0.1" ]; then
+            echo "::error::the plain line did not end with RESULT ok 0.0.1"; exit 1
+          fi
+          if ! grep -qxF 'This install followed main (--dev); it now follows the newest release. Add --dev to stay on main.' "$RUNNER_TEMP/dev-2.txt"; then
+            echo "::error::the plain line did not say that it switched the install back"; exit 1
+          fi
+          if [ "$(cat "$dir/channel.txt")" != stable ] || ! grep -qx 'channel=stable' "$dir/build/install-info.txt"; then
+            echo "::error::the install is not on stable after the plain line"; exit 1
+          fi
+
+      # The Update button's --update never passes --dev, so it too switches a dev install back, whatever channel.txt says.
+      - name: A --dev install, then --update with no option, ends on the newest release
+        shell: bash
+        run: |
+          home="$RUNNER_TEMP/home-dev-update"
+          mkdir -p "$home"
+          dir="$home/Applications/STP-TPW-Launcher"
+          export TPW_INSTALL_STUB=1 TPW_INSTALL_HOME="$home" HOME="$home" SHELL=/bin/zsh TPW_INSTALL_APPS="$home/apps"
+          (cd "$home" && cat "$GITHUB_WORKSPACE/install.sh" | TPW_INSTALL_STUB_VERSION=0.0.2-dev sh -s -- --dev --no-launch) \
+            | tee "$RUNNER_TEMP/devup-1.txt"
+          if [ "$(tail -n 1 "$RUNNER_TEMP/devup-1.txt")" != "RESULT ok 0.0.2-dev" ] || [ "$(cat "$dir/channel.txt")" != dev ]; then
+            echo "::error::the --dev install did not end on dev 0.0.2-dev"; exit 1
+          fi
+          # --update wants the clone the real install makes; the stand-in makes none.
+          mkdir -p "$dir/source/.git"
+          (cd "$dir" && TPW_INSTALL_STUB_VERSION=0.0.1 sh "$GITHUB_WORKSPACE/install.sh" --update --no-launch </dev/null) \
+            | tee "$RUNNER_TEMP/devup-2.txt"
+          if [ "$(tail -n 1 "$RUNNER_TEMP/devup-2.txt")" != "RESULT ok 0.0.1" ]; then
+            echo "::error::--update did not end with RESULT ok 0.0.1"; exit 1
+          fi
+          if ! grep -qxF 'This install followed main (--dev); it now follows the newest release. Add --dev to stay on main.' "$RUNNER_TEMP/devup-2.txt"; then
+            echo "::error::--update did not say that it switched the install back"; exit 1
+          fi
+          if [ "$(cat "$dir/channel.txt")" != stable ] || ! grep -qx 'channel=stable' "$dir/build/install-info.txt"; then
+            echo "::error::the install is not on stable after --update"; exit 1
+          fi
+          # themepark update, typed in a new login shell, runs the same --update from source/ in the foreground, with
+          # its options passed on (--dev: to main). The stand-in made no clone, so the script goes in source/ by hand.
+          cp "$GITHUB_WORKSPACE/install.sh" "$dir/source/install.sh"
+          (cd / && env -i HOME="$home" USER="$USER" TERM=dumb PATH=/usr/bin:/bin:/usr/sbin:/sbin TPW_INSTALL_STUB=1 \
+            TPW_INSTALL_HOME="$home" TPW_INSTALL_APPS="$home/apps" TPW_INSTALL_STUB_VERSION=0.0.3 \
+            /bin/zsh -l -c 'themepark update --no-launch' </dev/null 2>&1) | tee "$RUNNER_TEMP/devup-3.txt"
+          if [ "$(tail -n 1 "$RUNNER_TEMP/devup-3.txt")" != "RESULT ok 0.0.3" ] || ! grep -qx 'version=0.0.3' "$dir/build/install-info.txt"; then
+            echo "::error::themepark update did not end with RESULT ok 0.0.3"; exit 1
+          fi
+          (cd / && env -i HOME="$home" USER="$USER" TERM=dumb PATH=/usr/bin:/bin:/usr/sbin:/sbin TPW_INSTALL_STUB=1 \
+            TPW_INSTALL_HOME="$home" TPW_INSTALL_APPS="$home/apps" TPW_INSTALL_STUB_VERSION=0.0.4-dev \
+            /bin/zsh -l -c 'themepark update --dev --no-launch' </dev/null 2>&1) | tee "$RUNNER_TEMP/devup-4.txt"
+          if [ "$(tail -n 1 "$RUNNER_TEMP/devup-4.txt")" != "RESULT ok 0.0.4-dev" ] || [ "$(cat "$dir/channel.txt")" != dev ]; then
+            echo "::error::themepark update --dev did not end on dev 0.0.4-dev"; exit 1
+          fi
+
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    # Advisory on Windows on Arm, as in build.yml.
+    continue-on-error: ${{ matrix.os == 'windows-11-arm' }}
+    timeout-minutes: 10
+    steps:
+      - name: Keep line endings as stored
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      # As a player runs it (irm | iex runs it in the player's own window): a scriptblock, not a file.
+      - name: Install, then themepark --version in the same window
+        shell: powershell
+        # The Start menu shortcut goes in this folder, never in the runner's own Start menu (install.ps1, THE START
+        # MENU SHORTCUT): every step that runs the installer says so (a job's env cannot use the runner context).
+        env:
+          TPW_INSTALL_PROGRAMS: ${{ runner.temp }}\programs
+        run: |
+          $env:TPW_INSTALL_STUB = '1'
+          $dir = Join-Path $env:RUNNER_TEMP "tpw port's"
+          $out = @(& ([scriptblock]::Create((Get-Content -Raw install.ps1))) -NoLaunch -Dir $dir 6>&1 | ForEach-Object { "$_" })
+          $code = $LASTEXITCODE
+          $out | ForEach-Object { Write-Host $_ }
+          if ($code -ne 0 -or $out[-1] -ne 'RESULT ok 0.0.0-dev') { throw "the install did not end with RESULT ok 0.0.0-dev (exit $code)" }
+          if (-not ($out -like 'From now on, type themepark in this window or any new PowerShell window to play.*')) {
+            throw "the installer's own check did not find themepark in a new PowerShell"
+          }
+          # the Start menu shortcut: in the test folder that stands for the user's Programs folder, pointing at DIR's
+          # launcher, started in DIR\build; the stand-in writes no icon, so the shortcut shows the program's own
+          if (-not ($out -ceq 'STEP 6/6 Adding STP/TPW Launcher to the Start menu')) { throw 'the install had no Start menu step 6/6' }
+          if (-not ($out -ceq 'STP/TPW Launcher is in the Start menu: open it from there, or find it with Search.')) { throw 'the install did not say the launcher is in the Start menu' }
+          $lnk = Join-Path $env:TPW_INSTALL_PROGRAMS 'STP-TPW Launcher.lnk'
+          if (-not (Test-Path -LiteralPath $lnk)) { throw "the Start menu shortcut $lnk was not written" }
+          $sc = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
+          Write-Host "The shortcut: $lnk -> $($sc.TargetPath) in $($sc.WorkingDirectory), icon $($sc.IconLocation)"
+          if ($sc.TargetPath -ne (Join-Path $dir 'build\tpw_launcher.exe')) { throw "the shortcut points at $($sc.TargetPath)" }
+          if ($sc.WorkingDirectory -ne (Join-Path $dir 'build')) { throw "the shortcut starts in $($sc.WorkingDirectory)" }
+          if ($sc.IconLocation -ne "$(Join-Path $dir 'build\tpw_launcher.exe'),0") { throw "the shortcut's icon is $($sc.IconLocation), not the program's own" }
+          if (Test-Path -LiteralPath (Join-Path $dir 'icon.ico')) { throw 'the stand-in launcher wrote an icon' }
+          if ((Get-ChildItem -LiteralPath $env:TPW_INSTALL_PROGRAMS -Force).Count -ne 1) { throw 'more than the shortcut was written in the Programs folder' }
+          $cmd = (Get-Command themepark -ErrorAction Stop).Path
+          Write-Host "themepark is $cmd"
+          # themepark runs the launcher in the foreground through a pipe for --version, so the version line shows
+          $out = @(themepark --version 2>&1 | ForEach-Object { "$_" })
+          $code = $LASTEXITCODE
+          $out | ForEach-Object { Write-Host $_ }
+          if ($code -ne 0) { throw "themepark --version in the same window exited with $code" }
+          if (-not ($out -ceq 'STP/TPW Launcher v0.0.0-dev')) { throw 'themepark --version in the same window did not print the version line' }
+          $log = Join-Path $dir 'stub-launch.txt'
+          foreach ($i in 1..20) {
+            if ((Test-Path -LiteralPath $log) -and (Select-String -LiteralPath $log -SimpleMatch 'STP/TPW Launcher v0.0.0-dev args=--version' -Quiet)) { break }
+            Start-Sleep -Milliseconds 500
+          }
+          if (-not ((Test-Path -LiteralPath $log) -and (Select-String -LiteralPath $log -SimpleMatch 'args=--version' -Quiet))) {
+            throw 'themepark --version in the same window did not start the launcher'
+          }
+          Get-Content -LiteralPath $log
+          exit 0
+      # A new step is a new process, but its Path comes from the runner, not from the registry. So: a new Windows
+      # PowerShell, and a new PowerShell 7 (pwsh) when the runner has it, each without a profile and with the Path a new
+      # window gets, the machine's and the user's from the registry.
+      - name: themepark --version in a new PowerShell window
+        shell: powershell
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "tpw port's"
+          $log = Join-Path $dir 'stub-launch.txt'
+          $user = [Environment]::GetEnvironmentVariable('Path', 'User')
+          Write-Host "The user's Path: $user"
+          $bin = Join-Path $dir 'bin'
+          $entries = @($user -split ';' | Where-Object { $_.TrimEnd('\') -ieq $bin })
+          if ($entries.Count -ne 1) { throw "the user's Path has $bin $($entries.Count) times, not once" }
+          $check = @'
+          $ProgressPreference = 'SilentlyContinue'
+          $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+          themepark --version
+          exit $LASTEXITCODE
+          '@
+          $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($check))
+          $shells = @('powershell.exe')
+          if (Get-Command pwsh.exe -ErrorAction SilentlyContinue) { $shells += 'pwsh.exe' }
+          foreach ($ps in $shells) {
+            $before = @(Get-Content -LiteralPath $log).Count
+            & $ps -NoLogo -NoProfile -NonInteractive -EncodedCommand $encoded
+            if ($LASTEXITCODE -ne 0) { throw "themepark --version in a new $ps exited with $LASTEXITCODE" }
+            foreach ($i in 1..20) {
+              if (@(Get-Content -LiteralPath $log).Count -gt $before) { break }
+              Start-Sleep -Milliseconds 500
+            }
+            $lines = @(Get-Content -LiteralPath $log)
+            if ($lines.Count -le $before -or $lines[-1] -notlike 'STP/TPW Launcher v0.0.0-dev args=--version*') {
+              throw "themepark --version in a new $ps did not start the launcher"
+            }
+            Write-Host "$ps`: $($lines[-1])"
+          }
+          exit 0
+      # Last, because this install in the default folder takes the themepark command over from the one above. The line
+      # as a player runs it (irm | iex, no options), from the user's folder, which holds an old clone made the README's
+      # old way.
+      - name: The same line installs, then updates, and leaves an old clone alone
+        shell: powershell
+        env:
+          TPW_INSTALL_PROGRAMS: ${{ runner.temp }}\programs
+        run: |
+          $env:TPW_INSTALL_STUB = '1'
+          $clone = Join-Path $env:USERPROFILE 'tpw-port'
+          [void](New-Item -ItemType Directory -Force -Path (Join-Path $clone '.git'), (Join-Path $clone 'launcher'))
+          Set-Content -LiteralPath (Join-Path $clone 'launcher\VERSION.txt') '0.0.2'
+          # Names, and each file's size and SHA-256. No folder times: NTFS updates the copy of a folder's times in its
+          # parent's listing (what Get-ChildItem reads) lazily, so they can change when only something was read.
+          function Get-Snapshot {
+            $lines = @(Get-ChildItem -LiteralPath $clone -Recurse -Force | Sort-Object FullName | ForEach-Object {
+              if ($_.PSIsContainer) { "$($_.FullName)\" }
+              else { "$($_.FullName) $($_.Length) $((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)" }
+            })
+            $lines -join "`n"
+          }
+          $before = Get-Snapshot
+          Write-Host "The old clone:`n$before"
+          $dir = Join-Path $env:LOCALAPPDATA 'STP-TPW-Launcher'
+          $bin = Join-Path $dir 'bin'
+          $log = Join-Path $dir 'stub-launch.txt'
+          $lnk = Join-Path $env:TPW_INSTALL_PROGRAMS 'STP-TPW Launcher.lnk'
+          $script = Get-Content -Raw install.ps1
+          $check = @'
+          $ProgressPreference = 'SilentlyContinue'
+          $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+          themepark --version
+          exit $LASTEXITCODE
+          '@
+          $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($check))
+          # How many lines of the stand-in's log are like $like (none before the stand-in first writes it).
+          function Get-Count([string]$like) {
+            if (-not (Test-Path -LiteralPath $log)) { return 0 }
+            @(Get-Content -LiteralPath $log | Where-Object { $_ -like $like }).Count
+          }
+          # $want: the version the run must end with (a newer stand-in release when TPW_INSTALL_STUB_VERSION is set)
+          function Invoke-Line([string]$want) {
+            $started = "STP/TPW Launcher v$want args= cwd=*"
+            $starts = Get-Count $started
+            Set-Location $env:USERPROFILE
+            $out = @($script | Invoke-Expression 6>&1 | ForEach-Object { "$_" })
+            $code = $LASTEXITCODE
+            Set-Location $env:GITHUB_WORKSPACE
+            $out | ForEach-Object { Write-Host $_ }
+            if ($code -ne 0 -or $out[-1] -ne "RESULT ok $want") { throw "the line did not end with RESULT ok $want (exit $code)" }
+            if (-not ($out -ceq "An older copy of the launcher is in $clone.")) { throw 'the line did not name the old clone' }
+            $user = [Environment]::GetEnvironmentVariable('Path', 'User')
+            $entries = @($user -split ';' | Where-Object { $_.TrimEnd('\') -ieq $bin })
+            if ($entries.Count -ne 1) { throw "the user's Path has $bin $($entries.Count) times, not once: $user" }
+            # the Start menu shortcut points at the default folder's launcher (written again at every run)
+            if (-not (Test-Path -LiteralPath $lnk)) { throw "the Start menu shortcut $lnk was not written" }
+            $sc = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
+            if ($sc.TargetPath -ne (Join-Path $dir 'build\tpw_launcher.exe') -or $sc.WorkingDirectory -ne (Join-Path $dir 'build')) {
+              throw "the shortcut points at $($sc.TargetPath) in $($sc.WorkingDirectory)"
+            }
+            # The line starts the launcher detached as it ends, and it can take seconds to write its line (windows-11-arm
+            # took longer than the next read of the log). Wait for it, at most 30 seconds, so that the log is there and
+            # that start's write never overlaps the next one.
+            foreach ($i in 1..60) {
+              if ((Get-Count $started) -gt $starts) { break }
+              if ($i -eq 60) { throw "the line did not start version $want" }
+              Start-Sleep -Milliseconds 500
+            }
+            $wanted = "STP/TPW Launcher v$want args=--version*"
+            $seen = Get-Count $wanted
+            & powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand $encoded
+            if ($LASTEXITCODE -ne 0) { throw "themepark --version in a new PowerShell exited with $LASTEXITCODE" }
+            foreach ($i in 1..20) {
+              if ((Get-Count $wanted) -gt $seen) { return $out }
+              Start-Sleep -Milliseconds 500
+            }
+            throw "themepark --version in a new PowerShell did not start version $want"
+          }
+          [void](Invoke-Line '0.0.0-dev')
+          # a deleted shortcut comes back at the next run, and a run that switches a new version in rewrites it
+          Remove-Item -LiteralPath $lnk -Force
+          $out = Invoke-Line '0.0.0-dev'
+          if (-not ($out -like 'Already up to date*')) { throw 'the second run was not an update' }
+          $written = (Get-Item -LiteralPath $lnk).LastWriteTimeUtc
+          Start-Sleep -Seconds 2
+          $env:TPW_INSTALL_STUB_VERSION = '0.0.1'
+          [void](Invoke-Line '0.0.1')
+          if (-not (Test-Path -LiteralPath (Join-Path $dir 'build-prev'))) { throw 'the newer version was not switched in' }
+          if ((Get-Item -LiteralPath $lnk).LastWriteTimeUtc -le $written) { throw 'the third run did not rewrite the Start menu shortcut' }
+          $after = Get-Snapshot
+          if (-not [string]::Equals($before, $after)) { throw "the old clone was changed. Before:`n$before`nAfter:`n$after" }
+          Get-Content -LiteralPath $log
+          exit 0
+      # Only -Dev gives main, every time: the plain line switches a dev install back to the newest release, and says so.
+      # Its own LOCALAPPDATA, so that the default folder is a new one.
+      - name: A -Dev install, then the plain line, ends on the newest release
+        shell: powershell
+        env:
+          TPW_INSTALL_PROGRAMS: ${{ runner.temp }}\programs
+        run: |
+          $env:TPW_INSTALL_STUB = '1'
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'localappdata-dev'
+          [void](New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA)
+          $dir = Join-Path $env:LOCALAPPDATA 'STP-TPW-Launcher'
+          $script = Get-Content -Raw install.ps1
+          $env:TPW_INSTALL_STUB_VERSION = '0.0.2-dev'
+          $out = @(& ([scriptblock]::Create($script)) -Dev -NoLaunch 6>&1 | ForEach-Object { "$_" })
+          $code = $LASTEXITCODE
+          $out | ForEach-Object { Write-Host $_ }
+          $channel = [string](Get-Content -LiteralPath (Join-Path $dir 'channel.txt') -TotalCount 1)
+          if ($code -ne 0 -or $out[-1] -ne 'RESULT ok 0.0.2-dev' -or $channel.Trim() -ne 'dev') { throw 'the -Dev install did not end on dev 0.0.2-dev' }
+          $env:TPW_INSTALL_STUB_VERSION = '0.0.1'
+          $out = @($script | Invoke-Expression 6>&1 | ForEach-Object { "$_" })
+          $code = $LASTEXITCODE
+          $out | ForEach-Object { Write-Host $_ }
+          if ($code -ne 0 -or $out[-1] -ne 'RESULT ok 0.0.1') { throw "the plain line did not end with RESULT ok 0.0.1 (exit $code)" }
+          if (-not ($out -ceq 'This install followed main (-Dev); it now follows the newest release. Add -Dev to stay on main.')) {
+            throw 'the plain line did not say that it switched the install back'
+          }
+          $channel = [string](Get-Content -LiteralPath (Join-Path $dir 'channel.txt') -TotalCount 1)
+          $info = @(Get-Content -LiteralPath (Join-Path $dir 'build\install-info.txt'))
+          if ($channel.Trim() -ne 'stable' -or -not ($info -ceq 'channel=stable')) { throw 'the install is not on stable after the plain line' }
+          exit 0
+      # The Update button's -Update never passes -Dev, so it too switches a dev install back, whatever channel.txt says.
+      # It runs the file as the updater does (powershell.exe -File).
+      - name: A -Dev install, then -Update with no option, ends on the newest release
+        shell: powershell
+        env:
+          TPW_INSTALL_PROGRAMS: ${{ runner.temp }}\programs
+        run: |
+          $env:TPW_INSTALL_STUB = '1'
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'localappdata-dev-update'
+          [void](New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA)
+          $dir = Join-Path $env:LOCALAPPDATA 'STP-TPW-Launcher'
+          $script = Get-Content -Raw install.ps1
+          $env:TPW_INSTALL_STUB_VERSION = '0.0.2-dev'
+          $out = @(& ([scriptblock]::Create($script)) -Dev -NoLaunch 6>&1 | ForEach-Object { "$_" })
+          $code = $LASTEXITCODE
+          $out | ForEach-Object { Write-Host $_ }
+          $channel = [string](Get-Content -LiteralPath (Join-Path $dir 'channel.txt') -TotalCount 1)
+          if ($code -ne 0 -or $out[-1] -ne 'RESULT ok 0.0.2-dev' -or $channel.Trim() -ne 'dev') { throw 'the -Dev install did not end on dev 0.0.2-dev' }
+          # -Update wants the clone the real install makes; the stand-in makes none.
+          [void](New-Item -ItemType Directory -Force -Path (Join-Path $dir 'source\.git'))
+          $env:TPW_INSTALL_STUB_VERSION = '0.0.1'
+          $file = Join-Path $env:GITHUB_WORKSPACE 'install.ps1'
+          $out = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $file -Update -NoLaunch -Dir $dir 2>&1 | ForEach-Object { "$_" })
+          $code = $LASTEXITCODE
+          $out | ForEach-Object { Write-Host $_ }
+          if ($code -ne 0 -or $out[-1] -ne 'RESULT ok 0.0.1') { throw "-Update did not end with RESULT ok 0.0.1 (exit $code)" }
+          if (-not ($out -ceq 'This install followed main (-Dev); it now follows the newest release. Add -Dev to stay on main.')) {
+            throw '-Update did not say that it switched the install back'
+          }
+          $channel = [string](Get-Content -LiteralPath (Join-Path $dir 'channel.txt') -TotalCount 1)
+          $info = @(Get-Content -LiteralPath (Join-Path $dir 'build\install-info.txt'))
+          if ($channel.Trim() -ne 'stable' -or -not ($info -ceq 'channel=stable')) { throw 'the install is not on stable after -Update' }
+          # themepark update runs the same -Update from source\ in the foreground, with its options passed on (-Dev: to
+          # main). The stand-in made no clone, so the script goes in source\ by hand. The install above put DIR\bin on
+          # this window's Path.
+          Copy-Item -LiteralPath $file -Destination (Join-Path $dir 'source\install.ps1')
+          $env:TPW_INSTALL_STUB_VERSION = '0.0.3'
+          $out = @(themepark update -NoLaunch 2>&1 | ForEach-Object { "$_" })
+          $code = $LASTEXITCODE
+          $out | ForEach-Object { Write-Host $_ }
+          $info = @(Get-Content -LiteralPath (Join-Path $dir 'build\install-info.txt'))
+          if ($code -ne 0 -or $out[-1] -ne 'RESULT ok 0.0.3' -or -not ($info -ceq 'version=0.0.3')) { throw "themepark update did not end with RESULT ok 0.0.3 (exit $code)" }
+          $env:TPW_INSTALL_STUB_VERSION = '0.0.4-dev'
+          $out = @(themepark update -Dev -NoLaunch 2>&1 | ForEach-Object { "$_" })
+          $code = $LASTEXITCODE
+          $out | ForEach-Object { Write-Host $_ }
+          $channel = [string](Get-Content -LiteralPath (Join-Path $dir 'channel.txt') -TotalCount 1)
+          if ($code -ne 0 -or $out[-1] -ne 'RESULT ok 0.0.4-dev' -or $channel.Trim() -ne 'dev') { throw "themepark update -Dev did not end on dev 0.0.4-dev (exit $code)" }
+          exit 0
+      # A PC without Git: the installer fetches MinGit into DIR\tools\MinGit (checked against the SHA-256 pinned in
+      # install.ps1) and runs it from there; nothing goes on the Path for it, and the next run uses the fetched one. The
+      # stand-in clones nothing but still looks for Git; the nogit case of installer-broad.yml clones and builds with the
+      # fetched one. Its own LOCALAPPDATA, so that the default folder is a new one.
+      - name: No Git on the Path, so the installer fetches one
+        shell: powershell
+        env:
+          TPW_INSTALL_PROGRAMS: ${{ runner.temp }}\programs
+        run: |
+          $env:TPW_INSTALL_STUB = '1'
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'localappdata-nogit'
+          [void](New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA)
+          $dir = Join-Path $env:LOCALAPPDATA 'STP-TPW-Launcher'
+          $script = Get-Content -Raw install.ps1
+          $env:Path = "$env:SystemRoot\System32;$env:SystemRoot;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
+          if (Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue) { throw 'git.exe is still on the Path' }
+          $out = @(& ([scriptblock]::Create($script)) -NoLaunch 6>&1 | ForEach-Object { "$_" })
+          $code = $LASTEXITCODE
+          $out | ForEach-Object { Write-Host $_ }
+          if ($code -ne 0 -or $out[-1] -ne 'RESULT ok 0.0.0-dev') { throw "the install did not end with RESULT ok 0.0.0-dev (exit $code)" }
+          if (-not ($out -like '*Fetching Git (MinGit*')) { throw 'the installer did not say that it fetched Git' }
+          if (-not ($out -like '*its SHA-256 checksum matched*')) { throw 'the installer did not check the checksum of the fetched Git' }
+          $git = Join-Path $dir 'tools\MinGit\cmd\git.exe'
+          if (-not (Test-Path -LiteralPath $git)) { throw "$git is missing" }
+          if (Test-Path -LiteralPath (Join-Path $dir 'tools\MinGit.tmp')) { throw 'the fetch left tools\MinGit.tmp behind' }
+          & $git --version
+          if ($LASTEXITCODE -ne 0) { throw "the fetched git.exe --version exited with $LASTEXITCODE" }
+          $user = [Environment]::GetEnvironmentVariable('Path', 'User')
+          if ($user -like '*MinGit*') { throw "the user's Path got an entry for the fetched Git: $user" }
+          # the line again: the fetched Git is used, not fetched again
+          $out = @(& ([scriptblock]::Create($script)) -NoLaunch 6>&1 | ForEach-Object { "$_" })
+          $code = $LASTEXITCODE
+          $out | ForEach-Object { Write-Host $_ }
+          if ($code -ne 0 -or $out[-1] -ne 'RESULT ok 0.0.0-dev') { throw "the second run did not end with RESULT ok 0.0.0-dev (exit $code)" }
+          if ($out -like '*Fetching Git*') { throw 'the second run fetched Git again' }
+          if (-not ($out -like '*Git fetched earlier*')) { throw 'the second run did not use the fetched Git' }
+          exit 0

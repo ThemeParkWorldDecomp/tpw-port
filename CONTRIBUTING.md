@@ -46,6 +46,32 @@ Players set it in the launcher or a game menu, never by editing a .sam file.
 - Test aids stay out of a pull request.
 - One concern per pull request, and one per commit.
 - Say in the pull request what you tested and on what: the edition and the system.
+- Naming order: Sim Theme Park (the US edition) is always named before Theme Park World (the European one) wherever
+  the two appear together: screens, options, texts, logs, docs. The launcher's tiles follow it, US on the left.
+
+## Playable offline
+
+The game is played offline, and the port keeps it that way:
+
+- Nothing needs the internet to start, play, save or load. The launcher, the game and their tests run the same with no
+  connection.
+- What does use the internet is optional and fails silently. Today that is the launcher's update check (README,
+  "Updates"): with no answer it says nothing and asks again at the next start. The Update button's script downloads
+  only when the player presses it.
+- All network code is in one place, launcher/net/. It asks with the system's own curl, a short time limit and a cap on
+  what it reads, and anything but an answer in the exact shape expected is no answer.
+
+CI checks this on every push and pull request (.github/workflows/build.yml):
+
+- `python3 -I devtools/check_offline.py` reads every C, C++ and Objective-C file and fails on a socket or HTTP header, a
+  network call, a web address in a string, or curl or wget started as a program, anywhere outside launcher/net/. Run it
+  before a pull request; it takes a few seconds. The original game's own online layer (the TPW Online world, its e-mail
+  and FTP client, and platform/winsock.cpp under them) is listed there by file and kept as the original had it: the port
+  never offers the online world, and its servers are gone. A vendored library's file is listed only with the reason it
+  never talks to the network (FFmpeg is built without its network code).
+- On the Macs, the tests run a second time with the network blocked (sandbox-exec), and `tpw_launcher --check-updates`
+  must come back at once with no answer and exit 0. There is no Linux build here, and Windows has no simple way to block
+  one program's network, so the Windows jobs do not repeat the tests offline.
 
 ## Versions and releases
 
@@ -56,6 +82,32 @@ Players set it in the launcher or a game menu, never by editing a .sam file.
   never used twice. A fix found after a release, even one for a problem in it, lands on main and ships in the next
   version.
 - Only the maintainers change launcher/VERSION.txt and cut releases. A pull request leaves it as it is.
+- Players get stable. The stable branch is the newest release: release.yml moves it forward to each new tag, and nothing
+  else changes it. The one-line installers (install.sh and install.ps1, attached to every release) build the newest
+  release too. Pull requests target main, never stable.
+- To work on main or test it, install it with the installer's `--dev` (`-Dev` on Windows), which builds main and updates
+  to the newest main, or clone main by hand: `git clone --recurse-submodules https://github.com/ThemeParkWorldDecomp/tpw-port.git`, then the README's
+  building steps. A change to an installer is tested on both systems, and keeps its contract (the comment at the top of
+  each script): the launcher's updater reads its output.
+
+## The changelog
+
+CHANGELOG.md tells players what changed in each version, and each release's page shows its section. Every change a
+player can notice gets a line there, written when the change lands, not at release time. A pull request gives its line
+under "Changelog line" in the template, and the maintainers add it.
+
+- Write for players, not programmers. Say what they will notice: "Fixed a crash when renaming a ride." Not why it
+  happened or how it was fixed: that goes in the commit message and FIXES.md.
+- One short, plain sentence. No file, function or code names and no technical words (memory, thread, pointer, heap,
+  lock, offset).
+- It goes under the top heading, the next version ("not released yet"), in New, Changed or Fixed.
+- Thank the people we know reported or made it, in brackets at the end: GitHub users as @name, anyone else by name and
+  where, such as (Thanks Fladfisk on Discord). Never put @ before a name that is not a GitHub account: GitHub would tag a
+  stranger.
+- A change players cannot notice (tests, build scripts, CI, tidying code) gets no line.
+- When a version is released, "not released yet" becomes the release date, and the next landing adds the next
+  version's heading. The export refuses a top heading that does not match launcher/VERSION.txt, and a release refuses
+  to publish without its dated section.
 
 ## How a change lands
 
@@ -66,8 +118,9 @@ FIXES.md. A pull request that belongs in another repository is closed with a poi
 
 ## Issues
 
-Issues are welcome. Every bug report names the launcher version it happened on (0.0.3, for example: the window title,
+Issues are welcome. Every bug report names the launcher version it happened on (0.1.0, for example: the window title,
 the About box and the log's first line show it), since each version is different code; a report on a -dev build of main
 also gives the build named in the log's first line. It says which edition you play (US, European or Gold), attaches the launcher's
-newest log (`~/Library/Application Support/STP-TPW Launcher/logs` on a Mac, `%APPDATA%\STP-TPW Launcher\logs` on Windows)
-and says what you clicked before it went wrong.
+newest log (open the launcher's About box, click Export logs, then attach the file it saves in your Downloads folder;
+the logs folder itself is `~/Library/Application Support/STP-TPW Launcher/logs` on a Mac and
+`%APPDATA%\STP-TPW Launcher\logs` on Windows) and says what you clicked before it went wrong.

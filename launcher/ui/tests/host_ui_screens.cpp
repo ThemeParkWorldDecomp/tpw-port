@@ -11,11 +11,13 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <deque>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -24,6 +26,7 @@
 #include "manifest.h"
 #include "texts.h"
 #include "theme.h"
+#include "updater.h"
 #include "widgets.h"
 
 #ifndef TPW_UI_SCREENS_DEFAULT
@@ -320,9 +323,33 @@ struct Shot {
     std::function<void(FakeBackend&)> before;                    // the folder before the screen opens
     std::function<void(LauncherUi&, FakeBackend&, const std::function<void(int)>&)> drive;   // frames(n)
     LauncherUi::Screen screen = LauncherUi::Screen::Home;
+    std::string update;   // the update check's state (MakeUpdater), empty: no update check
 };
 
+// The About box's Export logs: a scripted export that counts its calls and says ok or not.
+int gExportCalls = 0;
+bool gExportOk = true;
+std::string gExportFolder;
+LogsExport FakeExportLogs(const std::string& logsFolder) {
+    ++gExportCalls;
+    gExportFolder = logsFolder;
+    LogsExport result;
+    result.ok = gExportOk;
+    result.message = gExportOk ? "Saved to Downloads: STP-TPW Launcher log 2026-10-25 10-12.txt" : "The Downloads folder was not found.";
+    result.folder = gExportOk ? "/Users/player/Downloads" : "";
+    return result;
+}
+
 constexpr float kDt = 1.0f / 60;
+
+// The About box's Show logs: a scripted reveal that counts its calls and says it worked (so the folder is not opened).
+int gShowCalls = 0;
+std::string gShowFolder;
+bool FakeShowLogs(const std::string& logsFolder) {
+    ++gShowCalls;
+    gShowFolder = logsFolder;
+    return true;
+}
 
 SDL_Event DropEvent(SDL_EventType type, float x = 0, float y = 0, const char* data = nullptr) {
     SDL_Event e{};
@@ -367,6 +394,66 @@ void FillEverything(FakeBackend& b) {
 
 std::vector<std::string> g_written;
 
+// An update check (updater.h) brought to `state` with no internet and no script, as the window would have it: "found"
+// (version 0.0.9 is out), "offline" (found on an earlier launch, Update pressed with no answer now), "staging" (the
+// script on its third step, until the updater goes), "staged" or "failed". "first": nothing found yet (the home as a first
+// launch has it).
+std::unique_ptr<Updater> MakeUpdater(FakeBackend& b, const std::string& state) {
+    update::Current current;
+    current.version = "0.0.3";
+    current.install.dir = "/Users/player/Applications/STP-TPW-Launcher";
+    UpdaterHooks hooks;
+    hooks.questions.latestRelease = [state](const tpw::net::Limits&) {
+        tpw::net::Release r;
+        r.answered = state != "offline";
+        r.version = state == "first" ? "" : "0.0.9";
+        r.why = r.answered ? "" : "curl failed (exit code 6)";
+        return r;
+    };
+    hooks.run = [state](const tpw::proc::Options& o) {
+        o.onLine("STEP 1/4 Checking this computer");
+        o.onLine("STEP 2/4 Downloading the source");
+        tpw::proc::Result r;
+        r.started = true;
+        if (state == "staging") {
+            o.onLine("STEP 3/4 Building the new version (a few minutes)");
+            while (!o.cancel->load()) SDL_Delay(5);
+            r.cancelled = true;
+        } else if (state == "failed") {
+            o.onLine("RESULT fail Couldn't download the source. Check the internet connection and try again.");
+            r.exitCode = 1;
+        } else {
+            o.onLine("RESULT ok 0.0.9");
+            r.exitCode = 0;
+        }
+        return r;
+    };
+    hooks.exists = [](const std::string&) { return true; };
+    if (state == "offline") {
+        b.settings[kUpdateFoundKey] = "0.0.9";
+        b.settings[kUpdateLastCheckKey] = std::to_string(static_cast<long long>(std::time(nullptr)));
+    }
+    auto updater = std::make_unique<Updater>(b, current, nullptr, hooks);
+    auto settle = [&](bool staging) {
+        for (int i = 0; i < 2000; ++i) {
+            updater->Poll();
+            const Updater::Phase p = updater->CurrentPhase();
+            if (staging ? p == Updater::Phase::Staging && updater->StepText().find("step 3") != std::string::npos
+                        : p != Updater::Phase::Checking && p != Updater::Phase::Probing && p != Updater::Phase::Staging)
+                return;
+            SDL_Delay(2);
+        }
+        Check(false, "update check " + state + ": did not settle");
+    };
+    updater->StartupCheck(static_cast<long long>(std::time(nullptr)));
+    settle(false);
+    if (state != "found" && state != "first") {
+        updater->Update();
+        settle(state == "staging");
+    }
+    return updater;
+}
+
 void Render(const std::string& dir, const Shot& shot, int scale) {
     std::string label = shot.name + " @" + std::to_string(scale) + "x";
     int pw = shot.width * scale, ph = shot.height * scale;
@@ -384,6 +471,11 @@ void Render(const std::string& dir, const Shot& shot, int scale) {
         if (shot.before) shot.before(backend);
         LauncherUi ui(renderer, backend);
         Check(ui.Ok(), label + ": fonts: " + ui.Error());
+        std::unique_ptr<Updater> updater;   // goes before the window it is shown in
+        if (!shot.update.empty()) {
+            updater = MakeUpdater(backend, shot.update);
+            ui.SetUpdater(updater.get());
+        }
         auto step = [&](float dt) {
             ui.Frame(dt, static_cast<float>(shot.width), static_cast<float>(shot.height), static_cast<float>(scale));
         };
@@ -475,14 +567,14 @@ std::vector<Shot> Shots() {
     using Screen = LauncherUi::Screen;
     std::vector<Shot> shots;
 
-    shots.push_back({"01-home-empty", metric::kStartWidth, metric::kStartHeight, nullptr, nullptr, Screen::Home});
+    shots.push_back({"01-home-empty", metric::kStartWidth, metric::kStartHeight, nullptr, nullptr, Screen::Home, {}});
 
     shots.push_back({"02-home-drag-over-field", metric::kStartWidth, metric::kStartHeight, nullptr,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
                          ui.HandleEvent(DropEvent(SDL_EVENT_DROP_BEGIN));
                          ui.HandleEvent(DropEvent(SDL_EVENT_DROP_POSITION, 400, 200));
                      },
-                     Screen::Home});
+                     Screen::Home, {}});
 
     shots.push_back({"03-home-drag-over-eu-tile", metric::kStartWidth, metric::kStartHeight, nullptr,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
@@ -490,7 +582,7 @@ std::vector<Shot> Shots() {
                          ui.HandleEvent(DropEvent(SDL_EVENT_DROP_BEGIN));
                          ui.HandleEvent(DropEvent(SDL_EVENT_DROP_POSITION, t.CentreX(), t.CentreY()));
                      },
-                     Screen::Home});
+                     Screen::Home, {}});
 
     shots.push_back({"04-checking", metric::kStartWidth, metric::kStartHeight, nullptr,
                      [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>& frames) {
@@ -509,7 +601,7 @@ std::vector<Shot> Shots() {
                          frames(2);
                          ui.OfferPaths({"/home/player/SimTheme Park.dmg"});   // queued, with a notice
                      },
-                     Screen::Checking});
+                     Screen::Checking, {}});
 
     shots.push_back({"05-result-older-pressing", metric::kStartWidth, metric::kStartHeight, nullptr,
                      [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>&) {
@@ -519,7 +611,7 @@ std::vector<Shot> Shots() {
                          b.Queue(s);
                          ui.OfferPaths({"/media/PC CD"});
                      },
-                     Screen::Result});
+                     Screen::Result, {}});
 
     shots.push_back({"06-result-all-confirmed", metric::kStartWidth, metric::kStartHeight,
                      [](FakeBackend& b) {
@@ -538,7 +630,7 @@ std::vector<Shot> Shots() {
                          b.Queue(s);
                          ui.OfferPaths({"/media/Mac CD"});
                      },
-                     Screen::Result});
+                     Screen::Result, {}});
 
     shots.push_back({"07-result-mac-files-missing", metric::kStartWidth, metric::kStartHeight, nullptr,
                      [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>&) {
@@ -553,7 +645,7 @@ std::vector<Shot> Shots() {
                          b.Queue(s);
                          ui.OfferPaths({"/media/PC CD"});
                      },
-                     Screen::Result});
+                     Screen::Result, {}});
 
     shots.push_back({"08-home-mixed-hover-tile", metric::kStartWidth, metric::kStartHeight,
                      [](FakeBackend& b) {
@@ -566,7 +658,7 @@ std::vector<Shot> Shots() {
                          Rect t = ui.TileRect(1);
                          ui.HandleEvent(MotionEvent(t.CentreX(), t.CentreY()));
                      },
-                     Screen::Home});
+                     Screen::Home, {}});
 
     shots.push_back({"09-play-two-editions-gold", metric::kStartWidth, metric::kStartHeight,
                      [](FakeBackend& b) {
@@ -578,19 +670,19 @@ std::vector<Shot> Shots() {
                          ui.ShowScreen(LauncherUi::Screen::Play);
                          ui.ChoosePlay(assets::kEditionEur, true);
                      },
-                     Screen::Play});
+                     Screen::Play, {}});
 
     shots.push_back({"10-play-one-edition", metric::kStartWidth, metric::kStartHeight, PartialUsEur,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
                          ui.ShowScreen(LauncherUi::Screen::Play);
                      },
-                     Screen::Play});
+                     Screen::Play, {}});
 
     shots.push_back({"11-settings-remove-confirm", metric::kStartWidth, metric::kStartHeight, PartialUsEur,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
                          ui.ArmRemove(assets::kEditionUs);
                      },
-                     Screen::Home});
+                     Screen::Home, {}});
 
     shots.push_back({"12-about", metric::kStartWidth, metric::kStartHeight, nullptr,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
@@ -598,11 +690,28 @@ std::vector<Shot> Shots() {
                          ui.ShowAbout(true);
                          CheckAboutRows(ui);
                      },
-                     Screen::Home});
+                     Screen::Home, {}});
 
-    shots.push_back({"13-home-wide", 1100, 760, PartialUsEur, nullptr, Screen::Home});
+    shots.push_back({"12b-about-exported", metric::kStartWidth, metric::kStartHeight, nullptr,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         ui.SetLogsFolder("/Users/player/Library/Application Support/STP-TPW Launcher/logs");
+                         ui.SetExportLogs(&FakeExportLogs);
+                         ui.ShowAbout(true);
+                         frames(2);
+                         const Rect r = ui.ExportLogsRect();
+                         ui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+                         frames(1);
+                         ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+                         frames(1);
+                         ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+                         frames(2);
+                         Check(ui.OpenDownloadsRect().w > 0, "About picture: the export saved");
+                     },
+                     Screen::Home, {}});
 
-    shots.push_back({"14-home-smallest", metric::kMinWidth, metric::kMinHeight, nullptr, nullptr, Screen::Home});
+    shots.push_back({"13-home-wide", 1100, 760, PartialUsEur, nullptr, Screen::Home, {}});
+
+    shots.push_back({"14-home-smallest", metric::kMinWidth, metric::kMinHeight, nullptr, nullptr, Screen::Home, {}});
 
     shots.push_back({"15-result-older-pressing-smallest", metric::kMinWidth, metric::kMinHeight, nullptr,
                      [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>&) {
@@ -611,7 +720,7 @@ std::vector<Shot> Shots() {
                          b.Queue(s);
                          ui.OfferPaths({"/media/PC CD"});
                      },
-                     Screen::Result});
+                     Screen::Result, {}});
 
     shots.push_back({"16-checking-smallest", metric::kMinWidth, metric::kMinHeight, nullptr,
                      [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>&) {
@@ -624,7 +733,7 @@ std::vector<Shot> Shots() {
                          b.Queue(s);
                          ui.OfferPaths({"/home/player/SimTheme Park.dmg"});
                      },
-                     Screen::Checking});
+                     Screen::Checking, {}});
 
     shots.push_back({"17-result-nothing-new", metric::kStartWidth, metric::kStartHeight, PartialUsEur,
                      [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>&) {
@@ -635,7 +744,7 @@ std::vector<Shot> Shots() {
                          b.Queue(s);
                          ui.OfferPaths({"/media/Mac CD"});
                      },
-                     Screen::Result});
+                     Screen::Result, {}});
 
     shots.push_back({"19-result-damaged", metric::kStartWidth, metric::kStartHeight, nullptr,
                      [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>&) {
@@ -646,13 +755,13 @@ std::vector<Shot> Shots() {
                          b.Queue(s);
                          ui.OfferPaths({"/media/Mac CD.zip"});
                      },
-                     Screen::Result});
+                     Screen::Result, {}});
 
     shots.push_back({"18-play-wide", 1100, 760, PartialUsEur,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
                          ui.ShowScreen(LauncherUi::Screen::Play);
                      },
-                     Screen::Play});
+                     Screen::Play, {}});
     // After Play (launcher/ui/starting.cpp): the Play screen dimmed under the Starting box, with the bar at 42% of the
     // last start's total, and with no total yet (the bar moves without a number).
     shots.push_back({"16-starting-eur-42-percent", metric::kStartWidth, metric::kStartHeight, PartialUsEur,
@@ -661,18 +770,18 @@ std::vector<Shot> Shots() {
                          ui.BeginStarting(assets::kEditionEur);
                          ui.SetStartingProgress(0.42f);
                      },
-                     Screen::Starting});
+                     Screen::Starting, {}});
     shots.push_back({"17-starting-indeterminate", metric::kStartWidth, metric::kStartHeight, PartialUsEur,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
                          ui.ShowScreen(LauncherUi::Screen::Play);
                          ui.BeginStarting(assets::kEditionEur);
                          ui.SetStartingProgress(-1.0f);
                      },
-                     Screen::Starting});
+                     Screen::Starting, {}});
 
     // Every edition confirmed: two large tiles with their Gold badges and Play buttons, no drop field.
     shots.push_back({"12-home-all-confirmed", metric::kStartWidth, metric::kStartHeight, FillEverything, nullptr,
-                     Screen::Home});
+                     Screen::Home, {}});
 
     shots.push_back({"13-home-all-confirmed-drag-over", metric::kStartWidth, metric::kStartHeight, FillEverything,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
@@ -680,7 +789,7 @@ std::vector<Shot> Shots() {
                          ui.HandleEvent(DropEvent(SDL_EVENT_DROP_BEGIN));
                          ui.HandleEvent(DropEvent(SDL_EVENT_DROP_POSITION, t.CentreX(), t.CentreY()));
                      },
-                     Screen::Home});
+                     Screen::Home, {}});
 
     // Settings taller than the window: scrolled to its end with the wheel (the pointer in the box's left margin), and
     // in the smallest window at its top, the last row cut off under the bar.
@@ -691,10 +800,25 @@ std::vector<Shot> Shots() {
                          ui.HandleEvent(MotionEvent(90, metric::kStartHeight * 0.5f));
                          ui.HandleEvent(WheelEvent(-10));
                      },
-                     Screen::Home});
+                     Screen::Home, {}});
     shots.push_back({"21-settings-smallest", metric::kMinWidth, metric::kMinHeight, PartialUsEur,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) { ui.ShowSettings(true); },
-                     Screen::Home});
+                     Screen::Home, {}});
+
+    // The update banner under the title (updater.h), in the smallest window: on the home with the drop field (whose
+    // icon makes room for it) and on the all-confirmed one.
+    shots.push_back({"22-update-found-smallest", metric::kMinWidth, metric::kMinHeight, nullptr, nullptr, Screen::Home,
+                     "found"});
+    shots.push_back({"23-update-found-ready-smallest", metric::kMinWidth, metric::kMinHeight, FillEverything, nullptr,
+                     Screen::Home, "found"});
+    shots.push_back({"24-update-offline", metric::kStartWidth, metric::kStartHeight, FillEverything, nullptr,
+                     Screen::Home, "offline"});
+    shots.push_back({"25-update-staging-smallest", metric::kMinWidth, metric::kMinHeight, nullptr, nullptr,
+                     Screen::Home, "staging"});
+    shots.push_back({"26-update-staged", metric::kStartWidth, metric::kStartHeight, FillEverything, nullptr,
+                     Screen::Home, "staged"});
+    shots.push_back({"27-update-failed-smallest", metric::kMinWidth, metric::kMinHeight, FillEverything, nullptr,
+                     Screen::Home, "failed"});
     return shots;
 }
 
@@ -703,7 +827,16 @@ std::vector<Shot> Shots() {
 void CheckTexts() {
     CheckEq(FileUrl("/Users/a b/Library/Application Support/STP-TPW Launcher/logs"),
             "file:///Users/a%20b/Library/Application%20Support/STP-TPW%20Launcher/logs", "FileUrl: spaces");
-    CheckEq(FileUrl("/Users/Ren\xC3\xA9" "e/logs#1"), "file:///Users/Ren%C3%A9e/logs%231", "FileUrl: UTF-8 and '#'");
+    CheckEq(FileUrl("/Users/Ren\xC3\xA9" "e/logs#1", false), "file:///Users/Ren%C3%A9e/logs%231",
+            "FileUrl: UTF-8 and '#'");
+    CheckEq(FileUrl("/Users/a b/logs", false), "file:///Users/a%20b/logs", "FileUrl: Unix path");
+    CheckEq(FileUrl("C:\\x", false), "file://C%3A%5Cx", "FileUrl: Unix rules encode ':' and '\\'");
+    CheckEq(FileUrl("C:\\Users\\Dan\\AppData\\Roaming\\STP-TPW Launcher\\logs", true),
+            "file:///C:/Users/Dan/AppData/Roaming/STP-TPW%20Launcher/logs", "FileUrl: Windows drive path");
+    CheckEq(FileUrl("d:/Games/TPW\\logs#1", true), "file:///d:/Games/TPW/logs%231", "FileUrl: Windows mixed slashes");
+    CheckEq(FileUrl("C:\\Users\\Ren\xC3\xA9" "e\\logs", true), "file:///C:/Users/Ren\xC3\xA9" "e/logs",
+            "FileUrl: Windows keeps UTF-8");
+    CheckEq(FileUrl("\\\\server\\share\\logs", true), "file://server/share/logs", "FileUrl: Windows UNC path");
     CheckEq(FormatCount(0), "0", "FormatCount 0");
     CheckEq(FormatCount(999), "999", "FormatCount 999");
     CheckEq(FormatCount(1683), "1,683", "FormatCount 1683");
@@ -883,15 +1016,17 @@ void CheckReady(SDL_Renderer* renderer) {
     };
     frames(1);
     Check(ui.Animating(), "all confirmed: the startup notice shows");
-    Rect eu = ui.TileRect(1), us = ui.TileRect(0);
-    Check(eu.w > 300 && us.w > 300 && eu.x < us.x, "all confirmed: two large tiles, the European one on the left");
+    Rect us = ui.TileRect(0), eu = ui.TileRect(1);
+    Check(us.w > 300 && eu.w > 300 && us.x < eu.x, "all confirmed: two large tiles, the US one on the left");
     Check(ui.TileRect(2).w == 0, "all confirmed: no Gold tile");
-    Rect euPlay = ui.ReadyPlayRect(1), usPlay = ui.ReadyPlayRect(0);
-    Check(euPlay.w > 0 && eu.Contains(euPlay.CentreX(), euPlay.CentreY()), "all confirmed: the European Play is in its tile");
+    Rect usPlay = ui.ReadyPlayRect(0), euPlay = ui.ReadyPlayRect(1);
     Check(usPlay.w > 0 && us.Contains(usPlay.CentreX(), usPlay.CentreY()), "all confirmed: the US Play is in its tile");
-    std::printf("all confirmed at %dx%d points: European Play centre %.0f,%.0f; US Play centre %.0f,%.0f\n",
-                metric::kStartWidth, metric::kStartHeight, euPlay.CentreX(), euPlay.CentreY(), usPlay.CentreX(),
-                usPlay.CentreY());
+    Check(euPlay.w > 0 && eu.Contains(euPlay.CentreX(), euPlay.CentreY()), "all confirmed: the European Play is in its tile");
+    std::printf("all confirmed at %dx%d points: US Play centre %.0f,%.0f; European Play centre %.0f,%.0f; Gold Edition "
+                "switches %.0f,%.0f and %.0f,%.0f\n",
+                metric::kStartWidth, metric::kStartHeight, usPlay.CentreX(), usPlay.CentreY(), euPlay.CentreX(),
+                euPlay.CentreY(), ui.ReadyGoldRect(0).CentreX(), ui.ReadyGoldRect(0).CentreY(),
+                ui.ReadyGoldRect(1).CentreX(), ui.ReadyGoldRect(1).CentreY());
 
     // a drag over the European tile names it; anywhere else is still the window's drop
     b.Queue(FakeBackend::Script());
@@ -916,14 +1051,65 @@ void CheckReady(SDL_Renderer* renderer) {
     };
     LaunchChoice choice;
     Check(!ui.TakePlay(choice), "all confirmed: no play before a click");
-    click(ui.ReadyPlayRect(1));
-    Check(ui.TakePlay(choice) && choice.edition == assets::kEditionEur && choice.gold,
-          "all confirmed: the European Play starts the European edition with the Gold rides");
-    Check(b.LastChoice() == "eur", "all confirmed: the European choice is kept");
     click(ui.ReadyPlayRect(0));
     Check(ui.TakePlay(choice) && choice.edition == assets::kEditionUs && choice.gold,
           "all confirmed: the US Play starts the US edition with the Gold rides");
     Check(b.LastChoice() == "us", "all confirmed: the US choice is kept");
+    click(ui.ReadyPlayRect(1));
+    Check(ui.TakePlay(choice) && choice.edition == assets::kEditionEur && choice.gold,
+          "all confirmed: the European Play starts the European edition with the Gold rides");
+    Check(b.LastChoice() == "eur", "all confirmed: the European choice is kept");
+
+    // Each tile's Gold Edition switch: inside the tile, above its Play button without touching it; off, that edition's
+    // Play starts without the Gold rides and launcher.ini keeps it (gold_eur), the other edition's switch untouched.
+    Rect euGold = ui.ReadyGoldRect(1), usGold = ui.ReadyGoldRect(0);
+    Check(euGold.w > 0 && eu.Contains(euGold.CentreX(), euGold.CentreY()) && euGold.Bottom() < euPlay.y,
+          "all confirmed: the European Gold Edition switch is in its tile, above Play");
+    Check(usGold.w > 0 && us.Contains(usGold.CentreX(), usGold.CentreY()) && usGold.Bottom() < usPlay.y,
+          "all confirmed: the US Gold Edition switch is in its tile, above Play");
+    Check(b.settings.count("gold_eur") == 0 && b.settings.count("gold_us") == 0, "Gold switch: nothing kept until flipped");
+    click(euGold);
+    Check(b.settings["gold_eur"] == "0", "Gold switch: off is kept in launcher.ini as gold_eur=0");
+    click(ui.ReadyPlayRect(1));
+    Check(ui.TakePlay(choice) && choice.edition == assets::kEditionEur && !choice.gold,
+          "Gold switch off: the European Play starts the plain European edition");
+    click(ui.ReadyPlayRect(0));
+    Check(ui.TakePlay(choice) && choice.edition == assets::kEditionUs && choice.gold,
+          "Gold switch off for Europe: the US Play still starts with the Gold rides");
+    // the Play screen's card shows the same state and its toggle changes the tile's
+    ui.ShowScreen(LauncherUi::Screen::Play);
+    ui.ChoosePlay(assets::kEditionEur, true);
+    frames(1);
+    Check(b.settings["gold_eur"] == "1", "Gold switch: the Play screen's toggle is the same switch, kept as gold_eur=1");
+    ui.ShowScreen(LauncherUi::Screen::Home);
+    frames(1);
+    click(ui.ReadyPlayRect(1));
+    Check(ui.TakePlay(choice) && choice.edition == assets::kEditionEur && choice.gold,
+          "Gold switch on again: the European Play starts with the Gold rides");
+    // a new launcher reads the kept switches: US off, Europe on
+    b.settings["gold_us"] = "0";
+    {
+        LauncherUi again(renderer, b);
+        auto framesAgain = [&](int n) {
+            for (int i = 0; i < n; ++i) again.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        };
+        auto clickAgain = [&](const Rect& r) {
+            again.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+            framesAgain(1);
+            again.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+            framesAgain(1);
+            again.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+            framesAgain(1);
+        };
+        framesAgain(1);
+        clickAgain(again.ReadyPlayRect(0));
+        Check(again.TakePlay(choice) && choice.edition == assets::kEditionUs && !choice.gold,
+              "Gold switch remembered: a new launcher starts the plain US edition");
+        clickAgain(again.ReadyPlayRect(1));
+        Check(again.TakePlay(choice) && choice.edition == assets::kEditionEur && choice.gold,
+              "Gold switch remembered: a new launcher starts the European edition with the Gold rides");
+    }
+    b.settings.erase("gold_us");
 
     // without the Gold rides it is the home with the drop field again
     std::string err;
@@ -1112,6 +1298,60 @@ void CheckVersionAndLogs(SDL_Renderer* renderer) {
     ui.ShowAbout(false);
     ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
     Check(ui.ShowLogsRect().w == 0, "About closed: no Show logs");
+
+    // Export logs: there only with a logs folder and an export function, beside Show logs, and it calls the function once
+    // per click with the logs folder; a saved copy shows Open Downloads (until the box closes), a refusal does not.
+    FakeBackend eb;
+    LauncherUi eui(renderer, eb);
+    eui.ShowAbout(true);
+    eui.SetLogsFolder("/Users/player/logs");
+    eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+    Check(eui.ExportLogsRect().w == 0, "About: no Export logs without an export function");
+    eui.SetExportLogs(&FakeExportLogs);
+    eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+    const Rect exp = eui.ExportLogsRect();
+    Check(exp.w > 0 && exp.Bottom() < metric::kStartHeight && exp.x >= eui.ShowLogsRect().Right() && exp.y == eui.ShowLogsRect().y,
+          "About: Export logs is drawn beside Show logs");
+    eui.Frame(kDt, metric::kMinWidth, metric::kMinHeight, 1);
+    Check(eui.ExportLogsRect().w > 0 && eui.ExportLogsRect().Right() < metric::kMinWidth &&
+              eui.ExportLogsRect().Bottom() < metric::kMinHeight,
+          "About: Export logs fits the smallest window");
+    eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+    auto clickExport = [&] {
+        const Rect r = eui.ExportLogsRect();
+        eui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+        eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        eui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+        eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        eui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+        eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+    };
+    // Show logs calls the reveal first, with the logs folder (when it works the folder is not opened as well).
+    eui.SetShowLogs(&FakeShowLogs);
+    {
+        const Rect r = eui.ShowLogsRect();
+        eui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+        eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        eui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+        eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        eui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+        eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(gShowCalls == 1 && gShowFolder == "/Users/player/logs", "About: a click on Show logs reveals the newest log once");
+    }
+    gExportCalls = 0;
+    gExportOk = false;
+    clickExport();
+    Check(gExportCalls == 1 && gExportFolder == "/Users/player/logs", "About: a click on Export logs exports once, from the logs folder");
+    Check(eui.OpenDownloadsRect().w == 0, "About: a refused export shows no Open Downloads");
+    gExportOk = true;
+    clickExport();
+    Check(gExportCalls == 2 && eui.OpenDownloadsRect().w > 0 && eui.OpenDownloadsRect().y > exp.Bottom(),
+          "About: a saved export shows Open Downloads below");
+    eui.ShowAbout(false);
+    eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+    eui.ShowAbout(true);
+    eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+    Check(eui.OpenDownloadsRect().w == 0 && eui.ExportLogsRect().w > 0, "About: Open Downloads is gone once the box was closed");
 }
 
 // The launcher's version beside the large title on both homes, at the smallest window, the start size and two large
@@ -1145,6 +1385,81 @@ void CheckTitleVersion(SDL_Renderer* renderer) {
             std::printf("  %s: title %.0f..%.0f, version %.0f..%.0f (y %.0f..%.0f), buttons %.0f..%.0f\n", what.c_str(),
                         t.x, t.Right(), v.x, v.Right(), v.y, v.Bottom(), buttons.x, buttons.Right());
         }
+    }
+}
+
+// The update banner (updater.h) in each of its states, on both homes, in the smallest window and the start size: under
+// the title's row and clear of it, above the tiles, inside the window. The Settings box's "Check for updates": on by
+// default, a click turns it off, keeps check_updates=0 and hides the banner. The first launch: no line about
+// the check (the maintainer, 2026-10-25), no banner when nothing was found.
+void CheckUpdateBanner(SDL_Renderer* renderer) {
+    for (const char* state : {"found", "offline", "staging", "staged", "failed"}) {
+        for (bool ready : {false, true}) {
+            for (int size = 0; size < 2; ++size) {
+                const float w = size == 0 ? metric::kStartWidth : metric::kMinWidth;
+                const float h = size == 0 ? metric::kStartHeight : metric::kMinHeight;
+                const std::string what = std::string("update banner ") + state + (ready ? ", all-confirmed home" : ", home") +
+                                         " at " + std::to_string(static_cast<int>(w)) + "x" +
+                                         std::to_string(static_cast<int>(h));
+                FakeBackend b;
+                if (ready) FillEverything(b);
+                LauncherUi ui(renderer, b);
+                std::unique_ptr<Updater> updater = MakeUpdater(b, state);
+                ui.SetUpdater(updater.get());
+                ui.Frame(kDt, w, h, 1);
+                const Rect banner = ui.UpdateBannerRect();
+                Check(banner.w > 0, what + ": shown");
+                Check(banner.y >= ui.HeaderButtonsRect().Bottom() + 4 && banner.y >= ui.TitleRect().Bottom(),
+                      what + ": below the title's row");
+                Check(banner.x >= 0 && banner.Right() <= w, what + ": inside the window");
+                for (int i = 0; i < 3; ++i)
+                    Check(!Overlaps(banner, ui.TileRect(i)), what + ": clear of tile " + std::to_string(i));
+                if (ready) Check(ui.ReadyPlayRect(0).y > banner.Bottom() + 100, what + ": the tiles keep their room");
+            }
+        }
+    }
+    {
+        FakeBackend b;
+        LauncherUi ui(renderer, b);
+        std::unique_ptr<Updater> updater = MakeUpdater(b, "found");
+        ui.SetUpdater(updater.get());
+        const float w = metric::kMinWidth, h = metric::kMinHeight;
+        auto frames = [&](int n) {
+            for (int i = 0; i < n; ++i) ui.Frame(kDt, w, h, 1);
+        };
+        ui.ShowSettings(true);
+        frames(1);
+        const auto inBox = [&](const Rect& r) { return r.y > metric::kMargin && r.Bottom() <= h - metric::kMargin; };
+        ui.HandleEvent(MotionEvent(w * 0.5f, h * 0.5f));
+        for (int notch = 0; notch < 60 && !inBox(ui.CheckUpdatesRect()); ++notch) {
+            ui.HandleEvent(WheelEvent(-1));
+            frames(1);
+        }
+        const Rect toggle = ui.CheckUpdatesRect();
+        Check(toggle.w > 0 && inBox(toggle), "settings: the Check for updates row scrolls into the box");
+        CheckEq(b.Setting(kCheckUpdatesKey), "", "settings: Check for updates is not written until changed");
+        Check(updater->Enabled(), "settings: Check for updates is on by default");
+        ui.HandleEvent(MotionEvent(toggle.CentreX(), toggle.CentreY()));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, toggle.CentreX(), toggle.CentreY()));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, toggle.CentreX(), toggle.CentreY()));
+        frames(1);
+        CheckEq(b.Setting(kCheckUpdatesKey), "0", "settings: a click turns Check for updates off and keeps it");
+        Check(!updater->Enabled(), "settings: the updater hears of it");
+        ui.ShowSettings(false);
+        frames(1);
+        Check(ui.UpdateBannerRect().w == 0, "settings: turned off, the banner goes");
+    }
+    {
+        FakeBackend b;
+        LauncherUi first(renderer, b);
+        std::unique_ptr<Updater> updater = MakeUpdater(b, "first");
+        first.SetUpdater(updater.get());
+        first.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(!first.Animating(), "first launch: no line about the check");
+        Check(first.UpdateBannerRect().w == 0, "first launch: no banner when nothing was found");
+        CheckEq(b.Setting(kCheckUpdatesKey), "", "first launch: nothing written about the check");
     }
 }
 
@@ -1219,6 +1534,7 @@ int main(int argc, char** argv) {
         CheckSettingsScroll(renderer);
         CheckVersionAndLogs(renderer);
         CheckTitleVersion(renderer);
+        CheckUpdateBanner(renderer);
         SDL_DestroyRenderer(renderer);
     }
     SDL_DestroySurface(scratch);

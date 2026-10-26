@@ -1,7 +1,12 @@
-// The launcher's Windows version resource: Explorer's Properties > Details and the Task Manager show these. CMakeLists.txt
-// fills the @...@ names (under if(WIN32)): the version from launcher/VERSION.txt, the name from the same words as
-// launcher/ui/theme.h.
+// The launcher's Windows resources: the version resource (Explorer's Properties > Details and the Task Manager show
+// these) and the icon of tpw_launcher.exe (Explorer, the taskbar, the Start menu shortcut install.ps1 makes), the
+// launcher's stand-in as a multi-size .ico that tpw_make_ico draws into the build folder (launcher/win/make_ico.cpp).
+// CMakeLists.txt fills the @...@ names (under if(WIN32)): the version from launcher/VERSION.txt, the name from the same
+// words as launcher/ui/theme.h, the .ico's path (forward slashes: a backslash would be an escape here).
 #include <winver.h>
+
+// The first icon of the file is the one Windows shows for it.
+1 ICON "@TPW_LAUNCHER_ICO@"
 
 VS_VERSION_INFO VERSIONINFO
 FILEVERSION @TPW_LAUNCHER_VERSION_COMMAS@,0

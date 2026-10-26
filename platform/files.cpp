@@ -11,6 +11,7 @@
 
 #include <sys/stat.h>
 
+#include "gold_rides.h"
 #include "packs.h"
 #include "platform.h"
 #include "platform/macdoze.h"
@@ -139,6 +140,9 @@ fs::path FindHostPath(const std::string& gamePath) {
             if (!found.empty() && fs::is_regular_file(found, ec)) return found;
         }
     }
+    // A Gold ride (gold_rides.h) at its place in the game folder, before the base game's copy of it.
+    found = GoldRideHostPath(parts);
+    if (!found.empty()) return found;
     return FindUnder(config().gameDir, parts);
 }
 
@@ -172,7 +176,7 @@ static bool IsDumpSideFile(const fs::path& path) {
 // macdoze_misc.cpp). The Load and Save panels show it as the time the park was saved, and the game's directory searches
 // compare it to find a player's newest park file. (A true Win32 FILETIME, UTC from 1601, showed as UTC plus 6 minutes 17
 // seconds: the glue's constant is 377.0368 s short of 1601 to 1904.) From tpw-port PR #18 by samueleagle91.
-static uint64_t FileTimeOf(const fs::path& path) {
+uint64_t FileTimeOf(const fs::path& path) {
     struct stat info;
     if (::stat(path.c_str(), &info) != 0) return 0;
     const std::time_t written = info.st_mtime;
@@ -193,17 +197,23 @@ static uint64_t FileTimeOf(const fs::path& path) {
 std::vector<DirEntry> ListGameFolder(const std::string& gamePath) {
     const auto parts = SplitGamePath(gamePath);
     const std::string inside = JoinParts(parts);
-    // The user folder, the asset packs (packs.h), the game folder; from a pack only the files a pack may hold.
+    // The user folder, the asset packs (packs.h), the game folder; from a pack only the files a pack may hold. The Gold
+    // rides (gold_rides.h) are listed with the game folder, as the Gold installer's copies would be in it: a Gold copy
+    // of a base ride takes the base entry's place, a new ride is sorted in among the base ones.
     std::vector<std::pair<fs::path, bool>> roots{{config().userDir, false}};
     for (const fs::path& pack : PackDirs()) roots.emplace_back(pack, true);
     roots.emplace_back(config().gameDir, false);
     std::vector<DirEntry> entries;
-    for (const auto& [root, pack] : roots) {
+    for (size_t r = 0; r < roots.size(); ++r) {
+        const auto& [root, pack] = roots[r];
+        const bool game = r + 1 == roots.size();
+        const std::vector<DirEntry> gold = game ? GoldRideEntries(inside) : std::vector<DirEntry>();
         const fs::path folder = FindUnder(root, parts);
         std::error_code ec;
-        if (folder.empty() || !fs::is_directory(folder, ec)) continue;
+        const bool listed = !folder.empty() && fs::is_directory(folder, ec);
+        if (!listed && gold.empty()) continue;
         std::vector<DirEntry> found;
-        for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec)) {
+        for (fs::directory_iterator it(folder, ec), end; listed && !ec && it != end; it.increment(ec)) {
             const std::string name = it->path().filename().string();
             if (name.empty() || name[0] == '.' || IsDumpSideFile(it->path())) continue;
             std::error_code kind;
@@ -215,6 +225,13 @@ std::vector<DirEntry> ListGameFolder(const std::string& gamePath) {
             const bool directory = it->is_directory(sizeError);
             const uint64_t size = directory ? 0 : it->file_size(sizeError);
             found.push_back({name, directory, sizeError ? 0 : size, FileTimeOf(it->path())});
+        }
+        for (const DirEntry& ride : gold) {
+            const auto same = [&](const DirEntry& e) { return EqualNoCase(e.name, ride.name); };
+            if (std::any_of(entries.begin(), entries.end(), same)) continue;   // the user folder or a pack has it
+            const auto base = std::find_if(found.begin(), found.end(), same);
+            if (base == found.end()) found.push_back(ride);
+            else if (!ride.isDirectory) *base = ride;   // the Gold copy, with its size and time
         }
         // A fixed order, so runs are repeatable (the Mac listed a folder alphabetically).
         std::sort(found.begin(), found.end(), [](const DirEntry& a, const DirEntry& b) {

@@ -13,7 +13,7 @@ namespace tpw::ui {
 
 enum class WindowOutcome {
     Play,    // `choice` says what to start
-    Quit,    // the window was closed
+    Quit,    // the window was closed (or "Restart to update": the update script waits for this process to end)
     Failed,  // `err` says why
 };
 
@@ -44,8 +44,19 @@ struct WindowPlacement {
     void (*videoStarted)() = nullptr;
     // Called once the window is on screen (macOS: the application menu is named after the launcher from then on).
     void (*windowShown)() = nullptr;
+    // Called with the window as soon as it is made (before it is shown) and again each time an import ends, with the
+    // data folder of the moment: the launcher's Dock or taskbar icon (launcher/app_icon.h: the game's own icon.png from
+    // that folder, or the stand-in). Null: nothing.
+    void (*windowIcon)(SDL_Window* window, const char* dataFolder) = nullptr;
+    // The folder holding the bare program, for the update check (updater.h FindInstall): on macOS the folder that holds
+    // the .app the launcher runs from (launcher/app_bundle.h ProgramFolder); empty: SDL_GetBasePath.
+    std::string programFolder;
     // The folder of the log files, which the About box's Show logs opens (empty: no such button).
     std::string logsFolder;
+    // What the About box's Show logs calls first, to select the newest log in the file manager (null: it opens the folder).
+    ShowLogsFn showLogs = nullptr;
+    // What the About box's Export logs calls (null: no such button).
+    ExportLogsFn exportLogs = nullptr;
 };
 
 // Initialises SDL's video subsystem if it is not yet, and leaves it initialised. On Play the window is not closed: it

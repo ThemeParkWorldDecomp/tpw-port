@@ -199,21 +199,6 @@ bool IsLogName(const std::string& name) {
     return name.size() > 13 && name.compare(0, 9, "launcher-") == 0 && name.compare(name.size() - 4, 4, ".log") == 0;
 }
 
-void WriteAll(int fd, const char* data, size_t length) {
-    while (length > 0) {
-#ifdef _WIN32
-        // Windows: _write takes and answers an int count (the header is a few hundred bytes) and has no EINTR.
-        const int wrote = _write(fd, data, static_cast<unsigned>(length));
-#else
-        const ssize_t wrote = write(fd, data, length);
-        if (wrote < 0 && errno == EINTR) continue;
-#endif
-        if (wrote <= 0) return;
-        data += wrote;
-        length -= static_cast<size_t>(wrote);
-    }
-}
-
 }  // namespace
 
 std::string LogFileName(std::time_t when) {
@@ -247,6 +232,26 @@ size_t RemoveOldLogs(const std::filesystem::path& folder, size_t keep) {
     return removed;
 }
 
+std::filesystem::path NewestLog(const std::filesystem::path& folder) {
+    std::error_code ec;
+    std::filesystem::path newest;
+    std::filesystem::file_time_type newestTime{};
+    for (std::filesystem::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec)) {
+        const std::string name = it->path().filename().string();
+        std::error_code typeError, timeError;
+        if (!IsLogName(name) || !it->is_regular_file(typeError)) continue;
+        std::filesystem::file_time_type time = it->last_write_time(timeError);
+        if (timeError) time = std::filesystem::file_time_type::min();
+        // Same time: by the stem without ".log", as RemoveOldLogs sorts, so "...-194629-2" comes after "...-194629".
+        if (newest.empty() || time > newestTime ||
+            (time == newestTime && name.substr(0, name.size() - 4) > newest.stem().string())) {
+            newest = it->path();
+            newestTime = time;
+        }
+    }
+    return newest;
+}
+
 bool OpenLogFile(const std::filesystem::path& folder, const std::string& firstLine, int argc, const char* const* argv,
                  std::string& err) {
     std::error_code ec;
@@ -277,9 +282,10 @@ bool OpenLogFile(const std::filesystem::path& folder, const std::string& firstLi
         return false;
     }
     CloseLogFile();
+    EnsureScrubIdentity();   // before the first byte: the header holds the folders and the command line
     gPath = path.string();
     const std::string header = firstLine + "\n" + LogHeaderLines(argc, argv, gPath);
-    WriteAll(fd, header.data(), header.size());
+    WriteScrubbed(fd, header.data(), header.size());
     gLogFileFd.store(fd);
     RemoveOldLogs(folder, kLogFilesKept);
     return true;

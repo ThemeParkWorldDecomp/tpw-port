@@ -26,7 +26,11 @@ const char* LastFatalException();
 bool HasStandardError();
 
 // Sends stdout and stderr to the file (UTF-8 path), made new each start, unbuffered so that a crash leaves it complete.
+// What is written is scrubbed first (platform/log_scrub.h): a thread moves it, one line at a time, from a pipe to the file.
 bool LogToFile(const std::string& path);
+// Writes what is still in that pipe to the file (the crash report, before the process ends; also at exit). No effect when
+// LogToFile did not run.
+void DrainLog();
 
 }  // namespace tpw::win32
 

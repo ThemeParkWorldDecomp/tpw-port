@@ -8,6 +8,9 @@
 // as the screen allows with the game's aspect ratio and never has more pixels than the game. The game is told its
 // own size, not the window's, and the mouse is mapped back through the letterbox. The game's full-screen box (procID 2)
 // is a real full-screen window, the whole screen in a Space of its own (not with --windowed, --background or --no-fit).
+// On a Mac, Cmd+Ctrl+F and the green button take the window in and out of full screen (the system does it; the window's
+// size is read every frame). On Windows and Linux, Alt+Enter does the same through ToggleFullScreen below, and on every
+// system the game's Esc menu has a button for it (src/game/ui/ui_mainmenu.cpp, through the hooks launcher/main.cpp sets).
 #include <SDL3/SDL.h>
 #if defined(__APPLE__)
 #include <objc/message.h>
@@ -31,11 +34,13 @@
 #include "platform/indirectx.h"
 #include "platform/macdoze.h"
 
-// The three OpenGL calls the frame dump needs (the game's own are in platform/opengl.h).
+// The three OpenGL calls the frame dump needs (the game's own are in platform/opengl.h), and the one the log's
+// driver line needs.
 extern "C" {
 void glPixelStorei(unsigned int name, int value);
 void glReadBuffer(unsigned int mode);
 void glReadPixels(int x, int y, int width, int height, unsigned int format, unsigned int type, void* pixels);
+const unsigned char* glGetString(unsigned int name);
 }
 
 namespace {
@@ -545,6 +550,52 @@ GrafPort* NewCWindow(void*, const Rect* bounds, const unsigned char* title, bool
     return &gWindow;
 }
 
+// Whether the window can go between full screen and a window at run time: a window exists, it is fitted and the run is
+// not --background (fit::CanToggleFullScreen). The Esc menu shows its full-screen button only while this holds.
+bool tpw::CanToggleFullScreen() {
+    return gWindowMade && tpw::fit::CanToggleFullScreen(gFit.wanted, tpw::config().background);
+}
+
+// Whether the window is a full-screen window now, as the window itself reports it (so the system's own switch, Cmd+Ctrl+F
+// or the green button on a Mac, counts too). The Esc menu's button reads it each time the menu opens.
+bool tpw::IsFullScreen() {
+    return gWindowMade && (SDL_GetWindowFlags(gWindow.sdl) & SDL_WINDOW_FULLSCREEN) != 0;
+}
+
+// Alt+Enter (platform/gamework.cpp, not on a Mac) and the Esc menu's full-screen button (every system): the window goes
+// between a real full-screen window (SDL's desktop full screen, as the game's full-screen box is made) and the fitted
+// window, the one --windowed makes. Only through the fit and never with --background (fit::CanToggleFullScreen): the
+// game's picture is letterboxed into whatever the window is (the letterbox is computed from the window's size every
+// frame), so nothing of the game's changes; the fitted window is sized and centred again as when it was made.
+bool tpw::ToggleFullScreen() {
+    if (!tpw::CanToggleFullScreen()) {
+        tpw::Log("fullscreen: the switch does nothing (%s)",
+                 !gWindowMade ? "no window yet" : !gFit.wanted ? "the window is not fitted" : "--background");
+        return false;
+    }
+    const bool wasFullScreen = tpw::IsFullScreen();
+    if (wasFullScreen) {
+        if (!SDL_SetWindowFullscreen(gWindow.sdl, false)) {
+            tpw::Log("fullscreen: could not leave full screen (%s)", SDL_GetError());
+            return false;
+        }
+        gFit.fullScreen = false;
+        if (!SDL_SyncWindow(gWindow.sdl)) tpw::Log("fullscreen: the move out of full screen had not finished in time");
+        tpw::Log("fullscreen: off (switched while playing); the game plays in a window");
+        RefitWindow();
+    } else {
+        if (!SDL_SetWindowFullscreenMode(gWindow.sdl, nullptr) || !SDL_SetWindowFullscreen(gWindow.sdl, true)) {
+            tpw::Log("fullscreen: not available (%s); the window stays", SDL_GetError());
+            return false;
+        }
+        gFit.fullScreen = true;
+        if (!SDL_SyncWindow(gWindow.sdl)) tpw::Log("fullscreen: the move to full screen had not finished in time");
+        tpw::Log("fullscreen: on (switched while playing)");
+        LogFullScreen();
+    }
+    return true;
+}
+
 // The application's frontmost window: the game's one window once it is shown. As on the
 // Mac, this does not depend on the application being the active one (the game hears about
 // that through its suspend and resume events and pauses itself). The engine presents a
@@ -728,6 +779,17 @@ class OpenGLImplementation : public IdxDirectDraw {
 public:
     SamsUtilities::UOpenGL* DisplayGetContext() override { return &SamsUtilities::gOpenGLContext; }
 };
+// The log's one line about the OpenGL driver, for a bug report from a computer we do not have: the driver's maker,
+// the graphics card and the OpenGL version the context came with. A "no video" report without it cannot say
+// whether the driver is the one at fault.
+void LogDriver() {
+    const auto string = [](unsigned int name) {
+        const auto* value = reinterpret_cast<const char*>(glGetString(name));
+        return value != nullptr ? value : "(none)";
+    };
+    tpw::Log("opengl: %s, %s, version %s", string(0x1F00 /*GL_VENDOR*/), string(0x1F01 /*GL_RENDERER*/),
+             string(0x1F02 /*GL_VERSION*/));
+}
 }  // namespace
 
 IdxDirectDraw* IdxDirectDraw::mImplementation = nullptr;
@@ -744,6 +806,7 @@ IdxDirectDraw* IdxMakeOpenGLImplementation(SamsUtilities::DeviceKind, GrafPort* 
             return nullptr;
         }
         SDL_GL_MakeCurrent(gWindow.sdl, static_cast<SDL_GLContext>(gWindow.glContext));
+        LogDriver();
         SDL_GL_SetSwapInterval(1);
         // The game's picture goes into a framebuffer of its own size from here on (see SwapBuffers).
         if (gFit.wanted && !tpw::offscreen::Create(gFit.gameWide, gFit.gameHigh)) DisableFit("no offscreen framebuffer");

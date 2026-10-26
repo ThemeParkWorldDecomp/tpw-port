@@ -16,13 +16,16 @@
 #include <fstream>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <iterator>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "Ptr32.h"
 #include "dialogs.h"
 #include "email.h"
+#include "gold_rides.h"
 #include "packs.h"
 #include "TbAudioSystem.h"
 #include "platform.h"
@@ -220,6 +223,108 @@ static void TestPacks(const fs::path& scratch) {
 
     tpw::PackDirs().clear();
     CHECK(Same(tpw::FindHostPath("data:init:640:Splash_American.tga"), config.gameDir / "data" / "init" / "640" / "Splash_American.tga"));
+    config.gameDir = gameDir;
+    config.userDir = userDir;
+}
+
+// The Gold rides (gold_rides.h): RideConfig.txt's list lays each .wad over the game folder at the installer's place,
+// a Gold copy of a base ride in the base file's place, a new ride among the base ones, and the user folder and the
+// asset packs still first; off, nothing changes.
+static void TestGoldRides(const fs::path& scratch) {
+    // The list as the CD writes it: CR LF, lines in threes, backslashes. A blank line, a folder with a trailing
+    // separator and a missing flag line do not throw the rest off.
+    const auto parsed = tpw::ParseRideConfig("x\r\n_snake_1.wad\r\ndata\\levels\\jungle\\rides\r\n"
+                                             "x\r\n_wormhol_33.wad\r\ndata\\levels\\space\\rides\r\n\r\n"
+                                             "x\r\n_newride_40.wad\r\nDATA/levels/space/features/\r\n"
+                                             "_strengt_34.wad\r\ndata\\levels\\space\\sideshow\r\n");
+    CHECK(parsed.size() == 4);
+    CHECK(parsed[0].name == "_snake_1.wad" && parsed[0].folder == "data/levels/jungle/rides");
+    CHECK(parsed[1].name == "_wormhol_33.wad" && parsed[1].folder == "data/levels/space/rides");
+    CHECK(parsed[2].name == "_newride_40.wad" && parsed[2].folder == "data/levels/space/features");
+    CHECK(parsed[3].name == "_strengt_34.wad" && parsed[3].folder == "data/levels/space/sideshow");
+    CHECK(tpw::ParseRideConfig("").empty());
+
+    tpw::Config& config = tpw::config();
+    const fs::path gameDir = config.gameDir;
+    const fs::path userDir = config.userDir;
+    config.gameDir = scratch / "game";
+    config.userDir = scratch / "user";
+    const fs::path gold = scratch / "gold";
+    const fs::path rides = fs::path("data") / "levels" / "space" / "rides";
+    const fs::path features = fs::path("data") / "levels" / "space" / "features";
+    Touch(config.gameDir / rides / "_wormhol_33.wad", "base wormhole");
+    Touch(config.gameDir / rides / "_wormhol_33.wad.finfo");   // the dump's side file stays hidden
+    Touch(config.gameDir / rides / "_alpha_50.wad", "base alpha");
+    Touch(config.gameDir / rides / "_zeta_51.wad", "base zeta");
+    Touch(config.gameDir / features / "_pulsar_29.wad", "base pulsar");
+    Touch(config.gameDir / "data" / "levels" / "space" / "global.sam");
+    Touch(config.userDir / features / "_pulsar_29.wad", "user pulsar");
+    Touch(gold / "_WORMHOL_33.WAD", "gold wormhole, longer");   // the CD's names in any case
+    Touch(gold / "_newride_40.wad", "gold new ride");
+    Touch(gold / "_pulsar_29.wad", "gold pulsar");
+    Touch(gold / "_shooter_13.wad", "gold shooter");   // a folder the base game here lacks
+    Touch(gold / "RideConfig.txt",
+          "x\r\n_wormhol_33.wad\r\ndata\\levels\\space\\rides\r\n"
+          "x\r\n_newride_40.wad\r\ndata\\levels\\space\\rides\r\n"
+          "x\r\n_pulsar_29.wad\r\ndata\\levels\\space\\features\r\n"
+          "x\r\n_shooter_13.wad\r\ndata\\levels\\hallow\\sideshow\r\n"
+          "x\r\n_lost_99.wad\r\ndata\\levels\\space\\rides\r\n");   // listed, but not on the disc
+
+    size_t missing = 0;
+    CHECK(tpw::UseGoldRides(gold, &missing) == 4);
+    CHECK(missing == 1);
+    CHECK(tpw::GoldRides().size() == 4 && tpw::GoldRides()[0].name == "_wormhol_33.wad");
+    CHECK(Same(tpw::GoldRides()[0].host, gold / "_WORMHOL_33.WAD"));
+
+    // Lookups: the Gold copy in the base file's place, a new ride at its place, the user folder still first, a listed
+    // ride that is not on the disc as if it were not listed, and the rest of the game folder as before.
+    CHECK(Same(tpw::FindHostPath("data:levels:space:rides:_wormhol_33.wad"), gold / "_WORMHOL_33.WAD"));
+    CHECK(Same(tpw::FindHostPath("TPW:Theme Park Data:data\\levels\\space\\rides\\_WORMHOL_33.wad"), gold / "_WORMHOL_33.WAD"));
+    CHECK(Same(tpw::FindHostPath("data:levels:space:rides:_newride_40.wad"), gold / "_newride_40.wad"));
+    CHECK(Same(tpw::FindHostPath("data:levels:hallow:sideshow:_shooter_13.wad"), gold / "_shooter_13.wad"));
+    CHECK(Same(tpw::FindHostPath("data:levels:space:features:_pulsar_29.wad"), config.userDir / features / "_pulsar_29.wad"));
+    CHECK(tpw::FindHostPath("data:levels:space:rides:_lost_99.wad").empty());
+    CHECK(Same(tpw::FindHostPath("data:levels:space:rides:_alpha_50.wad"), config.gameDir / rides / "_alpha_50.wad"));
+    CHECK(tpw::FindHostPath("data:levels:space:rides:RideConfig.txt").empty());   // the list itself is not a game file
+    CHECK(NS_MacDoze::GetFileAttributes("data\\levels\\space\\rides\\_newride_40.wad") != 0xFFFFFFFFu);
+
+    // Listings: the folder as the installer would have left it, sorted as one, the Gold copy with its own size.
+    auto names = [](const std::vector<tpw::DirEntry>& entries) {
+        std::string text;
+        for (const tpw::DirEntry& entry : entries) text += entry.name + (entry.isDirectory ? "/ " : " ");
+        return text;
+    };
+    const auto listed = tpw::ListGameFolder("data:levels:space:rides");
+    CHECK(names(listed) == "_alpha_50.wad _newride_40.wad _wormhol_33.wad _zeta_51.wad ");
+    CHECK(listed[2].size == std::strlen("gold wormhole, longer") && listed[1].size == std::strlen("gold new ride"));
+    CHECK(listed[0].size == std::strlen("base alpha") && !listed[1].isDirectory && listed[2].fileTime != 0);
+    CHECK(names(tpw::ListGameFolder("data:levels:space:features")) == "_pulsar_29.wad ");   // the user's, once
+    CHECK(tpw::ListGameFolder("data:levels:space:features")[0].size == std::strlen("user pulsar"));
+    CHECK(names(tpw::ListGameFolder("data:levels:space")) == "features/ global.sam rides/ ");
+    // The way to a ride the base lacks; the user folder's space/ is first, as always.
+    CHECK(names(tpw::ListGameFolder("data:levels")) == "space/ hallow/ ");
+    CHECK(names(tpw::ListGameFolder("data:levels:hallow:sideshow")) == "_shooter_13.wad ");
+    CHECK(tpw::ListGameFolder("data:levels:hallow:rides").empty());
+    // The game's directory search, which the ride database scans the folders with, sees the same.
+    NS_MacDoze::_WIN32_FIND_DATAA found{};
+    NS_MacDoze::InternalHandle* search = NS_MacDoze::FindFirstFile("data\\levels\\space\\rides\\*.wad", &found);
+    CHECK(search != reinterpret_cast<NS_MacDoze::InternalHandle*>(-1));
+    std::string searched = found.cFileName;
+    while (NS_MacDoze::FindNextFile(search, &found)) searched += std::string(" ") + found.cFileName;
+    NS_MacDoze::FindClose(search);
+    CHECK(searched == "_alpha_50.wad _newride_40.wad _wormhol_33.wad _zeta_51.wad");
+
+    // A pack's file still comes before a Gold ride (and before the game folder), though a pack holds no .wad.
+    // Off: the game folder alone, as before.
+    CHECK(tpw::UseGoldRides(fs::path()) == 0);
+    CHECK(tpw::GoldRides().empty());
+    CHECK(Same(tpw::FindHostPath("data:levels:space:rides:_wormhol_33.wad"), config.gameDir / rides / "_wormhol_33.wad"));
+    CHECK(tpw::FindHostPath("data:levels:space:rides:_newride_40.wad").empty());
+    CHECK(names(tpw::ListGameFolder("data:levels:space:rides")) == "_alpha_50.wad _wormhol_33.wad _zeta_51.wad ");
+    CHECK(names(tpw::ListGameFolder("data:levels")) == "space/ ");
+    // A folder without the list, or no folder, is no overlay either.
+    CHECK(tpw::UseGoldRides(scratch / "nowhere", &missing) == 0 && missing == 0);
+    CHECK(tpw::UseGoldRides(config.gameDir) == 0);
     config.gameDir = gameDir;
     config.userDir = userDir;
 }
@@ -1994,6 +2099,17 @@ static void TestFitFullScreen() {
     CHECK(!tpw::fit::RealFullScreen(false, true, false));   // --windowed: the document window
     CHECK(!tpw::fit::RealFullScreen(true, true, true));     // --background: the fitted window behind the others
     CHECK(!tpw::fit::RealFullScreen(true, false, false));   // --no-fit: the window is the game's size
+    // Alt+Enter toggles full screen on Windows and Linux: Enter with Alt alone, a first press. Never on a Mac.
+    CHECK(tpw::fit::FullScreenToggleKey(false, true, true, false, false));
+    CHECK(!tpw::fit::FullScreenToggleKey(true, true, true, false, false));    // a Mac: Option+Return is the game's
+    CHECK(!tpw::fit::FullScreenToggleKey(false, false, true, false, false));  // Alt with another key
+    CHECK(!tpw::fit::FullScreenToggleKey(false, true, false, false, false));  // Enter alone is the game's
+    CHECK(!tpw::fit::FullScreenToggleKey(false, true, true, true, false));    // Ctrl+Alt+Enter, Shift+Alt+Enter: not it
+    CHECK(!tpw::fit::FullScreenToggleKey(false, true, true, false, true));    // a held key's repeat does not toggle again
+    // It acts only through the fit and never with --background; --windowed's document window toggles too.
+    CHECK(tpw::fit::CanToggleFullScreen(true, false));
+    CHECK(!tpw::fit::CanToggleFullScreen(false, false));
+    CHECK(!tpw::fit::CanToggleFullScreen(true, true));
     // A 16:10 screen (1440 x 900 points) holding a 16:9 game: bars above and below (45 each), none at the sides.
     tpw::fit::Rect box = tpw::fit::Letterbox(1440, 900, 3840, 2160);
     CHECK(box.left == 0.0 && box.width == 1440.0 && box.height == 810.0 && box.top == 45.0);
@@ -2165,10 +2281,21 @@ TbSampleHeader* TbSoundPipeChannel::GetSampleHeader() {
     return &Fake(this)->header;
 }
 
-// The MPEG file player pool (src/sound/LbMpeg.cpp, src/sound/MpegDecode.cpp, src/sound/CSprocketsModule.cpp, src/sound/StreamableMpeg2.cpp, not linked here): the two members the module calls are counted.
+// The MPEG file player pool (src/sound/LbMpeg.cpp, src/sound/MpegDecode.cpp, src/sound/CSprocketsModule.cpp,
+// src/sound/StreamableMpeg2.cpp, not linked here): the two members the module calls are counted.
+// The pool's lock (MpegPoolQueueLock, include/CMpegBase.h), which the module holds around the maintenance, is a lock of its own.
 static int gKeepFullCalls = 0;
 static uint8_t gKeepFullArgument = 0xff;
 static int gMaintainCalls = 0;
+#ifdef TPW_PORT_FIX
+static bool gMaintainLocked = false;   // the last MaintainPoolLevel ran with the pool's lock held
+
+// Never destroyed, as src/sound/LbMpeg.cpp's.
+std::recursive_mutex& SamsUtilities::MpegPoolQueueLock() {
+    static std::recursive_mutex* lock = new std::recursive_mutex;
+    return *lock;
+}
+#endif
 
 template <>
 void SamsUtilities::MpegFilePlayerPool::SetPoolKeepFull(uint8_t flag) {
@@ -2179,6 +2306,15 @@ void SamsUtilities::MpegFilePlayerPool::SetPoolKeepFull(uint8_t flag) {
 template <>
 void SamsUtilities::MpegFilePlayerPool::MaintainPoolLevel() {
     ++gMaintainCalls;
+#ifdef TPW_PORT_FIX
+    // The lock is recursive, so only another thread fails to take it while the caller holds it.
+    bool taken = false;
+    std::thread([&taken] {
+        taken = SamsUtilities::MpegPoolQueueLock().try_lock();
+        if (taken) SamsUtilities::MpegPoolQueueLock().unlock();
+    }).join();
+    gMaintainLocked = !taken;
+#endif
 }
 
 bool TbSoundPipeChannel::StreamerCallback(void* buffer, uint32_t size, void* pipe) {
@@ -2245,8 +2381,16 @@ static void TestSound(const fs::path& scratch) {
     // Init sets the MPEG file player pool to be kept full and maintains it (the Tick that ends Init); each Tick maintains it.
     CHECK(gKeepFullCalls == 1 && gKeepFullArgument == 1);
     CHECK(gMaintainCalls == 1);
+#ifdef TPW_PORT_FIX
+    // Tick holds the pool's lock across the maintenance, which walks the queue SDL's audio thread returns players to.
+    CHECK(gMaintainLocked);
+    gMaintainLocked = false;
+#endif
     module->Tick();
     CHECK(gMaintainCalls == 2);
+#ifdef TPW_PORT_FIX
+    CHECK(gMaintainLocked);
+#endif
     CHECK(module->Channels() != nullptr);
     for (uint32_t i = 0; i < 4; ++i) {
         CHECK(module->ChannelAt(i) != nullptr);
@@ -2729,6 +2873,7 @@ int main() {
     fs::create_directories(scratch);
     TestPaths(scratch);
     TestPacks(scratch / "packs");
+    TestGoldRides(scratch / "gold");
     TestEdition(scratch / "edition");
     TestSwearStreams();
     TestMslRuntime();
