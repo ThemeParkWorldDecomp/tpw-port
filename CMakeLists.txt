@@ -36,6 +36,12 @@ if(NOT TPW_GAME_PROGRAM AND NOT DEFINED ENV{TPW_GAME_PROGRAM})
       CACHE FILEPATH "A full Mac SimTheme Park application (its data fork) the data tables are read from")
 endif()
 set(TPW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+# The Linux build (the LINUX parts of this file): the platform layer's host code is in platform/host_linux.cpp and
+# platform/linux, and the game is drawn by the port's own Vulkan renderer (platform/vulkan), with OpenGL as its fallback
+# (platform/gl_entry.cpp); nothing of OpenGL or Vulkan is linked, so the build needs neither development package.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  set(TPW_LINUX ON)
+endif()
 
 # The headers: the submodule's include/ and platform/ headers, with overrides/include and overrides/platform laid over them,
 # copied into the build folder at configure time (TPW_OVERLAY_DIR). Every target reads its headers from the copy and never
@@ -69,14 +75,18 @@ endforeach()
 
 add_subdirectory(${TPW_DECOMP_DIR} tpw-decomp)
 
-if(WIN32)
-  # The Windows build of the game library: tpw-decomp as it is, with what Windows lacks provided here. The POSIX headers
-  # MinGW has no copy of (dlfcn.h, sys/statvfs.h, pthread/qos.h) are in platform/win, over platform/posix_win.cpp.
-  target_include_directories(tpw PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/platform/win)
+if(NOT APPLE)
+  # The Windows and Linux builds of the game library: tpw-decomp as it is, with what those systems lack provided here.
+  if(WIN32)
+    # The POSIX headers MinGW has no copy of (dlfcn.h, sys/statvfs.h, pthread/qos.h) are in platform/win, over
+    # platform/posix_win.cpp.
+    target_include_directories(tpw PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/platform/win)
+  endif()
   # tpw-decomp builds src/sound/CSprocketsModule.cpp without the methods platform/sound_module.cpp defines, with its
   # slicer (tpw_slice in its CMakeLists.txt), which runs on libclang; devtools/slice_win.py makes the copy from the same
-  # list, without libclang. The destructor goes too: it is the class's key function, so the file emits the vtable, which
-  # its Mach-O directive makes weak and COFF cannot; the vtable is then platform/sound_module.cpp's.
+  # list, without libclang (on Linux too: a player's machine has no libclang, and GCC has none beside it). The destructor
+  # goes too: it is the class's key function, so the file emits the vtable, which its Mach-O directive makes weak and
+  # neither COFF nor ELF can (the script also drops that directive); the vtable is then platform/sound_module.cpp's.
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
   get_property(TPW_WIN_SLICE_DROP GLOBAL PROPERTY TPW_SLICE_tpw_LIST)
   list(APPEND TPW_WIN_SLICE_DROP __ZN16CSprocketsModuleD1Ev)   # CSprocketsModule::~CSprocketsModule()
@@ -91,7 +101,7 @@ if(WIN32)
         COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/devtools/slice_win.py
                 --src ${TPW_DECOMP_DIR}/src/${rel} --out ${copy} --drop ${TPW_WIN_SLICE_DROP}
         DEPENDS ${TPW_DECOMP_DIR}/src/${rel} ${CMAKE_CURRENT_SOURCE_DIR}/devtools/slice_win.py
-        COMMENT "Slicing src/${rel} for tpw (Windows)"
+        COMMENT "Slicing src/${rel} for tpw (without libclang)"
         VERBATIM)
       # Compiled as tpw-decomp's copy would be (its quoted includes are found beside the original).
       get_source_file_property(options ${source} TARGET_DIRECTORY tpw COMPILE_OPTIONS)
@@ -122,10 +132,12 @@ if(NOT TPW_INCLUDE_DIR)
   set(TPW_INCLUDE_DIR ${TPW_DECOMP_DIR}/include)
 endif()
 if(TPW_BUILD_LAUNCHER)
-  find_package(OpenGL QUIET)
+  if(NOT TPW_LINUX)   # Linux: the port's own renderer provides the OpenGL calls (platform/gl_entry.cpp), nothing is linked
+    find_package(OpenGL QUIET)
+  endif()
   find_package(Python3 COMPONENTS Interpreter QUIET)
 endif()
-if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
+if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   # SDL3 is built from source here (third_party/SDL3, static), never taken from the host: only the system's own frameworks
   # and libraries are linked, and no copy of SDL, libusb or the like that the host has is looked for.
   set(SDL_STATIC ON CACHE BOOL "" FORCE)
@@ -142,7 +154,10 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   list(REMOVE_DUPLICATES TPW_PLATFORM_SOURCES)
   add_library(tpw_platform STATIC ${TPW_PLATFORM_SOURCES})
   target_include_directories(tpw_platform PUBLIC ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
-  target_link_libraries(tpw_platform PUBLIC SDL3::SDL3 OpenGL::GL)
+  target_link_libraries(tpw_platform PUBLIC SDL3::SDL3)
+  if(NOT TPW_LINUX)
+    target_link_libraries(tpw_platform PUBLIC OpenGL::GL)
+  endif()
   target_compile_definitions(tpw_platform PRIVATE GL_SILENCE_DEPRECATION)
   # The IJG's libjpeg 6b (third_party/libjpeg-6b, see its NOTE.md): the game's JPEG calls (platform/jpeg_bridge.cpp) run on it. Its
   # headers are only the platform layer's own; the unit test libraries never compile it (they fake the calls).
@@ -170,6 +185,25 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
     target_link_libraries(tpw_platform PUBLIC ws2_32 glu32)
     # platform/log_export.cpp: the Downloads folder is a Known Folder (SHGetKnownFolderPath, shell32; CoTaskMemFree, ole32).
     target_link_libraries(tpw_platform PUBLIC shell32 ole32)
+  elseif(TPW_LINUX)
+    # The signs' text is drawn with stb_truetype (platform/gdi_text_stb.cpp, as on Windows) in place of CoreText. The Mac's
+    # thread quality-of-service header is platform/linux/pthread/qos.h, over platform/host_linux.cpp, which also answers a
+    # division the x86 traps as the Mac does. The game is drawn by the port's Vulkan renderer (platform/vulkan/, the
+    # vendored Vulkan headers of third_party/vulkan; the loader is opened at run time through SDL), and every OpenGL call
+    # the game makes is the port's own (platform/gl_entry.cpp): it goes to the Vulkan renderer, or to the system's OpenGL,
+    # opened at run time through SDL, when the player asks for it or Vulkan is not there. So no OpenGL or Vulkan library is
+    # linked, and the only libraries of the system in the launcher are the C and C++ runtimes and SDL's (dl, pthread).
+    get_target_property(platform_sources tpw_platform SOURCES)
+    list(REMOVE_ITEM platform_sources ${CMAKE_CURRENT_SOURCE_DIR}/platform/gdi_text.cpp)
+    set_property(TARGET tpw_platform PROPERTY SOURCES ${platform_sources})
+    file(GLOB TPW_VULKAN_SOURCES CONFIGURE_DEPENDS platform/vulkan/*.cpp)
+    target_sources(tpw_platform PRIVATE ${TPW_VULKAN_SOURCES})
+    target_compile_definitions(tpw_platform PUBLIC TPW_HAVE_VULKAN=1)
+    target_include_directories(tpw_platform PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb
+                               ${CMAKE_CURRENT_SOURCE_DIR}/third_party/vulkan/include)
+    target_include_directories(tpw_platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/platform/linux)
+    find_package(Threads REQUIRED)
+    target_link_libraries(tpw_platform PUBLIC ${CMAKE_DL_LIBS} Threads::Threads)
   endif()
 
   # The game's films (QuickTime, Sorenson video) play through FFmpeg (platform/quicktime.cpp), built from source here
@@ -225,6 +259,16 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
         list(APPEND TPW_STUB_SYSLIBS --provides ${TPW_WIN_LIB_${lib}})
       endif()
     endforeach()
+  elseif(TPW_LINUX)
+    # The OpenGL calls are the platform layer's own (platform/gl_entry.cpp), and the C and C++ runtimes are dlsym'ed by the
+    # generator; the part of glibc that is linked statically into every program (libc_nonshared.a: atexit, among others)
+    # is read as a static library, so that its functions get no stand-in.
+    set(TPW_STUB_SYSLIBS)
+    execute_process(COMMAND ${CMAKE_CXX_COMPILER} -print-file-name=libc_nonshared.a OUTPUT_VARIABLE tpw_libc_nonshared
+                    OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    if(EXISTS "${tpw_libc_nonshared}")
+      set(TPW_STUB_SYSLIBS --provides ${tpw_libc_nonshared})
+    endif()
   else()
     set(TPW_STUB_SYSLIBS --syslib libGL.so.1)
   endif()
@@ -243,6 +287,11 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   add_executable(tpw_launcher $<TARGET_OBJECTS:tpw_launcher_objects> ${TPW_STUBS})
   target_include_directories(tpw_launcher PRIVATE ${TPW_INCLUDE_DIR} launcher)
   target_link_libraries(tpw_launcher PRIVATE tpw tpw_platform tpw_launcher_ui)
+  if(TPW_LINUX)
+    # GNU ld reads each static library once, in order: the game functions only the platform layer calls (the JPEG loader's
+    # constructor body, a mail attachment's) are asked for after libtpw.a has gone by, so it is read once more at the end.
+    target_link_libraries(tpw_launcher PRIVATE $<TARGET_FILE:tpw>)
+  endif()
   if(WIN32)
     # A Windows app, not a console one: started from Explorer it opens no console window, and its log goes to
     # launcher.log beside launcher.ini (launcher/main.cpp). Its symbols are exported, so that the game's
@@ -288,6 +337,39 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
       set_tests_properties(platform PROPERTIES DISABLED ON)
       message(STATUS "tpw: platform tests not made (TPW_LIBCLANG names no libclang.dll)")
     endif()
+  elseif(TPW_LINUX)
+    # The same on Linux, where a GCC build has no libclang beside the compiler: the tests are made when a libclang is
+    # found, the distribution's (libclang-NN-dev or libclang1-NN on Debian and Ubuntu, /usr/lib/llvm-NN/lib) or the one
+    # TPW_LIBCLANG names, and the slicer runs through devtools/slicer_linux.py, which gives it that libclang and clang's
+    # resource folder beside it.
+    set(TPW_LIBCLANG "$ENV{TPW_LIBCLANG}" CACHE FILEPATH "libclang (a .so), for the platform tests' slicer on Linux")
+    set(tpw_libclang "${TPW_LIBCLANG}")
+    if(NOT EXISTS "${tpw_libclang}")
+      file(GLOB tpw_libclang_candidates /usr/lib/llvm-*/lib/libclang-*.so.* /usr/lib/llvm-*/lib/libclang.so.* /usr/lib/*/libclang-*.so.*
+           /usr/lib64/libclang.so.* /usr/lib/libclang.so.* /usr/local/lib/libclang.so.*)
+      list(FILTER tpw_libclang_candidates EXCLUDE REGEX "libclang-cpp")
+      if(tpw_libclang_candidates)
+        list(SORT tpw_libclang_candidates COMPARE NATURAL ORDER DESCENDING)
+        list(GET tpw_libclang_candidates 0 tpw_libclang)
+      endif()
+    endif()
+    if(EXISTS "${tpw_libclang}")
+      set(wrapper ${CMAKE_CURRENT_SOURCE_DIR}/devtools/slicer_linux.py)
+      set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${wrapper})
+      file(SHA1 ${wrapper} wrapper_sha1)
+      set(runner ${CMAKE_CURRENT_BINARY_DIR}/slicer_linux_run.py)
+      file(WRITE ${runner}.new "# Written by CMakeLists.txt: devtools/slicer_linux.py (${wrapper_sha1}) with this build's libclang.\n"
+                               "import os, runpy\n"
+                               "os.environ[\"TPW_LIBCLANG\"] = r\"${tpw_libclang}\"\n"
+                               "runpy.run_path(r\"${wrapper}\", run_name=\"__main__\")\n")
+      configure_file(${runner}.new ${runner} COPYONLY)
+      set_property(GLOBAL PROPERTY TPW_SLICER ${runner})
+      message(STATUS "tpw: platform tests sliced with ${tpw_libclang}")
+    else()
+      set_target_properties(tpw_platform_tests PROPERTIES EXCLUDE_FROM_ALL ON)
+      set_tests_properties(platform PROPERTIES DISABLED ON)
+      message(STATUS "tpw: platform tests not made (no libclang found; TPW_LIBCLANG names one)")
+    endif()
   endif()
   # The launcher's log file (platform/log_file.cpp): its header, its name and the ten-file rotation, in a temporary folder.
   add_executable(tpw_log_tests platform/tests/log_tests.cpp)
@@ -299,6 +381,16 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   target_include_directories(tpw_log_scrub_tests PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
   target_link_libraries(tpw_log_scrub_tests PRIVATE tpw_platform)
   add_test(NAME log_scrub COMMAND tpw_log_scrub_tests)
+
+  if(TPW_LINUX)
+    # The Vulkan renderer against the system's OpenGL, through the game's OpenGL calls (platform/tests/renderer_tests.cpp):
+    # needs a display and a Vulkan device (CI runs it under Xvfb with Mesa's software ones), skips (77) without them.
+    add_executable(tpw_renderer_tests platform/tests/renderer_tests.cpp)
+    target_include_directories(tpw_renderer_tests PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    target_link_libraries(tpw_renderer_tests PRIVATE tpw_platform)
+    add_test(NAME renderer COMMAND tpw_renderer_tests)
+    set_tests_properties(renderer PROPERTIES SKIP_RETURN_CODE 77)
+  endif()
 
   # Where the intro films are drawn (include/platform/filmbox.h): pure arithmetic, no game or window.
   add_executable(tpw_host_filmbox ${TPW_DECOMP_DIR}/tests/host_filmbox.cpp)

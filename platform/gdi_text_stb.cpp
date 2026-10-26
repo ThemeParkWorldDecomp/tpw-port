@@ -1,12 +1,15 @@
-// Windows port contributed by samueleagle91 (tpw-port PR #1)
-// gdi_text_win.cpp: gdi_text.h on Windows, with stb_truetype (third_party/stb) where the Mac's gdi_text.cpp has CoreText,
-// which CMakeLists.txt leaves out of the Windows build. Fonts are found among the files AddFontResource registered, then
-// among the system's font files, and text is laid out without kerning or ligatures, as on the Mac.
+// Windows port contributed by samueleagle91 (tpw-port PR #1); the Linux parts (the system's font folders and the
+// fallback faces) are the Linux port's.
+// gdi_text_stb.cpp: gdi_text.h on Windows and Linux, with stb_truetype (third_party/stb) where the Mac's gdi_text.cpp has
+// CoreText, which CMakeLists.txt leaves out of those builds. Fonts are found among the files AddFontResource registered,
+// then among the system's font files, and text is laid out without kerning or ligatures, as on the Mac.
 //
-// What differs from the CoreText side: the system fonts are the Windows font folder read on the first miss; the fallback
-// for an unknown name is Arial (Helvetica's metric twin) or the first face found; and a pixel is ink when its glyph
-// coverage reaches one half, where CoreGraphics without antialiasing tests the pixel's centre.
-#ifdef _WIN32
+// What differs from the CoreText side: the system fonts are the system's font folders read on the first miss (the Windows
+// font folder; on Linux /usr/share/fonts, /usr/local/share/fonts and the player's own, as fontconfig lists them); the
+// fallback for an unknown name is Arial (Helvetica's metric twin), on Linux one of its metric twins (Liberation Sans,
+// Arimo) or DejaVu Sans, else the first face found; and a pixel is ink when its glyph coverage reaches one half, where
+// CoreGraphics without antialiasing tests the pixel's centre.
+#if defined(_WIN32) || defined(__linux__)
 #include "gdi_text.h"
 #include "resource_fork.h"
 
@@ -180,13 +183,41 @@ bool LooksLikeSfnt(const std::vector<uint8_t>& bytes) {
     return magic == 0x00010000 || magic == ForkType("true") || magic == ForkType("OTTO") || magic == ForkType("ttcf");
 }
 
-// Windows' own fonts, read once, on the first name the game's files do not have.
+// The system's own font folders.
+std::vector<std::filesystem::path> SystemFontFolders() {
+    std::vector<std::filesystem::path> folders;
+#ifdef _WIN32
+    const char* windows = std::getenv("WINDIR");
+    folders.push_back(std::filesystem::path(windows != nullptr ? windows : "C:\\Windows") / "Fonts");
+#else
+    // The folders fontconfig's default configuration lists (fonts.conf): the system's, the distribution's extra ones
+    // (XDG_DATA_DIRS, /usr/local/share by default) and the player's own (XDG_DATA_HOME, ~/.local/share by default, and the
+    // older ~/.fonts).
+    folders.push_back("/usr/share/fonts");
+    folders.push_back("/usr/local/share/fonts");
+    if (const char* dirs = std::getenv("XDG_DATA_DIRS")) {
+        std::string list = dirs;
+        for (size_t start = 0; start <= list.size();) {
+            const size_t end = std::min(list.find(':', start), list.size());
+            if (end > start) folders.push_back(std::filesystem::path(list.substr(start, end - start)) / "fonts");
+            start = end + 1;
+        }
+    }
+    const char* home = std::getenv("HOME");
+    if (const char* data = std::getenv("XDG_DATA_HOME"); data != nullptr && data[0] != '\0')
+        folders.push_back(std::filesystem::path(data) / "fonts");
+    else if (home != nullptr)
+        folders.push_back(std::filesystem::path(home) / ".local" / "share" / "fonts");
+    if (home != nullptr) folders.push_back(std::filesystem::path(home) / ".fonts");
+#endif
+    return folders;
+}
+
+// The system's own fonts, read once, on the first name the game's files do not have.
 const std::vector<Face>& SystemFaces() {
     static auto* faces = [] {
         auto* found = new std::vector<Face>;
-        const char* windows = std::getenv("WINDIR");
-        const std::filesystem::path folders[] = {std::filesystem::path(windows != nullptr ? windows : "C:\\Windows") / "Fonts"};
-        for (const auto& folder : folders) {
+        for (const auto& folder : SystemFontFolders()) {
             std::error_code ec;
             for (auto it = std::filesystem::recursive_directory_iterator(folder, ec);
                  !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
@@ -282,7 +313,11 @@ std::unique_ptr<Font> Font::Create(const Style& style) {
     const Face* face = FindFace(Faces(), wanted, bold, italic);
     if (face == nullptr) face = FindFace(SystemFaces(), wanted, bold, italic);
     if (face == nullptr) {
-        face = FindFace(SystemFaces(), "arial", bold, italic);
+        // Arial, Helvetica's metric twin; on Linux also Arial's own metric twins and then the usual sans face.
+        for (const char* name : {"arial", "liberation sans", "arimo", "dejavu sans", "noto sans"}) {
+            face = FindFace(SystemFaces(), name, bold, italic);
+            if (face != nullptr) break;
+        }
         if (face == nullptr && !SystemFaces().empty()) face = &SystemFaces().front();
         if (face == nullptr && !Faces().empty()) face = &Faces().front();
         LogOnce("face:" + wanted, "no font named \"" + style.face + "\", using " +
