@@ -91,6 +91,8 @@ new_case() { # NAME [HOME_DIR]
     FAKE=$C/fake
     SUBREPO=$C/sub
     TPW_INSTALL_REPO=$FAKE
+    TPW_INSTALL_APPS=$C/apps   # stands for /Applications: the application goes here, never in the runner's own
+    export TPW_INSTALL_APPS
     export TPW_INSTALL_REPO
     unset TPW_INSTALL_STUB TPW_INSTALL_STUB_VERSION TPW_FAKE_BUILD ZDOTDIR
     TPW_FAKE_SLEEP=604
@@ -208,6 +210,7 @@ EOF
 #!/bin/sh
 # A stand-in launcher of version @VERSION@: answers --version, and when run from a folder named build notes it.
 if [ "$1" = --version ]; then printf 'STP/TPW Launcher v@VERSION@\nbuild: fake\n'; fi
+if [ "$1" = --write-icon ]; then exit 1; fi
 here=$(cd "$(dirname "$0")" && pwd)
 if [ "$(basename "$here")" = build ]; then
     printf 'STP/TPW Launcher v@VERSION@ args=%s cwd=%s\n' "$*" "$PWD" >>"$here/../stub-launch.txt"
@@ -253,7 +256,8 @@ wait_for_count() { # FOLDER TEXT MORE_THAN
 }
 
 # A new Terminal window of the player's shell: a login shell with a bare environment. Types themepark --version from
-# another folder, and the stand-in launcher must have been started with --version, as version VERSION.
+# another folder: the version line must show in the window (themepark runs the launcher in the foreground for it), and
+# the stand-in launcher must have been started with --version, as version VERSION.
 check_new_shell() { # DIR VERSION [SHELL]
     local dir=$1 v=$2 shell=${3:-${SHELL:-/bin/zsh}} want seen out
     want="STP/TPW Launcher v$v args=--version"
@@ -263,7 +267,23 @@ check_new_shell() { # DIR VERSION [SHELL]
     echo "$out"
     case "$out" in "$dir/bin/themepark"*) ;; *) bad "a new $shell window finds themepark at \"${out%%$'\n'*}\", not $dir/bin/themepark" ;; esac
     case "$out" in *"exit=0") ;; *) bad "themepark --version in a new $shell window did not exit with 0" ;; esac
+    case "$out" in *"STP/TPW Launcher v$v"*) ;; *) bad "themepark --version in a new $shell window did not print the version line of $v" ;; esac
     wait_for_count "$dir" "$want" "$seen" || bad "themepark --version in a new $shell window did not start version $v"
+}
+
+# themepark ARGS... typed in a new Terminal window (a login shell with a bare environment, plus what the fake build
+# needs), from another folder: the output in OUT, the exit code in RC. For themepark update, which runs the installer in
+# source/ in the window.
+run_themepark() { # OUT ARGS...
+    local out=$1
+    shift
+    (cd / && env -i HOME="$HOME" USER="${USER:-}" TERM=dumb PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+        TPW_INSTALL_HOME="$TPW_INSTALL_HOME" TPW_INSTALL_APPS="$TPW_INSTALL_APPS" TPW_INSTALL_REPO="$TPW_INSTALL_REPO" \
+        TPW_FAKE_SLEEP="$TPW_FAKE_SLEEP" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=protocol.file.allow \
+        GIT_CONFIG_VALUE_0=always GIT_TERMINAL_PROMPT=0 "${SHELL:-/bin/zsh}" -l -c 'themepark "$@"' themepark "$@") \
+        >"$out" 2>&1 </dev/null
+    RC=$?
+    show_run "$out"
 }
 
 # The folder DIR holds this version's launcher in build/, and says so.
@@ -274,6 +294,29 @@ check_build() { # DIR VERSION CHANNEL
     expect_in "$1/build/install-info.txt" "version=$2"
     expect_in "$1/build/install-info.txt" "channel=$3"
     expect_eq "channel.txt" "$(cat "$1/channel.txt")" "$3"
+}
+
+# The application in the folder that stands for /Applications (TPW_INSTALL_APPS): named for the Finder, its Info.plist
+# names STP/TPW Launcher and carries the version's numbers, its program is the installer's and starts the launcher of DIR
+# (the stand-in notes "args= cwd=DIR" once more). ICON=1: the icon is there too (a real build).
+check_app() { # DIR VERSION [ICON]
+    local app="$TPW_INSTALL_APPS/STP:TPW Launcher.app" exe before
+    exe="$app/Contents/MacOS/STP-TPW-Launcher"
+    [ -d "$app" ] || bad "$app is missing"
+    grep -qF '<string>STP/TPW Launcher</string>' "$app/Contents/Info.plist" || bad "the application's Info.plist does not name STP/TPW Launcher"
+    grep -qF "<string>${2%-dev}</string>" "$app/Contents/Info.plist" || bad "the application's Info.plist does not carry version ${2%-dev}"
+    grep -qF '<string>org.tpw-port.launcher</string>' "$app/Contents/Info.plist" || bad "the application's Info.plist has not the launcher's identifier"
+    expect_in "$exe" '# tpw-port installer: the STP/TPW Launcher application'
+    [ -x "$exe" ] || bad "the application's program is not executable"
+    expect_eq "PkgInfo" "$(cat "$app/Contents/PkgInfo")" 'APPL????'
+    if [ "${3:-0}" = 1 ]; then
+        [ -s "$app/Contents/Resources/icon.icns" ] || bad "the application has no icon"
+        grep -qF '<string>icon</string>' "$app/Contents/Info.plist" || bad "the application's Info.plist names no icon"
+    else
+        before=$(launch_count "$1" "STP/TPW Launcher v$2 args= cwd=$1")
+        "$exe" || bad "the application's program did not run"
+        wait_for_count "$1" "STP/TPW Launcher v$2 args= cwd=$1" "$before" || bad "the application did not start the launcher of $1"
+    fi
 }
 
 marked_lines() { # FILE
@@ -329,6 +372,7 @@ case_fresh() {
     expect_text "$C/out1" 'Newest release: 0.0.1'
     expect_text "$C/out1" 'From now on, type themepark in any new Terminal window to play.'
     check_build "$DIR" 0.0.1 stable
+    check_app "$DIR" 0.0.1
     [ "$(git -C "$DIR/source" rev-parse HEAD)" = "$(git -C "$FAKE" rev-parse 'v0.0.1^{commit}')" ] || bad "the source is not at the tag's commit"
     expect_in "$DIR/build/install-info.txt" "commit=$(git -C "$FAKE" rev-parse 'v0.0.1^{commit}')"
     [ -f "$DIR/source/tpw-decomp/README" ] || bad "the submodule was not downloaded"
@@ -632,6 +676,26 @@ case_updater() {
     run_file "$C/u7" "$DIR/source/install.sh" --update --dir "$DIR" --no-launch
     ok_run "$C/u7" 0.0.4
     check_build "$DIR" 0.0.4 stable
+    # themepark update, typed in a new window: the same --update, run by the command from source/ in the foreground
+    fake_release 0.0.5
+    run_themepark "$C/u8" update --no-launch
+    ok_run "$C/u8" 0.0.5
+    check_build "$DIR" 0.0.5 stable
+    check_new_shell "$DIR" 0.0.5
+    # refused while this install's launcher runs (a process whose command line is the launcher's path stands for it)
+    bash -c 'exec -a "$1" sleep 30' bash "$DIR/build/tpw_launcher" &
+    fakepid=$!
+    run_themepark "$C/u9" update --no-launch
+    kill "$fakepid" 2>/dev/null
+    wait "$fakepid" 2>/dev/null
+    [ "$RC" != 0 ] || bad "themepark update ran while the launcher was running"
+    expect_text "$C/u9" "themepark: the launcher is running (process $fakepid)"
+    grep -q '^STEP ' "$C/u9" && bad "themepark update started the installer while the launcher was running"
+    check_build "$DIR" 0.0.5 stable
+    # its options go to the installer: themepark update --dev moves the install to main
+    run_themepark "$C/u10" update --dev --no-launch
+    ok_run "$C/u10" 0.0.6-dev
+    check_build "$DIR" 0.0.6-dev dev
 }
 
 # --dev follows main; the plain line and --update (which never passes --dev) move the install to the newest release.
@@ -1086,6 +1150,7 @@ case_real() {
     ok_run "$C/o1" "$version"
     expect_text "$C/o1" 'fetching CMake'
     check_build "$DIR" "$version" stable
+    check_app "$DIR" "$version" 1
     "$DIR/build/tpw_launcher" --version </dev/null | tee "$C/version.txt"
     expect_in "$C/version.txt" "STP/TPW Launcher v$version"
     grep -q '^build: ' "$C/version.txt" || bad "the launcher printed no build line"
@@ -1102,8 +1167,9 @@ case_real() {
     expect_eq ".zprofile lines" "$(marked_lines "$H/.zprofile")" 1
 }
 
-# The real launcher answers --version through themepark in a new window. themepark detaches it and hides its output, so
-# this checks the command, the exit code and that the launcher process ends by itself.
+# The real launcher answers --version through themepark in a new window: themepark runs it in the foreground for that,
+# so its version and build lines show. This checks the command, the exit code, those lines and that the launcher
+# process ends by itself.
 check_new_shell_real() { # DIR
     local out
     out=$(cd / && env -i HOME="$HOME" USER="${USER:-}" TERM=dumb PATH=/usr/bin:/bin:/usr/sbin:/sbin "${SHELL:-/bin/zsh}" -l -c \
@@ -1111,6 +1177,8 @@ check_new_shell_real() { # DIR
     echo "$out"
     case "$out" in "$1/bin/themepark"*) ;; *) bad "a new window finds themepark at \"${out%%$'\n'*}\"" ;; esac
     case "$out" in *"exit=0") ;; *) bad "themepark --version in a new window did not exit with 0" ;; esac
+    case "$out" in *"STP/TPW Launcher v"*) ;; *) bad "themepark --version in a new window did not print the version line" ;; esac
+    case "$out" in *$'\nbuild: '*) ;; *) bad "themepark --version in a new window did not print the build line" ;; esac
     for _ in $(seq 30); do
         ps -A -o command= | grep -F "$1/build/tpw_launcher" | grep -vq grep || return 0
         sleep 1

@@ -363,7 +363,6 @@ void TestUpdater() {
     {   // the check finds a newer version and keeps it; the banner shows; the release page is What's new
         Settings settings;
         ui::Updater updater(settings, Stable(false), nullptr, Answering("0.0.4"));
-        Check(updater.TakeFirstLaunch() && !updater.TakeFirstLaunch(), "the first launch's line, once");
         updater.StartupCheck(now);
         Settle(updater);
         Check(updater.Visible() && updater.Found() == "0.0.4" && !updater.Offline(), "found 0.0.4");
@@ -402,7 +401,7 @@ void TestUpdater() {
         settings.keys = {{"check_updates", "0"}, {"update_found", "0.0.4"}};
         ui::Updater updater(settings, Stable(false), nullptr, Answering("0.0.4"));
         updater.StartupCheck(now);
-        Check(!updater.Visible() && !updater.TakeFirstLaunch() && updater.CurrentPhase() == Phase::Idle, "off");
+        Check(!updater.Visible() && updater.CurrentPhase() == Phase::Idle, "off");
     }
     {   // a script install: Update asks again, runs the script, shows its steps; built: Restart starts the switch
         Settings settings;

@@ -221,8 +221,8 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     message(STATUS "tpw: films play (FFmpeg 9.0.2, third_party/ffmpeg)")
   endif()
 
-  add_library(tpw_launcher_objects OBJECT launcher/main.cpp launcher/asset_packs.cpp launcher/pending_manual.cpp
-              launcher/static_init.cpp launcher/startup.cpp)
+  add_library(tpw_launcher_objects OBJECT launcher/main.cpp launcher/app_bundle.cpp launcher/app_icon.cpp launcher/app_icon_standin.cpp launcher/asset_packs.cpp
+              launcher/pending_manual.cpp launcher/static_init.cpp launcher/startup.cpp)
   target_include_directories(tpw_launcher_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
   # main.cpp opens the launcher's own window (tpw_launcher_ui, below) when no --game is given.
   target_link_libraries(tpw_launcher_objects PRIVATE SDL3::SDL3 tpw_launcher_ui)
@@ -455,28 +455,51 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   set(TPW_BUNDLE_EXECUTABLE tpw_launcher)
   string(REPLACE "." "," TPW_LAUNCHER_VERSION_COMMAS "${TPW_LAUNCHER_VERSION_NUMBER}")
   if(WIN32)
-    # The executable's version resource (launcher/win/launcher.rc.in): FileVersion, ProductVersion, ProductName and a
-    # FileDescription of the name with its version, which Explorer's Details and the Task Manager show. Compiled by the
-    # toolchain's resource compiler (llvm-mingw's windres); without one the build goes on without the resource.
+    # The executable's resources (launcher/win/launcher.rc.in): the version resource (FileVersion, ProductVersion,
+    # ProductName and a FileDescription of the name with its version, which Explorer's Details and the Task Manager show)
+    # and the icon Explorer, the taskbar and the Start menu shortcut show for tpw_launcher.exe. The icon is the launcher's
+    # stand-in (launcher/app_icon_standin.cpp, the same code the window shows before a game is imported), written as a
+    # multi-size .ico into the build folder by tpw_make_ico (launcher/win/make_ico.cpp) at build time: no picture file is
+    # in the tree. Compiled by the toolchain's resource compiler (llvm-mingw's windres, or MSVC's rc); without one the
+    # build goes on without the resources, as before.
     include(CheckLanguage)
     check_language(RC)
     if(CMAKE_RC_COMPILER)
       enable_language(RC)
+      add_executable(tpw_make_ico launcher/win/make_ico.cpp launcher/app_icon_standin.cpp)
+      target_include_directories(tpw_make_ico PRIVATE launcher)
+      target_link_libraries(tpw_make_ico PRIVATE tpw_assets)
+      set(TPW_LAUNCHER_ICO ${CMAKE_CURRENT_BINARY_DIR}/tpw_launcher.ico)
+      add_custom_command(
+        OUTPUT ${TPW_LAUNCHER_ICO}
+        COMMAND tpw_make_ico ${TPW_LAUNCHER_ICO}
+        DEPENDS tpw_make_ico
+        VERBATIM
+        COMMENT "Drawing the launcher's icon")
       configure_file(launcher/win/launcher.rc.in ${CMAKE_CURRENT_BINARY_DIR}/launcher.rc @ONLY)
-      target_sources(tpw_launcher PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/launcher.rc)
+      # the .ico is listed as a source so that its command belongs to the target; the .rc is compiled again when it changes
+      set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/launcher.rc PROPERTIES OBJECT_DEPENDS ${TPW_LAUNCHER_ICO})
+      target_sources(tpw_launcher PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/launcher.rc ${TPW_LAUNCHER_ICO})
     else()
-      message(STATUS "tpw: no resource compiler, tpw_launcher.exe has no version resource")
+      message(STATUS "tpw: no resource compiler, tpw_launcher.exe has no version resource and no icon")
     endif()
   endif()
   if(APPLE)
-    # A macOS .app bundle (tpw_launcher.app) with launcher/macos/Info.plist.in, so the Dock, Cmd-Tab and the application
-    # menu read the launcher's name. Off by default: the scripts, the README and CI run the bare tpw_launcher.
+    # The launcher's Info.plist (launcher/macos/Info.plist.in). The bare tpw_launcher, the one file the scripts, the README,
+    # the installer and CI all run (build/tpw_launcher), carries it embedded in its __TEXT,__info_plist section: that names
+    # the program in Cmd-Tab and Force Quit (CFBundleName, "STP/TPW Launcher"; the maintainer, 2026-10-25), gives it its identifier,
+    # and is the plist of the application bundle the launcher makes beside itself at run time and runs from, which names it
+    # in the Dock (launcher/app_bundle.cpp). Its icon is set at run time too (launcher/app_icon.cpp). TPW_BUNDLE (off by
+    # default) builds a .app bundle around it instead, with the same plist.
     option(TPW_BUNDLE "Build the macOS launcher as an .app bundle (launcher/macos/Info.plist.in)" OFF)
-    set(TPW_BUNDLE_IDENTIFIER "org.tpw-port.launcher" CACHE STRING "The .app bundle's CFBundleIdentifier (TPW_BUNDLE)")
+    set(TPW_BUNDLE_IDENTIFIER "org.tpw-port.launcher" CACHE STRING "The launcher's CFBundleIdentifier")
+    configure_file(launcher/macos/Info.plist.in ${CMAKE_CURRENT_BINARY_DIR}/Info.plist @ONLY)
     if(TPW_BUNDLE)
-      configure_file(launcher/macos/Info.plist.in ${CMAKE_CURRENT_BINARY_DIR}/Info.plist @ONLY)
       set_target_properties(tpw_launcher PROPERTIES MACOSX_BUNDLE ON
                             MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_BINARY_DIR}/Info.plist)
+    else()
+      target_link_options(tpw_launcher PRIVATE "LINKER:-sectcreate,__TEXT,__info_plist,${CMAKE_CURRENT_BINARY_DIR}/Info.plist")
+      set_property(TARGET tpw_launcher APPEND PROPERTY LINK_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/Info.plist)
     endif()
   endif()
   # The About box's versions (launcher/ui/versions.cpp) come from the libraries' own headers: libjpeg's and FFmpeg's

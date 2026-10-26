@@ -38,8 +38,6 @@ inline constexpr const char* kCheckUpdatesKey = "check_updates";
 inline constexpr const char* kUpdateLastCheckKey = "update_last_check";
 // What the last answer found: a newer version ("0.0.4"), or "none".
 inline constexpr const char* kUpdateFoundKey = "update_found";
-// "1" once the first launch's line about the check was shown.
-inline constexpr const char* kUpdateToldKey = "update_check_told";
 
 namespace update {
 
@@ -132,8 +130,6 @@ public:
     // The Settings box's switch (which keeps kCheckUpdatesKey itself): off hides the banner; on checks from the next
     // launch.
     void SetEnabled(bool on);
-    // True once, on the first launch with the check on: the window says that it checks (Settings turns it off).
-    bool TakeFirstLaunch();
 
     // The banner: shown while there is something to say.
     bool Visible() const;

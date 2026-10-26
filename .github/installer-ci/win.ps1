@@ -14,7 +14,7 @@
 # `irm ... | iex` does (Invoke-Line), and as a file in a new Windows PowerShell, as the launcher's updater does
 # (Invoke-File). Stopping a run in the middle ends the whole process tree (taskkill /T), as the updater does.
 #
-# Cases: fresh legacy rerun updater dev tags refusals paths missing buildfail interrupt interrupt_first
+# Cases: fresh legacy rerun updater dev tags refusals paths missing nogit buildfail interrupt interrupt_first tui
 #   real     one real build, from a local tag of the CI checkout (needs TPW_CI_SOURCE: the checkout to take)
 #   public   the one-liner a player runs, against the newest real release (manual workflow only)
 #
@@ -150,6 +150,9 @@ function New-Case([string]$name, [string]$homeDir = '') {
     $script:Fake = Join-Path $script:C 'fake'
     $script:SubRepo = Join-Path $script:C 'sub'
     $env:TPW_INSTALL_REPO = $script:Fake
+    # the Start menu shortcut goes here, never in the Start menu of the account the tests run under
+    $script:Programs = Join-Path $script:C 'programs'
+    $env:TPW_INSTALL_PROGRAMS = $script:Programs
     Remove-Item -Path Env:TPW_INSTALL_STUB, Env:TPW_INSTALL_STUB_VERSION, Env:TPW_FAKE_BUILD -ErrorAction SilentlyContinue
     $env:TPW_FAKE_SLEEP = '604'
     $script:Dir = Join-Path $env:LOCALAPPDATA 'STP-TPW-Launcher'
@@ -165,7 +168,7 @@ function Restore-Base {
     $env:APPDATA = $Base.APPDATA
     $env:Path = $Base.Path
     $env:SystemRoot = $Base.SystemRoot
-    Remove-Item -Path Env:TPW_INSTALL_REPO, Env:TPW_INSTALL_STUB, Env:TPW_INSTALL_STUB_VERSION, Env:TPW_FAKE_BUILD -ErrorAction SilentlyContinue
+    Remove-Item -Path Env:TPW_INSTALL_REPO, Env:TPW_INSTALL_PROGRAMS, Env:TPW_INSTALL_STUB, Env:TPW_INSTALL_STUB_VERSION, Env:TPW_FAKE_BUILD, Env:TPW_INSTALL_VIEW -ErrorAction SilentlyContinue
     Set-Location -LiteralPath $Base.Location
 }
 
@@ -297,6 +300,7 @@ using System;
 using System.IO;
 static class Stub {
     static int Main(string[] args) {
+        if (args.Length > 0 && args[0] == "--write-icon") return 1;   // the icon is the real launcher's: the shortcut gets none
         if (args.Length > 0 && args[0] == "--version") { Console.WriteLine("STP/TPW Launcher v$v"); Console.WriteLine("build: fake"); }
         string here = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
         if (Path.GetFileName(here) == "build") {
@@ -425,6 +429,32 @@ function Assert-Build([string]$dir, [string]$version, [string]$channel) {
     Expect-Eq 'channel.txt' ([string](Get-Content -LiteralPath $channelFile -TotalCount 1)).Trim() $channel
 }
 
+# The Start menu shortcut (install.ps1, THE START MENU SHORTCUT): in the case's Programs folder, pointing at DIR's
+# launcher, started in DIR\build. -Icon: DIR\icon.ico, written by the launcher, is its icon and a .ico file (a real
+# build); without, the stand-in wrote none and the shortcut shows the program's own.
+function Assert-Shortcut([string]$dir, [switch]$Icon) {
+    $lnk = Join-Path $script:Programs 'STP-TPW Launcher.lnk'
+    if (-not (Test-Path -LiteralPath $lnk -PathType Leaf)) { Bad "the Start menu shortcut $lnk is missing" }
+    $sc = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
+    $exe = Join-Path $dir 'build\tpw_launcher.exe'
+    Expect-Eq "the shortcut's target" ([string]$sc.TargetPath) $exe
+    Expect-Eq "the shortcut's folder" ([string]$sc.WorkingDirectory) (Join-Path $dir 'build')
+    Expect-Eq "the shortcut's description" ([string]$sc.Description) 'STP/TPW Launcher'
+    $ico = Join-Path $dir 'icon.ico'
+    if ($Icon) {
+        Expect-Eq "the shortcut's icon" ([string]$sc.IconLocation) "$ico,0"
+        if (-not (Test-Path -LiteralPath $ico -PathType Leaf)) { Bad "the launcher wrote no $ico" }
+        $bytes = [System.IO.File]::ReadAllBytes($ico)
+        if ($bytes.Length -lt 22 -or $bytes[0] -ne 0 -or $bytes[1] -ne 0 -or $bytes[2] -ne 1 -or $bytes[3] -ne 0 -or $bytes[4] -lt 1) {
+            Bad "$ico is not an icon file"
+        }
+    } else {
+        Expect-Eq "the shortcut's icon" ([string]$sc.IconLocation) "$exe,0"
+        if (Test-Path -LiteralPath $ico) { Bad "the stand-in launcher wrote $ico" }
+    }
+    if (@(Get-ChildItem -LiteralPath $script:Programs -Force).Count -ne 1) { Bad "more than the shortcut is in $script:Programs" }
+}
+
 # The user's Path as stored, and its kind (the installer edits it for real; see Restore-UserPath).
 function Get-UserPathRaw {
     $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')
@@ -469,10 +499,11 @@ function Assert-UserPathNone([string]$dir) {
 }
 
 # A new PowerShell window: without a profile and with the Path a new window gets (the machine's and the user's, from the
-# registry). It types themepark --version; the command must be DIR\bin\themepark.cmd (compared in that window, so that no
-# non-ASCII letter of the folder's name crosses a pipe) and must exit with 0. In Windows PowerShell, and in PowerShell 7
-# when the PC has it.
-function Invoke-NewWindow([string]$dir, [string]$shell) {
+# registry). It types LINE (themepark --version unless given); the command must be DIR\bin\themepark.cmd (compared in
+# that window, so that no non-ASCII letter of the folder's name crosses a pipe). Returns what LINE printed, with its
+# exit code in RC (themepark runs the launcher, or the installer for themepark update, in the foreground, so that it is
+# all there). In Windows PowerShell, and in PowerShell 7 when the PC has it.
+function Invoke-NewWindow([string]$dir, [string]$shell, [string]$line = 'themepark --version') {
     $expected = (Join-Path $dir 'bin\themepark.cmd') -replace "'", "''"
     $check = @"
 `$ProgressPreference = 'SilentlyContinue'
@@ -481,16 +512,21 @@ function Invoke-NewWindow([string]$dir, [string]$shell) {
 if (`$null -eq `$c) { [Console]::Out.WriteLine('themepark: not found'); exit 3 }
 if (`$c.Path -ine '$expected') { [Console]::Out.WriteLine('themepark: another one, not ours'); exit 4 }
 [Console]::Out.WriteLine('themepark: ours')
-themepark --version
+$line
 exit `$LASTEXITCODE
 "@
     $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($check))
+    $global:LASTEXITCODE = 0
     $out = @(& $shell -NoLogo -NoProfile -NonInteractive -EncodedCommand $encoded 2>&1 | ForEach-Object { "$_" })
     $code = $LASTEXITCODE
     $out | ForEach-Object { Write-Host "  [$shell] $_" }
+    Write-Host "  [$shell exit $code]"
     if ($code -eq 3) { Bad "a new $shell window does not find themepark" }
     if ($code -eq 4) { Bad "a new $shell window finds another themepark, not $dir\bin\themepark.cmd" }
-    if ($code -ne 0) { Bad "themepark --version in a new $shell window exited with $code" }
+    $script:RC = $code
+    $at = [Array]::IndexOf($out, 'themepark: ours')
+    if ($at -lt 0) { Bad "a new $shell window did not get to $line" }
+    return ,@($out | Select-Object -Skip ($at + 1))
 }
 
 function Get-NewWindowShells {
@@ -499,21 +535,27 @@ function Get-NewWindowShells {
     return $shells
 }
 
-# The stand-in launcher of version VERSION must have been started with --version by themepark in a new window.
+# themepark --version in a new window must print the version line of VERSION, exit with 0, and have started the stand-in
+# launcher of that version with --version.
 function Assert-NewWindow([string]$dir, [string]$version) {
     $want = "STP/TPW Launcher v$version args=--version"
     foreach ($shell in Get-NewWindowShells) {
         $seen = Get-LaunchCount $dir $want
-        Invoke-NewWindow $dir $shell
+        $out = Invoke-NewWindow $dir $shell
+        if ($script:RC -ne 0) { Bad "themepark --version in a new $shell window exited with $script:RC" }
+        if (-not ($out -ceq "STP/TPW Launcher v$version")) { Bad "themepark --version in a new $shell window did not print the version line of $version" }
         if (-not (Wait-LaunchCount $dir $want $seen)) { Bad "themepark --version in a new $shell window did not start version $version" }
     }
 }
 
-# The real launcher: themepark detaches it, so this checks the command and the exit code, and that the launcher ends by
-# itself.
+# The real launcher: themepark runs it in the foreground through a pipe (it has no console of its own), so this checks
+# the command, the exit code, its version and build lines, and that the launcher ends by itself.
 function Assert-NewWindowReal([string]$dir) {
     foreach ($shell in Get-NewWindowShells) {
-        Invoke-NewWindow $dir $shell
+        $out = Invoke-NewWindow $dir $shell
+        if ($script:RC -ne 0) { Bad "themepark --version in a new $shell window exited with $script:RC" }
+        if (-not ($out -like 'STP/TPW Launcher v*')) { Bad "themepark --version in a new $shell window did not print the version line" }
+        if (-not ($out -like 'build: *')) { Bad "themepark --version in a new $shell window did not print the build line" }
         $exe = Join-Path $dir 'build\tpw_launcher.exe'
         $still = $true
         foreach ($i in 1..30) {
@@ -586,7 +628,9 @@ function Invoke-Case_fresh {
     Assert-Ok $out '0.0.1'
     Expect-Text $out 'Newest release: 0.0.1'
     Expect-Text $out 'From now on, type themepark in this window or any new PowerShell window to play.'
+    Expect-Text $out 'STP/TPW Launcher is in the Start menu: open it from there, or find it with Search.'
     Assert-Build $script:Dir '0.0.1' 'stable'
+    Assert-Shortcut $script:Dir
     $tagCommit = Get-FakeCommit 'v0.0.1'
     $srcHead = "$(& git.exe -C (Join-Path $script:Dir 'source') rev-parse HEAD 2>&1)".Trim()
     Expect-Eq "the source's commit" $srcHead $tagCommit
@@ -712,11 +756,18 @@ function Invoke-Case_rerun {
     $dataBefore = Get-Snapshot $script:Data
     $out = Invoke-Line @{ NoLaunch = $true }
     Assert-Ok $out '0.0.1'
+    Assert-Shortcut $script:Dir
     $buildBefore = Get-Snapshot (Join-Path $script:Dir 'build')
     $pathBefore = (Get-UserPathRaw)[0]
+    # the Start menu shortcut, deleted by the player, comes back at a run with nothing new
+    $lnk = Join-Path $script:Programs 'STP-TPW Launcher.lnk'
+    Remove-Item -LiteralPath $lnk -Force
     $out = Invoke-Line @{ NoLaunch = $true }
     Assert-Ok $out '0.0.1'
     Expect-Text $out 'Already up to date: version 0.0.1.'
+    Assert-Shortcut $script:Dir
+    $lnkBefore = (Get-Item -LiteralPath $lnk).LastWriteTimeUtc
+    Start-Sleep -Seconds 2
     Assert-Same 'the build (a run with nothing new)' $buildBefore (Get-Snapshot (Join-Path $script:Dir 'build'))
     Expect-Eq "the user's Path after a run with nothing new" (Get-UserPathRaw)[0] $pathBefore
     if (Test-Path -LiteralPath (Join-Path $script:Dir 'build-prev')) { Bad 'a run with nothing new made a build-prev' }
@@ -733,6 +784,8 @@ function Invoke-Case_rerun {
     if (-not ($prev -ceq 'version=0.0.1')) { Bad 'build-prev is not version 0.0.1' }
     Assert-UserPathOnce $script:Dir
     Assert-NewWindow $script:Dir '0.0.2'
+    Assert-Shortcut $script:Dir
+    if ((Get-Item -LiteralPath $lnk).LastWriteTimeUtc -le $lnkBefore) { Bad 'the update did not write the Start menu shortcut again' }
     # the launcher the update starts (no -NoLaunch): from DIR, as the new version
     New-FakeRelease '0.0.3'
     $out = Invoke-Line @{}
@@ -754,10 +807,15 @@ function Invoke-Case_updater {
     $pathBefore = (Get-UserPathRaw)[0]
     $installer = Join-Path $script:Dir 'source\install.ps1'
     Set-Location -LiteralPath $script:Dir
+    # a stage leaves the Start menu shortcut alone (the launcher in use is not changed)
+    $lnk = Join-Path $script:Programs 'STP-TPW Launcher.lnk'
+    Assert-Shortcut $script:Dir
+    $lnkBefore = (Get-Item -LiteralPath $lnk).LastWriteTimeUtc
     # nothing new: nothing staged
     $out = Invoke-File @('-Update', '-Stage', '-Dir', $script:Dir) $installer
     Assert-Ok $out '0.0.1'
     if (Test-Path -LiteralPath (Join-Path $script:Dir 'build-next')) { Bad 'a stage with nothing new left a build-next' }
+    if ((Get-Item -LiteralPath $lnk).LastWriteTimeUtc -ne $lnkBefore) { Bad 'a stage wrote the Start menu shortcut' }
     # a newer release: staged, built and checked, but the launcher in use is not changed
     New-FakeRelease '0.0.2'
     $out = Invoke-File @('-Update', '-Stage', '-Dir', $script:Dir) $installer
@@ -785,6 +843,8 @@ function Invoke-Case_updater {
     Assert-Ok $out '0.0.3'
     if ($waited -lt 2) { Bad "the swap did not wait for the launcher to exit ($waited seconds)" }
     Assert-Build $script:Dir '0.0.3' 'stable'
+    Assert-Shortcut $script:Dir
+    if ((Get-Item -LiteralPath $lnk).LastWriteTimeUtc -le $lnkBefore) { Bad 'the swap did not write the Start menu shortcut again' }
     $prev = @(Get-Content -LiteralPath (Join-Path $script:Dir 'build-prev\install-info.txt'))
     if (-not ($prev -ceq 'version=0.0.1')) { Bad 'build-prev is not version 0.0.1' }
     if (Test-Path -LiteralPath (Join-Path $script:Dir 'build-next')) { Bad 'the swap left a build-next' }
@@ -806,6 +866,31 @@ function Invoke-Case_updater {
     $out = Invoke-File @('-Update', '-Dir', $script:Dir, '-NoLaunch') $installer
     Assert-Ok $out '0.0.4'
     Assert-Build $script:Dir '0.0.4' 'stable'
+    # themepark update, typed in a new window: the same -Update, run by the command from source\ in the foreground
+    New-FakeRelease '0.0.5'
+    $out = Invoke-NewWindow $script:Dir 'powershell.exe' 'themepark update -NoLaunch'
+    Assert-Ok $out '0.0.5'
+    Assert-Build $script:Dir '0.0.5' 'stable'
+    Assert-NewWindow $script:Dir '0.0.5'
+    # refused while a launcher runs (a copy of ping.exe named tpw_launcher.exe, pinging for 30 seconds, stands for it)
+    $standIn = Join-Path $script:C 'tpw_launcher.exe'
+    Copy-Item -LiteralPath (Join-Path $env:SystemRoot 'System32\ping.exe') -Destination $standIn
+    $pinger = Start-Process -FilePath $standIn -ArgumentList '-n', '31', '127.0.0.1' -NoNewWindow -PassThru `
+        -RedirectStandardOutput (Join-Path $script:C 'ping.txt')
+    $null = $pinger.Handle
+    try {
+        $out = Invoke-NewWindow $script:Dir 'powershell.exe' 'themepark update -NoLaunch'
+    } finally {
+        Stop-Process -Id $pinger.Id -Force -ErrorAction SilentlyContinue
+    }
+    if ($script:RC -eq 0) { Bad 'themepark update ran while the launcher was running' }
+    Expect-Text $out 'themepark: the launcher is running'
+    if ($out -like 'STEP *') { Bad 'themepark update started the installer while the launcher was running' }
+    Assert-Build $script:Dir '0.0.5' 'stable'
+    # its options go to the installer: themepark update -Dev moves the install to main
+    $out = Invoke-NewWindow $script:Dir 'powershell.exe' 'themepark update -Dev -NoLaunch'
+    Assert-Ok $out '0.0.6-dev'
+    Assert-Build $script:Dir '0.0.6-dev' 'dev'
 }
 
 # -Dev follows main; the plain line and -Update (which never passes -Dev) move the install to the newest release.
@@ -1007,22 +1092,13 @@ function Invoke-Case_paths {
     Set-Location -LiteralPath $script:H
 }
 
-# Tools the PC lacks: a plain message that lists them, nothing made, exit not 0.
+# Tools the PC lacks: a plain message that lists them, nothing made, exit not 0. (A PC without Git lacks nothing: the
+# installer fetches one; the nogit case.)
 function Invoke-Case_missing {
-    New-Case 'missing-git'
+    New-Case 'missing'
     Initialize-Fake
     New-FakeRelease '0.0.1'
     $before = Get-HomeListing
-    # a Path without Git
-    $noGit = "$env:SystemRoot\System32;$env:SystemRoot;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
-    $env:Path = $noGit
-    $out = Invoke-Line @{ NoLaunch = $true }
-    $env:Path = $Base.Path
-    Assert-Fail $out '^RESULT fail Missing: Git'
-    Expect-Text $out 'winget install'
-    Expect-Text $out 'Nothing was changed.'
-    Assert-Same 'the profile folder (Git missing)' $before (Get-HomeListing)
-    if (Test-Path -LiteralPath $script:Dir) { Bad 'a run with Git missing made the install folder' }
     # a Windows without curl.exe, tar.exe and Windows PowerShell (an empty folder stands in for the Windows folder)
     $fakeRoot = Join-Path $script:C 'fake-windows'
     [void](New-Item -ItemType Directory -Force -Path $fakeRoot)
@@ -1031,18 +1107,87 @@ function Invoke-Case_missing {
     $env:SystemRoot = $Base.SystemRoot
     Assert-Fail $out '^RESULT fail Missing: curl.exe, tar.exe, Windows PowerShell'
     Expect-Text $out 'Update Windows'
+    Expect-Text $out 'Nothing was changed.'
     Assert-Same 'the profile folder (Windows tools missing)' $before (Get-HomeListing)
-    # the missing tool, then it is there: the next run installs
+    if (Test-Path -LiteralPath $script:Dir) { Bad 'a run with tools missing made the install folder' }
+    # the missing tools, then they are there: the next run installs
     $out = Invoke-Line @{ NoLaunch = $true }
     Assert-Ok $out '0.0.1'
     # with an install in place, a missing tool leaves it working
     New-FakeRelease '0.0.2'
+    $env:SystemRoot = $fakeRoot
+    $out = Invoke-Line @{ NoLaunch = $true }
+    $env:SystemRoot = $Base.SystemRoot
+    Assert-Fail $out '^RESULT fail Missing: curl.exe, tar.exe, Windows PowerShell'
+    Assert-Build $script:Dir '0.0.1' 'stable'
+    Assert-NewWindow $script:Dir '0.0.1'
+}
+
+# A PC without Git: the installer fetches MinGit into DIR\tools\MinGit (checked against the SHA-256 pinned in
+# install.ps1), clones, checks out the submodule and builds with it, and puts nothing on the user's Path for it. A later
+# run and the launcher's updater, still without Git, use the fetched one without fetching again; with its checksum file
+# gone it is fetched again.
+function Invoke-Case_nogit {
+    New-Case 'nogit'
+    Initialize-Fake
+    New-FakeRelease '0.0.1'
+    $noGit = "$env:SystemRoot\System32;$env:SystemRoot;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
+    $minGit = Join-Path $script:Dir 'tools\MinGit'
+    $env:Path = $noGit
+    if (Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue) { Bad 'git.exe is still found with Git off the Path' }
+    $out = Invoke-Line @{ NoLaunch = $true }
+    $env:Path = $Base.Path
+    Assert-Ok $out '0.0.1'
+    Expect-Text $out 'Fetching Git (MinGit'
+    Expect-Text $out 'its SHA-256 checksum matched'
+    Expect-Text $out 'Git: git version'
+    Expect-NoText $out 'winget'
+    foreach ($f in @('cmd\git.exe', '.sha256')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $minGit $f))) { Bad "$minGit\$f is missing" }
+    }
+    if (Test-Path -LiteralPath (Join-Path $script:Dir 'tools\MinGit.tmp')) { Bad 'the fetch left tools\MinGit.tmp behind' }
+    Assert-Build $script:Dir '0.0.1' 'stable'
+    $tagCommit = Get-FakeCommit 'v0.0.1'
+    $srcHead = "$(& (Join-Path $minGit 'cmd\git.exe') -C (Join-Path $script:Dir 'source') rev-parse HEAD 2>&1)".Trim()
+    Expect-Eq "the source's commit (read with the fetched Git)" $srcHead $tagCommit
+    if (-not (Test-Path -LiteralPath (Join-Path $script:Dir 'source\tpw-decomp\README'))) { Bad 'the submodule was not downloaded with the fetched Git' }
+    Assert-UserPathOnce $script:Dir
+    foreach ($e in Get-UserPathEntries) { if ("$e" -like '*MinGit*') { Bad "the user's Path got an entry for the fetched Git: $e" } }
+    Assert-NewWindow $script:Dir '0.0.1'
+    $snap = Get-Snapshot $minGit
+    # the line again, still without Git: the fetched one is used, not fetched again
+    New-FakeRelease '0.0.2'
     $env:Path = $noGit
     $out = Invoke-Line @{ NoLaunch = $true }
     $env:Path = $Base.Path
-    Assert-Fail $out '^RESULT fail Missing: Git'
-    Assert-Build $script:Dir '0.0.1' 'stable'
-    Assert-NewWindow $script:Dir '0.0.1'
+    Assert-Ok $out '0.0.2'
+    Expect-NoText $out 'Fetching Git'
+    Expect-Text $out 'Git fetched earlier'
+    Assert-Same 'the fetched Git' $snap (Get-Snapshot $minGit)
+    Assert-Build $script:Dir '0.0.2' 'stable'
+    # the launcher's updater (the file, in a new Windows PowerShell), still without Git
+    New-FakeRelease '0.0.3'
+    $installer = Join-Path $script:Dir 'source\install.ps1'
+    $env:Path = $noGit
+    $out = Invoke-File @('-Update', '-Stage', '-Dir', $script:Dir) $installer
+    $env:Path = $Base.Path
+    Assert-Ok $out '0.0.3'
+    Expect-NoText $out 'Fetching Git'
+    Expect-Text $out 'Git fetched earlier'
+    $next = @(Get-Content -LiteralPath (Join-Path $script:Dir 'build-next\install-info.txt'))
+    if (-not ($next -ceq 'version=0.0.3')) { Bad 'build-next is not version 0.0.3' }
+    Assert-Build $script:Dir '0.0.2' 'stable'
+    Assert-Same 'the fetched Git after the updater' $snap (Get-Snapshot $minGit)
+    # without its checksum file the fetched Git is fetched again, and the install goes on
+    Remove-Item -LiteralPath (Join-Path $minGit '.sha256') -Force
+    $env:Path = $noGit
+    $out = Invoke-Line @{ NoLaunch = $true }
+    $env:Path = $Base.Path
+    Assert-Ok $out '0.0.3'
+    Expect-Text $out 'Fetching Git (MinGit'
+    Assert-Same 'the fetched Git after a second fetch' $snap (Get-Snapshot $minGit)
+    Assert-Build $script:Dir '0.0.3' 'stable'
+    Assert-NewWindow $script:Dir '0.0.3'
 }
 
 # A build that fails: no launcher, no command, no Path entry on a first install; the working one stays on an update.
@@ -1201,6 +1346,7 @@ function Invoke-Case_real {
     $out = Invoke-Line @{ NoLaunch = $true }
     Assert-Ok $out $version
     Assert-Build $script:Dir $version 'stable'
+    Assert-Shortcut $script:Dir -Icon
     $first = Get-VersionLine (Join-Path $script:Dir 'build')
     Write-Host "the launcher says: $first"
     Expect-Line $out "An older copy of the launcher is in $clone."
@@ -1276,7 +1422,45 @@ function Restore-UserPath {
     } catch { Write-Host "::warning::the user's Path could not be put back: $_" }
 }
 
-$all = @('fresh', 'legacy', 'rerun', 'updater', 'dev', 'tags', 'refusals', 'paths', 'missing', 'buildfail', 'interrupt', 'interrupt_first')
+# The progress view (what a console gets instead of the STEP/RESULT lines), forced through the pipe with
+# TPW_INSTALL_VIEW: the vt view (escape codes, redrawn in place) and the lines view (one line per finished row); a
+# build that fails shows the log's last lines and names -Plain. Nothing of plain mode's lines, the build's output only
+# in the log, scrubbed.
+function Invoke-Case_tui {
+    New-Case 'tui'
+    Initialize-Fake
+    New-FakeRelease '0.0.1'
+    foreach ($view in @('vt', 'lines')) {
+        $env:TPW_INSTALL_VIEW = $view
+        $dir = Join-Path $script:C "install-$view"
+        $out = Invoke-Line @{ NoLaunch = $true; Dir = $dir }
+        Expect-Eq "the exit code ($view view)" $script:RC 0
+        # both views name the version in the title (the lines view holds its finished rows until it is known)
+        Expect-Text $out 'STP/TPW Launcher 0.0.1'
+        Expect-Text $out 'tpw-port 0.0.1 downloaded'
+        Expect-Text $out 'Done in'
+        if (@($out | Where-Object { "$_" -match '^(STEP|RESULT) ' })) { Bad "the $view view printed a line of plain mode" }
+        Expect-NoText $out '==> profile'
+        $log = Join-Path $dir 'last-build.log'
+        if (-not (Test-Path -LiteralPath $log)) { Bad "the $view view left no last-build.log" }
+        Expect-Text (Get-Content -LiteralPath $log) '==> profile %USERPROFILE% user=<user>'
+        if ($view -eq 'lines') { Expect-Text $out 'Git and Windows PowerShell found' }
+        if (-not (Test-Path -LiteralPath (Join-Path $dir 'build\tpw_launcher.exe'))) { Bad "the $view view made no launcher" }
+    }
+    $env:TPW_INSTALL_VIEW = 'vt'
+    $env:TPW_FAKE_BUILD = 'fail'
+    $dir = Join-Path $script:C 'install-fail'
+    $out = Invoke-Line @{ NoLaunch = $true; Dir = $dir }
+    if ($script:RC -eq 0) { Bad 'a failed build in the vt view returned 0' }
+    Expect-Text $out 'failed after'
+    Expect-Text $out 'fake compiler error'
+    Expect-Text $out 'Run the line again with -Plain'
+    if (@($out | Where-Object { "$_" -match '^(STEP|RESULT) ' })) { Bad 'the vt view printed a line of plain mode after a failed build' }
+    if (Test-Path -LiteralPath (Join-Path $dir 'build')) { Bad 'a failed first build left a build folder' }
+    Remove-Item -Path Env:TPW_FAKE_BUILD, Env:TPW_INSTALL_VIEW -ErrorAction SilentlyContinue
+}
+
+$all = @('fresh', 'legacy', 'rerun', 'updater', 'dev', 'tags', 'refusals', 'paths', 'missing', 'nogit', 'buildfail', 'interrupt', 'interrupt_first', 'tui')
 if (-not $Cases -or $Cases.Count -eq 0) { $Cases = $all }
 $failed = @()
 foreach ($c in $Cases) {

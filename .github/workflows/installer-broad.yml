@@ -104,8 +104,8 @@ jobs:
         os: [windows-2022, windows-2025, windows-11-arm]
         cases:
           - fresh legacy rerun
-          - updater dev tags refusals
-          - paths missing buildfail interrupt interrupt_first
+          - updater dev tags refusals tui
+          - paths missing nogit buildfail interrupt interrupt_first
     runs-on: ${{ matrix.os }}
     # The ARM runner is new and scarcer; its result is reported but does not fail the workflow yet (as in build.yml).
     continue-on-error: ${{ matrix.os == 'windows-11-arm' }}

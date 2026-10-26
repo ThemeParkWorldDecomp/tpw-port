@@ -1,5 +1,6 @@
 // packs.h: asset packs, folders of replacement game files laid over the game folder. The game finds a file in the user
-// folder first, then in each pack folder in turn, then in the game folder (files.cpp's FindHostPath and ListGameFolder),
+// folder first, then in each pack folder in turn, then among the Gold rides (gold_rides.h), then in the game folder
+// (files.cpp's FindHostPath and ListGameFolder),
 // so a pack replaces a game file without touching the game folder, which the launcher's startup check keeps as imported.
 // The launcher unpacks the packs' zips and fills the list before the game starts (launcher/asset_packs.cpp).
 #pragma once
