@@ -153,10 +153,19 @@ jobs:
             libwayland-dev wayland-protocols libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
             libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev libudev-dev libibus-1.0-dev \
             xvfb mesa-vulkan-drivers libvulkan1 glslang-tools libclang-18-dev
+      # Each step's output is kept in build/logs/ (the run's artifact when a step fails), and the error lines of a failed
+      # build are also given as annotations, which the API lists for a machine that cannot fetch the runner's log.
       - name: Build the launcher
         run: |
-          cmake -S . -B build -G Ninja
-          cmake --build build --target tpw_launcher
+          mkdir -p build/logs
+          set -o pipefail
+          ok=0
+          cmake -S . -B build -G Ninja 2>&1 | tee build/logs/configure.log || ok=1
+          if [ $ok = 0 ]; then cmake --build build --target tpw_launcher 2>&1 | tee build/logs/build.log || ok=1; fi
+          if [ $ok != 0 ]; then
+            grep -hE 'error|Error|FAILED' build/logs/configure.log build/logs/build.log 2>/dev/null | tail -n 40 | sed 's/^/::error::/'
+            exit 1
+          fi
       - name: Start the launcher (--version)
         run: |
           build/tpw_launcher --version
@@ -189,6 +198,13 @@ jobs:
           name: tpw_launcher-ubuntu-24.04-x64
           path: build/tpw_launcher
           if-no-files-found: error
+      - name: Keep the build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-ubuntu-24.04
+          path: build/logs/
+          if-no-files-found: ignore
 
   macos:
     strategy:
