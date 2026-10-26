@@ -64,5 +64,6 @@ The first release: play Sim Theme Park and Theme Park World from your own discs,
 - The launcher's Settings box scrolls when the window is too short.
 - Windows: building works when the folder's name has a space in it.
 - Windows: the installer's build no longer fails on the rules that keep your name out of the logs.
+- The launcher comes to the front when started from the themepark command or the installer.
 
 Most of this release was made by @samueleagle91. Thank you!

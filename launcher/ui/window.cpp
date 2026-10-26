@@ -190,6 +190,12 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
         SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED_DISPLAY(placement.display),
                               SDL_WINDOWPOS_CENTERED_DISPLAY(placement.display));
     SDL_ShowWindow(window);
+    // Showing orders the window in front but does not make the launcher the active app, so started detached from a
+    // shell (the themepark command, the installer's own start) the window stayed behind the Terminal without the
+    // keyboard. Raising activates it (Windows brings the window to the foreground as far as its foreground-lock rules
+    // allow; on macOS 14 and later the raise alone is ignored, so launcher/main.cpp asks SDL for its start-up
+    // activation before video starts). A --background run stays behind.
+    if (!placement.background) SDL_RaiseWindow(window);
     if (placement.windowShown != nullptr) placement.windowShown();
     SDL_Renderer* renderer = SDL_CreateRenderer(window, nullptr);
     if (!renderer) {

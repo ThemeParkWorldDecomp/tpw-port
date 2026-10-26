@@ -1021,6 +1021,12 @@ int LauncherMain(int argc, char** argv) {
         }
         return ImportFromOptions(dataDir, imports);
     }
+    // Started detached from a shell, as the themepark command and the installer start it, the launcher's window (and
+    // the game's with --play or --game) opened behind the Terminal without the keyboard: macOS 14 and later ignore an
+    // app's own activation, and SDL's start-up activation (the Dock first, then this app) is off by default there.
+    // Asked for before the first SDL video start (the launcher window's or the game's), which reads the hint. A
+    // --background run stays behind.
+    if (!config.background) SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "0");
     if (config.gameDir.empty()) {
         const int exitCode = ChooseFromDataFolder(config, program, packs, dataDir, play);
         if (exitCode >= 0) {
