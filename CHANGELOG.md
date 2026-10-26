@@ -13,6 +13,7 @@ The first release: play Sim Theme Park and Theme Park World from your own discs,
 - A Windows version, alongside the Mac one.
 - Windows: the installer fetches a portable Git when the PC has none, so there is nothing to install first.
 - On a Mac, the installer puts STP/TPW Launcher in your Applications folder, with the game's icon, so you can open it from Launchpad, Spotlight, the Finder or the Dock as well as by typing themepark.
+- On Windows, the installer puts STP/TPW Launcher in the Start menu, with the game's icon, so you can open it from there or find it with Search as well as by typing themepark.
 - Setting: skip the intro films.
 - Setting: go back to the launcher when you quit the game.
 - Setting: Full screen can be switched off to play in a window; Alt+Enter switches it while playing on Windows (Cmd+Ctrl+F on a Mac).

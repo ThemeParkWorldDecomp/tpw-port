@@ -29,7 +29,8 @@ Type this in a Terminal (Mac) or PowerShell (Windows) window, in any folder:
 
 On a Mac it works in every new Terminal window (the first install opens the launcher for you), and the installer
 also puts **STP/TPW Launcher** in your Applications folder, with the game's icon, so you can open it from Launchpad,
-Spotlight or the Dock too. On Windows it works straight away, in the window you installed from too.
+Spotlight or the Dock too. On Windows it works straight away, in the window you installed from too, and the installer
+puts **STP/TPW Launcher** in the Start menu, with the game's icon, so you can open it from there or find it with Search.
 `themepark --version` shows the installed version.
 
 ### Playing

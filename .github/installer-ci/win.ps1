@@ -150,6 +150,9 @@ function New-Case([string]$name, [string]$homeDir = '') {
     $script:Fake = Join-Path $script:C 'fake'
     $script:SubRepo = Join-Path $script:C 'sub'
     $env:TPW_INSTALL_REPO = $script:Fake
+    # the Start menu shortcut goes here, never in the Start menu of the account the tests run under
+    $script:Programs = Join-Path $script:C 'programs'
+    $env:TPW_INSTALL_PROGRAMS = $script:Programs
     Remove-Item -Path Env:TPW_INSTALL_STUB, Env:TPW_INSTALL_STUB_VERSION, Env:TPW_FAKE_BUILD -ErrorAction SilentlyContinue
     $env:TPW_FAKE_SLEEP = '604'
     $script:Dir = Join-Path $env:LOCALAPPDATA 'STP-TPW-Launcher'
@@ -165,7 +168,7 @@ function Restore-Base {
     $env:APPDATA = $Base.APPDATA
     $env:Path = $Base.Path
     $env:SystemRoot = $Base.SystemRoot
-    Remove-Item -Path Env:TPW_INSTALL_REPO, Env:TPW_INSTALL_STUB, Env:TPW_INSTALL_STUB_VERSION, Env:TPW_FAKE_BUILD, Env:TPW_INSTALL_VIEW -ErrorAction SilentlyContinue
+    Remove-Item -Path Env:TPW_INSTALL_REPO, Env:TPW_INSTALL_PROGRAMS, Env:TPW_INSTALL_STUB, Env:TPW_INSTALL_STUB_VERSION, Env:TPW_FAKE_BUILD, Env:TPW_INSTALL_VIEW -ErrorAction SilentlyContinue
     Set-Location -LiteralPath $Base.Location
 }
 
@@ -297,6 +300,7 @@ using System;
 using System.IO;
 static class Stub {
     static int Main(string[] args) {
+        if (args.Length > 0 && args[0] == "--write-icon") return 1;   // the icon is the real launcher's: the shortcut gets none
         if (args.Length > 0 && args[0] == "--version") { Console.WriteLine("STP/TPW Launcher v$v"); Console.WriteLine("build: fake"); }
         string here = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
         if (Path.GetFileName(here) == "build") {
@@ -423,6 +427,32 @@ function Assert-Build([string]$dir, [string]$version, [string]$channel) {
     $channelFile = Join-Path $dir 'channel.txt'
     if (-not (Test-Path -LiteralPath $channelFile)) { Bad "$channelFile is missing" }
     Expect-Eq 'channel.txt' ([string](Get-Content -LiteralPath $channelFile -TotalCount 1)).Trim() $channel
+}
+
+# The Start menu shortcut (install.ps1, THE START MENU SHORTCUT): in the case's Programs folder, pointing at DIR's
+# launcher, started in DIR\build. -Icon: DIR\icon.ico, written by the launcher, is its icon and a .ico file (a real
+# build); without, the stand-in wrote none and the shortcut shows the program's own.
+function Assert-Shortcut([string]$dir, [switch]$Icon) {
+    $lnk = Join-Path $script:Programs 'STP-TPW Launcher.lnk'
+    if (-not (Test-Path -LiteralPath $lnk -PathType Leaf)) { Bad "the Start menu shortcut $lnk is missing" }
+    $sc = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
+    $exe = Join-Path $dir 'build\tpw_launcher.exe'
+    Expect-Eq "the shortcut's target" ([string]$sc.TargetPath) $exe
+    Expect-Eq "the shortcut's folder" ([string]$sc.WorkingDirectory) (Join-Path $dir 'build')
+    Expect-Eq "the shortcut's description" ([string]$sc.Description) 'STP/TPW Launcher'
+    $ico = Join-Path $dir 'icon.ico'
+    if ($Icon) {
+        Expect-Eq "the shortcut's icon" ([string]$sc.IconLocation) "$ico,0"
+        if (-not (Test-Path -LiteralPath $ico -PathType Leaf)) { Bad "the launcher wrote no $ico" }
+        $bytes = [System.IO.File]::ReadAllBytes($ico)
+        if ($bytes.Length -lt 22 -or $bytes[0] -ne 0 -or $bytes[1] -ne 0 -or $bytes[2] -ne 1 -or $bytes[3] -ne 0 -or $bytes[4] -lt 1) {
+            Bad "$ico is not an icon file"
+        }
+    } else {
+        Expect-Eq "the shortcut's icon" ([string]$sc.IconLocation) "$exe,0"
+        if (Test-Path -LiteralPath $ico) { Bad "the stand-in launcher wrote $ico" }
+    }
+    if (@(Get-ChildItem -LiteralPath $script:Programs -Force).Count -ne 1) { Bad "more than the shortcut is in $script:Programs" }
 }
 
 # The user's Path as stored, and its kind (the installer edits it for real; see Restore-UserPath).
@@ -598,7 +628,9 @@ function Invoke-Case_fresh {
     Assert-Ok $out '0.0.1'
     Expect-Text $out 'Newest release: 0.0.1'
     Expect-Text $out 'From now on, type themepark in this window or any new PowerShell window to play.'
+    Expect-Text $out 'STP/TPW Launcher is in the Start menu: open it from there, or find it with Search.'
     Assert-Build $script:Dir '0.0.1' 'stable'
+    Assert-Shortcut $script:Dir
     $tagCommit = Get-FakeCommit 'v0.0.1'
     $srcHead = "$(& git.exe -C (Join-Path $script:Dir 'source') rev-parse HEAD 2>&1)".Trim()
     Expect-Eq "the source's commit" $srcHead $tagCommit
@@ -724,11 +756,18 @@ function Invoke-Case_rerun {
     $dataBefore = Get-Snapshot $script:Data
     $out = Invoke-Line @{ NoLaunch = $true }
     Assert-Ok $out '0.0.1'
+    Assert-Shortcut $script:Dir
     $buildBefore = Get-Snapshot (Join-Path $script:Dir 'build')
     $pathBefore = (Get-UserPathRaw)[0]
+    # the Start menu shortcut, deleted by the player, comes back at a run with nothing new
+    $lnk = Join-Path $script:Programs 'STP-TPW Launcher.lnk'
+    Remove-Item -LiteralPath $lnk -Force
     $out = Invoke-Line @{ NoLaunch = $true }
     Assert-Ok $out '0.0.1'
     Expect-Text $out 'Already up to date: version 0.0.1.'
+    Assert-Shortcut $script:Dir
+    $lnkBefore = (Get-Item -LiteralPath $lnk).LastWriteTimeUtc
+    Start-Sleep -Seconds 2
     Assert-Same 'the build (a run with nothing new)' $buildBefore (Get-Snapshot (Join-Path $script:Dir 'build'))
     Expect-Eq "the user's Path after a run with nothing new" (Get-UserPathRaw)[0] $pathBefore
     if (Test-Path -LiteralPath (Join-Path $script:Dir 'build-prev')) { Bad 'a run with nothing new made a build-prev' }
@@ -745,6 +784,8 @@ function Invoke-Case_rerun {
     if (-not ($prev -ceq 'version=0.0.1')) { Bad 'build-prev is not version 0.0.1' }
     Assert-UserPathOnce $script:Dir
     Assert-NewWindow $script:Dir '0.0.2'
+    Assert-Shortcut $script:Dir
+    if ((Get-Item -LiteralPath $lnk).LastWriteTimeUtc -le $lnkBefore) { Bad 'the update did not write the Start menu shortcut again' }
     # the launcher the update starts (no -NoLaunch): from DIR, as the new version
     New-FakeRelease '0.0.3'
     $out = Invoke-Line @{}
@@ -766,10 +807,15 @@ function Invoke-Case_updater {
     $pathBefore = (Get-UserPathRaw)[0]
     $installer = Join-Path $script:Dir 'source\install.ps1'
     Set-Location -LiteralPath $script:Dir
+    # a stage leaves the Start menu shortcut alone (the launcher in use is not changed)
+    $lnk = Join-Path $script:Programs 'STP-TPW Launcher.lnk'
+    Assert-Shortcut $script:Dir
+    $lnkBefore = (Get-Item -LiteralPath $lnk).LastWriteTimeUtc
     # nothing new: nothing staged
     $out = Invoke-File @('-Update', '-Stage', '-Dir', $script:Dir) $installer
     Assert-Ok $out '0.0.1'
     if (Test-Path -LiteralPath (Join-Path $script:Dir 'build-next')) { Bad 'a stage with nothing new left a build-next' }
+    if ((Get-Item -LiteralPath $lnk).LastWriteTimeUtc -ne $lnkBefore) { Bad 'a stage wrote the Start menu shortcut' }
     # a newer release: staged, built and checked, but the launcher in use is not changed
     New-FakeRelease '0.0.2'
     $out = Invoke-File @('-Update', '-Stage', '-Dir', $script:Dir) $installer
@@ -797,6 +843,8 @@ function Invoke-Case_updater {
     Assert-Ok $out '0.0.3'
     if ($waited -lt 2) { Bad "the swap did not wait for the launcher to exit ($waited seconds)" }
     Assert-Build $script:Dir '0.0.3' 'stable'
+    Assert-Shortcut $script:Dir
+    if ((Get-Item -LiteralPath $lnk).LastWriteTimeUtc -le $lnkBefore) { Bad 'the swap did not write the Start menu shortcut again' }
     $prev = @(Get-Content -LiteralPath (Join-Path $script:Dir 'build-prev\install-info.txt'))
     if (-not ($prev -ceq 'version=0.0.1')) { Bad 'build-prev is not version 0.0.1' }
     if (Test-Path -LiteralPath (Join-Path $script:Dir 'build-next')) { Bad 'the swap left a build-next' }
@@ -1298,6 +1346,7 @@ function Invoke-Case_real {
     $out = Invoke-Line @{ NoLaunch = $true }
     Assert-Ok $out $version
     Assert-Build $script:Dir $version 'stable'
+    Assert-Shortcut $script:Dir -Icon
     $first = Get-VersionLine (Join-Path $script:Dir 'build')
     Write-Host "the launcher says: $first"
     Expect-Line $out "An older copy of the launcher is in $clone."

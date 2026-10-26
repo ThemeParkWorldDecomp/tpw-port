@@ -71,6 +71,38 @@ jobs:
           Get-Content $out, $err
           if ($p.ExitCode -ne 0) { throw "tpw_launcher.exe --version exited with $($p.ExitCode)" }
           if (-not (Select-String -LiteralPath $out -Pattern '^build: ' -Quiet)) { throw 'tpw_launcher.exe --version printed no build line' }
+      # The launcher's file has an icon (the resource launcher.rc.in names, drawn at build time), and --write-icon writes
+      # the same icon as a .ico that Windows reads (the install script makes the Start menu shortcut's icon from it).
+      - name: The launcher's icon
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          Add-Type -Namespace Tpw -Name Shell -MemberDefinition @'
+          [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+          public static extern uint ExtractIconExW(string file, int index, IntPtr[] large, IntPtr[] small, uint count);
+          '@
+          $exe = (Resolve-Path build\tpw_launcher.exe).Path
+          $icons = [Tpw.Shell]::ExtractIconExW($exe, -1, $null, $null, 0)
+          Write-Host "tpw_launcher.exe has $icons icon(s)"
+          if ($icons -lt 1) { throw 'tpw_launcher.exe has no icon resource' }
+          $ico = Join-Path $env:RUNNER_TEMP 'launcher-icon.ico'
+          $out = Join-Path $env:RUNNER_TEMP 'icon-out.txt'
+          $err = Join-Path $env:RUNNER_TEMP 'icon-err.txt'
+          $p = Start-Process -FilePath $exe -ArgumentList '--write-icon', "`"$ico`"" -NoNewWindow -Wait -PassThru `
+               -RedirectStandardOutput $out -RedirectStandardError $err
+          Get-Content $out, $err
+          if ($p.ExitCode -ne 0) { throw "tpw_launcher.exe --write-icon exited with $($p.ExitCode)" }
+          if (-not (Test-Path -LiteralPath $ico)) { throw "--write-icon wrote no $ico" }
+          $bytes = [System.IO.File]::ReadAllBytes($ico)
+          if ($bytes.Length -lt 22 -or $bytes[0] -ne 0 -or $bytes[1] -ne 0 -or $bytes[2] -ne 1 -or $bytes[3] -ne 0 -or $bytes[4] -lt 1) {
+            throw "$ico is not an icon file"
+          }
+          Write-Host "$ico`: $($bytes.Length) bytes, $($bytes[4]) picture(s)"
+          Add-Type -AssemblyName System.Drawing
+          $loaded = New-Object System.Drawing.Icon($ico, 256, 256)
+          Write-Host "Windows reads it as $($loaded.Width)x$($loaded.Height)"
+          if ($loaded.Width -lt 16) { throw 'Windows could not read the icon' }
+          $loaded.Dispose()
       - name: Build and run the tests (PowerShell)
         shell: pwsh
         run: .\build.cmd TOOLS=fetch test
@@ -118,6 +150,38 @@ jobs:
           Get-Content $out, $err
           if ($p.ExitCode -ne 0) { throw "tpw_launcher.exe --version exited with $($p.ExitCode)" }
           if (-not (Select-String -LiteralPath $out -Pattern '^build: ' -Quiet)) { throw 'tpw_launcher.exe --version printed no build line' }
+      # The launcher's file has an icon (the resource launcher.rc.in names, drawn at build time), and --write-icon writes
+      # the same icon as a .ico that Windows reads (the install script makes the Start menu shortcut's icon from it).
+      - name: The launcher's icon
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          Add-Type -Namespace Tpw -Name Shell -MemberDefinition @'
+          [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+          public static extern uint ExtractIconExW(string file, int index, IntPtr[] large, IntPtr[] small, uint count);
+          '@
+          $exe = (Resolve-Path build\tpw_launcher.exe).Path
+          $icons = [Tpw.Shell]::ExtractIconExW($exe, -1, $null, $null, 0)
+          Write-Host "tpw_launcher.exe has $icons icon(s)"
+          if ($icons -lt 1) { throw 'tpw_launcher.exe has no icon resource' }
+          $ico = Join-Path $env:RUNNER_TEMP 'launcher-icon.ico'
+          $out = Join-Path $env:RUNNER_TEMP 'icon-out.txt'
+          $err = Join-Path $env:RUNNER_TEMP 'icon-err.txt'
+          $p = Start-Process -FilePath $exe -ArgumentList '--write-icon', "`"$ico`"" -NoNewWindow -Wait -PassThru `
+               -RedirectStandardOutput $out -RedirectStandardError $err
+          Get-Content $out, $err
+          if ($p.ExitCode -ne 0) { throw "tpw_launcher.exe --write-icon exited with $($p.ExitCode)" }
+          if (-not (Test-Path -LiteralPath $ico)) { throw "--write-icon wrote no $ico" }
+          $bytes = [System.IO.File]::ReadAllBytes($ico)
+          if ($bytes.Length -lt 22 -or $bytes[0] -ne 0 -or $bytes[1] -ne 0 -or $bytes[2] -ne 1 -or $bytes[3] -ne 0 -or $bytes[4] -lt 1) {
+            throw "$ico is not an icon file"
+          }
+          Write-Host "$ico`: $($bytes.Length) bytes, $($bytes[4]) picture(s)"
+          Add-Type -AssemblyName System.Drawing
+          $loaded = New-Object System.Drawing.Icon($ico, 256, 256)
+          Write-Host "Windows reads it as $($loaded.Width)x$($loaded.Height)"
+          if ($loaded.Width -lt 16) { throw 'Windows could not read the icon' }
+          $loaded.Dispose()
       - name: Build and run the tests (PowerShell)
         shell: pwsh
         run: .\build.cmd TOOLS=fetch test

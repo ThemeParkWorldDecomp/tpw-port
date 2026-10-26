@@ -223,6 +223,10 @@ jobs:
       # As a player runs it (irm | iex runs it in the player's own window): a scriptblock, not a file.
       - name: Install, then themepark --version in the same window
         shell: powershell
+        # The Start menu shortcut goes in this folder, never in the runner's own Start menu (install.ps1, THE START
+        # MENU SHORTCUT): every step that runs the installer says so (a job's env cannot use the runner context).
+        env:
+          TPW_INSTALL_PROGRAMS: ${{ runner.temp }}\programs
         run: |
           $env:TPW_INSTALL_STUB = '1'
           $dir = Join-Path $env:RUNNER_TEMP "tpw port's"
@@ -233,6 +237,19 @@ jobs:
           if (-not ($out -like 'From now on, type themepark in this window or any new PowerShell window to play.*')) {
             throw "the installer's own check did not find themepark in a new PowerShell"
           }
+          # the Start menu shortcut: in the test folder that stands for the user's Programs folder, pointing at DIR's
+          # launcher, started in DIR\build; the stand-in writes no icon, so the shortcut shows the program's own
+          if (-not ($out -ceq 'STEP 6/6 Adding STP/TPW Launcher to the Start menu')) { throw 'the install had no Start menu step 6/6' }
+          if (-not ($out -ceq 'STP/TPW Launcher is in the Start menu: open it from there, or find it with Search.')) { throw 'the install did not say the launcher is in the Start menu' }
+          $lnk = Join-Path $env:TPW_INSTALL_PROGRAMS 'STP-TPW Launcher.lnk'
+          if (-not (Test-Path -LiteralPath $lnk)) { throw "the Start menu shortcut $lnk was not written" }
+          $sc = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
+          Write-Host "The shortcut: $lnk -> $($sc.TargetPath) in $($sc.WorkingDirectory), icon $($sc.IconLocation)"
+          if ($sc.TargetPath -ne (Join-Path $dir 'build\tpw_launcher.exe')) { throw "the shortcut points at $($sc.TargetPath)" }
+          if ($sc.WorkingDirectory -ne (Join-Path $dir 'build')) { throw "the shortcut starts in $($sc.WorkingDirectory)" }
+          if ($sc.IconLocation -ne "$(Join-Path $dir 'build\tpw_launcher.exe'),0") { throw "the shortcut's icon is $($sc.IconLocation), not the program's own" }
+          if (Test-Path -LiteralPath (Join-Path $dir 'icon.ico')) { throw 'the stand-in launcher wrote an icon' }
+          if ((Get-ChildItem -LiteralPath $env:TPW_INSTALL_PROGRAMS -Force).Count -ne 1) { throw 'more than the shortcut was written in the Programs folder' }
           $cmd = (Get-Command themepark -ErrorAction Stop).Path
           Write-Host "themepark is $cmd"
           # themepark runs the launcher in the foreground through a pipe for --version, so the version line shows
@@ -293,6 +310,8 @@ jobs:
       # old way.
       - name: The same line installs, then updates, and leaves an old clone alone
         shell: powershell
+        env:
+          TPW_INSTALL_PROGRAMS: ${{ runner.temp }}\programs
         run: |
           $env:TPW_INSTALL_STUB = '1'
           $clone = Join-Path $env:USERPROFILE 'tpw-port'
@@ -312,6 +331,7 @@ jobs:
           $dir = Join-Path $env:LOCALAPPDATA 'STP-TPW-Launcher'
           $bin = Join-Path $dir 'bin'
           $log = Join-Path $dir 'stub-launch.txt'
+          $lnk = Join-Path $env:TPW_INSTALL_PROGRAMS 'STP-TPW Launcher.lnk'
           $script = Get-Content -Raw install.ps1
           $check = @'
           $ProgressPreference = 'SilentlyContinue'
@@ -339,6 +359,12 @@ jobs:
             $user = [Environment]::GetEnvironmentVariable('Path', 'User')
             $entries = @($user -split ';' | Where-Object { $_.TrimEnd('\') -ieq $bin })
             if ($entries.Count -ne 1) { throw "the user's Path has $bin $($entries.Count) times, not once: $user" }
+            # the Start menu shortcut points at the default folder's launcher (written again at every run)
+            if (-not (Test-Path -LiteralPath $lnk)) { throw "the Start menu shortcut $lnk was not written" }
+            $sc = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
+            if ($sc.TargetPath -ne (Join-Path $dir 'build\tpw_launcher.exe') -or $sc.WorkingDirectory -ne (Join-Path $dir 'build')) {
+              throw "the shortcut points at $($sc.TargetPath) in $($sc.WorkingDirectory)"
+            }
             # The line starts the launcher detached as it ends, and it can take seconds to write its line (windows-11-arm
             # took longer than the next read of the log). Wait for it, at most 30 seconds, so that the log is there and
             # that start's write never overlaps the next one.
@@ -358,11 +384,16 @@ jobs:
             throw "themepark --version in a new PowerShell did not start version $want"
           }
           [void](Invoke-Line '0.0.0-dev')
+          # a deleted shortcut comes back at the next run, and a run that switches a new version in rewrites it
+          Remove-Item -LiteralPath $lnk -Force
           $out = Invoke-Line '0.0.0-dev'
           if (-not ($out -like 'Already up to date*')) { throw 'the second run was not an update' }
+          $written = (Get-Item -LiteralPath $lnk).LastWriteTimeUtc
+          Start-Sleep -Seconds 2
           $env:TPW_INSTALL_STUB_VERSION = '0.0.1'
           [void](Invoke-Line '0.0.1')
           if (-not (Test-Path -LiteralPath (Join-Path $dir 'build-prev'))) { throw 'the newer version was not switched in' }
+          if ((Get-Item -LiteralPath $lnk).LastWriteTimeUtc -le $written) { throw 'the third run did not rewrite the Start menu shortcut' }
           $after = Get-Snapshot
           if (-not [string]::Equals($before, $after)) { throw "the old clone was changed. Before:`n$before`nAfter:`n$after" }
           Get-Content -LiteralPath $log
@@ -371,6 +402,8 @@ jobs:
       # Its own LOCALAPPDATA, so that the default folder is a new one.
       - name: A -Dev install, then the plain line, ends on the newest release
         shell: powershell
+        env:
+          TPW_INSTALL_PROGRAMS: ${{ runner.temp }}\programs
         run: |
           $env:TPW_INSTALL_STUB = '1'
           $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'localappdata-dev'
@@ -399,6 +432,8 @@ jobs:
       # It runs the file as the updater does (powershell.exe -File).
       - name: A -Dev install, then -Update with no option, ends on the newest release
         shell: powershell
+        env:
+          TPW_INSTALL_PROGRAMS: ${{ runner.temp }}\programs
         run: |
           $env:TPW_INSTALL_STUB = '1'
           $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'localappdata-dev-update'
@@ -448,6 +483,8 @@ jobs:
       # fetched one. Its own LOCALAPPDATA, so that the default folder is a new one.
       - name: No Git on the Path, so the installer fetches one
         shell: powershell
+        env:
+          TPW_INSTALL_PROGRAMS: ${{ runner.temp }}\programs
         run: |
           $env:TPW_INSTALL_STUB = '1'
           $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'localappdata-nogit'

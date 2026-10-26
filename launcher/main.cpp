@@ -275,8 +275,9 @@ void Usage(const char* program) {
                  "  --data DIR     the folder launcher.ini is in (default: the per-user folder SDL names for the\n"
                  "                 launcher, such as ~/Library/Application Support/STP-TPW Launcher on a Mac)\n"
                  "  --write-icon FILE  without the window: write the launcher's icon (the game's own, icon.png in the\n"
-                 "                 data folder, or the stand-in until a game is imported) as this PNG file and exit; the\n"
-                 "                 install script makes the icon of the application it puts in Applications from it\n"
+                 "                 data folder, or the stand-in until a game is imported) as this file and exit: a .ico\n"
+                 "                 when the name ends in .ico, a PNG otherwise; the install script makes the icon of the\n"
+                 "                 application it puts in Applications, or of the Start menu shortcut, from it\n"
                  "  --program FILE the game's data tables are read from this full Mac \"SimTheme Park\" or \"Theme Park\n"
                  "                 World\" application (its data fork; the CD's 2.0.1, the 2.04b3 patch's or a 2.1 release)\n"
                  "                 (default: $TPW_GAME_PROGRAM, else \"SimTheme Park\" in the game folder)\n"
@@ -412,7 +413,7 @@ int EarlyOptions(int argc, char** argv, std::string& dataDir) {
             ++i;
         }
     }
-    if (!writeIcon.empty()) {   // the icon as a PNG, for the install script's application (app_icon.h WriteAppIcon)
+    if (!writeIcon.empty()) {   // the icon as a PNG or a .ico, for the install script (app_icon.h WriteAppIcon)
         std::string what, err;
         if (!tpw::launcher::WriteAppIcon(dataDir.empty() ? ExistingDataFolder() : dataDir, writeIcon, what, err)) {
             std::fprintf(stderr, "launcher: --write-icon: %s\n", err.c_str());

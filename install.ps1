@@ -25,6 +25,8 @@
 #   tools\MinGit\    a portable Git (MinGit), fetched here only when the PC has no Git on its PATH (see SAFETY)
 #   bin\themepark.cmd the themepark command: starts build\tpw_launcher.exe from any folder, and themepark update runs
 #                    this script from source\ (see THE THEMEPARK COMMAND)
+#   icon.ico         the launcher's icon, written by build\tpw_launcher.exe --write-icon at every install and switch,
+#                    for the Start menu shortcut (see THE START MENU SHORTCUT)
 #   channel.txt      "stable" or "dev": the launcher reads it to know that this script installed it; it records what
 #                    is installed and never chooses what an update gets
 #   last-build.log   the output of the last build, with no user name, profile folder or PC name in it
@@ -82,19 +84,37 @@
 # A themepark command this script did not make is never shadowed: the Path is then left as it was and the player is
 # told the full path instead.
 #
-# SAFETY. No administrator rights, nothing written outside DIR but that Path entry (the launcher is started at the end,
-# from DIR\build). The only folders deleted are DIR\build-next, DIR\build-prev and DIR\tools\MinGit (with its .tmp),
-# by Remove-Own below, which refuses any other name, an odd install folder and a link or junction. Nothing is installed
-# on the PC: a Git on the PATH is used as it is, and when there is none a portable Git (MinGit, the zip of a pinned Git
-# for Windows release, checked against its SHA-256 below) is fetched into DIR\tools\MinGit and run from there. No
-# winget, no setup program, no registry key, no Path entry for it; it goes with DIR.
+# THE START MENU SHORTCUT. Players also open the game from an icon, as on a Mac (install.sh puts STP/TPW Launcher in
+# Applications). Every install, update and switch (not -Stage) writes the shortcut "STP-TPW Launcher" into the user's
+# own Programs folder of the Start menu (%APPDATA%\Microsoft\Windows\Start Menu\Programs, where [Environment]::
+# GetFolderPath('Programs') points; no administrator rights, nothing for all users), so the Start menu and its search
+# have it. It points at DIR\build\tpw_launcher.exe, started in DIR\build, with the launcher's icon: first the launcher
+# writes DIR\icon.ico (--write-icon: the game's own icon once a game is imported, the launcher's stand-in before) and
+# the shortcut shows that file; when the launcher cannot write it (a stand-in launcher of a test build), the shortcut
+# shows the program's own icon. Like the Mac's application, the shortcut's icon is the one of the last install, update
+# or switch; the taskbar's while the launcher runs is always the current one. A fresh install before the first import
+# gets the stand-in; the next install or update, including the launcher's own updater, replaces it with the game's
+# icon. A shortcut of that name that points at some other program is left alone and the player is told. The shortcut
+# not being written never fails the run (the launcher is in place; the player is told). There is no uninstall path:
+# the player deletes the shortcut from the Start menu, and it comes back at the next install or update. The step is
+# "Adding STP/TPW Launcher to the Start menu", after the command and before the start; the progress view's row is
+# startmenu.
+#
+# SAFETY. No administrator rights, nothing written outside DIR but that Path entry and the Start menu shortcut (one
+# file, STP-TPW Launcher.lnk, in the user's own Programs folder, THE START MENU SHORTCUT above; the launcher is started
+# at the end, from DIR\build). The only folders deleted are DIR\build-next, DIR\build-prev and DIR\tools\MinGit (with
+# its .tmp), by Remove-Own below, which refuses any other name, an odd install folder and a link or junction. Nothing is
+# installed on the PC: a Git on the PATH is used as it is, and when there is none a portable Git (MinGit, the zip of a
+# pinned Git for Windows release, checked against its SHA-256 below) is fetched into DIR\tools\MinGit and run from
+# there. No winget, no setup program, no registry key, no Path entry for it; it goes with DIR.
 #
 # Test hooks (for the maintainers' tests, not for players): TPW_INSTALL_REPO replaces the repository URL, and
 # TPW_INSTALL_STUB=1 puts a stand-in launcher in place of the download and the build (the installer's CI tests the
 # themepark command with it; Git is still looked for, and fetched when there is none, so the CI tests the fetch with
 # it too), of version TPW_INSTALL_STUB_VERSION when set (a newer one stands in for a new release).
 # TPW_INSTALL_VIEW=plain, lines or vt forces that view of the output, whatever the output is (the CI runs the progress
-# view through a pipe with it).
+# view through a pipe with it). TPW_INSTALL_PROGRAMS names the folder the Start menu shortcut goes in, so that a test
+# never writes the Start menu of the account it runs under.
 #
 # This file is plain ASCII on purpose: Windows PowerShell reads a file without a byte order mark as ANSI.
 
@@ -1357,6 +1377,7 @@ using System.IO;
 static class Stub {
     static int Main(string[] args) {
         if (args.Length > 0 && args[0] == "--version") { Console.WriteLine("STP/TPW Launcher v$v"); Console.WriteLine("build: stub"); }
+        if (args.Length > 0 && args[0] == "--write-icon") return 1;   // the icon is the real launcher's: the shortcut shows the program's own
         string here = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
         if (Path.GetFileName(here) == "build") {
             File.AppendAllText(Path.Combine(Path.GetDirectoryName(here), "stub-launch.txt"),
@@ -1582,13 +1603,88 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
         if (-not $p.WaitForExit(300000)) { Fail 'The launcher is still running after 5 minutes. Nothing was switched.' }
     }
 
+    # ---- the Start menu shortcut (THE START MENU SHORTCUT above)
+
+    $ShortcutName = 'STP-TPW Launcher.lnk'
+
+    # The folder the shortcut goes in: TPW_INSTALL_PROGRAMS (a test), else the user's own Programs folder of the Start
+    # menu.
+    function Get-ProgramsFolder {
+        if ($env:TPW_INSTALL_PROGRAMS) { return $env:TPW_INSTALL_PROGRAMS }
+        return [Environment]::GetFolderPath('Programs')
+    }
+
+    # The shortcut's icon: DIR\icon.ico, written by the launcher in use (again at every run, so that it is the game's
+    # icon once a game is imported). The launcher has no console; its exit code says whether it wrote the file. '' when
+    # it did not (the stand-in launcher of a test build): the shortcut then shows the program's own icon.
+    function Write-ShortcutIcon {
+        $exe = Join-Path $Dir 'build\tpw_launcher.exe'
+        $icon = Join-Path $Dir 'icon.ico'
+        Remove-Item -LiteralPath $icon -Force -ErrorAction SilentlyContinue
+        try {
+            $p = Start-Process -FilePath $exe -ArgumentList @('--write-icon', "`"$icon`"") -WorkingDirectory $Dir -NoNewWindow -PassThru -ErrorAction Stop
+            $null = $p.Handle
+            if (-not $p.WaitForExit(60000)) { try { $p.Kill() } catch {}; Info 'The launcher did not write its icon in time.'; return '' }
+            if ($p.ExitCode -ne 0) { Info "The launcher did not write its icon (exit code $($p.ExitCode)); the shortcut shows the program's own."; return '' }
+        } catch {
+            Info "The launcher did not write its icon ($_); the shortcut shows the program's own."
+            return ''
+        }
+        if (-not (Test-Path -LiteralPath $icon)) { Info 'The launcher wrote no icon file; the shortcut shows the program''s own.'; return '' }
+        return $icon
+    }
+
+    # Writes the shortcut (again at every install, update and switch, when DIR\build has the launcher). The path of the
+    # shortcut it wrote, or '' with the reason said: a shortcut of that name that points at another program, or a
+    # folder it cannot write. Never fails the run.
+    function Write-Shortcut {
+        $exe = Join-Path $Dir 'build\tpw_launcher.exe'
+        $programs = Get-ProgramsFolder
+        if (-not $programs) { Say 'Windows did not say where the Start menu is, so STP/TPW Launcher was not added to it.'; return '' }
+        $lnk = Join-Path $programs $ShortcutName
+        $iconFile = Write-ShortcutIcon
+        try {
+            [void](New-Item -ItemType Directory -Force -Path $programs -ErrorAction Stop)
+            $shell = New-Object -ComObject WScript.Shell
+            $shortcut = $shell.CreateShortcut($lnk)   # loads an existing one, so its target can be looked at
+            $target = [string]$shortcut.TargetPath
+            if ((Test-Path -LiteralPath $lnk) -and $target -and ([System.IO.Path]::GetFileName($target) -ine 'tpw_launcher.exe')) {
+                Say "$lnk points at $target, not at the launcher, so it is left alone."
+                return ''
+            }
+            $shortcut.TargetPath = $exe
+            $shortcut.WorkingDirectory = Join-Path $Dir 'build'
+            $shortcut.Description = 'STP/TPW Launcher'
+            if ($iconFile) { $shortcut.IconLocation = "$iconFile,0" } else { $shortcut.IconLocation = "$exe,0" }
+            $shortcut.Save()
+        } catch {
+            Say "Couldn't write the Start menu shortcut $lnk ($("$_" -replace '\s+', ' ')). The launcher is in place all the same."
+            return ''
+        }
+        Info "Start menu shortcut: $lnk"
+        return $lnk
+    }
+
+    # The step that writes the shortcut: its row and its lines around Write-Shortcut. The shortcut's path, or ''.
+    function Add-Shortcut {
+        Set-UiActive 'startmenu' 'adding STP/TPW Launcher to the Start menu'
+        $lnk = Write-Shortcut
+        if ($lnk) {
+            Info 'STP/TPW Launcher is in the Start menu: open it from there, or find it with Search.'
+            Set-UiDone 'startmenu' 'STP/TPW Launcher, in the Start menu'
+        } else {
+            Set-UiWarn 'startmenu' 'STP/TPW Launcher was not added (see below)'
+        }
+        return $lnk
+    }
+
     # ---- the three ways to run: swap, install or update
 
     function Invoke-Swap {
         if (-not (Test-Path -LiteralPath (Join-Path $Dir '.tpw-installer')) -and -not (Test-Path -LiteralPath (Join-Path $Dir 'channel.txt'))) {
             Fail "There is no install in $Dir."
         }
-        $St.StepTotal = 1
+        $St.StepTotal = 2   # the switch and the shortcut
         if ($WaitPid) { $St.StepTotal += 1 }
         if (-not $NoLaunch) { $St.StepTotal += 1 }
         $Ui.Footer = 'Your games, saves and settings are not touched by an update.'
@@ -1609,6 +1705,8 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
             $St.Version = Get-Info (Join-Path $Dir 'build\install-info.txt') 'version'
             Set-UiDone 'swap' 'nothing was waiting in build-next'
         }
+        Step 'Adding STP/TPW Launcher to the Start menu'
+        [void](Add-Shortcut)
         if (-not $NoLaunch) {
             Step 'Starting the launcher'
             Start-Launcher
@@ -1682,6 +1780,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
             Set-UiPending $Ui.Src ''
             Set-UiPending 'build' ''
             if (-not $Update) { Set-UiPending 'command' 'themepark' }
+            if (-not $Stage) { Set-UiPending 'startmenu' 'STP/TPW Launcher' }
             if (-not $Stage -and -not $NoLaunch) { Set-UiPending 'start' '' }
         }
         if ($St.Channel -eq 'stable' -and (Read-Channel) -eq 'dev') {
@@ -1692,9 +1791,9 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
             }
         }
 
-        # check, download, build, verify; then switch and start unless -Stage
+        # check, download, build, verify; then switch, the shortcut and the start unless -Stage
         $St.StepTotal = 4
-        if (-not $Stage) { $St.StepTotal += 1 }
+        if (-not $Stage) { $St.StepTotal += 2 }   # the switch and the shortcut
         if (-not $Stage -and -not $NoLaunch) { $St.StepTotal += 1 }
 
         Step 'Checking this computer'
@@ -1754,6 +1853,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
                 Set-UiPending 'build' ''
                 Set-UiPending 'swap' 'the new launcher replaces the old one when the build is done'
                 if (-not $Update) { Set-UiPending 'command' 'themepark' }
+                if (-not $Stage) { Set-UiPending 'startmenu' 'STP/TPW Launcher' }
                 if (-not $Stage -and -not $NoLaunch) { Set-UiPending 'start' '' }
             } else {
                 Set-UiDone $Ui.Src $got
@@ -1846,6 +1946,9 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
         } else {
             Set-UiWarn 'command' $commandRow
         }
+        # THE START MENU SHORTCUT: written again at every install, update and switch
+        Step 'Adding STP/TPW Launcher to the Start menu'
+        $shortcut = Add-Shortcut
         if (-not $NoLaunch) {
             Step 'Starting the launcher'
             Start-Launcher
@@ -1854,6 +1957,11 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
         if (-not $Update) { Show-OldCopies }
         $closing = $play
         if ($play -eq $everyWindow) { $closing = 'Type themepark in a new PowerShell window to play.' }
+        if ($shortcut -and $play -eq $everyWindow) {
+            $closing = 'Open STP/TPW Launcher from the Start menu, or type themepark in a new PowerShell window, to play.'
+        } elseif ($shortcut) {
+            $closing = "Open STP/TPW Launcher from the Start menu to play. $play"
+        }
         if ($current) { $Ui.Closing = "Nothing to do. $closing" }
         else { $Ui.Closing = "Done in $(Format-Duration (Get-Elapsed $Ui.Start)). $closing" }
         Finish-Ok $St.Version
