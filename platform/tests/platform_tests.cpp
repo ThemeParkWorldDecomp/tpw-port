@@ -25,6 +25,7 @@
 #include "Ptr32.h"
 #include "dialogs.h"
 #include "email.h"
+#include "gold_rides.h"
 #include "packs.h"
 #include "TbAudioSystem.h"
 #include "platform.h"
@@ -222,6 +223,108 @@ static void TestPacks(const fs::path& scratch) {
 
     tpw::PackDirs().clear();
     CHECK(Same(tpw::FindHostPath("data:init:640:Splash_American.tga"), config.gameDir / "data" / "init" / "640" / "Splash_American.tga"));
+    config.gameDir = gameDir;
+    config.userDir = userDir;
+}
+
+// The Gold rides (gold_rides.h): RideConfig.txt's list lays each .wad over the game folder at the installer's place,
+// a Gold copy of a base ride in the base file's place, a new ride among the base ones, and the user folder and the
+// asset packs still first; off, nothing changes.
+static void TestGoldRides(const fs::path& scratch) {
+    // The list as the CD writes it: CR LF, lines in threes, backslashes. A blank line, a folder with a trailing
+    // separator and a missing flag line do not throw the rest off.
+    const auto parsed = tpw::ParseRideConfig("x\r\n_snake_1.wad\r\ndata\\levels\\jungle\\rides\r\n"
+                                             "x\r\n_wormhol_33.wad\r\ndata\\levels\\space\\rides\r\n\r\n"
+                                             "x\r\n_newride_40.wad\r\nDATA/levels/space/features/\r\n"
+                                             "_strengt_34.wad\r\ndata\\levels\\space\\sideshow\r\n");
+    CHECK(parsed.size() == 4);
+    CHECK(parsed[0].name == "_snake_1.wad" && parsed[0].folder == "data/levels/jungle/rides");
+    CHECK(parsed[1].name == "_wormhol_33.wad" && parsed[1].folder == "data/levels/space/rides");
+    CHECK(parsed[2].name == "_newride_40.wad" && parsed[2].folder == "data/levels/space/features");
+    CHECK(parsed[3].name == "_strengt_34.wad" && parsed[3].folder == "data/levels/space/sideshow");
+    CHECK(tpw::ParseRideConfig("").empty());
+
+    tpw::Config& config = tpw::config();
+    const fs::path gameDir = config.gameDir;
+    const fs::path userDir = config.userDir;
+    config.gameDir = scratch / "game";
+    config.userDir = scratch / "user";
+    const fs::path gold = scratch / "gold";
+    const fs::path rides = fs::path("data") / "levels" / "space" / "rides";
+    const fs::path features = fs::path("data") / "levels" / "space" / "features";
+    Touch(config.gameDir / rides / "_wormhol_33.wad", "base wormhole");
+    Touch(config.gameDir / rides / "_wormhol_33.wad.finfo");   // the dump's side file stays hidden
+    Touch(config.gameDir / rides / "_alpha_50.wad", "base alpha");
+    Touch(config.gameDir / rides / "_zeta_51.wad", "base zeta");
+    Touch(config.gameDir / features / "_pulsar_29.wad", "base pulsar");
+    Touch(config.gameDir / "data" / "levels" / "space" / "global.sam");
+    Touch(config.userDir / features / "_pulsar_29.wad", "user pulsar");
+    Touch(gold / "_WORMHOL_33.WAD", "gold wormhole, longer");   // the CD's names in any case
+    Touch(gold / "_newride_40.wad", "gold new ride");
+    Touch(gold / "_pulsar_29.wad", "gold pulsar");
+    Touch(gold / "_shooter_13.wad", "gold shooter");   // a folder the base game here lacks
+    Touch(gold / "RideConfig.txt",
+          "x\r\n_wormhol_33.wad\r\ndata\\levels\\space\\rides\r\n"
+          "x\r\n_newride_40.wad\r\ndata\\levels\\space\\rides\r\n"
+          "x\r\n_pulsar_29.wad\r\ndata\\levels\\space\\features\r\n"
+          "x\r\n_shooter_13.wad\r\ndata\\levels\\hallow\\sideshow\r\n"
+          "x\r\n_lost_99.wad\r\ndata\\levels\\space\\rides\r\n");   // listed, but not on the disc
+
+    size_t missing = 0;
+    CHECK(tpw::UseGoldRides(gold, &missing) == 4);
+    CHECK(missing == 1);
+    CHECK(tpw::GoldRides().size() == 4 && tpw::GoldRides()[0].name == "_wormhol_33.wad");
+    CHECK(Same(tpw::GoldRides()[0].host, gold / "_WORMHOL_33.WAD"));
+
+    // Lookups: the Gold copy in the base file's place, a new ride at its place, the user folder still first, a listed
+    // ride that is not on the disc as if it were not listed, and the rest of the game folder as before.
+    CHECK(Same(tpw::FindHostPath("data:levels:space:rides:_wormhol_33.wad"), gold / "_WORMHOL_33.WAD"));
+    CHECK(Same(tpw::FindHostPath("TPW:Theme Park Data:data\\levels\\space\\rides\\_WORMHOL_33.wad"), gold / "_WORMHOL_33.WAD"));
+    CHECK(Same(tpw::FindHostPath("data:levels:space:rides:_newride_40.wad"), gold / "_newride_40.wad"));
+    CHECK(Same(tpw::FindHostPath("data:levels:hallow:sideshow:_shooter_13.wad"), gold / "_shooter_13.wad"));
+    CHECK(Same(tpw::FindHostPath("data:levels:space:features:_pulsar_29.wad"), config.userDir / features / "_pulsar_29.wad"));
+    CHECK(tpw::FindHostPath("data:levels:space:rides:_lost_99.wad").empty());
+    CHECK(Same(tpw::FindHostPath("data:levels:space:rides:_alpha_50.wad"), config.gameDir / rides / "_alpha_50.wad"));
+    CHECK(tpw::FindHostPath("data:levels:space:rides:RideConfig.txt").empty());   // the list itself is not a game file
+    CHECK(NS_MacDoze::GetFileAttributes("data\\levels\\space\\rides\\_newride_40.wad") != 0xFFFFFFFFu);
+
+    // Listings: the folder as the installer would have left it, sorted as one, the Gold copy with its own size.
+    auto names = [](const std::vector<tpw::DirEntry>& entries) {
+        std::string text;
+        for (const tpw::DirEntry& entry : entries) text += entry.name + (entry.isDirectory ? "/ " : " ");
+        return text;
+    };
+    const auto listed = tpw::ListGameFolder("data:levels:space:rides");
+    CHECK(names(listed) == "_alpha_50.wad _newride_40.wad _wormhol_33.wad _zeta_51.wad ");
+    CHECK(listed[2].size == std::strlen("gold wormhole, longer") && listed[1].size == std::strlen("gold new ride"));
+    CHECK(listed[0].size == std::strlen("base alpha") && !listed[1].isDirectory && listed[2].fileTime != 0);
+    CHECK(names(tpw::ListGameFolder("data:levels:space:features")) == "_pulsar_29.wad ");   // the user's, once
+    CHECK(tpw::ListGameFolder("data:levels:space:features")[0].size == std::strlen("user pulsar"));
+    CHECK(names(tpw::ListGameFolder("data:levels:space")) == "features/ global.sam rides/ ");
+    // The way to a ride the base lacks; the user folder's space/ is first, as always.
+    CHECK(names(tpw::ListGameFolder("data:levels")) == "space/ hallow/ ");
+    CHECK(names(tpw::ListGameFolder("data:levels:hallow:sideshow")) == "_shooter_13.wad ");
+    CHECK(tpw::ListGameFolder("data:levels:hallow:rides").empty());
+    // The game's directory search, which the ride database scans the folders with, sees the same.
+    NS_MacDoze::_WIN32_FIND_DATAA found{};
+    NS_MacDoze::InternalHandle* search = NS_MacDoze::FindFirstFile("data\\levels\\space\\rides\\*.wad", &found);
+    CHECK(search != reinterpret_cast<NS_MacDoze::InternalHandle*>(-1));
+    std::string searched = found.cFileName;
+    while (NS_MacDoze::FindNextFile(search, &found)) searched += std::string(" ") + found.cFileName;
+    NS_MacDoze::FindClose(search);
+    CHECK(searched == "_alpha_50.wad _newride_40.wad _wormhol_33.wad _zeta_51.wad");
+
+    // A pack's file still comes before a Gold ride (and before the game folder), though a pack holds no .wad.
+    // Off: the game folder alone, as before.
+    CHECK(tpw::UseGoldRides(fs::path()) == 0);
+    CHECK(tpw::GoldRides().empty());
+    CHECK(Same(tpw::FindHostPath("data:levels:space:rides:_wormhol_33.wad"), config.gameDir / rides / "_wormhol_33.wad"));
+    CHECK(tpw::FindHostPath("data:levels:space:rides:_newride_40.wad").empty());
+    CHECK(names(tpw::ListGameFolder("data:levels:space:rides")) == "_alpha_50.wad _wormhol_33.wad _zeta_51.wad ");
+    CHECK(names(tpw::ListGameFolder("data:levels")) == "space/ ");
+    // A folder without the list, or no folder, is no overlay either.
+    CHECK(tpw::UseGoldRides(scratch / "nowhere", &missing) == 0 && missing == 0);
+    CHECK(tpw::UseGoldRides(config.gameDir) == 0);
     config.gameDir = gameDir;
     config.userDir = userDir;
 }
@@ -2770,6 +2873,7 @@ int main() {
     fs::create_directories(scratch);
     TestPaths(scratch);
     TestPacks(scratch / "packs");
+    TestGoldRides(scratch / "gold");
     TestEdition(scratch / "edition");
     TestSwearStreams();
     TestMslRuntime();

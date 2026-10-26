@@ -16,4 +16,9 @@ namespace tpw::launcher {
 // WindowPlacement::windowIcon).
 void ApplyAppIcon(const std::string& dataFolder, SDL_Window* window);
 
+// Writes the icon ApplyAppIcon would show (`dataFolder`'s icon.png, else the stand-in) as the PNG `path`: the launcher's
+// --write-icon, from which the install script makes the icon of the application it puts in Applications (install.sh,
+// THE APPLICATION). `what` says which icon it was; false with `err` when the file could not be written.
+bool WriteAppIcon(const std::string& dataFolder, const std::string& path, std::string& what, std::string& err);
+
 }  // namespace tpw::launcher

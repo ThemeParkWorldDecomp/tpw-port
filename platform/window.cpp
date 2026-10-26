@@ -34,11 +34,13 @@
 #include "platform/indirectx.h"
 #include "platform/macdoze.h"
 
-// The three OpenGL calls the frame dump needs (the game's own are in platform/opengl.h).
+// The three OpenGL calls the frame dump needs (the game's own are in platform/opengl.h), and the one the log's
+// driver line needs.
 extern "C" {
 void glPixelStorei(unsigned int name, int value);
 void glReadBuffer(unsigned int mode);
 void glReadPixels(int x, int y, int width, int height, unsigned int format, unsigned int type, void* pixels);
+const unsigned char* glGetString(unsigned int name);
 }
 
 namespace {
@@ -777,6 +779,17 @@ class OpenGLImplementation : public IdxDirectDraw {
 public:
     SamsUtilities::UOpenGL* DisplayGetContext() override { return &SamsUtilities::gOpenGLContext; }
 };
+// The log's one line about the OpenGL driver, for a bug report from a computer we do not have: the driver's maker,
+// the graphics card and the OpenGL version the context came with. A "no video" report without it cannot say
+// whether the driver is the one at fault.
+void LogDriver() {
+    const auto string = [](unsigned int name) {
+        const auto* value = reinterpret_cast<const char*>(glGetString(name));
+        return value != nullptr ? value : "(none)";
+    };
+    tpw::Log("opengl: %s, %s, version %s", string(0x1F00 /*GL_VENDOR*/), string(0x1F01 /*GL_RENDERER*/),
+             string(0x1F02 /*GL_VERSION*/));
+}
 }  // namespace
 
 IdxDirectDraw* IdxDirectDraw::mImplementation = nullptr;
@@ -793,6 +806,7 @@ IdxDirectDraw* IdxMakeOpenGLImplementation(SamsUtilities::DeviceKind, GrafPort* 
             return nullptr;
         }
         SDL_GL_MakeCurrent(gWindow.sdl, static_cast<SDL_GLContext>(gWindow.glContext));
+        LogDriver();
         SDL_GL_SetSwapInterval(1);
         // The game's picture goes into a framebuffer of its own size from here on (see SwapBuffers).
         if (gFit.wanted && !tpw::offscreen::Create(gFit.gameWide, gFit.gameHigh)) DisableFit("no offscreen framebuffer");

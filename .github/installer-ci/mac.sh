@@ -91,6 +91,8 @@ new_case() { # NAME [HOME_DIR]
     FAKE=$C/fake
     SUBREPO=$C/sub
     TPW_INSTALL_REPO=$FAKE
+    TPW_INSTALL_APPS=$C/apps   # stands for /Applications: the application goes here, never in the runner's own
+    export TPW_INSTALL_APPS
     export TPW_INSTALL_REPO
     unset TPW_INSTALL_STUB TPW_INSTALL_STUB_VERSION TPW_FAKE_BUILD ZDOTDIR
     TPW_FAKE_SLEEP=604
@@ -208,6 +210,7 @@ EOF
 #!/bin/sh
 # A stand-in launcher of version @VERSION@: answers --version, and when run from a folder named build notes it.
 if [ "$1" = --version ]; then printf 'STP/TPW Launcher v@VERSION@\nbuild: fake\n'; fi
+if [ "$1" = --write-icon ]; then exit 1; fi
 here=$(cd "$(dirname "$0")" && pwd)
 if [ "$(basename "$here")" = build ]; then
     printf 'STP/TPW Launcher v@VERSION@ args=%s cwd=%s\n' "$*" "$PWD" >>"$here/../stub-launch.txt"
@@ -276,6 +279,29 @@ check_build() { # DIR VERSION CHANNEL
     expect_eq "channel.txt" "$(cat "$1/channel.txt")" "$3"
 }
 
+# The application in the folder that stands for /Applications (TPW_INSTALL_APPS): named for the Finder, its Info.plist
+# names STP/TPW Launcher and carries the version's numbers, its program is the installer's and starts the launcher of DIR
+# (the stand-in notes "args= cwd=DIR" once more). ICON=1: the icon is there too (a real build).
+check_app() { # DIR VERSION [ICON]
+    local app="$TPW_INSTALL_APPS/STP:TPW Launcher.app" exe before
+    exe="$app/Contents/MacOS/STP-TPW-Launcher"
+    [ -d "$app" ] || bad "$app is missing"
+    grep -qF '<string>STP/TPW Launcher</string>' "$app/Contents/Info.plist" || bad "the application's Info.plist does not name STP/TPW Launcher"
+    grep -qF "<string>${2%-dev}</string>" "$app/Contents/Info.plist" || bad "the application's Info.plist does not carry version ${2%-dev}"
+    grep -qF '<string>org.tpw-port.launcher</string>' "$app/Contents/Info.plist" || bad "the application's Info.plist has not the launcher's identifier"
+    expect_in "$exe" '# tpw-port installer: the STP/TPW Launcher application'
+    [ -x "$exe" ] || bad "the application's program is not executable"
+    expect_eq "PkgInfo" "$(cat "$app/Contents/PkgInfo")" 'APPL????'
+    if [ "${3:-0}" = 1 ]; then
+        [ -s "$app/Contents/Resources/icon.icns" ] || bad "the application has no icon"
+        grep -qF '<string>icon</string>' "$app/Contents/Info.plist" || bad "the application's Info.plist names no icon"
+    else
+        before=$(launch_count "$1" "STP/TPW Launcher v$2 args= cwd=$1")
+        "$exe" || bad "the application's program did not run"
+        wait_for_count "$1" "STP/TPW Launcher v$2 args= cwd=$1" "$before" || bad "the application did not start the launcher of $1"
+    fi
+}
+
 marked_lines() { # FILE
     local n
     n=$(grep -cF '# tpw-port installer: the themepark command' "$1" 2>/dev/null || true)
@@ -329,6 +355,7 @@ case_fresh() {
     expect_text "$C/out1" 'Newest release: 0.0.1'
     expect_text "$C/out1" 'From now on, type themepark in any new Terminal window to play.'
     check_build "$DIR" 0.0.1 stable
+    check_app "$DIR" 0.0.1
     [ "$(git -C "$DIR/source" rev-parse HEAD)" = "$(git -C "$FAKE" rev-parse 'v0.0.1^{commit}')" ] || bad "the source is not at the tag's commit"
     expect_in "$DIR/build/install-info.txt" "commit=$(git -C "$FAKE" rev-parse 'v0.0.1^{commit}')"
     [ -f "$DIR/source/tpw-decomp/README" ] || bad "the submodule was not downloaded"
@@ -1086,6 +1113,7 @@ case_real() {
     ok_run "$C/o1" "$version"
     expect_text "$C/o1" 'fetching CMake'
     check_build "$DIR" "$version" stable
+    check_app "$DIR" "$version" 1
     "$DIR/build/tpw_launcher" --version </dev/null | tee "$C/version.txt"
     expect_in "$C/version.txt" "STP/TPW Launcher v$version"
     grep -q '^build: ' "$C/version.txt" || bad "the launcher printed no build line"

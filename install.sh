@@ -64,14 +64,34 @@
 # themepark command this script did not make is never shadowed: the line is then not written and the player is told
 # the full path instead.
 #
-# SAFETY. No sudo, nothing written outside DIR but that one marked line and, when missing, the folder DIR is in (the
-# default's ~/Applications); the launcher is started at the end, from DIR/build. The only folders deleted are
-# DIR/build-next and DIR/build-prev, by remove_own below, which refuses any other name, an odd install folder and a
-# link. Nothing is installed on the Mac: Apple's Command Line Tools must be there already, and the build fetches a CMake
-# into its own folder when needed.
+# THE APPLICATION. Players also open the game from an icon (the maintainer, 2026-10-25): every install, update and swap puts the
+# application "STP/TPW Launcher" in /Applications (on disk "STP:TPW Launcher.app": a colon in a file's name is what the
+# Finder shows as a slash), so Launchpad, Spotlight, the Finder and the Dock all have it. /Applications belongs to the
+# Mac's administrators as a group, so an administrator writes there with no password; for anyone else it goes in the
+# player's own ~/Applications, which Launchpad and Spotlight search too, and the player is told. The application is
+# small and the install folder is not in it: an Info.plist (the same name and identifier as the launcher's own,
+# launcher/macos/Info.plist.in), the icon as an .icns, and as its program a few lines of shell that start
+# DIR/build/tpw_launcher in DIR, exactly as the themepark command does (write_app below; the launcher then runs from the
+# bundle it keeps beside itself, launcher/app_bundle.h, as it does from themepark). So an update that replaces
+# DIR/build changes nothing in the application, and a launcher that is gone (the install folder deleted) gets a plain
+# message to run the installer again. The icon is the launcher's own (tpw_launcher --write-icon: the game's icon once a
+# game is imported, the launcher's stand-in before; app_icon.h), turned into an .icns by Apple's sips and iconutil,
+# which every Mac has. The icon in the Finder and Launchpad is the one of the last install or update; the Dock's while
+# the launcher runs is always the current one. The application is written again at every run and is only ever replaced
+# when it is this script's (APP_MARK in its program); nothing else in /Applications is touched or deleted. It is made
+# by this script on this Mac, never downloaded, so Gatekeeper has nothing to say about it. To remove it, drag it to the
+# Trash (it comes back at the next install or update).
+#
+# SAFETY. No sudo, nothing written outside DIR but that one marked line, the application STP/TPW Launcher in
+# /Applications (or ~/Applications) and, when missing, the folder DIR is in (the default's ~/Applications); the launcher
+# is started at the end, from DIR/build. The only folders deleted are DIR/build-next and DIR/build-prev, by remove_own
+# below, which refuses any other name, an odd install folder and a link, and the scratch folder of the application's
+# icon (mktemp's). Nothing is installed on the Mac: Apple's Command Line Tools must be there already, and the build
+# fetches a CMake into its own folder when needed.
 #
 # Test hooks (for the maintainers' tests, not for players): TPW_INSTALL_REPO replaces the repository URL,
-# TPW_INSTALL_HOME the folder that holds .zprofile and .bash_profile, and TPW_INSTALL_STUB=1 puts a stand-in launcher in
+# TPW_INSTALL_HOME the folder that holds .zprofile and .bash_profile, TPW_INSTALL_APPS the folder the application goes
+# in (in place of /Applications and the fallback), and TPW_INSTALL_STUB=1 puts a stand-in launcher in
 # place of the download and the build (the installer's CI tests the themepark command with it), of version
 # TPW_INSTALL_STUB_VERSION when set (a newer one stands in for a new release). TPW_INSTALL_SCRUB=FILE runs only the log
 # scrubber (devtools/test_install_log_scrub.sh), TPW_INSTALL_HOSTNAME stands in for this Mac's name there.
@@ -101,7 +121,8 @@ Options:
   --plain               one line per step and the build's whole output, no colour, no redrawing (what a file gets)
   --help                this text
 
-After installing, open a new Terminal window and type themepark to play, from any folder.
+After installing, open STP/TPW Launcher from your Applications folder (Launchpad, Spotlight or the Finder), or open
+a new Terminal window and type themepark, from any folder, to play.
 Run the same line again to update. It follows the newest release unless --dev is added each time; so does
 the launcher's Update button, which never adds --dev.
 EOF
@@ -1331,6 +1352,172 @@ cd "$dir" && nohup "$dir/build/tpw_launcher" "$@" >/dev/null 2>&1 </dev/null &
 EOF
 }
 
+# ---- the application (THE APPLICATION above)
+
+APP_NAME="STP:TPW Launcher.app"
+APP_MARK="# tpw-port installer: the STP/TPW Launcher application"
+APP_DIR=""   # the folder write_app put the application in (empty until it has)
+
+# The folder the application goes in: TPW_INSTALL_APPS (a test), else /Applications when this user may write there (an
+# administrator), else the player's own ~/Applications, made when missing. Prints it, or nothing when there is none.
+apps_folder() {
+    if [ -n "${TPW_INSTALL_APPS:-}" ]; then
+        mkdir -p "$TPW_INSTALL_APPS" 2>/dev/null || return 1
+        printf '%s\n' "$TPW_INSTALL_APPS"
+    elif [ -d /Applications ] && [ -w /Applications ]; then
+        printf '%s\n' /Applications
+    else
+        mkdir -p "$HOME/Applications" 2>/dev/null || return 1
+        [ -w "$HOME/Applications" ] || return 1
+        printf '%s\n' "$HOME/Applications"
+    fi
+}
+
+# The application's icon, as the .icns $2, made in the scratch folder $1: the launcher writes its icon as a PNG
+# (tpw_launcher --write-icon, app_icon.h), sips scales it to the ten sizes an .icns holds and iconutil packs them.
+# Returns 1 when any of that is missing (a stand-in launcher in a test): the application is then made without an icon.
+make_app_icon() {
+    png="$1/icon.png"
+    set="$1/icon.iconset"
+    command -v sips >/dev/null 2>&1 && command -v iconutil >/dev/null 2>&1 || return 1
+    "$DIR/build/tpw_launcher" --write-icon "$png" >/dev/null 2>&1 </dev/null && [ -s "$png" ] || return 1
+    mkdir -p "$set" || return 1
+    for size in 16 32 128 256 512; do
+        sips -z "$size" "$size" "$png" --out "$set/icon_${size}x${size}.png" >/dev/null 2>&1 </dev/null || return 1
+        sips -z "$((size * 2))" "$((size * 2))" "$png" --out "$set/icon_${size}x${size}@2x.png" >/dev/null 2>&1 </dev/null \
+            || return 1
+    done
+    iconutil -c icns "$set" -o "$2" >/dev/null 2>&1 </dev/null && [ -s "$2" ]
+}
+
+# Writes the application into apps_folder (again at every install, update and switch, when DIR/build has the launcher).
+# Never asks for a password: says what it could not do and returns 1. APP_DIR is the folder it went in.
+write_app() {
+    APP_DIR=""
+    apps=$(apps_folder) || apps=""
+    if [ -z "$apps" ]; then
+        say "There is no Applications folder this user can write to, so STP/TPW Launcher was not added to one."
+        return 1
+    fi
+    app="$apps/$APP_NAME"
+    exe="$app/Contents/MacOS/STP-TPW-Launcher"
+    # another program of the same name is never replaced; one of ours, or a half-written one with no program, is
+    if [ -e "$app" ] && ! grep -qF "$APP_MARK" "$exe" 2>/dev/null && [ -n "$(ls -A "$app/Contents/MacOS" 2>/dev/null)" ]; then
+        say "$app was not made by this installer, so it is left alone."
+        return 1
+    fi
+    if [ -e "$app" ] && [ ! -d "$app" ]; then
+        say "$app is not a folder, so it is left alone."
+        return 1
+    fi
+    work=$(mktemp -d "${TMPDIR:-/tmp}/tpw-app.XXXXXX") || work=""
+    if [ -z "$work" ]; then
+        say "Couldn't make a scratch folder for the application's icon."
+        return 1
+    fi
+    icns="$work/icon.icns"
+    icon=0
+    make_app_icon "$work" "$icns" && icon=1
+    ok=1
+    mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" || ok=0
+    [ "$ok" = 0 ] || { write_app_program "$exe.tmp" && chmod 755 "$exe.tmp" && mv -f "$exe.tmp" "$exe"; } || ok=0
+    [ "$ok" = 0 ] || { write_app_plist "$app/Contents/Info.plist.tmp" "$icon" && mv -f "$app/Contents/Info.plist.tmp" "$app/Contents/Info.plist"; } || ok=0
+    [ "$ok" = 0 ] || { printf 'APPL????' >"$app/Contents/PkgInfo.tmp" && mv -f "$app/Contents/PkgInfo.tmp" "$app/Contents/PkgInfo"; } || ok=0
+    if [ "$ok" = 1 ]; then
+        if [ "$icon" = 1 ]; then
+            mv -f "$icns" "$app/Contents/Resources/icon.icns" || ok=0
+        else
+            rm -f "$app/Contents/Resources/icon.icns"
+        fi
+    fi
+    case "$work" in */tpw-app.??????) rm -rf "$work" ;; esac
+    if [ "$ok" = 0 ]; then
+        say "Couldn't write $app."
+        return 1
+    fi
+    touch "$app"   # a changed folder: the Finder and Launchpad read the bundle again
+    APP_DIR=$apps
+}
+
+# The application's program: a few lines of shell that start DIR/build/tpw_launcher in DIR, as the themepark command
+# does (write_command_file), detached: an exec'd launcher stays behind the other windows, a detached one comes to the
+# front (tried both on 2026-10-26). DIR is written in (an application in /Applications cannot find the install from its own
+# place). A missing launcher (the install folder deleted) gets a message, not a silent nothing.
+write_app_program() {
+    # DIR between single quotes: a ' in it becomes '\'' (the installer refuses ", $, ` and \ in it)
+    quoted=$(printf '%s\n' "$DIR" | sed "s/'/'\\\\''/g")
+    cat >"$1" <<EOF
+#!/bin/sh
+$APP_MARK
+# Starts the STP/TPW Launcher installed in the folder named below, as the themepark command does. The installer
+# (install.sh) writes this application again at every install and update. To remove it, drag it to the Trash.
+dir='$quoted'
+if [ ! -x "\$dir/build/tpw_launcher" ]; then
+    osascript -e "display alert \\"STP/TPW Launcher is not installed any more\\" message \\"The launcher was in \$dir. Run the installer again to put it back.\\" as critical" >/dev/null 2>&1
+    exit 1
+fi
+cd "\$dir" && nohup "\$dir/build/tpw_launcher" >/dev/null 2>&1 </dev/null &
+EOF
+}
+
+# The application's Info.plist: the launcher's own name and identifier (launcher/macos/Info.plist.in), the version
+# installed (its numbers: 0.1.1-dev is 0.1.1), the icon when $2 is 1.
+write_app_plist() {
+    numbers=${VERSION%-dev}
+    case "$numbers" in [0-9]*.[0-9]*.[0-9]*) ;; *) numbers=0.0.0 ;; esac
+    icon_lines=""
+    [ "$2" = 1 ] && icon_lines="
+	<key>CFBundleIconFile</key>
+	<string>icon</string>"
+    cat >"$1" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>STP-TPW-Launcher</string>
+	<key>CFBundleIdentifier</key>
+	<string>org.tpw-port.launcher</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>STP/TPW Launcher</string>
+	<key>CFBundleDisplayName</key>
+	<string>STP/TPW Launcher</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$numbers</string>
+	<key>CFBundleVersion</key>
+	<string>$numbers</string>$icon_lines
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.games</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>11.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+</dict>
+</plist>
+EOF
+}
+
+# The step that writes the application: its row and its lines around write_app.
+add_app() {
+    ui_active application "adding STP/TPW Launcher to Applications"
+    if write_app; then
+        info "STP/TPW Launcher is in $APP_DIR: open it from Launchpad, Spotlight or the Finder."
+        if [ "$APP_DIR" = "$HOME/Applications" ] && [ -z "${TPW_INSTALL_APPS:-}" ]; then
+            say "This user may not write in /Applications, so STP/TPW Launcher went into your own Applications folder,"
+            say "$APP_DIR. Launchpad and Spotlight find it there too."
+        fi
+        ui_done application "STP/TPW Launcher, in $(tilde "$APP_DIR")"
+    else
+        ui_warn application "STP/TPW Launcher was not added (see below)"
+    fi
+}
+
 # Makes sure PROFILE has LINE once, as its only line with CMD_MARK: added at the end when there is none, put in place
 # of the first and the others dropped when they differ (an install in another folder takes the command over).
 put_line() {
@@ -1470,6 +1657,7 @@ stub_build() {
     cat >"$NEXT/tpw_launcher" <<EOF || die "Couldn't write the stand-in launcher."
 #!/bin/sh
 if [ "\$1" = --version ]; then printf 'STP/TPW Launcher v$VERSION\nbuild: stub\n'; fi
+if [ "\$1" = --write-icon ]; then exit 1; fi   # the icon is the real launcher's: the application gets none
 here=\$(cd "\$(dirname "\$0")" && pwd)
 if [ "\$(basename "\$here")" = build ]; then
     printf 'STP/TPW Launcher v$VERSION args=%s cwd=%s\n' "\$*" "\$PWD" >>"\$here/../stub-launch.txt"
@@ -1494,7 +1682,7 @@ wait_for_exit() {
 
 run_swap() {
     [ -e "$DIR/.tpw-installer" ] || [ -e "$DIR/channel.txt" ] || die "There is no install in $DIR."
-    STEP_TOTAL=1
+    STEP_TOTAL=2   # the switch and the application
     [ -z "$WAIT_PID" ] || STEP_TOTAL=$((STEP_TOTAL + 1))
     [ "$LAUNCH" = 0 ] || STEP_TOTAL=$((STEP_TOTAL + 1))
     UI_FOOTER="Your games, saves and settings are not touched by an update."
@@ -1515,6 +1703,8 @@ run_swap() {
         VERSION=$(info_get "$DIR/build/install-info.txt" version)
         ui_done swap "nothing was waiting in build-next"
     fi
+    step "Adding STP/TPW Launcher to Applications"
+    add_app
     if [ "$LAUNCH" = 1 ]; then
         step "Starting the launcher"
         launch
@@ -1548,6 +1738,7 @@ run_install() {
         ui_pending "$UI_SRC" ""
         ui_pending build ""
         [ "$UPDATE" = 1 ] || ui_pending command "themepark"
+        [ "$STAGE" = 1 ] || ui_pending application "STP/TPW Launcher"
         [ "$STAGE" = 1 ] || [ "$LAUNCH" = 0 ] || ui_pending start ""
     fi
     if [ "$CHANNEL" = stable ] && [ "$(read_channel)" = dev ]; then
@@ -1560,7 +1751,7 @@ run_install() {
 
     # check, download, build, verify; then switch and start unless --stage
     STEP_TOTAL=4
-    [ "$STAGE" = 1 ] || STEP_TOTAL=$((STEP_TOTAL + 1))
+    [ "$STAGE" = 1 ] || STEP_TOTAL=$((STEP_TOTAL + 2))   # the switch and the application
     [ "$STAGE" = 1 ] || [ "$LAUNCH" = 0 ] || STEP_TOTAL=$((STEP_TOTAL + 1))
 
     step "Checking this computer"
@@ -1615,6 +1806,7 @@ run_install() {
             ui_pending build ""
             ui_pending swap "the new launcher replaces the old one when the build is done"
             [ "$UPDATE" = 1 ] || ui_pending command "themepark"
+            [ "$STAGE" = 1 ] || ui_pending application "STP/TPW Launcher"
             [ "$STAGE" = 1 ] || [ "$LAUNCH" = 0 ] || ui_pending start ""
         else
             ui_done "$UI_SRC" "$got"
@@ -1700,6 +1892,9 @@ run_install() {
     else
         ui_warn command "$command_row"
     fi
+    # THE APPLICATION: written again at every install, update and switch
+    step "Adding STP/TPW Launcher to Applications"
+    add_app
     if [ "$LAUNCH" = 1 ]; then
         step "Starting the launcher"
         launch
@@ -1708,6 +1903,11 @@ run_install() {
     [ "$UPDATE" = 1 ] || tell_old_copies
     closing=$play
     [ "$play" != "$every_window" ] || closing="Type themepark in a new Terminal window to play."
+    if [ -n "$APP_DIR" ] && [ "$play" = "$every_window" ]; then
+        closing="Open STP/TPW Launcher from Applications, or type themepark in a new Terminal window, to play."
+    elif [ -n "$APP_DIR" ]; then
+        closing="Open STP/TPW Launcher from Applications to play. $play"
+    fi
     if [ "$current" = 1 ]; then
         UI_CLOSING="Nothing to do. $closing"
     else

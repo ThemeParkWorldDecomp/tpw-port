@@ -31,12 +31,13 @@ namespace fs = std::filesystem;
 
 const char* const kBundleName = "STP:TPW Launcher.app";   // the Finder shows "STP/TPW Launcher.app"
 
-// The runs that open no window: Cmd-Tab and the Dock never see them, so they stay where they are.
+// The runs that open no window (--write-icon included: the install script runs it before the launcher's first start):
+// Cmd-Tab and the Dock never see them, so they stay where they are.
 bool WindowlessRun(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         const char* arg = argv[i];
         if (std::strcmp(arg, "--version") == 0 || std::strcmp(arg, "--help") == 0 || std::strcmp(arg, "-h") == 0 ||
-            std::strcmp(arg, "--check-updates") == 0 || std::strcmp(arg, "--import") == 0)
+            std::strcmp(arg, "--check-updates") == 0 || std::strcmp(arg, "--import") == 0 || std::strcmp(arg, "--write-icon") == 0)
             return true;
     }
     return false;

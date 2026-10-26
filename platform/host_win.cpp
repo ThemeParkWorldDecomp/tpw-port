@@ -270,13 +270,21 @@ bool LogToFile(const std::string& path) {
 // The OpenGL calls past 1.1, the most opengl32.dll exports: GL_EXT_compiled_vertex_array's (include/platform/opengl.h) and
 // glWindowPos2i (OpenGL 1.4, platform/quicktime.cpp's films). They go to the driver's own entry points, asked of the
 // current context at the first call (both are made while drawing). A driver without them leaves them doing nothing: the
-// arrays' lock is a hint, and every driver of the last twenty years has glWindowPos2i.
+// arrays' lock is a hint, and every driver of the last twenty years has glWindowPos2i. The log says when one is
+// missing (a film drawn without glWindowPos2i is black with its sound playing), with whether a context was current:
+// wglGetProcAddress answers for the current context only, so a first call without one would leave the function
+// missing for good.
 namespace {
 template <class Function> Function DriverGLProc(const char* name) {
     const PROC proc = wglGetProcAddress(name);
     const auto value = reinterpret_cast<intptr_t>(proc);
     // Some drivers answer 1, 2, 3 or -1 for a name they do not have.
-    return value == 0 || value == 1 || value == 2 || value == 3 || value == -1 ? nullptr : reinterpret_cast<Function>(proc);
+    if (value == 0 || value == 1 || value == 2 || value == 3 || value == -1) {
+        tpw::Log("opengl: the driver has no %s%s", name,
+                 wglGetCurrentContext() == nullptr ? " (asked with no OpenGL context current)" : "");
+        return nullptr;
+    }
+    return reinterpret_cast<Function>(proc);
 }
 }  // namespace
 

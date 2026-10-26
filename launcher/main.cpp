@@ -45,6 +45,7 @@
 #include "app_bundle.h"
 #include "app_icon.h"
 #include "asset_packs.h"
+#include "gold_rides.h"
 #include "packs.h"
 #include "platform.h"
 #include "handoff.h"
@@ -273,6 +274,9 @@ void Usage(const char* program) {
                  "                 opens 800 x 560 points), pressed before its drawn frame F and released before F + 1\n"
                  "  --data DIR     the folder launcher.ini is in (default: the per-user folder SDL names for the\n"
                  "                 launcher, such as ~/Library/Application Support/STP-TPW Launcher on a Mac)\n"
+                 "  --write-icon FILE  without the window: write the launcher's icon (the game's own, icon.png in the\n"
+                 "                 data folder, or the stand-in until a game is imported) as this PNG file and exit; the\n"
+                 "                 install script makes the icon of the application it puts in Applications from it\n"
                  "  --program FILE the game's data tables are read from this full Mac \"SimTheme Park\" or \"Theme Park\n"
                  "                 World\" application (its data fork; the CD's 2.0.1, the 2.04b3 patch's or a 2.1 release)\n"
                  "                 (default: $TPW_GAME_PROGRAM, else \"SimTheme Park\" in the game folder)\n"
@@ -345,15 +349,39 @@ bool TakesValue(const std::string& arg) {
     static const char* const kWithValue[] = {"--game",  "--data",        "--play",       "--import",     "--program",    "--window-click",
                                              "--user",  "--edition",     "--resolution", "--aspect",     "--frames",
                                              "--click", "--drag",        "--type",       "--dump-frames", "--dump-every",
-                                             "--dump-limit", "--display"};
+                                             "--dump-limit", "--display", "--write-icon"};
     for (const char* option : kWithValue)
         if (arg == option) return true;
     return false;
 }
 
+// The data folder as it is, for a run that must not make it (--write-icon, which the install script runs before the
+// launcher's first start): SDL's pref path makes the folder when it is missing, so the per-user place it names on a Mac
+// (~/Library/Application Support/<name>) and on Windows (%APPDATA%\<name>) is looked at first, and taken only when it is
+// there. Empty when there is none yet (the stand-in icon then).
+std::string ExistingDataFolder() {
+    std::error_code ec;
+    std::filesystem::path guess;
+#if defined(__APPLE__)
+    if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0')
+        guess = std::filesystem::path(home) / "Library" / "Application Support" / tpw::ui::kDataFolderName;
+#elif defined(_WIN32)
+    if (const char* appData = std::getenv("APPDATA"); appData != nullptr && *appData != '\0')
+        guess = std::filesystem::path(appData) / tpw::ui::kDataFolderName;
+#endif
+    if (!guess.empty()) return std::filesystem::is_directory(guess, ec) ? guess.string() : std::string();
+    std::string folder;
+    if (char* pref = SDL_GetPrefPath("", tpw::ui::kDataFolderName)) {
+        folder = pref;
+        SDL_free(pref);
+    }
+    return folder;
+}
+
 // --version and --help answer before the log file is opened (no file for them): the exit code, or -1 to run. `dataDir`
 // gets --data's value, where the log file goes.
 int EarlyOptions(int argc, char** argv, std::string& dataDir) {
+    std::string writeIcon;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--version") {
@@ -380,8 +408,18 @@ int EarlyOptions(int argc, char** argv, std::string& dataDir) {
         }
         if (TakesValue(arg) && i + 1 < argc) {
             if (arg == "--data") dataDir = argv[i + 1];
+            if (arg == "--write-icon") writeIcon = argv[i + 1];
             ++i;
         }
+    }
+    if (!writeIcon.empty()) {   // the icon as a PNG, for the install script's application (app_icon.h WriteAppIcon)
+        std::string what, err;
+        if (!tpw::launcher::WriteAppIcon(dataDir.empty() ? ExistingDataFolder() : dataDir, writeIcon, what, err)) {
+            std::fprintf(stderr, "launcher: --write-icon: %s\n", err.c_str());
+            return 1;
+        }
+        std::printf("%s: %s\n", writeIcon.c_str(), what.c_str());
+        return 0;
     }
     return -1;
 }
@@ -697,8 +735,15 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
                   tpw::assets::EditionName(choice.edition), play.empty() ? "the launcher window's Play" : "--play",
                   config.gameDir.string().c_str());
     // The Gold Edition switch (launcher_ui.h GoldKey). The Gold data is kept in assets/gold, apart from the game folder
-    // chosen above, and nothing reads it into the game yet, so the switch changes the choice, the label and this line.
-    if (choice.gold) tpw::Log("Gold rides: on, but this build does not add them to the game yet");
+    // chosen above; with the switch on, its rides are laid over the game folder (platform/gold_rides.h), each at the
+    // place the PC Gold installer copied it to, and the game finds them as it scans the ride folders.
+    if (choice.gold) {
+        const std::filesystem::path gold = backend.importer()->GameFolder(tpw::assets::kEditionGold);
+        size_t missing = 0;
+        const size_t rides = tpw::UseGoldRides(gold, &missing);
+        if (missing == 0) tpw::Log("Gold rides: on, %zu rides overlaid from assets/gold", rides);
+        else tpw::Log("Gold rides: on, %zu rides overlaid from assets/gold (%zu listed in RideConfig.txt are missing)", rides, missing);
+    }
     else if (backend.Status(tpw::assets::kEditionGold).unlocked) tpw::Log("Gold rides: off (data present, switched off)");
     else tpw::Log("Gold rides: no data");
     return -1;

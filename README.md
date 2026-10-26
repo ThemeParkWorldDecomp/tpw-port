@@ -3,14 +3,6 @@
 An unofficial port of Sim Theme Park (AKA Theme Park World, 1999) for Macs (Apple Silicon and Intel) and 64-bit Windows.
 You need your own copy of the game. Nothing from the game is in here.
 
-Not affiliated with or endorsed by Electronic Arts. Sim Theme Park and Theme Park World are trademarks of their
-respective owners.
-
-**Reporting a problem? Always say which launcher version you run** (for example 0.1.0). The launcher's window title,
-its About box and the first line of its log all show it. See [Reporting a problem](#reporting-a-problem).
-
-**What's new:** [CHANGELOG.md](CHANGELOG.md) lists what each version adds and fixes.
-
 ## Quick start
 
 The easiest way is one line. It downloads the source of the newest release and builds the launcher on your computer,
@@ -30,111 +22,19 @@ warnings to click through. Run the same line again to update.
   It needs Git (`winget install Git.Git`, then a new PowerShell window). The launcher goes in
   `%LOCALAPPDATA%\STP-TPW-Launcher\build\tpw_launcher.exe`.
 
-If you already play from a clone of tpw-port (the way below), run the same line too. It installs in its own folder and
-never touches the clone; at the end it says the clone is no longer needed, so you can delete it. Your games, saves and
-settings are not in the clone: they are in the launcher's data folder (`~/Library/Application Support/STP-TPW Launcher`
-on a Mac, `%APPDATA%\STP-TPW Launcher` on Windows), and the new install uses them as they are.
-
-The installer starts the launcher when it is done. Options go after `sh -s --` on a Mac, and after a scriptblock on
-Windows. For example, `--dev` (`-Dev`) installs main, the next version while it is being made (it can have bugs):
-
-    curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh -s -- --dev
-    & ([scriptblock]::Create((irm https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.ps1))) -Dev
-
-To stay on main, add `--dev` (`-Dev`) every time you run the line: without it, the line switches the install back to the
-newest release, and says so. So does the launcher's Update button, which always gets the newest release.
-
-`--dir PATH` (`-Dir PATH`) installs somewhere else, and `--help` (`-Help`) lists the rest. The installer needs no
-administrator rights. It writes only in its own folder, apart from one line that lets you type `themepark` (below).
-Your game files and saves are not in its folder, and it never touches them.
-
 ### Play after install
 
 Type this in a Terminal (Mac) or PowerShell (Windows) window, in any folder:
 
     themepark
 
-It starts the launcher, where the Update button is.
-
-- On a Mac, the command works in every new Terminal window you open after installing (not in the window you installed
-  from). The first install opens the launcher by itself, so you can play straight away.
-- On Windows, it works straight away: in the PowerShell window you installed from and in every new one.
-
-At the end, the installer checks that a new window finds `themepark`. If one does not (an unusual shell setup, for
-example), it shows the one line to run that fixes it.
-
-To remove the installed launcher, delete its folder (`~/Applications/STP-TPW-Launcher` on a Mac,
-`%LOCALAPPDATA%\STP-TPW-Launcher` on Windows). On a Mac, also delete the line that ends with
-`# tpw-port installer: the themepark command` from `~/.zprofile` (and from `~/.bash_profile`, `~/.bash_login` or
-`~/.profile` if it is there too). On Windows, also remove the folder's `bin` entry from your Path: search the Start menu
-for "Edit environment variables for your account", then edit Path. Your game files, saves and settings are kept in the
-launcher's data folder and stay.
-
-### Ready-made downloads
-
-The other way to install is a ready-made launcher from the [Releases page](https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest). It was
-not built on your computer, so macOS and Windows warn about it at first. It does not update itself: its Update button
-opens the Releases page.
-
-- Windows 10 or 11 (64-bit): the `-windows-x64.zip`. Unzip it and run tpw_launcher.exe. If Windows SmartScreen stops it,
-  click More info, then Run anyway.
-- Mac with Apple Silicon: the `-macos-arm64.tar.gz`. Mac with an Intel processor: the `-macos-x64.tar.gz`. Double-click it
-  to unpack it. The launcher is not signed yet, so macOS blocks it at first: in Terminal, run
-  `xattr -d com.apple.quarantine ` followed by the unpacked tpw_launcher (drag it onto the Terminal window), then
-  double-click tpw_launcher.
-
-A release is fixed: 0.1.0 is the same code on every Mac and PC and never changes afterwards, and fixes come in the next
-version. The Mac and Windows downloads of a release and the installers' builds of it are all built from the same commit,
-its tag (v0.1.0).
-
-Then see [Playing](#playing).
-
-### Building from source by hand
-
-Follow the steps below. Their clone uses `--branch stable`, the newest release (the stable branch follows the
-releases). `--branch v0.1.0` gives one release in particular. A clone without `--branch` is main: the next version
-while it is being made (its launcher says so, 0.0.4-dev for example), for contributors and testers.
-
-### Building on macOS
-
-On a Mac with Apple Silicon or an Intel processor, in Terminal:
-
-    git clone --branch stable --recurse-submodules https://github.com/ThemeParkWorldDecomp/tpw-port.git
-    cd tpw-port && make
-    make run
-
-If macOS asks to install the command line developer tools, click Install, wait, then run the first line again. The first
-build takes a few minutes. If your Mac has no CMake, `make` fetches it into the build
-folder. Nothing else is installed.
-
-### Building on Windows
-
-On a PC with 64-bit Windows 10 (version 1803 or newer) or Windows 11, Intel, AMD or Arm (an Arm PC needs Windows 11),
-install Git once if you do not have it:
-
-    winget install Git.Git
-
-After installing Git, open a new PowerShell or Command Prompt window. Paste these lines:
-
-    git -c core.autocrlf=false clone --branch stable --recurse-submodules https://github.com/ThemeParkWorldDecomp/tpw-port.git
-    cd tpw-port
-    .\build.cmd
-    .\run.cmd
-
-The first build downloads its tools and compiles the launcher. No Visual Studio, CMake, Python or SDK installation is
-needed. Next time, open the tpw-port folder and double-click run.cmd, or run `.\run.cmd` there. You can also start
-build\tpw_launcher.exe directly. To update an existing clone, run `git pull`, `git submodule update --init --recursive`
-and `.\build.cmd`.
-
-Git for Windows is the only thing installed. build.cmd fetches the rest into build\tools\, in the versions the Windows
-build was tested with, each checked against its publisher's SHA-256: llvm-mingw (the compiler), CMake, Ninja and Python
-(about 250 MB to download, once). `.\build.cmd clean` deletes build\ with those tools. The clone keeps the files' line
-endings as they are (core.autocrlf=false). The first build takes a few minutes. The launcher is one .exe that needs
-nothing beside it.
+On a Mac it works in every new Terminal window (the first install opens the launcher for you), and the installer
+also puts **STP/TPW Launcher** in your Applications folder, with the game's icon, so you can open it from Launchpad,
+Spotlight or the Dock too. On Windows it works straight away, in the window you installed from too.
 
 ### Playing
 
-`make run` (on Windows, `.\run.cmd` or `build\tpw_launcher.exe`) opens the launcher. Drop your game disc on its window: the Mac CD, the
+`themepark` opens the launcher. Drop your game disc on its window: the Mac CD, the
 PC CD, or a zip or disc image of either. The launcher checks every file and ticks off the editions it finds. Press Play:
 a progress bar shows while the game starts, and the launcher's window closes when the game's window appears. Once the
 US, European and Gold discs are all checked, the window shows just two tiles, Sim Theme Park and Theme Park World, each
@@ -183,7 +83,10 @@ The game itself never needs the internet: everything plays offline.
   - The US Mac CD gives Sim Theme Park.
   - The Mac CD plus the European PC CD give Theme Park World too. Only the 2000 pressings of the PC CD work (Redump
     66484 and 9465), and the 1999 pressing (Redump 66100) is refused.
-  - The PC Gold bonus CD unlocks the Gold bonus rides in the launcher. This build does not add them to the game yet.
+  - The PC Gold bonus CD adds its Gold bonus rides to either edition: 18 new rides and newer copies of 17 others, laid
+    over the game's files when you play (the Gold Edition switch on each play tile turns them off). A park saved
+    with a Gold ride built needs the switch on: with it off, the game refuses the park as the original does when a
+    downloaded ride is missing, and opens the theme's park afresh.
 - No patches. The port is built from the last Mac patch (2.04b3) and reads only the game's data files.
 
 Your checked game files and your saves live in `~/Library/Application Support/STP-TPW Launcher` on a Mac and in
@@ -250,7 +153,7 @@ on the Mac, bugs included. This repository adds what it takes to play:
   "Playable offline").
 - platform/: the Mac Toolbox, Sound Sprockets, QuickTime and the game's Windows-style shims, done on SDL3, OpenGL and
   CoreText (on Windows, stb_truetype in place of CoreText).
-- overrides/: the port's fixes, 200 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
+- overrides/: the port's fixes, 206 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
   the port does and why. Each file there is built in place of the tpw-decomp file of the same path. Headers are read
   from a copy of tpw-decomp's headers in the build folder with the overridden ones laid over it.
 - mods/: the [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) submodule, for optional changes to how the game plays. It holds no mods yet

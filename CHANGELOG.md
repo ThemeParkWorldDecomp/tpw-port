@@ -10,6 +10,7 @@ The first release: play Sim Theme Park and Theme Park World from your own discs,
 ### New
 
 - A Windows version, alongside the Mac one.
+- On a Mac, the installer puts STP/TPW Launcher in your Applications folder, with the game's icon, so you can open it from Launchpad, Spotlight, the Finder or the Dock as well as by typing themepark.
 - Setting: skip the intro films.
 - Setting: go back to the launcher when you quit the game.
 - Setting: Full screen can be switched off to play in a window; Alt+Enter switches it while playing on Windows (Cmd+Ctrl+F on a Mac).
@@ -25,6 +26,7 @@ The first release: play Sim Theme Park and Theme Park World from your own discs,
 - The Load panel shows save times in your own time zone.
 - Wide screens: the game fits your screen, and the advisor, menus and Options screen are no longer stretched.
 - Export logs, in the About box, saves the launcher's newest log to your Downloads folder, ready to attach to a bug report.
+- The log names your graphics driver (maker, card and OpenGL version), and says if the driver lacks a call the game's films need, so a "sound but no picture" report can be traced.
 - Logs no longer contain your username or computer name, so they're safe to share.
 - Install and update the launcher by pasting one line into Terminal or PowerShell. It builds on your computer, so there are no security warnings to click through.
 - Type themepark in any new Terminal or PowerShell window to start the launcher, from any folder.
@@ -33,7 +35,8 @@ The first release: play Sim Theme Park and Theme Park World from your own discs,
 - The installer's progress view sits in a frame with the version in its title, and says what the build is doing (fetching tools, configuring, starting the compiler) until the compiler reports a percentage.
 - The launcher tells you when a new version is out and its Update button installs it, and it stays quiet when you're offline. (Thanks @samueleagle91)
 - Sim Theme Park is listed first everywhere, Theme Park World second; the launcher shows the US tile on the left.
-- Gold Edition switch on each play tile: play the plain edition even when the Gold data is installed; the launcher remembers it.
+- The Gold bonus CD's rides are in the game: the 35 rides of its RideConfig.txt are laid over the game's files when you play, as the Gold installer copied them (18 new rides, 17 newer copies), without touching your imported files.
+- Gold Edition switch on each play tile: play the plain edition even when the Gold data is installed; the launcher remembers it. A park saved with a Gold ride built is refused with the switch off (the game's own missing-rides answer, with a log line) instead of crashing.
 - Mac: the Dock, Cmd-Tab and Force Quit call the launcher STP/TPW Launcher, and show the game's own icon once your discs are imported (until then, a picture in the launcher's colours).
 
 ### Changed
@@ -70,5 +73,6 @@ The first release: play Sim Theme Park and Theme Park World from your own discs,
 - Windows: building works when the folder's name has a space in it.
 - Windows: the installer's build no longer fails on the rules that keep your name out of the logs.
 - The launcher comes to the front when started from the themepark command or the installer.
+- Leaving or restarting a park with a ride's or shop's panel open no longer corrupts the autosave, and such an autosave now loads: the panel's ride preview was saved as a ride no type could make again. (Thanks Piro and Addable13 on Discord)
 
 Most of this release was made by @samueleagle91. Thank you!

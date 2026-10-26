@@ -126,14 +126,21 @@ bool SetDockIcon(const IconImage& icon, const char** reason) {
 }
 #endif
 
+// The icon to show: `dataFolder`'s icon.png (own: true, `source` its Source text) or the stand-in.
+IconImage LoadIcon(const std::string& dataFolder, bool& own, std::string& source) {
+    IconImage icon;
+    const std::string path = dataFolder + "/icon.png";
+    own = !dataFolder.empty() && tpw::assets::ReadIconPng(path, icon, &source);
+    if (!own) icon = StandIn();
+    return icon;
+}
+
 }  // namespace
 
 void ApplyAppIcon(const std::string& dataFolder, SDL_Window* window) {
-    IconImage icon;
+    bool own = false;
     std::string source;
-    const std::string path = dataFolder + "/icon.png";
-    const bool own = !dataFolder.empty() && tpw::assets::ReadIconPng(path, icon, &source);
-    if (!own) icon = StandIn();
+    IconImage icon = LoadIcon(dataFolder, own, source);
     const char* what = own ? "the game's icon" : "the launcher's stand-in (no icon.png in the data folder yet)";
 #if defined(__APPLE__)
     (void)window;
@@ -150,6 +157,21 @@ void ApplyAppIcon(const std::string& dataFolder, SDL_Window* window) {
     else tpw::Log("app icon: %s%s%s (%dx%d)", what, own ? ", from " : "", own ? source.c_str() : "", icon.width, icon.height);
     if (surface != nullptr) SDL_DestroySurface(surface);
 #endif
+}
+
+bool WriteAppIcon(const std::string& dataFolder, const std::string& path, std::string& what, std::string& err) {
+    bool own = false;
+    std::string source;
+    const IconImage icon = LoadIcon(dataFolder, own, source);
+    what = own ? "the game's icon, from " + source : "the launcher's stand-in (no icon.png in the data folder yet)";
+    // icon.png's Source text is "TP.ico, 64x64, 8-bit": the name alone goes in, the writer adds the size and depth again
+    std::string name = own ? source : "the launcher's stand-in";
+    for (int part = 0; own && part < 2; ++part) {
+        const size_t comma = name.rfind(", ");
+        if (comma == std::string::npos) break;
+        name.erase(comma);
+    }
+    return tpw::assets::WriteIconPng(path, icon, name, err);
 }
 
 }  // namespace tpw::launcher

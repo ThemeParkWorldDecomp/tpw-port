@@ -51,7 +51,7 @@ jobs:
             dir="$RUNNER_TEMP/tpw port's $name"
             mkdir -p "$home"
             echo "::group::install with $name as the player's shell"
-            TPW_INSTALL_STUB=1 TPW_INSTALL_HOME="$home" HOME="$home" SHELL="$shell" sh install.sh --no-launch --dir "$dir" </dev/null | tee "$RUNNER_TEMP/out-$name.txt"
+            TPW_INSTALL_STUB=1 TPW_INSTALL_HOME="$home" HOME="$home" SHELL="$shell" TPW_INSTALL_APPS="$RUNNER_TEMP/apps-$name" sh install.sh --no-launch --dir "$dir" </dev/null | tee "$RUNNER_TEMP/out-$name.txt"
             echo "::endgroup::"
             if [ "$(tail -n 1 "$RUNNER_TEMP/out-$name.txt")" != "RESULT ok 0.0.0-dev" ]; then
               echo "::error::$name: the install did not end with RESULT ok 0.0.0-dev"; exit 1
@@ -70,6 +70,17 @@ jobs:
               echo "::error::$name: themepark --version in a new login shell did not start the launcher"; exit 1
             fi
             cat "$dir/stub-launch.txt"
+            # the application: in the test folder that stands for /Applications, named for the Finder, pointing at DIR
+            app="$RUNNER_TEMP/apps-$name/STP:TPW Launcher.app"
+            if ! grep -q '<string>STP/TPW Launcher</string>' "$app/Contents/Info.plist"; then
+              echo "::error::$name: $app has no Info.plist naming STP/TPW Launcher"; exit 1
+            fi
+            if [ ! -x "$app/Contents/MacOS/STP-TPW-Launcher" ] || ! "$app/Contents/MacOS/STP-TPW-Launcher"; then
+              echo "::error::$name: the application's program did not run"; exit 1
+            fi
+            if [ "$(grep -cF "STP/TPW Launcher v0.0.0-dev args= cwd=$dir" "$dir/stub-launch.txt")" != 1 ]; then
+              echo "::error::$name: the application's program did not start the launcher in $dir"; exit 1
+            fi
           done
       - name: The same line installs, then updates, and leaves an old clone alone
         shell: bash
@@ -81,6 +92,7 @@ jobs:
           clone="$home/tpw-port"
           dir="$home/Applications/STP-TPW-Launcher"
           snapshot() { (cd "$clone" && find . -exec stat -f '%N %z %m' {} + | sort); }
+          export TPW_INSTALL_APPS="$RUNNER_TEMP/apps-everyone"
           before=$(snapshot)
           # $1: the version the run must end with (a newer stand-in release when TPW_INSTALL_STUB_VERSION is set)
           run_line() {
@@ -125,7 +137,7 @@ jobs:
           home="$RUNNER_TEMP/home-dev"
           mkdir -p "$home"
           dir="$home/Applications/STP-TPW-Launcher"
-          export TPW_INSTALL_STUB=1 TPW_INSTALL_HOME="$home" HOME="$home" SHELL=/bin/zsh
+          export TPW_INSTALL_STUB=1 TPW_INSTALL_HOME="$home" HOME="$home" SHELL=/bin/zsh TPW_INSTALL_APPS="$home/apps"
           (cd "$home" && cat "$GITHUB_WORKSPACE/install.sh" | TPW_INSTALL_STUB_VERSION=0.0.2-dev sh -s -- --dev --no-launch) \
             | tee "$RUNNER_TEMP/dev-1.txt"
           if [ "$(tail -n 1 "$RUNNER_TEMP/dev-1.txt")" != "RESULT ok 0.0.2-dev" ] || [ "$(cat "$dir/channel.txt")" != dev ]; then
@@ -149,7 +161,7 @@ jobs:
           home="$RUNNER_TEMP/home-dev-update"
           mkdir -p "$home"
           dir="$home/Applications/STP-TPW-Launcher"
-          export TPW_INSTALL_STUB=1 TPW_INSTALL_HOME="$home" HOME="$home" SHELL=/bin/zsh
+          export TPW_INSTALL_STUB=1 TPW_INSTALL_HOME="$home" HOME="$home" SHELL=/bin/zsh TPW_INSTALL_APPS="$home/apps"
           (cd "$home" && cat "$GITHUB_WORKSPACE/install.sh" | TPW_INSTALL_STUB_VERSION=0.0.2-dev sh -s -- --dev --no-launch) \
             | tee "$RUNNER_TEMP/devup-1.txt"
           if [ "$(tail -n 1 "$RUNNER_TEMP/devup-1.txt")" != "RESULT ok 0.0.2-dev" ] || [ "$(cat "$dir/channel.txt")" != dev ]; then
