@@ -408,12 +408,9 @@ bool LauncherUi::Animating() const {
 }
 
 void LauncherUi::SetUpdater(Updater* updater) {
+    // No line about the check on the first launch: Settings and the README say what it does (the maintainer, 2026-10-25: a popup
+    // nobody asked for looks sketchy).
     updater_ = updater;
-    // The first launch says once that the launcher checks, unless the startup check's notice is showing.
-    if (updater_ != nullptr && !(noticeLeft_ > 0) && updater_->TakeFirstLaunch()) {
-        ShowNotice("The launcher looks for a new version once a day. Settings turns this off.", false);
-        noticeLeft_ = kStartupNoticeSeconds;
-    }
 }
 
 bool LauncherUi::TakeQuit() {

@@ -396,8 +396,8 @@ std::vector<std::string> g_written;
 
 // An update check (updater.h) brought to `state` with no internet and no script, as the window would have it: "found"
 // (version 0.0.9 is out), "offline" (found on an earlier launch, Update pressed with no answer now), "staging" (the
-// script on its third step, until the updater goes), "staged" or "failed". "first": nothing found yet, on the first
-// launch.
+// script on its third step, until the updater goes), "staged" or "failed". "first": nothing found yet (the home as a first
+// launch has it).
 std::unique_ptr<Updater> MakeUpdater(FakeBackend& b, const std::string& state) {
     update::Current current;
     current.version = "0.0.3";
@@ -429,7 +429,6 @@ std::unique_ptr<Updater> MakeUpdater(FakeBackend& b, const std::string& state) {
         return r;
     };
     hooks.exists = [](const std::string&) { return true; };
-    if (state != "first") b.settings[kUpdateToldKey] = "1";
     if (state == "offline") {
         b.settings[kUpdateFoundKey] = "0.0.9";
         b.settings[kUpdateLastCheckKey] = std::to_string(static_cast<long long>(std::time(nullptr)));
@@ -807,7 +806,7 @@ std::vector<Shot> Shots() {
                      Screen::Home, {}});
 
     // The update banner under the title (updater.h), in the smallest window: on the home with the drop field (whose
-    // icon makes room for it) and on the all-confirmed one; the first launch's line about the check.
+    // icon makes room for it) and on the all-confirmed one.
     shots.push_back({"22-update-found-smallest", metric::kMinWidth, metric::kMinHeight, nullptr, nullptr, Screen::Home,
                      "found"});
     shots.push_back({"23-update-found-ready-smallest", metric::kMinWidth, metric::kMinHeight, FillEverything, nullptr,
@@ -820,8 +819,6 @@ std::vector<Shot> Shots() {
                      Screen::Home, "staged"});
     shots.push_back({"27-update-failed-smallest", metric::kMinWidth, metric::kMinHeight, FillEverything, nullptr,
                      Screen::Home, "failed"});
-    shots.push_back({"28-update-first-launch", metric::kStartWidth, metric::kStartHeight, nullptr, nullptr,
-                     Screen::Home, "first"});
     return shots;
 }
 
@@ -1393,7 +1390,8 @@ void CheckTitleVersion(SDL_Renderer* renderer) {
 
 // The update banner (updater.h) in each of its states, on both homes, in the smallest window and the start size: under
 // the title's row and clear of it, above the tiles, inside the window. The Settings box's "Check for updates": on by
-// default, a click turns it off, keeps check_updates=0 and hides the banner. The first launch's line, once.
+// default, a click turns it off, keeps check_updates=0 and hides the banner. The first launch: no line about
+// the check (the maintainer, 2026-10-25), no banner when nothing was found.
 void CheckUpdateBanner(SDL_Renderer* renderer) {
     for (const char* state : {"found", "offline", "staging", "staged", "failed"}) {
         for (bool ready : {false, true}) {
@@ -1459,14 +1457,9 @@ void CheckUpdateBanner(SDL_Renderer* renderer) {
         std::unique_ptr<Updater> updater = MakeUpdater(b, "first");
         first.SetUpdater(updater.get());
         first.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
-        Check(first.Animating(), "first launch: the line about the check shows");
-        CheckEq(b.Setting(kUpdateToldKey), "1", "first launch: told once");
+        Check(!first.Animating(), "first launch: no line about the check");
         Check(first.UpdateBannerRect().w == 0, "first launch: no banner when nothing was found");
-        LauncherUi second(renderer, b);
-        std::unique_ptr<Updater> again = std::make_unique<Updater>(b, update::Current{});
-        second.SetUpdater(again.get());
-        second.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
-        Check(!second.Animating(), "second launch: no line");
+        CheckEq(b.Setting(kCheckUpdatesKey), "", "first launch: nothing written about the check");
     }
 }
 

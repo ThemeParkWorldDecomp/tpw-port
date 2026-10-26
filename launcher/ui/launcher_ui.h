@@ -106,7 +106,7 @@ public:
     // What the About box's Export logs button calls (with a logs folder). Null: no such button.
     void SetExportLogs(ExportLogsFn exportLogs) { exportLogs_ = exportLogs; }
     // The update check (updater.h), owned by the window: its banner on the homes, the Settings box's "Check for
-    // updates", and on the first launch a line saying that it checks. Null: none of these.
+    // updates". Null: none of these.
     void SetUpdater(Updater* updater);
     // Pointer coordinates are the window's, in points.
     void HandleEvent(const SDL_Event& event);

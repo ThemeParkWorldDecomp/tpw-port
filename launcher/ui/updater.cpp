@@ -356,13 +356,6 @@ void Updater::SetEnabled(bool on) {
     Log(std::string("update check: turned ") + (on ? "on" : "off") + " in Settings");
 }
 
-bool Updater::TakeFirstLaunch() {
-    if (!enabled_ || settings_.Setting(kUpdateToldKey) == "1") return false;
-    std::string err;
-    settings_.SaveSetting(kUpdateToldKey, "1", err);
-    return true;
-}
-
 bool Updater::Visible() const {
     if (phase_ == Phase::Probing || phase_ == Phase::Staging || phase_ == Phase::Staged || phase_ == Phase::Failed)
         return true;

@@ -160,7 +160,7 @@ The Settings box has these rows:
 
 Once a day, when it starts, the launcher asks GitHub whether a newer version is out. It asks in the background and the
 window never waits for it. It sends nothing about you or your game: the question is the same for everyone, and GitHub
-sees only that someone asked. The first start says so in a line at the bottom of the window.
+sees only that someone asked.
 
 - It looks only for releases. A build of main (a version ending in -dev, from the install script's dev option) hears of
   a release newer than itself, and of the release of its own number once it is out, but never of newer commits of main.

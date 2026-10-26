@@ -32,6 +32,10 @@ The first release: play Sim Theme Park and Theme Park World from your own discs,
 - Sim Theme Park is listed first everywhere, Theme Park World second; the launcher shows the US tile on the left.
 - Gold Edition switch on each play tile: play the plain edition even when the Gold data is installed; the launcher remembers it.
 
+### Changed
+
+- The first start no longer shows a notice about the daily check for a new version. Settings still turns the check off.
+
 ### Fixed
 
 - Starting the game no longer stalls at 0% when the computer is busy with something else.

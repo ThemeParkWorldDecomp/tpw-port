@@ -505,7 +505,7 @@ void KeepSettings(const tpw::ui::ImporterBackend& backend, const std::string& pr
     for (const char* key : {tpw::ui::kSkipIntroKey, tpw::ui::kBackToLauncherKey, tpw::ui::kSmoothZoomKey,
                             tpw::ui::kInterfaceSizeKey, tpw::ui::kPcSoundPicksKey, tpw::ui::kFullScreenKey,
                             tpw::ui::kCheckUpdatesKey,
-                            tpw::ui::kUpdateLastCheckKey, tpw::ui::kUpdateFoundKey, tpw::ui::kUpdateToldKey}) {
+                            tpw::ui::kUpdateLastCheckKey, tpw::ui::kUpdateFoundKey}) {
         const std::string value = backend.Setting(key);
         std::string ignored;
         if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, key, value, ignored);
