@@ -57,6 +57,7 @@
 #include "static_init.h"
 #include "stubs.h"
 #include "ui_main.h"
+#include "ui_mainmenu.h"
 #include "ui/backend.h"
 #include "ui/theme.h"
 #include "ui/updater.h"
@@ -1095,6 +1096,12 @@ int LauncherMain(int argc, char** argv) {
     gUIHighPresets = 1;
     // The online world's servers shut down: its globe button stays on the islands (include/lobby.h).
     gPortOnlineWorldGone = true;
+    // The Esc menu's "Enter Full Screen" / "Exit Full Screen" button (include/ui_mainmenu.h): the window's own switch, shown
+    // only while it can act (platform/window.cpp; never with --background). For this run only: the Settings box's Full screen
+    // still says how the next game starts.
+    gPortFullScreenHooks.canToggle = tpw::CanToggleFullScreen;
+    gPortFullScreenHooks.isFullScreen = tpw::IsFullScreen;
+    gPortFullScreenHooks.toggle = tpw::ToggleFullScreen;
     // The park map's destroy callback at the quit asks the advisor of a world already deleted (include/ui_main.h).
     gPortNoWorldAdvisorGuard = true;
     // The fixes of samueleagle91 (tpw-port PRs #2, #5, #7, #12 and #13): the advisor's aspect (TPAdvisor.h), the Options
