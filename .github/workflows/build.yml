@@ -1,6 +1,7 @@
 # Builds the port on every push and pull request: on Windows with build.cmd, the same command a tester runs (every tool
 # fetched into build\tools\, nothing preinstalled used), on an Apple Silicon Mac with make, and on Ubuntu with the
-# README's Linux steps; then runs the tests each build has. The launcher each job builds is kept as the run's artifact.
+# README's Linux steps; then runs the tests each build has. The launcher each job builds is kept as the run's artifact (on
+# Linux, the AppImage of the appimage job, built on an Ubuntu 22.04 base).
 #
 # GitHub has no Windows 10 or 11 desktop images. The nearest are its server images: windows-2022 (build 20348, the
 # Windows 10 era's server release) and windows-2025 (build 26100, the same build as Windows 11 24H2; windows-latest).
@@ -256,17 +257,71 @@ jobs:
           out=$(sudo unshare -n build/tpw_launcher --check-updates)
           echo "$out"
           echo "$out" | grep -Eq '^answer: none \(.*\) after [0-4]\.[0-9] s$'
-      - name: Keep the launcher
-        uses: actions/upload-artifact@v4
-        with:
-          name: tpw_launcher-ubuntu-24.04-x64
-          path: build/tpw_launcher
-          if-no-files-found: error
       - name: Keep the build logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: build-logs-ubuntu-24.04
+          path: build/logs/
+
+  # Linux, the file to download: the launcher as an AppImage (devtools/appimage.sh), built on an Ubuntu 22.04 base with
+  # its GCC 12 so that the one file runs on any distribution with glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora 36,
+  # Arch and anything newer). The launcher links only glibc (TPW_STATIC_RUNTIME, the default); SDL opens the window
+  # system, the sound system and the graphics driver at run time. The job above tests the same sources on 24.04.
+  appimage:
+    runs-on: ubuntu-24.04
+    container: ubuntu:22.04
+    timeout-minutes: 90
+    steps:
+      - name: Install the build's packages
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends g++-12 cmake ninja-build python3 git \
+            ca-certificates curl squashfs-tools binutils file \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxkbcommon-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
+            libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev libudev-dev libibus-1.0-dev
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build the launcher
+        run: |
+          mkdir -p build/logs
+          set -o pipefail
+          ok=0
+          cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=gcc-12 -DCMAKE_CXX_COMPILER=g++-12 2>&1 | tee build/logs/configure.log || ok=1
+          if [ $ok = 0 ]; then cmake --build build --target tpw_launcher 2>&1 | tee build/logs/build.log || ok=1; fi
+          if [ $ok != 0 ]; then
+            grep -hE 'error|Error|FAILED' build/logs/configure.log build/logs/build.log 2>/dev/null | tail -n 40 | sed 's/^/::error::/'
+            exit 1
+          fi
+      - name: The launcher needs only glibc 2.35
+        run: |
+          build/tpw_launcher --version
+          ldd build/tpw_launcher
+          ! ldd build/tpw_launcher | grep -vE 'linux-vdso|libc\.so|libm\.so|ld-linux'
+          newest=$(objdump -T build/tpw_launcher | grep -oE 'GLIBC_[0-9.]+' | sort -Vu | tail -n 1)
+          echo "newest glibc symbol version: $newest"
+          [ "$(printf '%s\n' "$newest" GLIBC_2.35 | sort -V | tail -n 1)" = GLIBC_2.35 ]
+      - name: Pack the AppImage
+        run: sh devtools/appimage.sh build
+      - name: Start the AppImage (--version)
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1   # the container has no FUSE
+        run: |
+          file build/*.AppImage
+          build/*.AppImage --version
+      - name: Keep the AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: tpw_launcher-linux-x86_64-AppImage
+          path: build/*.AppImage
+          if-no-files-found: error
+      - name: Keep the build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-appimage
           path: build/logs/
           if-no-files-found: ignore
 

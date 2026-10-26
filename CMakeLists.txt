@@ -291,6 +291,13 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     # GNU ld reads each static library once, in order: the game functions only the platform layer calls (the JPEG loader's
     # constructor body, a mail attachment's) are asked for after libtpw.a has gone by, so it is read once more at the end.
     target_link_libraries(tpw_launcher PRIVATE $<TARGET_FILE:tpw>)
+    # The C++ runtime goes into the launcher, so that it needs only the C library of the machine it runs on: the file
+    # built on one distribution runs on another with a glibc as new (the AppImage, devtools/appimage.sh, is built on an
+    # Ubuntu 22.04 base, glibc 2.35). Off, the launcher uses the machine's libstdc++ and libgcc_s, as a package would.
+    option(TPW_STATIC_RUNTIME "Link libstdc++ and libgcc into the launcher, so it needs only glibc" ON)
+    if(TPW_STATIC_RUNTIME)
+      target_link_options(tpw_launcher PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
   endif()
   if(WIN32)
     # A Windows app, not a console one: started from Explorer it opens no console window, and its log goes to
