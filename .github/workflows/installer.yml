@@ -78,7 +78,12 @@ jobs:
             if [ ! -x "$app/Contents/MacOS/STP-TPW-Launcher" ] || ! "$app/Contents/MacOS/STP-TPW-Launcher"; then
               echo "::error::$name: the application's program did not run"; exit 1
             fi
-            if [ "$(grep -cF "STP/TPW Launcher v0.0.0-dev args= cwd=$dir" "$dir/stub-launch.txt")" != 1 ]; then
+            # the program starts the launcher detached and returns at once: give the stand-in a moment to write its line
+            for _ in $(seq 40); do
+              [ "$(grep -cF "STP/TPW Launcher v0.0.0-dev args= cwd=$dir" "$dir/stub-launch.txt" 2>/dev/null)" = 1 ] && break
+              sleep 0.5
+            done
+            if [ "$(grep -cF "STP/TPW Launcher v0.0.0-dev args= cwd=$dir" "$dir/stub-launch.txt" 2>/dev/null)" != 1 ]; then
               echo "::error::$name: the application's program did not start the launcher in $dir"; exit 1
             fi
           done
