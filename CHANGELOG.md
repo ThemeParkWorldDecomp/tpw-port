@@ -34,6 +34,7 @@ The first release: play Sim Theme Park and Theme Park World from your own discs,
 
 ### Fixed
 
+- Starting the game no longer stalls at 0% when the computer is busy with something else.
 - Windows: Ctrl-click copies a placed object, as Command-click does on a Mac, so the Start menu no longer pops up. (Thanks Addable13, Fred and Piro on Discord)
 - Shop panel: Apply to all now gives your other shops this shop's price, quality and ingredient, instead of emptying their prices. (Thanks Piro and Fladfisk on Discord)
 - Intel Macs on macOS Monterey can now build the launcher. (Thanks slappyhead on Discord)

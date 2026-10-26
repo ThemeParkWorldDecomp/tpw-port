@@ -39,7 +39,11 @@ struct Preload {
     bool started = false;
     bool done = false;                     // under mutex
     std::atomic<bool> cancel{false};
-    std::atomic<bool> hurry{false};        // Play is waiting: the normal priority from the next piece on
+    // Under mutex. givenUp: the start waited its bound (PreloadedTables) and reads the tables itself unless the thread has
+    // begun them (tablesBegun), in which case it finishes them and leaves the files.
+    bool givenUp = false;
+    bool tablesBegun = false;
+    bool saidSlow = false;                 // main thread: the "still waiting" line is logged once
     std::atomic<uint64_t> bytes{0};
     std::atomic<uint64_t> total{0};
     PreloadPlan plan;
@@ -87,19 +91,21 @@ uint64_t SizeOf(const fs::path& path) {
 void SetQos(qos_class_t qos) { pthread_set_qos_class_self_np(qos, 0); }
 
 void RunPreload(Preload* p) {
-    SetQos(QOS_CLASS_BACKGROUND);
-    bool promoted = false;
-    auto keepUp = [&] {
-        if (!promoted && p->hurry.load()) {
-            SetQos(QOS_CLASS_USER_INITIATED);
-            promoted = true;
-        }
-    };
-    if (!p->plan.program.empty() && p->plan.loadTables != nullptr) {
+    // The game's start waits for this thread (PreloadedTables), so it runs at the user-initiated class, ahead of the
+    // default class that builds, exports and other programs' work run at. At the background class it got no processor
+    // time at all while six parallel builds kept the 16 cores busy (load average 95, the maintainer, 2026-10-25): the Starting
+    // bar stayed at 0% for as long as the load lasted (31.5 s in a rerun), as the class is meant to yield to everything.
+    SetQos(QOS_CLASS_USER_INITIATED);
+    bool tables;
+    {
+        std::lock_guard<std::mutex> lock(p->mutex);
+        tables = !p->plan.program.empty() && p->plan.loadTables != nullptr && !p->givenUp;
+        p->tablesBegun = tables;
+    }
+    if (tables) {
         const Clock::time_point from = Clock::now();
-        keepUp();
         // Only the tables' own arrays are written (game_tables.h), and nothing reads them until the game starts, which
-        // waits for this thread first (WaitPreload).
+        // waits for this thread first (PreloadedTables; when it gives up waiting, the tables are begun here or not at all).
         p->tablesOk = p->plan.loadTables(p->plan.program.string().c_str(), &p->tablesWhy);
         p->tablesTried = true;
         p->tablesMs = MsSince(from);
@@ -113,10 +119,7 @@ void RunPreload(Preload* p) {
         if (file == nullptr) continue;
         std::setvbuf(file, nullptr, _IONBF, 0);
         size_t got;
-        while (!p->cancel.load() && (got = std::fread(piece.data(), 1, piece.size(), file)) > 0) {
-            p->bytes += got;
-            keepUp();
-        }
+        while (!p->cancel.load() && (got = std::fread(piece.data(), 1, piece.size(), file)) > 0) p->bytes += got;
         std::fclose(file);
         ++p->filesRead;
     }
@@ -129,6 +132,37 @@ void RunPreload(Preload* p) {
     std::lock_guard<std::mutex> lock(p->mutex);
     p->done = true;
     p->doneSignal.notify_all();
+}
+
+// The game's start waits for the preload's tables this long at most (PreloadedTables), and says so in the log past the
+// first bound. The preload itself takes about 50 ms (the tables 31, the files 5 to 10, measured 2026-10-25).
+constexpr double kPreloadSlowMs = 500;
+constexpr double kPreloadBoundMs = 1500;
+
+// Waits for the preload to end, drawing the launcher's window meanwhile (OnStartupProgress, about every 20 ms). True when
+// it ended; false when boundMs (when not 0) passed first. Past kPreloadSlowMs, one line in the log with its progress.
+bool WaitForPreload(Preload& p, Clock::time_point from, double boundMs) {
+    for (;;) {
+        {
+            std::unique_lock<std::mutex> lock(p.mutex);
+            if (p.doneSignal.wait_for(lock, std::chrono::milliseconds(20), [&] { return p.done; })) return true;
+        }
+        OnStartupProgress();
+        const double waited = MsSince(from);
+        if (!p.saidSlow && waited >= kPreloadSlowMs) {
+            p.saidSlow = true;
+            Log("startup: still waiting for the preload after %.0f ms (it has read %llu of %llu bytes)", waited,
+                static_cast<unsigned long long>(p.bytes.load()), static_cast<unsigned long long>(p.total.load()));
+        }
+        if (boundMs > 0 && waited >= boundMs) return false;
+    }
+}
+
+void JoinPreload(Preload& p, Clock::time_point from) {
+    p.thread.join();
+    Log("preload: %s; tables %.0f ms, %d files %.0f ms, %llu bytes; waited %.0f ms for it",
+        p.cut ? "cancelled" : "done", p.tablesMs, p.filesRead, p.filesMs,
+        static_cast<unsigned long long>(p.bytes.load()), MsSince(from));
 }
 
 }  // namespace
@@ -255,19 +289,9 @@ void CancelPreload() { ThePreload().cancel = true; }
 void WaitPreload() {
     Preload& p = ThePreload();
     if (!p.started || !p.thread.joinable()) return;
-    p.hurry = true;
     const Clock::time_point from = Clock::now();
-    for (;;) {
-        {
-            std::unique_lock<std::mutex> lock(p.mutex);
-            if (p.doneSignal.wait_for(lock, std::chrono::milliseconds(20), [&] { return p.done; })) break;
-        }
-        OnStartupProgress();
-    }
-    p.thread.join();
-    Log("preload: %s; tables %.0f ms, %d files %.0f ms, %llu bytes; waited %.0f ms for it",
-        p.cut ? "cancelled" : "done", p.tablesMs, p.filesRead, p.filesMs,
-        static_cast<unsigned long long>(p.bytes.load()), MsSince(from));
+    WaitForPreload(p, from, 0);
+    JoinPreload(p, from);
 }
 
 uint64_t PreloadBytesDone() { return ThePreload().bytes.load(); }
@@ -275,8 +299,25 @@ uint64_t PreloadBytesDone() { return ThePreload().bytes.load(); }
 uint64_t PreloadBytesTotal() { return ThePreload().total.load(); }
 
 bool PreloadedTables(const fs::path& program, bool* ok, std::string* why) {
-    WaitPreload();
-    const Preload& p = ThePreload();
+    Preload& p = ThePreload();
+    if (p.started && p.thread.joinable()) {
+        const Clock::time_point from = Clock::now();
+        if (!WaitForPreload(p, from, kPreloadBoundMs)) {
+            // The thread skips the tables unless it has begun them, and leaves the files: the game reads them itself.
+            bool begun;
+            {
+                std::lock_guard<std::mutex> lock(p.mutex);
+                p.givenUp = true;
+                begun = p.tablesBegun;
+            }
+            p.cancel = true;
+            Log("startup: preload slow (%llu bytes after %.0f ms), %s", static_cast<unsigned long long>(p.bytes.load()),
+                MsSince(from), begun ? "finishing the tables it has begun and leaving the rest" : "reading the tables directly");
+        }
+        // Bounded by the piece under way (the tables, if begun, or one megabyte of a file): the thread stops at the next.
+        WaitForPreload(p, from, 0);
+        JoinPreload(p, from);
+    }
     if (!p.tablesTried || p.plan.program != program) return false;
     *ok = p.tablesOk;
     if (why != nullptr) *why = p.tablesWhy;

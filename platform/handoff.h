@@ -75,14 +75,16 @@ uint64_t PreloadPlanBytes(const PreloadPlan& plan);
 void StartPreload(const PreloadPlan& plan);
 // The files still to read are left alone (the tables, if they are being read, are finished).
 void CancelPreload();
-// Waits for the preload to end, calling OnStartupProgress about every 20 ms while it does (the thread runs at the
-// normal priority from then on). Then joins it. Returns at once when there was none.
+// Waits for the preload to end, calling OnStartupProgress about every 20 ms while it does, then joins it. Returns at
+// once when there was none. (The thread runs at the user-initiated class throughout, so a busy computer does not starve
+// it.)
 void WaitPreload();
 uint64_t PreloadBytesDone();    // any thread
 uint64_t PreloadBytesTotal();   // 0 when there is no preload
 
-// Whether the preload read the game's tables from `program` (after waiting for it): then *ok is what LoadGameTables
-// answered and *why its reason. False when it did not, and the tables are still to be read.
+// Whether the preload read the game's tables from `program` (after waiting for it, 1.5 s at most: past that the files
+// are left and the tables are read by the thread only when it has begun them, logging why): then *ok is what
+// LoadGameTables answered and *why its reason. False when it did not, and the tables are still to be read.
 bool PreloadedTables(const std::filesystem::path& program, bool* ok, std::string* why);
 
 }  // namespace tpw
