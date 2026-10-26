@@ -1,6 +1,6 @@
 [submodule "tpw-decomp"]
 	path = tpw-decomp
-	url = https://github.com/ThemeParkWorldDecomp/tpw-decomp.git
+	url = ../tpw-decomp
 [submodule "mods"]
 	path = mods
-	url = https://github.com/ThemeParkWorldDecomp/tpw-mods.git
+	url = ../tpw-mods
