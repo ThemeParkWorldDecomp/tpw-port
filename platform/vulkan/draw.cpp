@@ -1,6 +1,7 @@
 // draw.cpp: the Vulkan renderer's OpenGL calls (renderer.h): the state the game sets and the drawing that state shapes
 // (renderer_internal.h; the device and the frame are device.cpp's).
 #include "renderer_internal.h"
+#include "../gfx.h"
 
 #include <algorithm>
 #include <cmath>
@@ -311,25 +312,9 @@ bool AllocateTexture(Texture& texture, int32_t width, int32_t height) {
                        VK_IMAGE_ASPECT_COLOR_BIT);
 }
 
-// The next level of a mip chain: each pixel the mean of the 2 x 2 under it (a row or column that has no pair is used alone).
+// The next level of a mip chain: the filter both renderers share (platform/gfx.cpp).
 std::vector<uint8_t> HalfSize(const std::vector<uint8_t>& level, int32_t width, int32_t height, int32_t& outWide, int32_t& outHigh) {
-    outWide = std::max(width / 2, 1);
-    outHigh = std::max(height / 2, 1);
-    std::vector<uint8_t> out(static_cast<size_t>(outWide) * static_cast<size_t>(outHigh) * 4);
-    for (int32_t y = 0; y < outHigh; ++y) {
-        for (int32_t x = 0; x < outWide; ++x) {
-            const int32_t x0 = std::min(x * 2, width - 1), x1 = std::min(x * 2 + 1, width - 1);
-            const int32_t y0 = std::min(y * 2, height - 1), y1 = std::min(y * 2 + 1, height - 1);
-            for (int channel = 0; channel < 4; ++channel) {
-                const uint32_t sum = level[(static_cast<size_t>(y0) * width + x0) * 4 + channel] +
-                                     level[(static_cast<size_t>(y0) * width + x1) * 4 + channel] +
-                                     level[(static_cast<size_t>(y1) * width + x0) * 4 + channel] +
-                                     level[(static_cast<size_t>(y1) * width + x1) * 4 + channel];
-                out[(static_cast<size_t>(y) * outWide + x) * 4 + channel] = static_cast<uint8_t>((sum + 2) / 4);
-            }
-        }
-    }
-    return out;
+    return tpw::gfx::HalfSizeRGBA(level, width, height, outWide, outHigh);
 }
 
 // ---- glPushAttrib's groups
@@ -691,28 +676,72 @@ void ClearColor(float red, float green, float blue, float alpha) {
 }
 
 // The whole picture (the scissor test is never on in the game) to the clear colour and depth 1.
+// A colour clear through some of the channels only (glColorMask): the clear colour drawn over the whole picture as a
+// quad through the pipeline, whose colour mask is the state's; with the rest of the state as a clear has it (no depth
+// test or write, no blend, no alpha test, no texture, identity matrices), put back afterwards.
+void ClearColourThroughMask(Renderer& r) {
+    State& s = r.state;
+    const State saved = s;
+    s.depthTest = false;
+    s.depthMask = false;
+    s.blend = false;
+    s.alphaTest = false;
+    s.texture2d = false;
+    s.scissor = false;
+    const Matrix projection = r.projection.back(), modelview = r.modelview.back();
+    r.projection.back() = Identity();
+    r.modelview.back() = Identity();
+    auto corner = [&](float x, float y) {
+        Vertex out{};
+        out.x = x;
+        out.y = y;
+        out.z = 0.0f;
+        out.w = 1.0f;
+        for (int i = 0; i < 4; ++i) out.colour[i] = Byte(s.clearColour[i]);
+        return out;
+    };
+    const Vertex quad[4] = {corner(-1.0f, -1.0f), corner(1.0f, -1.0f), corner(1.0f, 1.0f), corner(-1.0f, 1.0f)};
+    const uint32_t indices[6] = {0, 1, 2, 0, 2, 3};
+    const int32_t whole[4] = {0, 0, r.drawWide, r.drawHigh};
+    DrawSetup setup{VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, whole, &r.white, false, false};
+    DrawVertices(setup, quad, 4, indices, 6, VK_INDEX_TYPE_UINT32);
+    r.projection.back() = projection;
+    r.modelview.back() = modelview;
+    s = saved;
+}
+
+// glClear: the colour buffer through the colour mask and the depth buffer through the depth mask, as OpenGL writes them
+// (a masked-off buffer is left alone; a colour mask of some channels is drawn, above).
 void Clear(uint32_t mask) {
     Renderer& r = R();
     if (!Drawing() || (mask & (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)) == 0) return;
     if (!EnsurePass()) return;
     VkClearAttachment attachments[2];
     uint32_t count = 0;
-    if ((mask & GL_COLOR_BUFFER_BIT) != 0) {
-        attachments[count].aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        attachments[count].colorAttachment = 0;
-        std::memcpy(attachments[count].clearValue.color.float32, r.state.clearColour, sizeof(float) * 4);
-        ++count;
+    bool colourThroughMask = false;
+    if ((mask & GL_COLOR_BUFFER_BIT) != 0 && r.state.colourMask != 0) {
+        if (r.state.colourMask == 0xf) {
+            attachments[count].aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            attachments[count].colorAttachment = 0;
+            std::memcpy(attachments[count].clearValue.color.float32, r.state.clearColour, sizeof(float) * 4);
+            ++count;
+        } else {
+            colourThroughMask = true;
+        }
     }
-    if ((mask & GL_DEPTH_BUFFER_BIT) != 0) {
+    if ((mask & GL_DEPTH_BUFFER_BIT) != 0 && r.state.depthMask) {
         attachments[count].aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
         attachments[count].colorAttachment = 0;
         attachments[count].clearValue.depthStencil = {1.0f, 0};
         ++count;
     }
-    VkClearRect rect{};
-    rect.rect = {{0, 0}, {r.drawTarget->colour.width, r.drawTarget->colour.height}};
-    rect.layerCount = 1;
-    r.api.vkCmdClearAttachments(Cmd(), count, attachments, 1, &rect);
+    if (count != 0) {
+        VkClearRect rect{};
+        rect.rect = {{0, 0}, {r.drawTarget->colour.width, r.drawTarget->colour.height}};
+        rect.layerCount = 1;
+        r.api.vkCmdClearAttachments(Cmd(), count, attachments, 1, &rect);
+    }
+    if (colourThroughMask) ClearColourThroughMask(r);
 }
 
 void DepthMask(uint8_t flag) { R().state.depthMask = flag != 0; }

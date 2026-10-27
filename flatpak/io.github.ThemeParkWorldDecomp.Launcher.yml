@@ -19,6 +19,7 @@ finish-args:
   - --device=dri
   - --share=network   # the once-a-day question to GitHub whether a newer version is out (Settings, Check for updates)
   - --filesystem=home:ro
+  - --filesystem=xdg-download   # Export logs (the About box) writes the newest log there, for a bug report
   - --filesystem=/media:ro
   - --filesystem=/run/media:ro
   - --filesystem=/mnt:ro

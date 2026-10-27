@@ -435,6 +435,17 @@ bool CreateSwapchain(int wide, int high) {
     if (wide <= 0 || high <= 0) return false;
     VkSurfaceCapabilitiesKHR caps{};
     VkResult result = r.api.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(r.physical, r.surface, &caps);
+    if (result == VK_ERROR_SURFACE_LOST_KHR) {
+        // The surface is gone (the window system took it back): a new one on the same window, asked once more.
+        if (r.surface != VK_NULL_HANDLE) SDL_Vulkan_DestroySurface(r.instance, r.surface, nullptr);
+        r.surface = VK_NULL_HANDLE;
+        if (!SDL_Vulkan_CreateSurface(r.window, r.instance, nullptr, &r.surface)) {
+            tpw::Log("vulkan: the surface could not be made again: %s", SDL_GetError());
+            r.lost = true;
+            return false;
+        }
+        result = r.api.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(r.physical, r.surface, &caps);
+    }
     if (result != VK_SUCCESS) {
         Fail("asking the surface's capabilities", result);
         return false;
@@ -954,11 +965,13 @@ VkSampler SamplerFor(const Texture& texture) {
     info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     info.magFilter = magLinear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
     info.minFilter = minLinear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
-    info.mipmapMode = mipLinear ? VK_SAMPLER_MIPMAP_MODE_LINEAR : VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    // Without the chain the base level alone is sampled: nearest between levels and a maximum LOD of 0, or a quarter of
+    // the never-written level 1 would blend in (noise) at the LOD 0.25 the clamp below allows a linear mode.
+    info.mipmapMode = mipmapped && mipLinear ? VK_SAMPLER_MIPMAP_MODE_LINEAR : VK_SAMPLER_MIPMAP_MODE_NEAREST;
     info.addressModeU = repeatS ? VK_SAMPLER_ADDRESS_MODE_REPEAT : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     info.addressModeV = repeatT ? VK_SAMPLER_ADDRESS_MODE_REPEAT : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    info.maxLod = mipmapped ? VK_LOD_CLAMP_NONE : 0.25f;   // (a texture without mipmaps samples its base level alone)
+    info.maxLod = mipmapped ? VK_LOD_CLAMP_NONE : 0.0f;
     info.maxAnisotropy = 1.0f;
     info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
     VkSampler sampler = VK_NULL_HANDLE;
@@ -1202,7 +1215,9 @@ bool Create(SDL_Window* window, bool fit, int wide, int high) {
         ShutdownDevice();
         return false;
     }
-    if (!Fit(fit, wide, high)) {
+    // The fit's targets at the game's own size, or, when the device cannot make them (larger than its frames, out of
+    // memory), the window's own size: the caller then drops the fit (window.cpp, FitReady), as it does with OpenGL.
+    if (!Fit(fit, wide, high) && (!fit || !Fit(false, wide, high))) {
         ShutdownDevice();
         return false;
     }
@@ -1243,10 +1258,21 @@ bool Fit(bool fit, int wide, int high) {
         r.drawTarget = nullptr;
         return false;
     }
+    const int wasWide = r.drawWide, wasHigh = r.drawHigh;
     r.drawWide = drawWide;
     r.drawHigh = drawHigh;
     r.drawTarget = &r.game;
-    ResetState(drawWide, drawHigh);
+    if (wasWide == 0 || wasHigh == 0) {
+        ResetState(drawWide, drawHigh);   // the first targets: the state as a new context has it
+    } else {
+        // New targets for a new size (a resolution change, the fit put on or off): the state stays as the game left
+        // it, as the OpenGL backend keeps its context's; only a viewport that was the whole old picture follows the size.
+        int32_t* v = r.state.viewport;
+        if (v[0] == 0 && v[1] == 0 && v[2] == wasWide && v[3] == wasHigh) {
+            v[2] = drawWide;
+            v[3] = drawHigh;
+        }
+    }
     return true;
 }
 
@@ -1325,7 +1351,12 @@ void EndPresent(const fit::PixelBox& box, int windowWide, int windowHigh) {
             result = r.api.vkAcquireNextImageKHR(r.device, r.swapchain, 1000000000ull, r.acquired, VK_NULL_HANDLE, &index);
         }
         if (result == VK_SUBOPTIMAL_KHR) r.swapchainStale = true;
-        else if (result != VK_SUCCESS) {
+        else if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_ERROR_SURFACE_LOST_KHR) {
+            // Out of date again (a window still being resized), or the surface gone: the next present makes the
+            // swapchain anew (and the surface with it, CreateSwapchain); this frame is not shown. Not a failure.
+            r.swapchainStale = true;
+            return;
+        } else if (result != VK_SUCCESS) {
             if (result != VK_TIMEOUT && result != VK_NOT_READY) Fail("taking a swapchain image", result);
             return;
         }
@@ -1370,7 +1401,7 @@ void EndPresent(const fit::PixelBox& box, int windowWide, int windowHigh) {
         result = r.api.vkQueuePresentKHR(r.queue, &present);
         r.api.vkWaitForFences(r.device, 1, &r.fence, VK_TRUE, UINT64_MAX);
         r.api.vkResetFences(r.device, 1, &r.fence);
-        if (result == VK_SUBOPTIMAL_KHR || result == VK_ERROR_OUT_OF_DATE_KHR) {
+        if (result == VK_SUBOPTIMAL_KHR || result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_ERROR_SURFACE_LOST_KHR) {
             r.swapchainStale = true;
             return;
         }

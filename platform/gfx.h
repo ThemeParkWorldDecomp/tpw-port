@@ -10,12 +10,18 @@
 // window's box and shows it, after which the game's target is drawn into again.
 #pragma once
 #include <cstdint>
+#include <vector>
 
 #include "fit.h"
 
 struct SDL_Window;
 
 namespace tpw::gfx {
+
+// The next level of a mip chain of RGBA8 pixels: each pixel the mean of the 2 x 2 under it (a row or column that has no
+// pair is used alone), which is GLU's box filter for the powers of two the game's pages are. The one filter of both
+// renderers (gluBuild2DMipmaps on the system's OpenGL, platform/gl_entry.cpp, and the Vulkan renderer's own).
+std::vector<uint8_t> HalfSizeRGBA(const std::vector<uint8_t>& level, int32_t width, int32_t height, int32_t& outWide, int32_t& outHigh);
 
 enum class Api { OpenGL, Vulkan };
 

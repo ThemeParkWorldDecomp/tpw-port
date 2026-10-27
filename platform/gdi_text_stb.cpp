@@ -65,7 +65,9 @@ int Codepoint(char byte) {
 struct Face {
     std::string family, fullName, postScript;
     bool bold = false, italic = false;
-    std::shared_ptr<std::vector<uint8_t>> bytes;   // the sfnt (or collection) the face is in, shared by its faces
+    std::shared_ptr<std::vector<uint8_t>> bytes;   // the sfnt (or collection) the face is in, shared by its faces; a
+                                                   // system face has none until it is chosen (FaceBytes reads its file)
+    std::string path;                              // the file, for a system face
     int offset = 0;                                // of the face's table directory in bytes
 };
 
@@ -213,7 +215,8 @@ std::vector<std::filesystem::path> SystemFontFolders() {
     return folders;
 }
 
-// The system's own fonts, read once, on the first name the game's files do not have.
+// The system's own fonts, their names read once, on the first name the game's files do not have. Only the names are
+// kept (a desktop's font folders run to hundreds of megabytes): a face's file is read again when the face is chosen.
 const std::vector<Face>& SystemFaces() {
     static auto* faces = [] {
         auto* found = new std::vector<Face>;
@@ -224,13 +227,30 @@ const std::vector<Face>& SystemFaces() {
                 const std::string ext = Lower(it->path().extension().string());
                 if (ext != ".ttf" && ext != ".otf" && ext != ".ttc") continue;
                 auto bytes = std::make_shared<std::vector<uint8_t>>();
-                if (ReadFileBytes(it->path(), *bytes, 64u << 20) && LooksLikeSfnt(*bytes))
-                    AddFaces(*found, bytes, it->path().string(), "", false);
+                if (!ReadFileBytes(it->path(), *bytes, 64u << 20) || !LooksLikeSfnt(*bytes)) continue;
+                const size_t first = found->size();
+                AddFaces(*found, bytes, it->path().string(), "", false);
+                for (size_t i = first; i < found->size(); ++i) {
+                    (*found)[i].bytes.reset();
+                    (*found)[i].path = it->path().string();
+                }
             }
         }
         return found;
     }();
     return *faces;
+}
+
+// The bytes of a face: the ones it holds, or its file read now (shared by the fonts made of the same file while any
+// of them lives). Empty when the file cannot be read any more.
+std::shared_ptr<std::vector<uint8_t>> FaceBytes(const Face& face) {
+    if (face.bytes) return face.bytes;
+    static std::map<std::string, std::weak_ptr<std::vector<uint8_t>>> open;
+    if (auto held = open[face.path].lock()) return held;
+    auto bytes = std::make_shared<std::vector<uint8_t>>();
+    if (!ReadFileBytes(std::filesystem::u8path(face.path), *bytes, 64u << 20) || !LooksLikeSfnt(*bytes)) return nullptr;
+    open[face.path] = bytes;
+    return bytes;
 }
 
 // The face of the name: an exact full or PostScript name first, then a family's regular face (its bold one when it
@@ -329,6 +349,11 @@ std::unique_ptr<Font> Font::Create(const Style& style) {
     std::unique_ptr<Font> font(new Font);
     Impl& impl = *font->mImpl;
     impl.face = *face;
+    impl.face.bytes = FaceBytes(*face);
+    if (!impl.face.bytes) {
+        LogOnce("file:" + face->path, "the font file " + face->path + " could not be read");
+        return nullptr;
+    }
     if (!stbtt_InitFont(&impl.info, impl.face.bytes->data(), impl.face.offset)) return nullptr;
     impl.scale = stbtt_ScaleForMappingEmToPixels(&impl.info, size);
     impl.underline = style.underline;

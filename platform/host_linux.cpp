@@ -202,7 +202,9 @@ void OnDivideTrap(int signal, siginfo_t* info, void* context) {
         gPrevious.sa_handler(signal);
         return;
     }
-    std::signal(signal, SIG_DFL);   // the instruction runs again and the default action takes the process
+    // The disposition that was there is put back (SIG_IGN stays SIG_IGN; the kernel still ends the process on a fault
+    // it cannot ignore), and the instruction runs again under it.
+    std::signal(signal, gPrevious.sa_handler == SIG_IGN ? SIG_IGN : SIG_DFL);
 }
 
 }  // namespace

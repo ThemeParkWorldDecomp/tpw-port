@@ -3,6 +3,7 @@
 // is the default and OpenGL the fallback when no Vulkan device can draw to the window.
 #include "gfx.h"
 
+#include <algorithm>
 #include <cstring>
 
 #include "platform.h"
@@ -11,6 +12,26 @@
 #endif
 
 namespace tpw::gfx {
+
+std::vector<uint8_t> HalfSizeRGBA(const std::vector<uint8_t>& level, int32_t width, int32_t height, int32_t& outWide, int32_t& outHigh) {
+    outWide = std::max(width / 2, 1);
+    outHigh = std::max(height / 2, 1);
+    std::vector<uint8_t> out(static_cast<size_t>(outWide) * static_cast<size_t>(outHigh) * 4);
+    for (int32_t y = 0; y < outHigh; ++y) {
+        for (int32_t x = 0; x < outWide; ++x) {
+            const int32_t x0 = std::min(x * 2, width - 1), x1 = std::min(x * 2 + 1, width - 1);
+            const int32_t y0 = std::min(y * 2, height - 1), y1 = std::min(y * 2 + 1, height - 1);
+            for (int channel = 0; channel < 4; ++channel) {
+                const uint32_t sum = level[(static_cast<size_t>(y0) * width + x0) * 4 + channel] +
+                                     level[(static_cast<size_t>(y0) * width + x1) * 4 + channel] +
+                                     level[(static_cast<size_t>(y1) * width + x0) * 4 + channel] +
+                                     level[(static_cast<size_t>(y1) * width + x1) * 4 + channel];
+                out[(static_cast<size_t>(y) * outWide + x) * 4 + channel] = static_cast<uint8_t>((sum + 2) / 4);
+            }
+        }
+    }
+    return out;
+}
 
 // The OpenGL backend's calls (gl_backend.cpp).
 namespace gl {

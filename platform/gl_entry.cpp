@@ -114,19 +114,8 @@ int32_t BuildMipmapsWithGL(uint32_t target, int32_t width, int32_t height, uint3
     for (int32_t index = 0;; ++index) {
         gl.glTexImage2D(target, index, GL_RGBA8, wide, high, 0, GL_RGBA, GL_UNSIGNED_BYTE, level.data());
         if (wide == 1 && high == 1) break;
-        const int32_t nextWide = std::max(wide / 2, 1), nextHigh = std::max(high / 2, 1);
-        std::vector<uint8_t> next(static_cast<size_t>(nextWide) * nextHigh * 4);
-        for (int32_t y = 0; y < nextHigh; ++y)
-            for (int32_t x = 0; x < nextWide; ++x) {
-                const int32_t x0 = std::min(x * 2, wide - 1), x1 = std::min(x * 2 + 1, wide - 1);
-                const int32_t y0 = std::min(y * 2, high - 1), y1 = std::min(y * 2 + 1, high - 1);
-                for (int c = 0; c < 4; ++c) {
-                    const uint32_t sum = level[(static_cast<size_t>(y0) * wide + x0) * 4 + c] + level[(static_cast<size_t>(y0) * wide + x1) * 4 + c] +
-                                         level[(static_cast<size_t>(y1) * wide + x0) * 4 + c] + level[(static_cast<size_t>(y1) * wide + x1) * 4 + c];
-                    next[(static_cast<size_t>(y) * nextWide + x) * 4 + c] = static_cast<uint8_t>((sum + 2) / 4);
-                }
-            }
-        level = std::move(next);
+        int32_t nextWide = 0, nextHigh = 0;
+        level = tpw::gfx::HalfSizeRGBA(level, wide, high, nextWide, nextHigh);   // (the filter the Vulkan renderer uses too)
         wide = nextWide;
         high = nextHigh;
     }
