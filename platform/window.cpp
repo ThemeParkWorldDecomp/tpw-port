@@ -142,11 +142,22 @@ std::string WindowTitle(const std::string& edition, const unsigned char* title) 
     return std::string(reinterpret_cast<const char*>(title + 1), title[0]);
 }
 
+// The window's origin, relative to the display it is on. The game takes a full-screen window's origin for the screen's
+// (0, 0): the logo film is placed at the global (0, MovieTop) and the box converted to local (src/game/GameSys.cpp,
+// Movie.cpp), which holds on a Mac's one screen and not on a desktop whose main display is not at the desktop's top left
+// (the film then lay mostly off the screen, by the display's offset). Every local/global conversion of the platform uses
+// this origin (events, ScreenToClient, GetWindowRect, the cursor), so they stay consistent with each other.
 void WindowOrigin(int32_t& x, int32_t& y) {
     x = y = 0;
     if (gWindowMade) {
         int wx = 0, wy = 0;
         SDL_GetWindowPosition(gWindow.sdl, &wx, &wy);
+        SDL_Rect bounds;
+        const SDL_DisplayID display = SDL_GetDisplayForWindow(gWindow.sdl);
+        if (display != 0 && SDL_GetDisplayBounds(display, &bounds)) {
+            wx -= bounds.x;
+            wy -= bounds.y;
+        }
         x = wx;
         y = wy;
     }
@@ -609,8 +620,9 @@ int32_t GetClientRect(GrafPort* window, SamsUtilities::URectangle::LongRect* rec
 // the engine's "grow the window until the client area is the display size" sum works out.
 int32_t GetWindowRect(GrafPort* window, SamsUtilities::URectangle::LongRect* rect) {
     if (window != &gWindow || !gWindowMade) return 0;
-    int x = 0, y = 0, w = 0, h = 0;
-    SDL_GetWindowPosition(gWindow.sdl, &x, &y);
+    int32_t x = 0, y = 0;
+    int w = 0, h = 0;
+    tpw::WindowOrigin(x, y);   // (the same origin as every other conversion: relative to the window's display)
     tpw::GameSize(w, h);
     *rect = {x, y, x + w, y + h};
     return 1;

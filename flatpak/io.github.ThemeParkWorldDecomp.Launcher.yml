@@ -25,6 +25,15 @@ finish-args:
 modules:
   - name: tpw-launcher
     buildsystem: simple
+    # The SDK's default flags (its /etc/flatpak-builder/defaults.json) add -Wp,-D_FORTIFY_SOURCE=3 and
+    # -D_GLIBCXX_ASSERTIONS after the compiler's own options, where CMakeLists.txt's -U_FORTIFY_SOURCE cannot undo them,
+    # and the fortified memset aborted while a park loaded (BumperRide.cpp clears the bump world over gColList, see
+    # CMakeLists.txt). The flags here replace the defaults: the same optimisation and debug info, without the two checks.
+    build-options:
+      cflags-override: true
+      cxxflags-override: true
+      cflags: -O2 -pipe -g -fexceptions -fasynchronous-unwind-tables -fstack-clash-protection -fcf-protection
+      cxxflags: -O2 -pipe -g -fexceptions -fasynchronous-unwind-tables -fstack-clash-protection -fcf-protection
     build-commands:
       # The README's Linux build, with the runtime's C++ library (the static one is for a launcher that must run
       # outside its own distribution; here the runtime is the same on every machine).
