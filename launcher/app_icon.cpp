@@ -83,6 +83,8 @@ IconImage LoadIcon(const std::string& dataFolder, bool& own, std::string& source
 
 }  // namespace
 
+IconImage LoadAppIcon(const std::string& dataFolder, bool& own, std::string& source) { return LoadIcon(dataFolder, own, source); }
+
 void ApplyAppIcon(const std::string& dataFolder, SDL_Window* window) {
     bool own = false;
     std::string source;

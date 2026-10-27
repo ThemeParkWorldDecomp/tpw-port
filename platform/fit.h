@@ -55,6 +55,22 @@ inline bool RealFullScreen(bool fullScreenBox, bool fitted, bool background) {
     return fullScreenBox && fitted && !background;
 }
 
+// Whether the window has the system's own frame (a title bar with the game's name, the close, minimise and zoom
+// buttons, a draggable top and resizable edges): a document window (--windowed) always; the game's full-screen box only
+// when it becomes a real full-screen window (RealFullScreen), so that the frame is simply there, the system's standard
+// one, when full screen is left (the Esc menu's button, Alt+Enter, Cmd+Ctrl+F or the green button); the system hides it
+// again while the window is full screen. The box stays frameless where it never leaves full screen's shape: --background
+// (a frameless window fitted to the screen, behind the others) and --no-fit (the window is the game's size).
+inline bool WindowBordered(bool fullScreenBox, bool fitted, bool background) {
+    return !fullScreenBox || RealFullScreen(fullScreenBox, fitted, background);
+}
+
+// The points a title bar is allowed for in the fit before the window exists and can be asked (SDL_GetWindowBordersSize):
+// a title bar's worth for a window with a frame, nothing for a frameless one.
+inline double TitleBarGuess(bool bordered) {
+    return bordered ? 32.0 : 0.0;
+}
+
 // Whether a key press is the game's full-screen toggle, Alt+Enter (the Windows convention; Linux too): an Enter key
 // with an Alt key held and no other modifier, a first press, not a repeat. Never on a Mac, where Cmd+Ctrl+F and the
 // green button do it and Option+Return stays the game's. The press is the host's: it never reaches the game.

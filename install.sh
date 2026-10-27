@@ -88,12 +88,22 @@
 # by this script on this Mac, never downloaded, so Gatekeeper has nothing to say about it. To remove it, drag it to the
 # Trash (it comes back at the next install or update).
 #
+# The launcher itself writes two more bundles, inside DIR/build and nowhere else (launcher/game_app.h): at each Play of
+# its window the game starts as an application of its own, "Sim Theme Park.app" (the US game) or "Theme Park
+# World.app" (the European game), beside the launcher's own "STP:TPW Launcher.app" there, so that the Dock, Cmd-Tab,
+# Force Quit and Activity Monitor name the game being played, with the game's icon. Each is small: the launcher's
+# program hard-linked under the game's name, an Info.plist and the icon. This script never writes them; it moves them
+# with DIR/build to DIR/build-prev at a switch and deletes them with it (remove_own). The themepark command's running
+# check and the switch's wait see a game running from one, as they see the launcher (the same program under another
+# path).
+#
 # SAFETY. No sudo, nothing written outside DIR but that one marked line, the application STP/TPW Launcher in
 # /Applications (or ~/Applications) and, when missing, the folder DIR is in (the default's ~/Applications); the launcher
-# is started at the end, from DIR/build. The only folders deleted are DIR/build-next and DIR/build-prev, by remove_own
-# below, which refuses any other name, an odd install folder and a link, and the scratch folder of the application's
-# icon (mktemp's). Nothing is installed on the Mac: Apple's Command Line Tools must be there already, and the build
-# fetches a CMake into its own folder when needed.
+# is started at the end, from DIR/build. The only folders deleted are DIR/build-next and DIR/build-prev (with the
+# application bundles the launcher kept inside: its own STP:TPW Launcher.app and the games' Sim Theme Park.app and
+# Theme Park World.app), by remove_own below, which refuses any other name, an odd install folder and a link, and the
+# scratch folder of the application's icon (mktemp's). Nothing is installed on the Mac: Apple's Command Line Tools
+# must be there already, and the build fetches a CMake into its own folder when needed.
 #
 # Test hooks (for the maintainers' tests, not for players): TPW_INSTALL_REPO replaces the repository URL,
 # TPW_INSTALL_HOME the folder that holds .zprofile and .bash_profile, TPW_INSTALL_APPS the folder the application goes
@@ -256,6 +266,7 @@ UI_START=0
 UI_BUILD_START=0
 UI_BUILD_T0=0
 UI_BUILD_P0=0
+LOG_STARTED=0   # 1 once this run truncated the log (ui_log_tail)
 
 # Chooses the view, once the options are read. Sets up the colours and glyphs of the terminal view.
 ui_start() {
@@ -733,8 +744,12 @@ ui_note_flush() {
     _para=""
 }
 
-# The last lines of the log and where it is, after a failure of the downloads or the build.
+# The last lines of the log and where it is, after a failure of the downloads or the build. Only once this run started
+# the log (LOG_STARTED, set where the log is truncated): before that the file holds an earlier run's build, which has
+# nothing to do with what went wrong now (a failure before any download, such as no release to install, showed the
+# last successful build's output and asked for a bug report about it).
 ui_log_tail() {
+    [ "$LOG_STARTED" = 1 ] || return 0
     [ -s "$LOG" ] || return 0
     printf '\n  The last lines of its output:\n'
     tail -n 15 "$LOG" | while IFS= read -r _l; do
@@ -865,7 +880,9 @@ unsafe_path() {
     return 1
 }
 
-# Deletes DIR/build-next or DIR/build-prev and nothing else. This is the only place the script deletes a folder.
+# Deletes DIR/build-next or DIR/build-prev and nothing else (a build folder holds the launcher's own application
+# bundle and the games' it wrote, STP:TPW Launcher.app, Sim Theme Park.app and Theme Park World.app, which go with
+# it). This is the only place the script deletes a folder.
 remove_own() {
     case "$1" in
         build-next | build-prev) ;;
@@ -970,6 +987,14 @@ pick_target() {
         | awk '{ n = $2; sub(/^refs\/tags\//, "", n); if (n ~ /^v[0-9]+\.[0-9]+\.[0-9]+$/) print substr(n, 2) }' \
         | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
     if [ -z "$newest" ]; then
+        if [ "$switching" = 1 ]; then
+            # a dev install, run without --dev before any release exists: it stays on main, and that is no bug
+            ui_warn installed "this install follows main (${old_version:-unknown}); there is no release to switch it to yet"
+            say "No release has been published yet. This install follows main (the development version); to update it, run:"
+            say "  themepark update --dev"
+            say "Nothing was changed."
+            die "No release has been published yet. This install follows main; run themepark update --dev to update it."
+        fi
         say "No release has been published yet, so there is nothing to install by default."
         say "To try the version that is being made (it can have bugs), run the same command with --dev:"
         say "  curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh -s -- --dev"
@@ -1167,7 +1192,10 @@ prepare_next() {
     if [ -d "$DIR/build/cmake" ]; then
         cp -R "$DIR/build/cmake" "$NEXT/cmake" 2>/dev/null || true
     fi
-    [ "$UI" = tty ] || : >"$LOG"   # the progress view started the log at the downloads
+    if [ "$UI" != tty ]; then   # the progress view started the log at the downloads
+        : >"$LOG"
+        LOG_STARTED=1
+    fi
     info "Getting the build's tools (CMake, if this Mac has none)"
     ui_active "$UI_SRC" "getting the build's tools (CMake, if this Mac has none)"
     wait_for make_logged find-cmake
@@ -1364,13 +1392,29 @@ if [ "$1" = update ]; then
         exit 1
     fi
     # the installer replaces build/ and opens the new launcher: one that is running must be quit first (its own
-    # Update button updates it while it runs)
+    # Update button updates it while it runs), and so must a game its Play started. The launcher runs from the
+    # application bundle it keeps beside itself (build/STP:TPW Launcher.app) and a game from its own bundle there
+    # (build/Sim Theme Park.app or build/Theme Park World.app, the same program hard-linked under the game's name), so
+    # a process is matched by the bare program's path or by a path under a bundle's Contents/MacOS in build/.
     running=$(ps -A -ww -o pid= -o command= | while read -r pid command; do
-        case "$command" in ("$launcher" | "$launcher "*) printf '%s ' "$pid" ;; esac
+        case "$command" in
+            ("$launcher" | "$launcher "* | "$dir/build/STP:TPW Launcher.app/Contents/MacOS/"*) printf '%s ' "$pid" ;;
+        esac
+    done)
+    playing=$(ps -A -ww -o pid= -o command= | while read -r pid command; do
+        case "$command" in
+            ("$dir/build/STP:TPW Launcher.app/"*) ;;
+            ("$dir/build/"*".app/Contents/MacOS/"*) printf '%s ' "$pid" ;;
+        esac
     done)
     if [ -n "$running" ]; then
         echo "themepark: the launcher is running (process ${running% })." >&2
         echo "Quit it, or press its Update button, then run themepark update again." >&2
+        exit 1
+    fi
+    if [ -n "$playing" ]; then
+        echo "themepark: a game started from the launcher is running (process ${playing% })." >&2
+        echo "Quit the game, then run themepark update again." >&2
         exit 1
     fi
     exec /bin/sh "$dir/source/install.sh" --update --dir "$dir" "$@"
@@ -1712,6 +1756,30 @@ wait_for_exit() {
     done
 }
 
+# The processes that run from an application bundle in DIR/build: the launcher's own (build/STP:TPW Launcher.app) or
+# a game's (build/Sim Theme Park.app, build/Theme Park World.app: the launcher's program hard-linked under the game's
+# name, started by the launcher window's Play; launcher/game_app.h). Any program under a bundle's Contents/MacOS
+# there counts, whatever its name.
+app_processes() {
+    ps -A -ww -o pid= -o command= | while read -r pid command; do
+        case "$command" in ("$DIR/build/"*".app/Contents/MacOS/"*) printf '%s ' "$pid" ;; esac
+    done
+}
+
+# Waits for every process running from a bundle in DIR/build to end (a game the launcher's Play started plays on
+# after the launcher that asked for the update has quit; moving build/ aside under it would leave the game's "back to
+# the launcher" opening the old launcher from build-prev), within the same 5 minutes.
+wait_for_apps() {
+    waited=0
+    while [ -n "$(app_processes)" ]; do
+        if [ "$waited" -ge 300 ]; then
+            die "A game started from the launcher is still running after 5 minutes. Nothing was switched."
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+}
+
 # ---- the three ways to run: swap, install or update
 
 run_swap() {
@@ -1724,6 +1792,7 @@ run_swap() {
         step "Waiting for the launcher to close"
         ui_active launcher "waiting for the launcher to close"
         wait_for_exit "$WAIT_PID"
+        wait_for_apps   # and for a game its Play started (its own application in build/)
         ui_done launcher "closed"
     fi
     step "Switching to the new version"
@@ -1775,12 +1844,12 @@ run_install() {
         [ "$STAGE" = 1 ] || ui_pending application "STP/TPW Launcher"
         [ "$STAGE" = 1 ] || [ "$LAUNCH" = 0 ] || ui_pending start ""
     fi
+    # A dev install run without --dev: the row says so at once; the plain line comes once a release is known
+    # (pick_target: with none, the install stays on main, and "it now follows the newest release" would be wrong).
+    switching=0
     if [ "$CHANNEL" = stable ] && [ "$(read_channel)" = dev ]; then
-        say "This install followed main (--dev); it now follows the newest release. Add --dev to stay on main."
-        if [ "$UI" = tty ]; then
-            UI_NOTES=""
-            ui_warn installed "this install follows main (${old_version:-unknown}). Without --dev the line switches it to the newest release. Add --dev to stay on main."
-        fi
+        switching=1
+        ui_warn installed "this install follows main (${old_version:-unknown}). Without --dev the line switches it to the newest release. Add --dev to stay on main."
     fi
 
     # check, download, build, verify; then switch and start unless --stage
@@ -1800,9 +1869,13 @@ run_install() {
         pick_target
         mkdir -p "$DIR" || die "Couldn't make the folder $DIR."
         : >"$DIR/.tpw-installer" || die "Couldn't write in $DIR."
-        [ "$UI" = tty ] && : >"$LOG"   # the log holds the downloads' output too in the progress view
+        if [ "$UI" = tty ]; then   # the log holds the downloads' output too in the progress view
+            : >"$LOG"
+            LOG_STARTED=1
+        fi
         get_source
     fi
+    [ "$switching" = 0 ] || info "This install followed main (--dev); it now follows the newest release. Add --dev to stay on main."
 
     built=$(info_get "$DIR/build/install-info.txt" commit)
     staged=$(info_get "$NEXT/install-info.txt" commit)

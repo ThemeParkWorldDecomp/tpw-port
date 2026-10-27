@@ -154,7 +154,7 @@ on the Mac, bugs included. This repository adds what it takes to play:
   "Playable offline").
 - platform/: the Mac Toolbox, Sound Sprockets, QuickTime and the game's Windows-style shims, done on SDL3, OpenGL and
   CoreText (on Windows, stb_truetype in place of CoreText).
-- overrides/: the port's fixes, 206 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
+- overrides/: the port's fixes, 211 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
   the port does and why. Each file there is built in place of the tpw-decomp file of the same path. Headers are read
   from a copy of tpw-decomp's headers in the build folder with the overridden ones laid over it.
 - mods/: the [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) submodule, for optional changes to how the game plays. It holds no mods yet
@@ -264,9 +264,11 @@ display.
 
 ### Widescreen and resolution
 
-The port runs as a real full-screen window, a Space of its own with the menu bar and the dock hidden (Cmd+Ctrl+F
-leaves and re-enters it; --windowed opens a window with a title bar; --background keeps a window fitted to the screen
-behind the others). The game is held to 60 frames a second: the swap waits for as many of the display's refreshes (vsync)
+The port runs as a real full-screen window, a Space of its own with the menu bar and the dock hidden (Cmd+Ctrl+F, the
+green button or the Esc menu's button leaves and re-enters it, and out of full screen the game is in a normal window:
+a title bar with the game's name, Sim Theme Park or Theme Park World, the close, minimise and zoom buttons, draggable
+and resizable, the game letterboxed inside it at its own shape; --windowed opens that window from the start;
+--background keeps a frameless window fitted to the screen behind the others). The game is held to 60 frames a second: the swap waits for as many of the display's refreshes (vsync)
 as come nearest a 60th of a second, so a 120 Hz or 144 Hz screen waits for 2 and the animations run at the speed they
 were made for. The window takes the screen's own shape, 4:3, 16:10 or 16:9, so no bars show on any of them (16:10 at
 3840 x 2400 on a MacBook, 16:9 at 3840 x 2160); --aspect still forces one. The game renders offscreen at that size and
@@ -347,6 +349,9 @@ Every push and pull request is built and tested by GitHub Actions (.github/workf
 and 2025 (the nearest GitHub has to the Windows 10 and 11 kernels; 2025 is the build of Windows 11 24H2), on Windows 11
 on Arm (under its x64 emulation) and on macOS (Apple Silicon and Intel). Each Windows build also starts the launcher
 once (--version), and each run keeps the launchers it built as artifacts.
+.github/workflows/screenshots.yml (run by hand, or by a push to a ci-shots-* branch) installs the launcher for real on
+Windows 2022 and 2025, types `themepark` in a PowerShell window and keeps pictures of the screen before and after as
+artifacts, with the icon of the launcher's window, failing when the launcher's window did not come to the front.
 
 Pull requests go to main, which is always the next version (launcher/VERSION.txt says it with -dev, 0.0.4-dev for
 example). A release is cut from main: its version without -dev, then a tag (v0.0.4) on that commit, from which

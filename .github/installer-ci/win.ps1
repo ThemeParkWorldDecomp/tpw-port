@@ -17,6 +17,9 @@
 # Cases: fresh legacy rerun updater dev tags refusals paths missing nogit buildfail interrupt interrupt_first tui
 #   real     one real build, from a local tag of the CI checkout (needs TPW_CI_SOURCE: the checkout to take)
 #   public   the one-liner a player runs, against the newest real release (manual workflow only)
+#   shots    the same install, then pictures of the screen: PowerShell in front, themepark typed, the launcher's window
+#            in front and alone, its window's icon and the .exe's (screenshots.yml; needs TPW_CI_SOURCE, keeps them in
+#            TPW_CI_SHOTS)
 #
 # Windows PowerShell 5.1 (every Windows 10 and 11 has it) is enough; PowerShell 7 runs it too. This file is plain ASCII on
 # purpose (Windows PowerShell reads a file without a byte order mark as ANSI): names with non-ASCII letters are built
@@ -938,13 +941,35 @@ function Invoke-Case_dev {
     $out = Invoke-Line @{ Stable = $true; NoLaunch = $true }
     Assert-Ok $out '0.0.1'
     Expect-Text $out 'Already up to date'
-    # a dev install on a PC with no release at all
+    # a dev install on a PC with no release at all: the plain line and -Update say that it stays on main and how to
+    # update it, and never that it now follows a release
     New-Case 'dev_only'
     Initialize-Fake
     $out = Invoke-Line @{ Dev = $true; NoLaunch = $true }
     Assert-Ok $out '0.0.1-dev'
     $out = Invoke-Line @{ NoLaunch = $true }
-    Assert-Fail $out 'No release has been published yet'
+    Assert-Fail $out 'No release has been published yet\. This install follows main; run themepark update -Dev to update it\.'
+    Expect-Text $out 'themepark update -Dev'
+    Expect-NoText $out 'it now follows the newest release'
+    Assert-Build $script:Dir '0.0.1-dev' 'dev'
+    Set-Location -LiteralPath $script:Dir
+    $out = Invoke-File @('-Update', '-Dir', $script:Dir, '-NoLaunch') (Join-Path $script:Dir 'source\install.ps1')
+    Assert-Fail $out 'No release has been published yet\. This install follows main; run themepark update -Dev'
+    Expect-NoText $out 'it now follows the newest release'
+    # the same in the progress view (themepark update in a window): the log of the dev install's build is still there,
+    # and a run that failed before it started a log of its own must not show that one and ask for a bug report about it
+    if (-not (Get-Item -LiteralPath (Join-Path $script:Dir 'last-build.log')).Length) { Bad 'the dev install left no last-build.log for this check' }
+    $env:TPW_INSTALL_VIEW = 'vt'
+    $out = Invoke-File @('-Update', '-Dir', $script:Dir, '-NoLaunch') (Join-Path $script:Dir 'source\install.ps1')
+    Remove-Item -Path Env:TPW_INSTALL_VIEW -ErrorAction SilentlyContinue
+    Set-Location -LiteralPath $script:H
+    if ($script:RC -eq 0) { Bad '-Update with no release returned 0 in the progress view' }
+    Expect-Text $out 'No release has been published yet'
+    Expect-Text $out 'themepark update -Dev'
+    Expect-NoText $out 'The last lines of its output'
+    Expect-NoText $out 'bug report'
+    Expect-NoText $out '==> building version'
+    if (@($out | Where-Object { "$_" -match '^(STEP|RESULT) ' })) { Bad 'the progress view printed a line of plain mode' }
     Assert-Build $script:Dir '0.0.1-dev' 'dev'
 }
 
@@ -1301,23 +1326,11 @@ function Invoke-Case_interrupt_first {
     Assert-NewWindow $script:Dir '0.0.1'
 }
 
-# The real build, from a local tag in the CI checkout: TPW_CI_SOURCE is the checkout (a git working tree of tpw-port, with
-# its submodules). Takes a copy of it, says its launcher\VERSION.txt is a release (TPW_CI_VERSION, default 0.0.99) and tags
-# that. The run is the one a player makes, with Git on the Path and nothing else of the toolchain (build.ps1 fetches its
-# own), in a profile folder with a space, an apostrophe and a non-ASCII letter.
-function Invoke-Case_real {
-    if (-not $env:TPW_CI_SOURCE) { New-Case 'real'; Bad 'TPW_CI_SOURCE (the checkout to build) is not set' }
-    $version = $env:TPW_CI_VERSION
-    if (-not $version) { $version = '0.0.99' }
-    New-Case 'real' (Join-Path $Work ("real\Jo's PC " + [char]0xE9 + '\home'))
-    $script:Quiet = $true
-    Add-SeedData
-    $clone = Join-Path $script:H 'tpw-port'
-    [void](New-Item -ItemType Directory -Force -Path (Join-Path $clone '.git'), (Join-Path $clone 'launcher'), (Join-Path $clone 'build'))
-    Write-Text (Join-Path $clone 'launcher\VERSION.txt') "0.0.2`n"
-    Write-Text (Join-Path $clone 'build\tpw_launcher.exe') "an old launcher`n"
-    $cloneBefore = Get-Snapshot $clone
-    $dataBefore = Get-Snapshot $script:Data
+# A local release of the CI checkout for the case: TPW_CI_SOURCE is the checkout (a git working tree of tpw-port). Takes
+# a copy of it into the case's folder, says its launcher\VERSION.txt is release VERSION and tags that; the installer is
+# pointed at it (TPW_INSTALL_REPO).
+function New-RealRelease([string]$version) {
+    if (-not $env:TPW_CI_SOURCE) { Bad 'TPW_CI_SOURCE (the checkout to build) is not set' }
     $source = $env:TPW_CI_SOURCE
     $repo = Join-Path $script:C 'release-repo'
     & git.exe clone -q $source $repo 2>&1 | Out-Host
@@ -1343,6 +1356,25 @@ function Invoke-Case_real {
         if ($LASTEXITCODE -ne 0) { Bad "cannot pin the submodule $path" }
     }
     $env:TPW_INSTALL_REPO = $repo
+}
+
+# The real build, from a local tag in the CI checkout: TPW_CI_SOURCE is the checkout (a git working tree of tpw-port, with
+# its submodules). Takes a copy of it, says its launcher\VERSION.txt is a release (TPW_CI_VERSION, default 0.0.99) and tags
+# that. The run is the one a player makes, with Git on the Path and nothing else of the toolchain (build.ps1 fetches its
+# own), in a profile folder with a space, an apostrophe and a non-ASCII letter.
+function Invoke-Case_real {
+    $version = $env:TPW_CI_VERSION
+    if (-not $version) { $version = '0.0.99' }
+    New-Case 'real' (Join-Path $Work ("real\Jo's PC " + [char]0xE9 + '\home'))
+    $script:Quiet = $true
+    Add-SeedData
+    $clone = Join-Path $script:H 'tpw-port'
+    [void](New-Item -ItemType Directory -Force -Path (Join-Path $clone '.git'), (Join-Path $clone 'launcher'), (Join-Path $clone 'build'))
+    Write-Text (Join-Path $clone 'launcher\VERSION.txt') "0.0.2`n"
+    Write-Text (Join-Path $clone 'build\tpw_launcher.exe') "an old launcher`n"
+    $cloneBefore = Get-Snapshot $clone
+    $dataBefore = Get-Snapshot $script:Data
+    New-RealRelease $version
     $out = Invoke-Line @{ NoLaunch = $true }
     Assert-Ok $out $version
     Assert-Build $script:Dir $version 'stable'
@@ -1358,6 +1390,186 @@ function Invoke-Case_real {
     Expect-Text $out 'Already up to date'
     Assert-Same 'the old clone' $cloneBefore (Get-Snapshot $clone)
     Assert-Same 'the data folder' $dataBefore (Get-Snapshot $script:Data)
+}
+
+# ---- the screenshots (screenshots.yml)
+
+function Add-ShotApi {
+    if ('TpwShots.Front' -as [type]) { return }
+    Add-Type -AssemblyName System.Drawing, System.Windows.Forms
+    Add-Type -Namespace TpwShots -Name Front -MemberDefinition @'
+[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+[DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder text, int count);
+[DllImport("user32.dll")] public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);
+'@
+}
+
+# The window in front, as Windows sees it (GetForegroundWindow): "name=NAME pid=PID exe=PATH title=TITLE".
+function Get-FrontApp {
+    Add-ShotApi
+    $h = [TpwShots.Front]::GetForegroundWindow()
+    $procId = [uint32]0
+    [void][TpwShots.Front]::GetWindowThreadProcessId($h, [ref]$procId)
+    $p = Get-Process -Id $procId -ErrorAction SilentlyContinue
+    $sb = New-Object System.Text.StringBuilder 512
+    [void][TpwShots.Front]::GetWindowText($h, $sb, 512)
+    $exe = ''
+    if ($p) { try { $exe = "$($p.Path)" } catch { $exe = '' } }
+    return "name=$(if ($p) { $p.ProcessName } else { 'none' }) pid=$procId exe=$exe title=$($sb.ToString())"
+}
+
+# The whole screen (every monitor) as FILE (PNG), a second from now; says its size, or that the capture failed.
+function Save-Shot([string]$file) {
+    Add-ShotApi
+    Start-Sleep -Seconds 1
+    try {
+        $r = [System.Windows.Forms.SystemInformation]::VirtualScreen
+        $bmp = New-Object System.Drawing.Bitmap $r.Width, $r.Height
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        $g.CopyFromScreen($r.Left, $r.Top, 0, 0, $bmp.Size)
+        $bmp.Save($file, [System.Drawing.Imaging.ImageFormat]::Png)
+        $g.Dispose()
+        $bmp.Dispose()
+        Note "$(Split-Path -Leaf $file): $($r.Width)x$($r.Height) pixels"
+    } catch {
+        Note "$(Split-Path -Leaf $file): the capture failed: $_"
+    }
+}
+
+# A visible Windows PowerShell window, without a profile and with the Path a new window gets (the machine's and the
+# user's, from the registry), cleared, showing its prompt; LINE, when given, runs in it after the prompt is shown.
+# Returns the process.
+function Start-ShotWindow([string]$line = '') {
+    $setup = "`$env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')`nClear-Host`n"
+    if ($line) { $setup += "Write-Host 'PS> $line'`n$line`n" }
+    $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($setup))
+    $p = Start-Process -FilePath powershell.exe -ArgumentList @('-NoLogo', '-NoProfile', '-NoExit', '-EncodedCommand', $encoded) -PassThru
+    Start-Sleep -Seconds 3
+    try { [void][TpwShots.Front]::SetForegroundWindow($p.MainWindowHandle) } catch { }
+    Start-Sleep -Seconds 1
+    return $p
+}
+
+function Get-OurLauncher([string]$exe) {
+    return @(Get-Process -Name tpw_launcher -ErrorAction SilentlyContinue | Where-Object { try { $_.Path -ieq $exe } catch { $false } })
+}
+
+# Pictures of the launcher installed for real (New-RealRelease, the install line with -NoLaunch), for the eye: a
+# PowerShell window in front, then themepark typed in it as a player types it (SendKeys; when nothing starts that way,
+# a new window runs the line itself), then the launcher's window, which must have come to the front (the focus check:
+# the foreground window after the command must belong to the launcher of this install, else the case fails, after the
+# pictures are taken), then the launcher alone, the icon its window carries and the icon of tpw_launcher.exe. The
+# pictures, the focus check's lines and the launcher's log lines about its icon and its window go to TPW_CI_SHOTS
+# (default: the case's shots folder).
+# screenshots.yml keeps that folder as the run's artifact.
+function Invoke-Case_shots {
+    $version = $env:TPW_CI_VERSION
+    if (-not $version) { $version = '0.0.99' }
+    New-Case 'shots'
+    $script:Quiet = $true
+    $shots = $env:TPW_CI_SHOTS
+    if (-not $shots) { $shots = Join-Path $script:C 'shots' }
+    [void](New-Item -ItemType Directory -Force -Path $shots)
+    $focus = Join-Path $shots 'focus-check.txt'
+    [void](New-Item -ItemType File -Force -Path $focus)
+    New-RealRelease $version
+    $out = Invoke-Line @{ NoLaunch = $true }
+    Assert-Ok $out $version
+    Assert-Build $script:Dir $version 'stable'
+    Assert-UserPathOnce $script:Dir
+    $exe = Join-Path $script:Dir 'build\tpw_launcher.exe'
+    Add-ShotApi
+    $r = [System.Windows.Forms.SystemInformation]::VirtualScreen
+    Note "screen: $($r.Width)x$($r.Height) at $($r.Left),$($r.Top); logged-in desktop: $([Environment]::UserInteractive)"
+    # 1. a PowerShell window in front, with the Path a new window gets (themepark is on it)
+    $win = Start-ShotWindow
+    $before = Get-FrontApp
+    Note "in front before: $before"
+    Add-Content -LiteralPath $focus -Value "before: $before" -Encoding ASCII
+    Save-Shot (Join-Path $shots '1-before-powershell-in-front.png')
+    # 2. themepark, typed; a few seconds later the launcher's window is up and must be the foreground window
+    $typed = $true
+    try {
+        [void][TpwShots.Front]::SetForegroundWindow($win.MainWindowHandle)
+        Start-Sleep -Milliseconds 500
+        [System.Windows.Forms.SendKeys]::SendWait('themepark{ENTER}')
+    } catch {
+        Note "typing into the window failed: $_"
+        $typed = $false
+    }
+    $started = $false
+    if ($typed) {
+        foreach ($i in 1..10) {
+            if ((Get-OurLauncher $exe).Count -gt 0) { $started = $true; break }
+            Start-Sleep -Seconds 1
+        }
+        if (-not $started) { Note 'nothing started from the typed line; a new window runs it instead'; $typed = $false }
+    }
+    if (-not $typed) {
+        Stop-Process -Id $win.Id -Force -ErrorAction SilentlyContinue
+        $win = Start-ShotWindow 'themepark'
+    }
+    Start-Sleep -Seconds 8
+    $after = Get-FrontApp
+    Note "in front after: $after"
+    Add-Content -LiteralPath $focus -Value "after: $after" -Encoding ASCII
+    Save-Shot (Join-Path $shots '2-after-themepark.png')
+    # 3. the launcher alone (the PowerShell window closed), then its icons: the one its window carries (the title bar's
+    # and the taskbar's, the launcher sets it when it starts; asked of the window with WM_GETICON, ICON_BIG), and the one
+    # the Explorer shows for tpw_launcher.exe (the file's own)
+    Stop-Process -Id $win.Id -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 3
+    Save-Shot (Join-Path $shots '3-launcher-alone.png')
+    try {
+        $launcherWindows = @(Get-OurLauncher $exe | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero })
+        if ($launcherWindows.Count -eq 0) { throw 'the launcher has no main window' }
+        $hIcon = [IntPtr]::Zero
+        $one = New-Object IntPtr 1
+        # 0x7F is WM_GETICON, 1 is ICON_BIG, 2 is SMTO_ABORTIFHUNG
+        [void][TpwShots.Front]::SendMessageTimeout($launcherWindows[0].MainWindowHandle, 0x7F, $one, [IntPtr]::Zero, 2, 3000, [ref]$hIcon)
+        if ($hIcon -eq [IntPtr]::Zero) { throw 'the window carries no big icon (WM_GETICON gave nothing)' }
+        $windowIcon = [System.Drawing.Icon]::FromHandle($hIcon)
+        $windowIcon.ToBitmap().Save((Join-Path $shots '4-launcher-window-icon.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+        Note "the icon of the launcher's window: $($windowIcon.Width)x$($windowIcon.Height) pixels"
+    } catch {
+        Note "no icon from the launcher's window: $_"
+    }
+    try {
+        $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($exe)
+        $icon.ToBitmap().Save((Join-Path $shots '5-launcher-exe-icon.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+        Note "the icon of tpw_launcher.exe: $($icon.Width)x$($icon.Height) pixels"
+    } catch {
+        Note "no icon from tpw_launcher.exe: $_"
+    }
+    # the launcher's log: its version line, its icon, its screens and its window
+    Start-Sleep -Seconds 2
+    Get-OurLauncher $exe | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+    $logs = @(Get-ChildItem -LiteralPath $script:Data -Recurse -Filter '*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+    if ($logs.Count -gt 0) {
+        $log = $logs[0].FullName
+        Copy-Item -LiteralPath $log -Destination (Join-Path $shots 'launcher.log')
+        $lines = @(Get-Content -LiteralPath $log)
+        $picked = @($lines | Select-Object -First 1) + @($lines | Where-Object { $_ -match 'app icon:|app name|platform: (display|window|fit)|^launcher: ' })
+        Set-Content -LiteralPath (Join-Path $shots 'launcher-log-lines.txt') -Value $picked -Encoding ASCII
+        Note "the launcher's log, $($log):"
+        $picked | ForEach-Object { Write-Host $_ }
+    } else {
+        Note 'the launcher wrote no log file'
+    }
+    Add-Content -LiteralPath $focus -Value "typed in the window: $(if ($typed) { 'yes' } else { 'no (a new window ran the line itself)' })" -Encoding ASCII
+    # the focus check: the foreground window's program is this install's launcher
+    $frontExe = ($after -replace '^.* exe=', '') -replace ' title=.*$', ''
+    if ($frontExe -ieq $exe) {
+        Add-Content -LiteralPath $focus -Value "result: ok (the foreground window is $frontExe)" -Encoding ASCII
+        Get-Content -LiteralPath $focus | ForEach-Object { Write-Host $_ }
+    } else {
+        Add-Content -LiteralPath $focus -Value "result: FAIL (the foreground window is $($after -replace '^name=', ''), not $exe)" -Encoding ASCII
+        Get-Content -LiteralPath $focus | ForEach-Object { Write-Host $_ }
+        Bad "the launcher's window did not come to the front after themepark: in front was $($after -replace '^name=', '')"
+    }
 }
 
 # The one-liner a player runs, against the newest real release (or main with PUBLIC_ARGS=-Dev), in an empty profile

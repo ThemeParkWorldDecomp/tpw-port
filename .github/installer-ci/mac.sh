@@ -136,6 +136,16 @@ run_file() { # OUT SCRIPT ARGS...
     show_run "$out"
 }
 
+# The script as a file, run in a terminal window: script(1) gives it a tty, so it shows the progress view (the frame,
+# redrawn in place, with the escape codes kept in OUT). An 80-column window, UTF-8.
+run_tty() { # OUT SCRIPT ARGS...
+    local out=$1 script=$2
+    shift 2
+    TERM=xterm-256color LC_ALL=en_US.UTF-8 script -q "$out" sh "$script" "$@" >/dev/null 2>&1 </dev/null
+    RC=$?
+    show_run "$out"
+}
+
 # ---- the fake release
 
 git_f() {
@@ -646,14 +656,19 @@ case_updater() {
     run_file "$C/u3" "$DIR/source/install.sh" --update --stage --dir "$DIR"
     ok_run "$C/u3" 0.0.3
     expect_text "$C/u3" 'was built earlier and is waiting'
-    # the swap waits for the launcher (a process of 3 seconds) to exit
+    # the swap waits for the launcher (a process of 3 seconds) to exit, and then for a game its Play started (a process
+    # of 6 seconds whose command line is the game's own application in build/, launcher/game_app.h)
     sleep 3 &
     waitpid=$!
+    bash -c 'exec -a "$1" sleep 6' bash "$DIR/build/Sim Theme Park.app/Contents/MacOS/Sim Theme Park" &
+    gamepid=$!
     start=$(date +%s)
     run_file "$C/u4" "$DIR/source/install.sh" --swap-and-launch --wait-pid "$waitpid" --dir "$DIR"
     end=$(date +%s)
     ok_run "$C/u4" 0.0.3
-    [ $((end - start)) -ge 2 ] || bad "the swap did not wait for the launcher to exit ($((end - start)) seconds)"
+    [ $((end - start)) -ge 5 ] || bad "the swap did not wait for the launcher and the game to exit ($((end - start)) seconds)"
+    kill -0 "$gamepid" 2>/dev/null && bad "the swap went ahead while the game's process was running"
+    wait "$gamepid" 2>/dev/null
     check_build "$DIR" 0.0.3 stable
     expect_in "$DIR/build-prev/install-info.txt" "version=0.0.1"
     [ ! -e "$DIR/build-next" ] || bad "the swap left a build-next"
@@ -691,6 +706,24 @@ case_updater() {
     [ "$RC" != 0 ] || bad "themepark update ran while the launcher was running"
     expect_text "$C/u9" "themepark: the launcher is running (process $fakepid)"
     grep -q '^STEP ' "$C/u9" && bad "themepark update started the installer while the launcher was running"
+    check_build "$DIR" 0.0.5 stable
+    # the same for a launcher running from the bundle it keeps beside itself (launcher/app_bundle.h) and for a game
+    # its Play started, which runs from the game's own application in build/ (launcher/game_app.h)
+    bash -c 'exec -a "$1" sleep 30' bash "$DIR/build/STP:TPW Launcher.app/Contents/MacOS/tpw_launcher" &
+    fakepid=$!
+    run_themepark "$C/u9b" update --no-launch
+    kill "$fakepid" 2>/dev/null
+    wait "$fakepid" 2>/dev/null
+    [ "$RC" != 0 ] || bad "themepark update ran while the launcher was running from its bundle"
+    expect_text "$C/u9b" "themepark: the launcher is running (process $fakepid)"
+    bash -c 'exec -a "$1" sleep 30' bash "$DIR/build/Theme Park World.app/Contents/MacOS/Theme Park World" &
+    fakepid=$!
+    run_themepark "$C/u9c" update --no-launch
+    kill "$fakepid" 2>/dev/null
+    wait "$fakepid" 2>/dev/null
+    [ "$RC" != 0 ] || bad "themepark update ran while a game was running"
+    expect_text "$C/u9c" "themepark: a game started from the launcher is running (process $fakepid)"
+    grep -q '^STEP ' "$C/u9c" && bad "themepark update started the installer while a game was running"
     check_build "$DIR" 0.0.5 stable
     # its options go to the installer: themepark update --dev moves the install to main
     run_themepark "$C/u10" update --dev --no-launch
@@ -740,13 +773,33 @@ case_dev() {
     run_line "$C/o7" --stable --no-launch
     ok_run "$C/o7" 0.0.1
     expect_text "$C/o7" 'Already up to date'
-    # a dev install on a Mac with no release at all
+    # a dev install on a Mac with no release at all: the plain line and --update say that it stays on main and how to
+    # update it, and never that it now follows a release
     new_case dev_only
     fake_init
     run_line "$C/o8" --dev --no-launch
     ok_run "$C/o8" 0.0.1-dev
     run_line "$C/o9" --no-launch
-    fail_run "$C/o9" 'No release has been published yet'
+    fail_run "$C/o9" 'No release has been published yet\. This install follows main; run themepark update --dev to update it\.'
+    expect_text "$C/o9" 'themepark update --dev'
+    expect_no_text "$C/o9" 'it now follows the newest release'
+    check_build "$DIR" 0.0.1-dev dev
+    cd "$DIR" || exit 1
+    run_file "$C/o10" "$DIR/source/install.sh" --update --dir "$DIR" --no-launch
+    fail_run "$C/o10" 'No release has been published yet\. This install follows main; run themepark update --dev'
+    expect_no_text "$C/o10" 'it now follows the newest release'
+    check_build "$DIR" 0.0.1-dev dev
+    # the same in a terminal window (themepark update): the log of the dev install's build is still there, and a run
+    # that failed before it started a log of its own must not show that one and ask for a bug report about it
+    [ -s "$DIR/last-build.log" ] || bad "the dev install left no last-build.log for this check"
+    run_tty "$C/o11" "$DIR/source/install.sh" --update --dir "$DIR" --no-launch
+    [ "$RC" != 0 ] || bad "--update with no release exited with 0 in a terminal"
+    expect_text "$C/o11" 'No release has been published yet'
+    expect_text "$C/o11" 'themepark update --dev'
+    expect_no_text "$C/o11" 'The last lines of its output'
+    expect_no_text "$C/o11" 'bug report'
+    expect_no_text "$C/o11" '==> building version'
+    expect_no_text "$C/o11" 'RESULT '
     check_build "$DIR" 0.0.1-dev dev
 }
 

@@ -7,9 +7,13 @@
 // itself, with its own embedded Info.plist as the bundle's and itself hard-linked as the bundle's program, and run from
 // there with execv: the same process id, arguments, environment and standard streams, only the executable's path is
 // inside the bundle. (A colon in a file's name is what the Finder shows as a slash.) Launched from inside the bundle
-// (that run, or the .app opened from the Finder or kept in the Dock) it runs as it is.
+// (that run, or the .app opened from the Finder or kept in the Dock) it runs as it is. The game itself plays from a
+// bundle of its own beside it, "Sim Theme Park.app" or "Theme Park World.app", made the same way by the window's Play
+// (launcher/game_app.h); one of those opened without --play (double-clicked in the Finder) runs the launcher from the
+// launcher's own bundle, as the bare program does.
 #pragma once
 #include <string>
+#include <vector>
 
 namespace tpw::launcher {
 
@@ -24,5 +28,22 @@ std::string TakeBundleNote();
 // The folder holding the bare program (SDL_GetBasePath's folder, with its trailing separator): for a program inside a
 // bundle, the folder that holds the .app, where the install script's files are (launcher/ui/updater.h FindInstall).
 std::string ProgramFolder();
+
+#if defined(__APPLE__)
+inline constexpr const char* kLauncherBundleName = "STP:TPW Launcher.app";   // the Finder shows "STP/TPW Launcher.app"
+
+// The program's own path, with links resolved; empty when unknown.
+std::string ExecutablePath();
+// The .app folder `exePath` is the program of (the part before /Contents/MacOS/), or empty outside a bundle.
+std::string BundleOf(const std::string& exePath);
+// The Info.plist the build embedded in the program (CMakeLists.txt, -sectcreate __TEXT __info_plist); empty when none.
+std::string EmbeddedPlist();
+// Makes `app` (the .app folder) hold the program at `exe`, or brings it up to date: Contents/Info.plist as `plist`,
+// Contents/PkgInfo, the program hard-linked (a copy where links are impossible) as Contents/MacOS/<the plist's
+// CFBundleExecutable, or exe's name without one> and, when `icns` is not empty, Contents/Resources/icon.icns.
+// `program` is the bundle's program; `made` says what was done.
+bool KeepBundle(const std::string& exe, const std::string& app, const std::string& plist, const std::vector<uint8_t>& icns,
+                std::string& program, std::string& made, std::string& why);
+#endif
 
 }  // namespace tpw::launcher
