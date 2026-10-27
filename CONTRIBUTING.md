@@ -100,7 +100,8 @@ under "Changelog line" in the template, and the maintainers add it.
   happened or how it was fixed: that goes in the commit message and FIXES.md.
 - One short, plain sentence. No file, function or code names and no technical words (memory, thread, pointer, heap,
   lock, offset).
-- It goes under the top heading, the next version ("not released yet"), in New, Changed or Fixed.
+- It goes under the top heading, the next version ("not released yet"): in Bug Fixes or New Features, under Game or
+  Launcher, or in Changed.
 - Thank the people we know reported or made it, in brackets at the end: GitHub users as @name, anyone else by name and
   where, such as (Thanks Fladfisk on Discord). Never put @ before a name that is not a GitHub account: GitHub would tag a
   stranger.
