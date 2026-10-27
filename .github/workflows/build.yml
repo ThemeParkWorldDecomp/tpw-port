@@ -272,6 +272,9 @@ jobs:
     runs-on: ubuntu-24.04
     container: ubuntu:22.04
     timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash   # a container job's steps run under sh otherwise, which has no pipefail
     steps:
       - name: Install the build's packages
         run: |
