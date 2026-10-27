@@ -41,6 +41,14 @@ set(TPW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 # (platform/gl_entry.cpp); nothing of OpenGL or Vulkan is linked, so the build needs neither development package.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   set(TPW_LINUX ON)
+  # GCC on Ubuntu (the AppImage's 22.04 base) defines _FORTIFY_SOURCE=2 by itself when optimising; GCC elsewhere (Arch,
+  # MinGW) does not. It turns memset, memcpy, strcpy and the rest into checks against the destination's declared size,
+  # which abort the program when exceeded. The translation reaches the Mac's memory through declarations narrower than
+  # the storage behind them: BumperRide.cpp clears the 0x3c-byte bump world that lies over gColList, declared as the
+  # 0x20-byte tabCOLLIST and given 0x40 bytes by platform/game_data.cpp, so a check failed where the Mac's code is right
+  # and the game aborted while a theme loaded (with 585 checked calls in the launcher, that one was only the first).
+  # -U_FORTIFY_SOURCE is what Ubuntu's own compiler spec looks for to leave the definition out.
+  add_compile_options(-U_FORTIFY_SOURCE)
 endif()
 
 # The headers: the submodule's include/ and platform/ headers, with overrides/include and overrides/platform laid over them,
