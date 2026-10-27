@@ -1,7 +1,7 @@
 # Builds the port on every push and pull request: on Windows with build.cmd, the same command a tester runs (every tool
 # fetched into build\tools\, nothing preinstalled used), on an Apple Silicon Mac with make, and on Ubuntu with the
 # README's Linux steps; then runs the tests each build has. The launcher each job builds is kept as the run's artifact (on
-# Linux, the AppImage of the appimage job, built on an Ubuntu 22.04 base).
+# Linux, the Flatpak bundle the linux job makes with devtools/flatpak.sh, the file a release hands out).
 #
 # GitHub has no Windows 10 or 11 desktop images. The nearest are its server images: windows-2022 (build 20348, the
 # Windows 10 era's server release) and windows-2025 (build 26100, the same build as Windows 11 24H2; windows-latest).
@@ -205,7 +205,7 @@ jobs:
   # then the tests and the update check again with the network blocked (unshare -n: no interface but the loopback).
   linux:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
@@ -257,76 +257,44 @@ jobs:
           out=$(sudo unshare -n build/tpw_launcher --check-updates)
           echo "$out"
           echo "$out" | grep -Eq '^answer: none \(.*\) after [0-4]\.[0-9] s$'
+      # The file to download: the launcher as a Flatpak bundle (flatpak/, devtools/flatpak.sh), built against the freedesktop
+      # SDK from Flathub, so that the one file installs on any distribution with Flatpak; the runtime is cached between runs.
+      - name: Cache the Flatpak runtime
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/flatpak
+          key: flatpak-user-${{ runner.os }}-freedesktop-25.08
+      - name: Install Flatpak and flatpak-builder
+        run: |
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+      - name: Build the Flatpak bundle
+        run: sh devtools/flatpak.sh
+      - name: Install the bundle and start the launcher (--version)
+        run: |
+          flatpak install --user -y --noninteractive --bundle build/*.flatpak
+          flatpak run io.github.ThemeParkWorldDecomp.Launcher --version | tee version.txt
+          grep -F " v$(head -n 1 launcher/VERSION.txt | tr -d '\r')" version.txt
+      # The install script's Linux path, with the bundle just built in place of the release's download (TPW_INSTALL_BUNDLE)
+      # and a home of its own for the themepark command (TPW_INSTALL_HOME): the command must then run the launcher.
+      - name: The install script installs it and makes the themepark command
+        run: |
+          home=$RUNNER_TEMP/home; mkdir -p "$home"
+          TPW_INSTALL_BUNDLE=$(ls build/*.flatpak) TPW_INSTALL_HOME=$home sh install.sh --plain --no-launch | tee install.log
+          tail -n 1 install.log | grep -E "^RESULT ok "
+          "$home/.local/bin/themepark" --version | grep -F " v$(head -n 1 launcher/VERSION.txt | tr -d '\r')"
+      - name: Keep the Flatpak bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: tpw_launcher-linux-x86_64-flatpak
+          path: build/*.flatpak
+          if-no-files-found: error
       - name: Keep the build logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: build-logs-ubuntu-24.04
           path: build/logs/
-
-  # Linux, the file to download: the launcher as an AppImage (devtools/appimage.sh), built on an Ubuntu 22.04 base with
-  # its GCC 12 so that the one file runs on any distribution with glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora 36,
-  # Arch and anything newer). The launcher links only glibc (TPW_STATIC_RUNTIME, the default); SDL opens the window
-  # system, the sound system and the graphics driver at run time. The job above tests the same sources on 24.04.
-  appimage:
-    runs-on: ubuntu-24.04
-    container: ubuntu:22.04
-    timeout-minutes: 90
-    defaults:
-      run:
-        shell: bash   # a container job's steps run under sh otherwise, which has no pipefail
-    steps:
-      - name: Install the build's packages
-        run: |
-          apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends g++-12 cmake ninja-build python3 git \
-            ca-certificates curl squashfs-tools binutils file \
-            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxkbcommon-dev \
-            libwayland-dev wayland-protocols libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
-            libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev libudev-dev libibus-1.0-dev
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Build the launcher
-        run: |
-          mkdir -p build/logs
-          set -o pipefail
-          ok=0
-          cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=gcc-12 -DCMAKE_CXX_COMPILER=g++-12 2>&1 | tee build/logs/configure.log || ok=1
-          if [ $ok = 0 ]; then cmake --build build --target tpw_launcher 2>&1 | tee build/logs/build.log || ok=1; fi
-          if [ $ok != 0 ]; then
-            grep -hE 'error|Error|FAILED' build/logs/configure.log build/logs/build.log 2>/dev/null | tail -n 40 | sed 's/^/::error::/'
-            exit 1
-          fi
-      - name: The launcher needs only glibc 2.35
-        run: |
-          build/tpw_launcher --version
-          ldd build/tpw_launcher
-          ! ldd build/tpw_launcher | grep -vE 'linux-vdso|libc\.so|libm\.so|ld-linux'
-          newest=$(objdump -T build/tpw_launcher | grep -oE 'GLIBC_[0-9.]+' | sort -Vu | tail -n 1)
-          echo "newest glibc symbol version: $newest"
-          [ "$(printf '%s\n' "$newest" GLIBC_2.35 | sort -V | tail -n 1)" = GLIBC_2.35 ]
-      - name: Pack the AppImage
-        run: sh devtools/appimage.sh build
-      - name: Start the AppImage (--version)
-        env:
-          APPIMAGE_EXTRACT_AND_RUN: 1   # the container has no FUSE
-        run: |
-          file build/*.AppImage
-          build/*.AppImage --version
-      - name: Keep the AppImage
-        uses: actions/upload-artifact@v4
-        with:
-          name: tpw_launcher-linux-x86_64-AppImage
-          path: build/*.AppImage
-          if-no-files-found: error
-      - name: Keep the build logs
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs-appimage
-          path: build/logs/
-          if-no-files-found: ignore
 
   macos:
     strategy:

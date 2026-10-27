@@ -1,6 +1,7 @@
 #!/bin/sh
 # shellcheck disable=SC2317  # the exit after main (last line) is a guard: main always exits by itself
-# Installs or updates the STP/TPW Launcher (tpw-port) on a Mac. It downloads the source and compiles it here.
+# Installs or updates the STP/TPW Launcher (tpw-port) on a Mac, where it downloads the source and compiles it here, or on
+# Linux, where it installs the newest release's Flatpak (see "Linux: the Flatpak install" further down).
 #
 #   curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh
 #   curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh -s -- --dev
@@ -1953,10 +1954,256 @@ run_install() {
 
 # ---- main
 
+# ---- Linux: the Flatpak install
+#
+# On Linux the launcher is a Flatpak (flatpak/, devtools/flatpak.sh): the one file STP-TPW-Launcher-<version>-linux-<arch>.flatpak
+# of each release. This script asks GitHub for the newest release, downloads that file, checks it against the release's
+# SHA256SUMS.txt and `flatpak install --user`s it; an update is the same install of the newer file, and nothing is compiled or
+# kept, so there is no DIR: --dir, --dev, --stage and --swap-and-launch are refused (Linux follows the releases; a build of
+# main is a bundle among the Actions page's artifacts). The themepark command goes in ~/.local/bin, a few lines of shell that
+# `flatpak run` the launcher (THE THEMEPARK COMMAND, where `themepark update` fetches this script from the newest release and
+# runs it), and that folder is put on the PATH when a login shell does not find it, as the Mac's command is. The game's files,
+# saves and settings are the launcher's own, in the application's data folder
+# (~/.var/app/io.github.ThemeParkWorldDecomp.Launcher/data/STP-TPW Launcher); nothing here touches them. The output is plain
+# mode's lines (STEP n/N, RESULT ok VERSION, RESULT fail REASON), the same contract as above.
+#
+# Test hooks (the maintainers' tests): TPW_INSTALL_BUNDLE=FILE installs that bundle in place of the download,
+# TPW_INSTALL_RELEASE=URL asks that address in place of GitHub's releases/latest API, TPW_INSTALL_HOME the home folder that
+# holds .local/bin and the profiles, TPW_INSTALL_FLATPAK=COMMAND stands in for flatpak.
+
+LINUX_APP=io.github.ThemeParkWorldDecomp.Launcher
+
+linux_usage() {
+    cat <<'EOF'
+Installs or updates the STP/TPW Launcher on Linux, as a Flatpak from the newest release.
+
+  curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh
+
+Options:
+  --update              update an existing install (the same as installing again)
+  --no-launch           do not start the launcher at the end
+  --plain               one line per step (the only mode on Linux)
+  --help                this text
+
+It needs Flatpak (the flatpak package of your distribution) and curl. The launcher is installed for your user from
+the release's bundle, with the freedesktop runtime from Flathub, and the themepark command goes in ~/.local/bin.
+Afterwards open STP/TPW Launcher from your applications menu, or open a terminal and type themepark, from any
+folder, to play. Run the same line again, or type themepark update, to update.
+EOF
+}
+
+linux_flatpak() {
+    "${TPW_INSTALL_FLATPAK:-flatpak}" "$@"
+}
+
+# The repository's owner/name (TPW_INSTALL_REPO stands in for tests, as for the Mac).
+linux_slug() {
+    slug=${REPO#https://github.com/}
+    slug=${slug%.git}
+    printf '%s\n' "${slug%/}"
+}
+
+# One field of a release's JSON, a line per value (GitHub writes each field on a line of its own).
+linux_json_field() {
+    sed -n "s/.*\"$1\":[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p"
+}
+
+# The newest release's bundle for this machine: "OK VERSION NAME URL SUMS-URL" on one line, or "ERR why" (it runs in a
+# subshell, so the answer is the only way out).
+linux_find_release() {
+    api=${TPW_INSTALL_RELEASE:-https://api.github.com/repos/$(linux_slug)/releases/latest}
+    answer=$(mktemp) || { echo "ERR A temporary file could not be made."; return 0; }
+    if ! code=$(curl -fsSL -H 'Accept: application/vnd.github+json' -o "$answer" -w '%{http_code}' "$api" 2>/dev/null); then
+        rm -f "$answer"
+        case "$code" in
+            404) echo "ERR There is no release yet ($api answered 404)." ;;
+            000 | "") echo "ERR GitHub did not answer at $api (no internet connection?)." ;;
+            *) echo "ERR GitHub answered $code at $api." ;;
+        esac
+        return 0
+    fi
+    json=$(cat "$answer")
+    rm -f "$answer"
+    tag=$(printf '%s\n' "$json" | linux_json_field tag_name | head -n 1)
+    [ -n "$tag" ] || { echo "ERR The answer from $api names no release."; return 0; }
+    version=${tag#v}
+    arch=$(linux_flatpak --default-arch 2>/dev/null || uname -m)
+    name="STP-TPW-Launcher-$version-linux-$arch.flatpak"
+    urls=$(printf '%s\n' "$json" | linux_json_field browser_download_url)
+    url=$(printf '%s\n' "$urls" | grep -F "/$name" | head -n 1)
+    [ -n "$url" ] || { echo "ERR The release $tag has no Linux bundle for $arch ($name)."; return 0; }
+    sums=$(printf '%s\n' "$urls" | grep -F "/SHA256SUMS.txt" | head -n 1)
+    printf 'OK %s %s %s %s\n' "$version" "$name" "$url" "$sums"
+}
+
+# The installed launcher's version, from the launcher itself ("" when it is not installed).
+linux_installed_version() {
+    linux_flatpak info --user "$LINUX_APP" >/dev/null 2>&1 || return 0
+    linux_flatpak run "$LINUX_APP" --version 2>/dev/null | sed -n '1s/.* v//p'
+}
+
+# Writes ~/.local/bin/themepark (again at every install: it is this script's). A themepark command this script did not
+# make is never shadowed.
+linux_write_cmd() {
+    home=${TPW_INSTALL_HOME:-$HOME}
+    bin="$home/.local/bin"
+    cmd="$bin/themepark"
+    other=$(command -v themepark 2>/dev/null)
+    if [ -n "$other" ] && [ "$other" != "$cmd" ] && ! grep -qF "$CMD_MARK" "$other" 2>/dev/null; then
+        say "There is already a themepark command ($other) that this installer did not make, so it is left alone."
+        return 1
+    fi
+    mkdir -p "$bin" || return 1
+    installer="https://github.com/$(linux_slug)/releases/latest/download/install.sh"
+    cat >"$cmd.new" <<EOF
+#!/bin/sh
+$CMD_MARK
+#   themepark             opens the launcher and returns at once
+#   themepark update      updates to the newest release: the installer is fetched from it and run in this window
+#   themepark --version   prints the launcher's version in this window (--help: its options)
+# Anything else goes to the launcher, which then runs in this window until it quits.
+app=$LINUX_APP
+case "\${1:-}" in
+    update)
+        shift
+        curl -fsSL "$installer" | sh -s -- --update "\$@"
+        ;;
+    "")
+        if command -v setsid >/dev/null 2>&1; then
+            setsid -f flatpak run "\$app" >/dev/null 2>&1
+        else
+            flatpak run "\$app" >/dev/null 2>&1 &
+        fi
+        ;;
+    *) exec flatpak run "\$app" "\$@" ;;
+esac
+EOF
+    chmod +x "$cmd.new" && mv -f "$cmd.new" "$cmd" || return 1
+    info "Written: $cmd"
+}
+
+# The PATH line for ~/.local/bin, when a login shell of the player's own shell does not find themepark there already.
+linux_path_line() {
+    # shellcheck disable=SC2016  # $HOME and $PATH are for the profile to expand
+    printf 'export PATH="$HOME/.local/bin:$PATH"  %s\n' "$CMD_MARK"
+}
+
+linux_setup_path() {
+    home=${TPW_INSTALL_HOME:-$HOME}
+    shell=${SHELL:-/bin/sh}
+    found=$(HOME=$home PATH=/usr/bin:/bin:/usr/sbin:/sbin "$shell" -l -c 'command -v themepark' </dev/null 2>/dev/null || true)
+    [ "$found" = "$home/.local/bin/themepark" ] && return 0
+    line=$(linux_path_line)
+    put_line "$home/.profile" "$line" || return 1
+    case "$shell" in
+        */zsh) put_line "$home/.zprofile" "$line" || return 1 ;;
+        */bash) if [ -f "$home/.bash_profile" ]; then put_line "$home/.bash_profile" "$line" || return 1; fi ;;
+    esac
+}
+
+linux_main() {
+    UI=plain
+    REPO=${TPW_INSTALL_REPO:-https://github.com/ThemeParkWorldDecomp/tpw-port.git}
+    UPDATE=0
+    LAUNCH=1
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --update) UPDATE=1 ;;
+            --no-launch) LAUNCH=0 ;;
+            --plain | --stable) ;;
+            --dev) die "On Linux the installer follows the releases only (a build of main is a bundle among the Actions page's artifacts)." ;;
+            --dir | --dir=* | --stage | --swap-and-launch | --wait-pid | --wait-pid=*)
+                die "$1 is an option of the Mac install: on Linux the launcher is a Flatpak and has no install folder." ;;
+            -h | --help)
+                linux_usage
+                exit 0
+                ;;
+            *) die "Unknown option $1 (--help lists them)." ;;
+        esac
+        shift
+    done
+    arm_traps
+    STEP_TOTAL=4
+    step "Checking what is needed"
+    command -v "${TPW_INSTALL_FLATPAK:-flatpak}" >/dev/null 2>&1 ||
+        die "Flatpak is not installed. Install your distribution's flatpak package (Debian and Ubuntu: sudo apt install flatpak; Fedora has it; Arch: sudo pacman -S flatpak), then run this line again."
+    command -v curl >/dev/null 2>&1 || die "curl is not installed. Install your distribution's curl package, then run this line again."
+    linux_flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo ||
+        die "Flathub could not be added as a Flatpak remote (the runtime comes from it)."
+    before=$(linux_installed_version)
+
+    step "Finding the newest release"
+    tmp=""
+    if [ -n "${TPW_INSTALL_BUNDLE:-}" ]; then
+        bundle=$TPW_INSTALL_BUNDLE
+        version=""
+        [ -f "$bundle" ] || die "There is no bundle at $bundle."
+        info "Installing the bundle $bundle (TPW_INSTALL_BUNDLE)"
+    else
+        release=$(linux_find_release)
+        case "$release" in
+            OK\ *) ;;
+            ERR\ *) die "${release#ERR }" ;;
+            *) die "The newest release could not be found." ;;
+        esac
+        # shellcheck disable=SC2086  # the five fields
+        set -- $release
+        version=$2
+        name=$3
+        url=$4
+        sums=${5:-}
+        if [ -n "$before" ] && [ "$before" = "$version" ]; then
+            info "The newest release, $version, is installed already."
+        fi
+        info "The newest release is $version."
+        tmp=$(mktemp -d) || die "A temporary folder could not be made."
+        bundle="$tmp/$name"
+        info "Downloading $url"
+        curl -fL --progress-bar -o "$bundle" "$url" || die "The bundle could not be downloaded from $url."
+        if [ -n "$sums" ] && command -v sha256sum >/dev/null 2>&1; then
+            curl -fsSL -o "$tmp/SHA256SUMS.txt" "$sums" || die "The release's SHA256SUMS.txt could not be downloaded."
+            (cd "$tmp" && grep -F " $name" SHA256SUMS.txt | sha256sum -c --quiet) || die "The downloaded bundle does not match the release's SHA-256."
+            info "The bundle matches the release's SHA-256."
+        fi
+    fi
+
+    step "Installing the launcher${version:+ $version}"
+    # (--reinstall: the same version installed again is not an error, as running the install line twice is not)
+    linux_flatpak install --user -y --noninteractive --reinstall --bundle "$bundle" || die "flatpak install failed (its lines above say why)."
+    [ -z "$tmp" ] || rm -rf "$tmp"
+    [ -n "$version" ] || version=$(linux_installed_version)
+    [ -n "$version" ] || version=unknown
+
+    step "Making the themepark command"
+    if linux_write_cmd; then
+        if linux_setup_path; then
+            say "From now on, type themepark in any new terminal window to play. It works from any folder."
+        else
+            say "themepark is in ~/.local/bin, which your shell does not look in yet: add it to your PATH, or type ~/.local/bin/themepark."
+        fi
+    else
+        say "The launcher is installed: flatpak run $LINUX_APP starts it."
+    fi
+    say "STP/TPW Launcher $version is installed. It is also in your applications menu."
+    if [ "$LAUNCH" = 1 ]; then
+        if command -v setsid >/dev/null 2>&1; then
+            setsid -f "${TPW_INSTALL_FLATPAK:-flatpak}" run "$LINUX_APP" >/dev/null 2>&1
+        else
+            "${TPW_INSTALL_FLATPAK:-flatpak}" run "$LINUX_APP" >/dev/null 2>&1 &
+        fi
+    fi
+    finish_ok "$version"
+}
+
 main() {
     # Test hook: the text on standard input, scrubbed, is appended to the file TPW_INSTALL_SCRUB (and shown as it is).
     if [ -n "${TPW_INSTALL_SCRUB:-}" ]; then
         scrub_tee "$TPW_INSTALL_SCRUB"
+        return $?
+    fi
+    # Linux: the Flatpak install (above); everything else in this file is the Mac's.
+    if [ "$(uname -s 2>/dev/null)" = Linux ]; then
+        linux_main "$@"
         return $?
     fi
     REPO=${TPW_INSTALL_REPO:-https://github.com/ThemeParkWorldDecomp/tpw-port.git}

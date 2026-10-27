@@ -20,17 +20,16 @@ To install, follow these instructions. To update, run the same command again or 
   Nothing to install first: a Git on the PATH is used, and a PC without one gets a portable Git (MinGit) fetched into
   the launcher's own folder, checked against its SHA-256; no winget, no setup program, no Path entry for it. The
   launcher goes in `%LOCALAPPDATA%\STP-TPW-Launcher\build\tpw_launcher.exe`.
-- Linux (x86-64, with a glibc of 2.35 or newer: Ubuntu 22.04, Debian 12, Fedora 36, Arch, or anything newer): download
-  the AppImage, `STP-TPW_Launcher-<version>-x86_64.AppImage`, from the [Releases page](https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest) (or
-  from a build's artifacts on the Actions page), mark it executable and run it:
+- Linux (x86-64, any distribution with [Flatpak](https://flatpak.org/setup/) installed), in a terminal:
 
-      chmod +x STP-TPW_Launcher-*-x86_64.AppImage
-      ./STP-TPW_Launcher-*-x86_64.AppImage
+      curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh
 
-  It is one file that needs nothing installed: SDL opens the window system (Wayland or X11), the sound system and the
-  Vulkan or OpenGL driver at run time, and the AppImage unpacks itself to a temporary folder when FUSE is missing.
-  There is no `themepark` command and no self-update on Linux yet: to update, download the newer AppImage. The
-  launcher's `--help` lists its options (`--renderer opengl`, `--windowed`, ...).
+  It needs Flatpak (your distribution's `flatpak` package; Fedora has it, Debian and Ubuntu: `sudo apt install
+  flatpak`, Arch: `sudo pacman -S flatpak`) and curl. It installs the newest release's Flatpak,
+  `io.github.ThemeParkWorldDecomp.Launcher`, for your user, with the freedesktop runtime from Flathub, puts
+  **STP/TPW Launcher** in your applications menu and the `themepark` command in `~/.local/bin`. The game's files,
+  saves and settings live in the launcher's data folder, which is
+  `~/.var/app/io.github.ThemeParkWorldDecomp.Launcher/data/STP-TPW Launcher`.
 
 ### Play after install
 
@@ -42,9 +41,9 @@ On a Mac it works in every new Terminal window (the first install opens the laun
 also puts **STP/TPW Launcher** in your Applications folder, with the game's icon, so you can open it from Launchpad,
 Spotlight or the Dock too. On Windows it works straight away, in the window you installed from too, and the installer
 puts **STP/TPW Launcher** in the Start menu, with the game's icon, so you can open it from there or find it with Search.
-`themepark --version` shows the installed version.
-
-The installer does not know Linux yet: on Linux, build the launcher from source as below.
+`themepark --version` shows the installed version. On Linux `themepark` runs the Flatpak (`flatpak run
+io.github.ThemeParkWorldDecomp.Launcher`), `themepark update` fetches the newest release's installer and runs it, and the
+launcher's options go through as on the others (`themepark --windowed`, `themepark --renderer opengl`).
 
 ### Building on Linux
 
@@ -69,8 +68,9 @@ links only the system's C and C++ runtimes: SDL opens the window system (Wayland
 PulseAudio or ALSA) and the graphics driver at run time, so the launcher built on one distribution runs on another with
 a glibc as new (the C++ runtime is linked in; `-DTPW_STATIC_RUNTIME=OFF` uses the system's instead, as a package
 would). To update, run `git pull`, `git submodule update --init --recursive` and the two cmake lines again.
-`sh devtools/appimage.sh` packs the built launcher as an AppImage (it needs the squashfs-tools package); CI makes the
-one on the Releases page the same way, on an Ubuntu 22.04 base, so that it runs wherever glibc is 2.35 or newer.
+`sh devtools/flatpak.sh` builds the launcher as the Flatpak bundle the install line installs (it needs Flatpak, and uses
+flatpak-builder or the org.flatpak.Builder flatpak and the freedesktop SDK from Flathub); CI makes the one on the
+Releases page the same way, and `flatpak install --user` of the bundle is the same install the one-liner makes.
 
 The game is drawn by the port's own Vulkan renderer (platform/vulkan/), on any Vulkan 1.0 driver, with Mesa's software
 one (lavapipe) as a last resort. Without a Vulkan driver at all the game is drawn with the system's OpenGL instead, and

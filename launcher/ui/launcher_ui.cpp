@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <mutex>
 #include <utility>
 
@@ -556,9 +557,12 @@ float LauncherUi::DrawUpdateBanner(const Rect& w, float top) {
             break;
         default: {
             line = "Version " + updater_->Found() + " is out";
-            // A launcher installed by the install script updates itself; any other opens the release page.
+            // A launcher installed by the install script updates itself; the Flatpak (Linux) is updated by the themepark
+            // command on the host, outside the sandbox, so it says so; any other opens the release page.
             if (button("update-go", "Update", ButtonKind::Go, !updater_->Offline() && phase == Phase::Idle)) {
                 if (updater_->ScriptInstall()) updater_->Update();
+                else if (std::getenv("FLATPAK_ID") != nullptr)
+                    ShowNotice("To update, open a terminal and type: themepark update", false);
                 else openPage(updater_->WhatsNewUrl());
             }
             if (button("update-whats-new", "What's new", ButtonKind::Quiet, true)) openPage(updater_->WhatsNewUrl());

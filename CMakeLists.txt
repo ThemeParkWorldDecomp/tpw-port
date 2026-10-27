@@ -41,7 +41,7 @@ set(TPW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 # (platform/gl_entry.cpp); nothing of OpenGL or Vulkan is linked, so the build needs neither development package.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   set(TPW_LINUX ON)
-  # GCC on Ubuntu (the AppImage's 22.04 base) defines _FORTIFY_SOURCE=2 by itself when optimising; GCC elsewhere (Arch,
+  # GCC on Ubuntu (CI's Linux runner) defines _FORTIFY_SOURCE=2 by itself when optimising; GCC elsewhere (Arch,
   # MinGW) does not. It turns memset, memcpy, strcpy and the rest into checks against the destination's declared size,
   # which abort the program when exceeded. The translation reaches the Mac's memory through declarations narrower than
   # the storage behind them: BumperRide.cpp clears the 0x3c-byte bump world that lies over gColList, declared as the
@@ -300,8 +300,8 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     # constructor body, a mail attachment's) are asked for after libtpw.a has gone by, so it is read once more at the end.
     target_link_libraries(tpw_launcher PRIVATE $<TARGET_FILE:tpw>)
     # The C++ runtime goes into the launcher, so that it needs only the C library of the machine it runs on: the file
-    # built on one distribution runs on another with a glibc as new (the AppImage, devtools/appimage.sh, is built on an
-    # Ubuntu 22.04 base, glibc 2.35). Off, the launcher uses the machine's libstdc++ and libgcc_s, as a package would.
+    # built on one distribution runs on another with a glibc as new. Off, the launcher uses the machine's libstdc++ and
+    # libgcc_s, as a package would (the Flatpak, flatpak/, builds with OFF: its runtime is the same on every machine).
     option(TPW_STATIC_RUNTIME "Link libstdc++ and libgcc into the launcher, so it needs only glibc" ON)
     if(TPW_STATIC_RUNTIME)
       target_link_options(tpw_launcher PRIVATE -static-libstdc++ -static-libgcc)

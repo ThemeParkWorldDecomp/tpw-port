@@ -10,7 +10,8 @@
 # option (the Update button's run): each must end on the newest release and say so.
 # The real download and build are tested by build.yml and release.yml; this is a few minutes of runner time.
 #
-# Linux joins the matrix when there is a Linux build of the launcher (and install.sh supports it).
+# Linux is not in the matrix: install.sh's Linux path installs a Flatpak bundle, and the build workflow's linux job runs
+# it with the bundle it has just built (TPW_INSTALL_BUNDLE), then the themepark command it makes.
 name: installer
 
 on:
