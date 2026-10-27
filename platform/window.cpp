@@ -541,6 +541,7 @@ GrafPort* NewCWindow(void*, const Rect* bounds, const unsigned char* title, bool
         gFit = FitState();
         return nullptr;
     }
+    tpw::OnGameWindowMade(gWindow.sdl);   // the game's icon and taskbar identity (platform/handoff.h)
     gWindow.fullScreenBox = procID == 2;
     if (gFit.wanted) {
         RefitWindow();
