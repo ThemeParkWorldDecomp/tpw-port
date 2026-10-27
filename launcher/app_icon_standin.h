@@ -6,8 +6,9 @@
 
 namespace tpw::launcher {
 
-// The stand-in, 256 x 256, 8-bit RGBA with straight alpha: a rounded tile with the launcher's sky, a lime lawn, a sun
-// and a cloud, outlined in ink, as the launcher window's panels are.
+// The stand-in, 256 x 256, 8-bit RGBA with straight alpha: a rounded tile with the launcher's sky, a sun, a cloud and a
+// lime lawn, and across it the words THEME over PARK in our own round block capitals (a yellow-to-orange fill, a red rim
+// and an ink outline), outlined in ink, as the launcher window's panels are (the maintainer, 2026-10-27).
 tpw::assets::IconImage StandInAppIcon();
 
 }  // namespace tpw::launcher
