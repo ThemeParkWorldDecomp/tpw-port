@@ -2168,8 +2168,17 @@ linux_main() {
     fi
 
     step "Installing the launcher${version:+ $version}"
-    # (--reinstall: the same version installed again is not an error, as running the install line twice is not)
-    linux_flatpak install --user -y --noninteractive --reinstall --bundle "$bundle" || die "flatpak install failed (its lines above say why)."
+    # The same version installed again is not an error (running the install line twice is not): --reinstall for the
+    # Flatpaks that take it with a bundle (1.15 and newer), and the older ones' refusal is read as "installed already".
+    if ! out=$(linux_flatpak install --user -y --noninteractive --reinstall --bundle "$bundle" 2>&1); then
+        printf '%s\n' "$out"
+        case "$out" in
+            *"already installed"*) info "That version is installed already." ;;
+            *) die "flatpak install failed (its lines above say why)." ;;
+        esac
+    else
+        printf '%s\n' "$out"
+    fi
     [ -z "$tmp" ] || rm -rf "$tmp"
     [ -n "$version" ] || version=$(linux_installed_version)
     [ -n "$version" ] || version=unknown
