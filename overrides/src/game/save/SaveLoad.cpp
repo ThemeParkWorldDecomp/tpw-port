@@ -31,6 +31,7 @@
 #include "platform/msl.h"
 #include "platform/samsutils.h"
 #include "ppc_math.h"
+#include "Ptr32.h"
 #include "RideDB.h"
 #include "rsse.h"
 #include "SaveLegalText.inc"
@@ -58,6 +59,7 @@
 #include <cstdio>
 #include <cstring>
 #include <new>
+#include <vector>
 
 // RideDB.cpp range of the main app (SimTheme Park 2.04b3): the ride types' names. The name database (CRideNameDB, which the
 // inventory files under SaveLoad.cpp) builds a ride type's name from two strings of the object names string table; the ride
@@ -558,6 +560,30 @@ void CSaveLoad::PreLoadOperations() {
     gUIInterface.PreLevelLoad();
 }
 
+namespace {
+// What CPerson::MakeBalloonPop (src/game/people/Person.cpp) does with a balloon a visitor loses, for each script of the
+// balloon sprite set (10) that no visitor holds and whose next code word lies outside the script code: it goes to the pop
+// command (0x1029fd84), where it fades out and ends.
+void PopLostBalloons() {
+    if (!gPortScriptCode) return;
+    std::vector<bool> held(static_cast<size_t>(gScriptTableSize), false);
+    for (CThingArrayEntry* entry = gUsedThingHead; entry != nullptr; entry = entry->mNextUsed) {
+        const CThing* thing = static_cast<const CThing*>(entry->mThing);
+        if (thing == nullptr || thing->mKind != 1) continue;   // a visitor (CPerson): the balloon's handle at +0x210
+        int32_t handle;
+        std::memcpy(&handle, reinterpret_cast<const uint8_t*>(thing) + 0x210, sizeof handle);
+        if (handle > 0 && handle < gScriptTableSize) held[static_cast<size_t>(handle)] = true;
+    }
+    const uint32_t codeBytes = static_cast<uint32_t>(gScriptCodeWordsEnd - gScriptCodeWords) * 4u;
+    for (int32_t handle = 1; handle < gScriptTableSize; ++handle) {
+        const tagSCRIPT* script = static_cast<Ptr32<tagSCRIPT>*>(gScriptTable)[handle];
+        if (script == nullptr || held[static_cast<size_t>(handle)] || script->mVars[10] != 10) continue;
+        if (script->mCodeBase + static_cast<uint32_t>(script->mPos) * 4u - kScriptCodeAddress < codeBytes) continue;
+        ESP_ForceGoto(handle, ScriptCodeAt(0x1029fd84u));
+    }
+}
+}  // namespace
+
 // Rebuilds what the engine holds after a park is read. The particle system is low spec when the current detail is 0.
 void CSaveLoad::PostLoadOperations() {
     InitialiseWeather();
@@ -572,6 +598,8 @@ void CSaveLoad::PostLoadOperations() {
     TickRideAnims();
     RegenerateRideSigns();
     gUIInterface.PostLevelLoad();
+    // TPW_PORT_FIX balloonpop CSaveLoad::PostLoadOperations | Mac: (none: a lost balloon's script goes to the pop command, fades out and ends, so none is saved) | Port: each script of the balloon sprite set that no visitor holds and whose next code word lies outside the script code goes to the pop command, as CPerson::MakeBalloonPop sends a lost balloon there | Why: MakeBalloonPop sent lost balloons outside the script code in earlier port builds (src/game/people/Person.cpp), and parks saved by them keep them, frozen on the path
+    PopLostBalloons();
     ADV_Kill(1);
     if (gPlayerSettings.mCurrent.mDetail == 0) {
         PAR_SetLowSpec(1);
