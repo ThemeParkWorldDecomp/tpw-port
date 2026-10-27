@@ -348,8 +348,13 @@ static void TestEdition(const fs::path& scratch) {
     CHECK(tpw::EditionOf(scratch / "none") == "tpw");
     CHECK(tpw::EditionOf(scratch / "missing") == "tpw");
     const unsigned char title[] = "\x10" "Theme Park World";
-    CHECK(tpw::WindowTitle("stp", title) == "SimTheme Park");
+    // The game's name by edition, as the title bar shows it out of full screen (the US edition's own string would say
+    // "SimTheme Park" in one word; the launcher's menus say "Sim Theme Park", and so does the window).
+    CHECK(tpw::WindowTitle("stp", title) == "Sim Theme Park");
     CHECK(tpw::WindowTitle("tpw", title) == "Theme Park World");
+    const unsigned char other[] = "\x0b" "Theme Park!";   // the European title is the game's own Pascal string
+    CHECK(tpw::WindowTitle("tpw", other) == "Theme Park!");
+    CHECK(tpw::WindowTitle("stp", other) == "Sim Theme Park");
 }
 
 static void TestSwearStreams() {
@@ -2102,6 +2107,32 @@ static void TestFitFullScreen() {
     CHECK(!tpw::fit::RealFullScreen(false, true, false));   // --windowed: the document window
     CHECK(!tpw::fit::RealFullScreen(true, true, true));     // --background: the fitted window behind the others
     CHECK(!tpw::fit::RealFullScreen(true, false, false));   // --no-fit: the window is the game's size
+    // The window out of full screen has the system's frame (title bar, buttons, draggable, resizable): a document window
+    // always; the full-screen box exactly when a real full-screen window follows, so the frame is there when full
+    // screen is left. The box stays frameless with --background and --no-fit, as before.
+    CHECK(tpw::fit::WindowBordered(false, true, false));    // --windowed
+    CHECK(tpw::fit::WindowBordered(false, false, false));   // --windowed --no-fit
+    CHECK(tpw::fit::WindowBordered(false, true, true));     // --windowed --background
+    CHECK(tpw::fit::WindowBordered(true, true, false));     // the full-screen box, a real full-screen window
+    CHECK(!tpw::fit::WindowBordered(true, true, true));     // --background: the frameless fitted window behind the others
+    CHECK(!tpw::fit::WindowBordered(true, false, false));   // --no-fit: the frameless window of the game's size
+    CHECK(!tpw::fit::WindowBordered(true, false, true));
+    for (bool box : {false, true}) {
+        for (bool fitted : {false, true}) {
+            for (bool background : {false, true}) {
+                CHECK(tpw::fit::WindowBordered(box, fitted, background) == (!box || tpw::fit::RealFullScreen(box, fitted, background)));
+            }
+        }
+    }
+    // The title bar's allowance in the fit before the window can be asked: a title bar's worth for a framed window,
+    // nothing for a frameless one, so the framed full-screen box fits the usable screen under its title bar.
+    CHECK(tpw::fit::TitleBarGuess(true) == 32.0);
+    CHECK(tpw::fit::TitleBarGuess(false) == 0.0);
+    const tpw::fit::WindowFit framedBox = tpw::fit::ComputeWindowFit(1512, 945, 0.0, tpw::fit::TitleBarGuess(true), 2.0, 2048, 1536);
+    const tpw::fit::WindowFit bareBox = tpw::fit::ComputeWindowFit(1512, 945, 0.0, tpw::fit::TitleBarGuess(false), 2.0, 2048, 1536);
+    CHECK(framedBox.pointsHigh == 913 && framedBox.pointsWide == 1217);   // 945 less 32, the width to the game's shape
+    CHECK(bareBox.pointsHigh == 945 && bareBox.pointsWide == 1260);
+    CHECK(framedBox.pointsHigh + 32 <= 945 && bareBox.pointsHigh <= 945);
     // Alt+Enter toggles full screen on Windows and Linux: Enter with Alt alone, a first press. Never on a Mac.
     CHECK(tpw::fit::FullScreenToggleKey(false, true, true, false, false));
     CHECK(!tpw::fit::FullScreenToggleKey(true, true, true, false, false));    // a Mac: Option+Return is the game's

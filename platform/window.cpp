@@ -11,6 +11,10 @@
 // On a Mac, Cmd+Ctrl+F and the green button take the window in and out of full screen (the system does it; the window's
 // size is read every frame). On Windows and Linux, Alt+Enter does the same through ToggleFullScreen below, and on every
 // system the game's Esc menu has a button for it (src/game/ui/ui_mainmenu.cpp, through the hooks launcher/main.cpp sets).
+// Out of full screen the window is the system's standard one (fit::WindowBordered): a title bar with the game's name
+// (WindowTitle: Sim Theme Park or Theme Park World by edition), the close, minimise and zoom buttons, draggable and
+// resizable, the game letterboxed inside it at its own aspect ratio. The full-screen box is made with that frame from the
+// start when a real full-screen window follows, so the system's own full screen hides it and gives it back.
 #include <SDL3/SDL.h>
 #if defined(__APPLE__)
 #include <objc/message.h>
@@ -137,8 +141,10 @@ namespace tpw {
 
 Window* MainWindow() { return gWindowMade ? &gWindow : nullptr; }
 
+// The window's title, the game's name by edition: "Sim Theme Park" for the US edition, the game's own Pascal string
+// ("Theme Park World") for the European one. It is set when the window is made and never changes.
 std::string WindowTitle(const std::string& edition, const unsigned char* title) {
-    if (edition == "stp") return "SimTheme Park";
+    if (edition == "stp") return "Sim Theme Park";
     return std::string(reinterpret_cast<const char*>(title + 1), title[0]);
 }
 
@@ -385,6 +391,8 @@ static void DisableFit(const char* why) {
         gFit.fullScreen = false;
     }
     gFit.wanted = false;
+    // The full-screen box without the fit is the frameless window it always was (fit::WindowBordered).
+    if (gWindow.fullScreenBox) SDL_SetWindowBordered(gWindow.sdl, false);
     SDL_SetWindowSize(gWindow.sdl, gFit.gameWide, gFit.gameHigh);
     SDL_SyncWindow(gWindow.sdl);
     if (tpw::gfx::Created()) tpw::gfx::Fit(false, gFit.gameWide, gFit.gameHigh);
@@ -430,9 +438,11 @@ static void RefitWindow() {
         tpw::Log("fit: no usable bounds for the screen (%s); assuming the game's size", SDL_GetError());
         usable = {0, 0, gFit.gameWide, gFit.gameHigh};
     }
+    // The window's own frame (fit::WindowBordered: not a frameless box) is taken off the usable bounds.
+    const bool bordered = (SDL_GetWindowFlags(window) & SDL_WINDOW_BORDERLESS) == 0;
     int top = 0, left = 0, bottom = 0, right = 0;
-    if (!gWindow.fullScreenBox && !SDL_GetWindowBordersSize(window, &top, &left, &bottom, &right)) {
-        top = 32;   // a title bar's worth when the system will not say
+    if (bordered && !SDL_GetWindowBordersSize(window, &top, &left, &bottom, &right)) {
+        top = static_cast<int>(tpw::fit::TitleBarGuess(true));   // a title bar's worth when the system will not say
         left = bottom = right = 0;
     }
     // (the window's own density, once it is on the screen; the screen's if that has not caught up)
@@ -474,6 +484,11 @@ GrafPort* NewCWindow(void*, const Rect* bounds, const unsigned char* title, bool
     const SDL_DisplayID chosen = ChooseDisplay();
     gFit = FitState();
     gFit.wanted = tpw::config().fit;
+    // The game's full-screen box (procID 2) has the system's frame when a real full-screen window follows, so that the
+    // window out of full screen is a standard one (title bar, buttons, draggable, resizable); it is frameless where it
+    // never leaves full screen's shape (--background, --no-fit). A document window (procID 0, --windowed) always has it.
+    const bool bordered = tpw::fit::WindowBordered(procID == 2, gFit.wanted, tpw::config().background);
+    if (!bordered) flags |= SDL_WINDOW_BORDERLESS;
     int createWide = width, createHigh = height;
     if (gFit.wanted) {
         // The game's pixels, not the window's, are the game's resolution: ask for a window of the right shape for the
@@ -484,8 +499,8 @@ GrafPort* NewCWindow(void*, const Rect* bounds, const unsigned char* title, bool
         flags |= SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE;
         SDL_Rect usable = {0, 0, width, height};
         SDL_GetDisplayUsableBounds(gFit.display, &usable);
-        const tpw::fit::WindowFit guess =
-            tpw::fit::ComputeWindowFit(usable.w, usable.h, 0, procID == 2 ? 0 : 32, DisplayDensity(gFit.display), width, height);
+        const tpw::fit::WindowFit guess = tpw::fit::ComputeWindowFit(usable.w, usable.h, 0, tpw::fit::TitleBarGuess(bordered),
+                                                                     DisplayDensity(gFit.display), width, height);
         if (guess.pointsWide > 0 && guess.pointsHigh > 0) {
             createWide = guess.pointsWide;
             createHigh = guess.pointsHigh;
@@ -502,8 +517,8 @@ GrafPort* NewCWindow(void*, const Rect* bounds, const unsigned char* title, bool
         RefitWindow();
         PlaceOnChosenDisplay(gWindow.sdl, 0);
         // The game's full-screen box is a real full-screen window (SDL's desktop full screen, a Space of its own on the
-        // chosen screen, which macOS makes when the window is shown). The fitted window above is its size outside full
-        // screen (Cmd+Ctrl+F or the green button leave it).
+        // chosen screen, which macOS makes when the window is shown). The fitted window above, with its frame, is what
+        // the window is outside full screen (Cmd+Ctrl+F, the green button, Alt+Enter or the Esc menu's button leave it).
         if (tpw::fit::RealFullScreen(gWindow.fullScreenBox, true, tpw::config().background)) {
             gFit.fullScreen = SDL_SetWindowFullscreenMode(gWindow.sdl, nullptr) && SDL_SetWindowFullscreen(gWindow.sdl, true);
             if (!gFit.fullScreen) tpw::Log("fullscreen: not available (%s); the fitted window stays", SDL_GetError());
@@ -551,7 +566,14 @@ bool tpw::ToggleFullScreen() {
         }
         gFit.fullScreen = false;
         if (!SDL_SyncWindow(gWindow.sdl)) tpw::Log("fullscreen: the move out of full screen had not finished in time");
-        tpw::Log("fullscreen: off (switched while playing); the game plays in a window");
+        // The window out of full screen is the system's standard one (fit::WindowBordered): made with its frame, the
+        // system gives the frame back by itself; a window made without one (none today) is given it here.
+        if ((SDL_GetWindowFlags(gWindow.sdl) & SDL_WINDOW_BORDERLESS) != 0) {
+            SDL_SetWindowBordered(gWindow.sdl, true);
+            SDL_SyncWindow(gWindow.sdl);
+            tpw::Log("fullscreen: the window is given its frame");
+        }
+        tpw::Log("fullscreen: off (switched while playing); the game plays in a window with a title bar");
         RefitWindow();
     } else {
         if (!SDL_SetWindowFullscreenMode(gWindow.sdl, nullptr) || !SDL_SetWindowFullscreen(gWindow.sdl, true)) {

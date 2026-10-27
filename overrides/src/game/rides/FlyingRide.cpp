@@ -1427,13 +1427,10 @@ int32_t FLY_Save(void* file) {
     if (gFlyInitialised != 0) {
         word = 0x190;
         WriteWord(file, &word);
-        // TPW_PORT_FIX flysave FLY_Save | Mac: writes the table of bases as it is in memory, 100 32-bit pointers | Port: writes 100 32-bit words, each nonzero exactly when its base is set (the pointer's low word, or 1 when that is 0) | Why: the host's pointers are 64-bit, so the 400 bytes held the first 50 pointers as word pairs; FLY_Load took each half for a base, read a base the file did not have and went on reading the park's next modules from the wrong place
-        uint32_t table[100];
-        for (int32_t i = 0; i < 100; ++i) {
-            const uint32_t low = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(gFlyBases[i]));
-            table[i] = gFlyBases[i] == nullptr ? 0 : (low != 0 ? low : 1);
-        }
-        LbFile_Write(file, table, word, nullptr);   // the original's length is the word just written
+        // TPW_PORT_FIX flysave FLY_Save | Mac: the table of bases written as it is in memory, 400 bytes of 32-bit pointers, nonzero where a base is set | Port: 100 words of 0xFFFFFFFF where a base is set and 0 elsewhere | Why: a 64-bit build; the host's table is 800 bytes of pointers, so the Mac's length wrote the first 50 pointers as 100 words and FLY_Load took them for the wrong bases, then read the file from the wrong offset and crashed; the Mac only tests a word for nonzero, so a constant mark reads the same, keeps the host's addresses out of the file and cannot be mistaken for a pointer pair (PortFlyTableHasPointers); contributed by skelt (tpw-port PR #55)
+        uint32_t marks[100];
+        for (int32_t i = 0; i < 100; ++i) marks[i] = gFlyBases[i] != nullptr ? 0xffffffffu : 0u;
+        LbFile_Write(file, marks, word, nullptr);
         WriteWord(file, reinterpret_cast<const uint32_t*>(&gFlyZoneD));
         WriteWord(file, reinterpret_cast<const uint32_t*>(&gFlyZoneB));
         WriteWord(file, reinterpret_cast<const uint32_t*>(&gFlyZoneA));
@@ -1448,7 +1445,7 @@ int32_t FLY_Save(void* file) {
             std::memcpy(buffer, gFlyBases[i], kBaseSize);
             for (uint32_t offset = 0; offset <= 0x54; offset += 4)
                 SamsUtilities::USwapInplace32<int32_t>(*reinterpret_cast<int32_t*>(buffer + offset));
-            // TPW_PORT_FIX flysave FLY_Save | Mac: reverses the thing id and the flies (tag_IDX_TYPE::Byteswap, USwapBlockStruct<FLYBOY>) to the file's little-endian order | Port: reverses them only on a big-endian host | Why: both helpers reverse on every host, so on a little-endian one the park file held them reversed, which FLY_Load reads as they are: a park with a flying ride crashed as it loaded (SIGSEGV in FLY_RestoreMeshes)
+            // TPW_PORT_FIX flysave FLY_Save | Mac: the thing id at 0x58 and the 20 fly records from 0x5c byte-swapped to the file's little-endian order | Port: swapped only on a big-endian host | Why: tag_IDX_TYPE::Byteswap and USwapBlockStruct<FLYBOY> swap unconditionally while USwapInplace32 is already the identity on a little-endian host, so the file's thing id and fly records were byte-reversed and the park's flying rides pointed at the wrong things when it loaded; contributed by skelt (tpw-port PR #55)
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
             reinterpret_cast<tag_IDX_TYPE<IDXTYPEUniqueNameThingId, uint16_t>*>(buffer + 0x58)->Byteswap();
             SamsUtilities::USwapBlockStruct(reinterpret_cast<FLYBOY*>(buffer + 0x5c), 0x14);
@@ -1488,11 +1485,7 @@ void ReadWord(void* file, void* word) {
     LbFile_Read(file, word, 4, &transferred);
 }
 
-// TPW_PORT_FIX flysave PortFlyTableHasPointers | Mac: no such test | Port: recognises a table of bases a port build wrote as 64-bit pointers | Why: see FLY_Save
-// True when the 100 words hold 64-bit pointers in pairs: base 0 (never set) is two zero words, and every other pair is either two
-// zero words or a pointer whose high word is from 1 to 0x7fff (a pointer of this 64-bit host, above its 4 GB zero page). The
-// Mac's words are one base each: a set one is a 32-bit pointer, never as small as 0x7fff, so as a pair's high word it fails the
-// test, and as its low word beside an unset base it leaves a high word of 0, which fails it too.
+// TPW_PORT_FIX flysave PortFlyTableHasPointers | Mac: no such function | Port: tells a table of bases written by a port build before the save fix (the host's first 50 pointers as 100 words) from the Mac's table of marks | Why: a park saved by such a build must still load; base 0 is never set, so its pair is two zero words, and every other pair is zero or a pointer whose high word is 1 to 0x7fff (a macOS or high-entropy Windows heap), which neither the Mac's pointers nor the fixed save's 0xFFFFFFFF marks ever form; contributed by skelt (tpw-port PR #55)
 bool PortFlyTableHasPointers(const uint32_t* words) {
     if (words[0] != 0 || words[1] != 0) return false;
     bool any = false;
@@ -1503,23 +1496,6 @@ bool PortFlyTableHasPointers(const uint32_t* words) {
         any = true;
     }
     return any;
-}
-
-// TPW_PORT_FIX flysave PortFlyBaseReversed | Mac: no such test | Port: recognises a base a port build wrote with its thing id and flies reversed | Why: see FLY_Save
-// True when the base came from a park a port build wrote before the FLY_Save fix: the state word of the first fly in use
-// (sFlySlot::mActive, 0 to 9 as FLY_Tick sets it) is above 9 and reversed is 1 to 9; with no fly in use, the thing id is past
-// gThingArray and reversed is inside it.
-bool PortFlyBaseReversed(const uint8_t* base) {
-    for (int32_t j = 0; j < kFlySlotCount; ++j) {
-        uint32_t state;
-        std::memcpy(&state, base + 0xdc + static_cast<uint32_t>(j) * kFlySlotStride, 4);
-        if (state == 0) continue;
-        const uint32_t reversed = __builtin_bswap32(state);
-        return state > 9 && reversed >= 1 && reversed <= 9;
-    }
-    uint16_t thingId;
-    std::memcpy(&thingId, base + 0x58, 2);
-    return thingId >= kThingArraySize && __builtin_bswap16(thingId) < kThingArraySize;
 }
 
 }  // namespace
@@ -1553,10 +1529,12 @@ int32_t FLY_Load(void* file) {
     uint32_t before[100];
     std::memcpy(before, marks, sizeof(marks));
     LbFile_Read(file, marks, word, nullptr);
-    // TPW_PORT_FIX flysave FLY_Load | Mac: takes each of the 100 words of the table for one base | Port: a table a port build wrote as 64-bit pointers (see FLY_Save) is read as 50 of them, one base each | Why: those parks marked base i in words 2i and 2i+1, so the load read bases the file did not have and the park's later modules from the wrong place
+    // TPW_PORT_FIX flysave FLY_Load | Mac: the table's words are the marks of the bases | Port: a table of 64-bit pointer pairs (PortFlyTableHasPointers) is repaired first, pair i marking base i and bases 50 to 99 unset, and the rest of the file is then read in the earlier port format | Why: a port build before the save fix wrote the host's pointers in the Mac's 400 bytes, so the park set the wrong bases and read the file from the wrong offset; contributed by skelt (tpw-port PR #55)
+    bool portFormat = false;
     if (word == sizeof(marks) && PortFlyTableHasPointers(marks)) {
-        std::fprintf(stderr, "port: the fly table was written by an earlier port build; reading it in that format\n");
-        for (int32_t i = 0; i < 50; ++i) marks[i] = (marks[2 * i] | marks[2 * i + 1]) != 0 ? 1 : 0;
+        portFormat = true;
+        std::fprintf(stderr, "port: the fly file was written by an earlier port build; reading it in that format\n");
+        for (int32_t i = 0; i < 50; ++i) marks[i] = (marks[2 * i] | marks[2 * i + 1]) != 0 ? 1u : 0u;
         for (int32_t i = 50; i < 100; ++i) marks[i] = 0;
     }
     for (int32_t i = 0; i < 100; ++i)
@@ -1570,8 +1548,8 @@ int32_t FLY_Load(void* file) {
         if (gFlyBases[i] != nullptr) {
             gFlyBases[i] = LbMem_Alloc(word);
             LbFile_Read(file, gFlyBases[i], word, nullptr);
-            // TPW_PORT_FIX flysave FLY_Load | Mac: reads the base as it is | Port: reverses the thing id and the flies back in a base a port build wrote reversed | Why: those builds' FLY_Save reversed them (see there), so the parks the players saved with a flying ride crashed as they loaded
-            if (word == kBaseSize && PortFlyBaseReversed(static_cast<const uint8_t*>(gFlyBases[i]))) {
+            // TPW_PORT_FIX flysave FLY_Load | Mac: the base's bytes as the file holds them | Port: in the earlier port format the thing id at 0x58 and the 20 fly records from 0x5c are swapped back | Why: that build saved them byte-reversed (the save's second fault) in every base of the file, so the table's verdict covers them all; a base cannot be told by its own bytes (an idle base, all 20 states 0, with a small thing id looks the same either way); contributed by skelt (tpw-port PR #55)
+            if (portFormat && word == kBaseSize) {
                 std::fprintf(stderr, "port: fly base %d was written by an earlier port build; reading it in that format\n", i);
                 uint8_t* base = static_cast<uint8_t*>(gFlyBases[i]);
                 reinterpret_cast<tag_IDX_TYPE<IDXTYPEUniqueNameThingId, uint16_t>*>(base + 0x58)->Byteswap();

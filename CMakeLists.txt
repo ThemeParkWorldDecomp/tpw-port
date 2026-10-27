@@ -230,8 +230,12 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   endif()
 
   add_library(tpw_launcher_objects OBJECT launcher/main.cpp launcher/app_bundle.cpp launcher/app_icon.cpp launcher/app_icon_standin.cpp launcher/asset_packs.cpp
-              launcher/pending_manual.cpp launcher/static_init.cpp launcher/startup.cpp)
+              launcher/game_app.cpp launcher/game_app_mac.cpp launcher/pending_manual.cpp launcher/static_init.cpp launcher/startup.cpp)
   target_include_directories(tpw_launcher_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
+  if(APPLE)
+    # The game's own application (launcher/game_app.h) is opened through NSWorkspace, whose completion handler is a block.
+    set_source_files_properties(launcher/game_app_mac.cpp PROPERTIES COMPILE_OPTIONS -fblocks)
+  endif()
   # main.cpp opens the launcher's own window (tpw_launcher_ui, below) when no --game is given.
   target_link_libraries(tpw_launcher_objects PRIVATE SDL3::SDL3 tpw_launcher_ui)
   if(WIN32)
@@ -548,6 +552,12 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   add_executable(tpw_update_tests launcher/net/tests/update_tests.cpp)
   target_link_libraries(tpw_update_tests PRIVATE tpw_launcher_ui)
   add_test(NAME update COMMAND tpw_update_tests)
+  # The game's own application on a Mac (launcher/game_app.h), the part that runs everywhere: the bundles' names, the
+  # Info.plist the launcher writes for them, the arguments both ways and the .icns it writes from the icon.
+  add_executable(tpw_game_app_tests launcher/tests/game_app_tests.cpp launcher/game_app.cpp)
+  target_include_directories(tpw_game_app_tests PRIVATE launcher)
+  target_link_libraries(tpw_game_app_tests PRIVATE tpw_assets)
+  add_test(NAME game_app COMMAND tpw_game_app_tests)
   # The run-time table loader (platform/game_tables.cpp) against the configure-time tables, where the build has them (the
   # differential tests' or TPW_TABLES_AT_CONFIGURE's): every table it reads from the CD's 2.0.1 program and from the 2.04b3
   # patch's, by the program's SHA-1 and by the content search, must equal the generated arrays byte for byte. The scorers

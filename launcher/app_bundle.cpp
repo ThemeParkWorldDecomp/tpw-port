@@ -18,6 +18,8 @@
 #include <mach-o/ldsyms.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+#include "game_app.h"
 #endif
 
 namespace tpw::launcher {
@@ -28,8 +30,6 @@ const char* const kNoteVariable = "TPW_APP_BUNDLE_NOTE";
 
 #if defined(__APPLE__)
 namespace fs = std::filesystem;
-
-const char* const kBundleName = "STP:TPW Launcher.app";   // the Finder shows "STP/TPW Launcher.app"
 
 // The runs that open no window (--write-icon included: the install script runs it before the launcher's first start):
 // Cmd-Tab and the Dock never see them, so they stay where they are.
@@ -43,25 +43,10 @@ bool WindowlessRun(int argc, char** argv) {
     return false;
 }
 
-// The program's own path, with links resolved.
-std::string ExecutablePath() {
-    uint32_t size = 0;
-    _NSGetExecutablePath(nullptr, &size);
-    std::vector<char> buffer(size + 1, 0);
-    if (size == 0 || _NSGetExecutablePath(buffer.data(), &size) != 0) return "";
-    char resolved[PATH_MAX];
-    if (realpath(buffer.data(), resolved) == nullptr) return buffer.data();
-    return resolved;
-}
-
-bool InsideBundle(const std::string& path) { return path.find("/Contents/MacOS/") != std::string::npos; }
-
-// The Info.plist the build embedded in the program (CMakeLists.txt, -sectcreate __TEXT __info_plist).
-std::string EmbeddedPlist() {
-    unsigned long size = 0;
-    const uint8_t* data = getsectiondata(&_mh_execute_header, "__TEXT", "__info_plist", &size);
-    if (data == nullptr || size == 0) return "";
-    return std::string(reinterpret_cast<const char*>(data), size);
+bool HasPlay(int argc, char** argv) {
+    for (int i = 1; i < argc; ++i)
+        if (std::strcmp(argv[i], "--play") == 0) return true;
+    return false;
 }
 
 std::string ReadWhole(const fs::path& path) {
@@ -99,9 +84,58 @@ bool SameFile(const fs::path& a, const fs::path& b) {
     return stat(a.c_str(), &sa) == 0 && stat(b.c_str(), &sb) == 0 && S_ISREG(sb.st_mode) && sa.st_dev == sb.st_dev && sa.st_ino == sb.st_ino;
 }
 
-// Makes `app` (the .app folder) hold the program at `exe`, or brings it up to date. `made` says what was done.
-bool KeepBundle(const fs::path& exe, const fs::path& app, const std::string& plist, fs::path& program, std::string& made, std::string& why) {
+// Runs the program at `exe` from the bundle `app` (made or refreshed with `plist`) in this process, with `argv`'s
+// arguments: returns only when it could not.
+bool ExecFromBundle(const fs::path& exe, const fs::path& app, const std::string& plist, int argc, char** argv, const char* dockName, std::string& note) {
+    std::string program, made, why;
+    if (!KeepBundle(exe.string(), app.string(), plist, {}, program, made, why)) {
+        note = "not from the bundle (" + why + "); the Dock names this run after the program's folder";
+        return false;
+    }
+    std::vector<char*> args;
+    args.push_back(program.data());
+    for (int i = 1; i < argc; ++i) args.push_back(argv[i]);
+    args.push_back(nullptr);
+    const std::string left = "running from " + app.string() + " (" + made + "; the Dock names it " + dockName + ")";
+    setenv(kNoteVariable, left.c_str(), 1);
+    execv(program.c_str(), args.data());
+    unsetenv(kNoteVariable);
+    note = "not from the bundle: cannot run " + program + ": " + std::strerror(errno);
+    return false;
+}
+#endif
+
+}  // namespace
+
+#if defined(__APPLE__)
+std::string ExecutablePath() {
+    uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::vector<char> buffer(size + 1, 0);
+    if (size == 0 || _NSGetExecutablePath(buffer.data(), &size) != 0) return "";
+    char resolved[PATH_MAX];
+    if (realpath(buffer.data(), resolved) == nullptr) return buffer.data();
+    return resolved;
+}
+
+std::string BundleOf(const std::string& exePath) {
+    const size_t at = exePath.find("/Contents/MacOS/");
+    if (at == std::string::npos) return "";
+    const std::string app = exePath.substr(0, at);
+    return app.size() > 4 && app.compare(app.size() - 4, 4, ".app") == 0 ? app : "";
+}
+
+std::string EmbeddedPlist() {
+    unsigned long size = 0;
+    const uint8_t* data = getsectiondata(&_mh_execute_header, "__TEXT", "__info_plist", &size);
+    if (data == nullptr || size == 0) return "";
+    return std::string(reinterpret_cast<const char*>(data), size);
+}
+
+bool KeepBundle(const std::string& exePath, const std::string& appPath, const std::string& plist, const std::vector<uint8_t>& icns,
+                std::string& program, std::string& made, std::string& why) {
     std::error_code ec;
+    const fs::path exe = exePath, app = appPath;
     const fs::path contents = app / "Contents", macos = contents / "MacOS";
     const bool existed = fs::is_directory(macos, ec);
     fs::create_directories(macos, ec);
@@ -111,18 +145,31 @@ bool KeepBundle(const fs::path& exe, const fs::path& app, const std::string& pli
     }
     if (!KeepFile(contents / "Info.plist", plist, why)) return false;
     if (!KeepFile(contents / "PkgInfo", "APPL????", why)) return false;
-    program = macos / exe.filename();
-    if (SameFile(exe, program)) {
+    if (!icns.empty()) {
+        fs::create_directories(contents / "Resources", ec);
+        if (ec) {
+            why = "cannot make " + (contents / "Resources").string() + ": " + ec.message();
+            return false;
+        }
+        if (!KeepFile(contents / "Resources" / "icon.icns", std::string(icns.begin(), icns.end()), why)) return false;
+    }
+    // The program's name inside the bundle is what its Info.plist says (CFBundleExecutable): tpw_launcher in the
+    // launcher's own, the game's name in the game's (game_app.h), so that ps, Activity Monitor and System Events, which
+    // name a process after its program, name the game too.
+    const std::string named = PlistString(plist, "CFBundleExecutable");
+    const fs::path linked = macos / (named.empty() ? exe.filename().string() : named);
+    program = linked.string();
+    if (SameFile(exe, linked)) {
         made = existed ? "kept" : "made";
         return true;
     }
-    fs::remove(program, ec);
-    if (link(exe.c_str(), program.c_str()) == 0) {
+    fs::remove(linked, ec);
+    if (link(exe.c_str(), linked.c_str()) == 0) {
         made = existed ? "brought up to date" : "made";
         return true;
     }
     // no hard links on this volume: a copy of the program instead
-    fs::copy_file(exe, program, fs::copy_options::overwrite_existing, ec);
+    fs::copy_file(exe, linked, fs::copy_options::overwrite_existing, ec);
     if (ec) {
         why = "cannot link or copy the program into " + macos.string() + ": " + ec.message();
         return false;
@@ -131,8 +178,6 @@ bool KeepBundle(const fs::path& exe, const fs::path& app, const std::string& pli
     return true;
 }
 #endif
-
-}  // namespace
 
 bool RunFromAppBundle(int argc, char** argv, std::string& note) {
     note.clear();
@@ -143,30 +188,22 @@ bool RunFromAppBundle(int argc, char** argv, std::string& note) {
         note = "not from the bundle: the program's own path is unknown";
         return false;
     }
-    if (InsideBundle(exePath)) return false;
     const std::string plist = EmbeddedPlist();
+    const fs::path exe = exePath;
+    const std::string inside = BundleOf(exePath);
+    if (!inside.empty()) {
+        // The game's bundle opened without --play (double-clicked in the Finder): the launcher's window would be named
+        // after the game, so it runs from the launcher's own bundle beside it, as the bare program does below.
+        const fs::path app = inside;
+        const bool gameBundle = app.filename() == GameBundleName(true) || app.filename() == GameBundleName(false);
+        if (!gameBundle || HasPlay(argc, argv) || plist.empty()) return false;
+        return ExecFromBundle(exe, app.parent_path() / kLauncherBundleName, plist, argc, argv, "STP/TPW Launcher", note);
+    }
     if (plist.empty()) {
         note = "not from the bundle: the program has no Info.plist embedded";
         return false;
     }
-    const fs::path exe = exePath, app = exe.parent_path() / kBundleName;
-    fs::path program;
-    std::string made, why;
-    if (!KeepBundle(exe, app, plist, program, made, why)) {
-        note = "not from the bundle (" + why + "); the Dock names this run after the program's folder";
-        return false;
-    }
-    std::vector<char*> args;
-    std::string first = program.string();
-    args.push_back(first.data());
-    for (int i = 1; i < argc; ++i) args.push_back(argv[i]);
-    args.push_back(nullptr);
-    const std::string left = "running from " + app.string() + " (" + made + "; the Dock names it STP/TPW Launcher)";
-    setenv(kNoteVariable, left.c_str(), 1);
-    execv(first.c_str(), args.data());
-    unsetenv(kNoteVariable);
-    note = "not from the bundle: cannot run " + first + ": " + std::strerror(errno);
-    return false;
+    return ExecFromBundle(exe, exe.parent_path() / kLauncherBundleName, plist, argc, argv, "STP/TPW Launcher", note);
 #else
     (void)argc;
     (void)argv;

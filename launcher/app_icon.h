@@ -8,6 +8,8 @@
 
 #include <string>
 
+#include "icon.h"
+
 namespace tpw::launcher {
 
 // Sets the icon for `dataFolder`'s icon.png, or the stand-in when there is none. On macOS the application's icon
@@ -22,5 +24,9 @@ void ApplyAppIcon(const std::string& dataFolder, SDL_Window* window);
 // application it puts in Applications from the PNG (THE APPLICATION); install.ps1 gives the .ico to the Start menu
 // shortcut (THE START MENU SHORTCUT). `what` says which icon it was; false with `err` when the file could not be written.
 bool WriteAppIcon(const std::string& dataFolder, const std::string& path, std::string& what, std::string& err);
+
+// The icon ApplyAppIcon shows, as pixels: `dataFolder`'s icon.png (`own` true, `source` its Source text) or the
+// stand-in. The game's own application bundle on macOS gets it as an .icns (launcher/game_app.h).
+tpw::assets::IconImage LoadAppIcon(const std::string& dataFolder, bool& own, std::string& source);
 
 }  // namespace tpw::launcher

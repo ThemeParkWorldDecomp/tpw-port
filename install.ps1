@@ -98,7 +98,9 @@
 # not being written never fails the run (the launcher is in place; the player is told). There is no uninstall path:
 # the player deletes the shortcut from the Start menu, and it comes back at the next install or update. The step is
 # "Adding STP/TPW Launcher to the Start menu", after the command and before the start; the progress view's row is
-# startmenu.
+# startmenu. There are no application bundles on Windows: the game plays in the launcher's own process, and nothing
+# answers the two bundles the Mac launcher writes inside its build folder (Sim Theme Park.app and Theme Park
+# World.app; install.sh, THE APPLICATION), so the running check and Remove-Own have nothing more to see.
 #
 # SAFETY. No administrator rights, nothing written outside DIR but that Path entry and the Start menu shortcut (one
 # file, STP-TPW Launcher.lnk, in the user's own Programs folder, THE START MENU SHORTCUT above; the launcher is started
@@ -154,7 +156,7 @@ $TpwInstallCode = @(& {
     # The state the functions share (a hashtable, so that a function's change is seen by all): the step counter, whether
     # the RESULT line is out, what is being installed, and which git runs the git commands (Git: git.exe from the PATH,
     # or the fetched DIR\tools\MinGit\cmd\git.exe; GitFetched: this run fetched it).
-    $St = @{ StepNo = 0; StepTotal = 0; Done = $false; Channel = ''; Tag = ''; Commit = ''; Version = ''; Git = 'git.exe'; GitFetched = $false }
+    $St = @{ StepNo = 0; StepTotal = 0; Done = $false; Channel = ''; Tag = ''; Commit = ''; Version = ''; Git = 'git.exe'; GitFetched = $false; LogStarted = $false }
     # Every git command gets these: files kept with their line endings as stored (as the build expects), paths longer
     # than 260 characters allowed, and no credential window.
     $GitCfg = @('-c', 'core.autocrlf=false', '-c', 'core.longpaths=true', '-c', 'credential.helper=')
@@ -737,8 +739,12 @@ $TpwInstallCode = @(& {
         }
     }
 
-    # The last lines of the log and where it is, after a failure of the downloads or the build.
+    # The last lines of the log and where it is, after a failure of the downloads or the build. Only once this run
+    # started the log ($St.LogStarted, set where the log is truncated): before that the file holds an earlier run's
+    # build, which has nothing to do with what went wrong now (a failure before any download, such as no release to
+    # install, showed the last successful build's output and asked for a bug report about it).
     function Write-UiLogTail {
+        if (-not $St.LogStarted) { return }
         if (-not (Test-Path -LiteralPath $Log -PathType Leaf)) { return }
         $tail = @(Get-Content -LiteralPath $Log -Tail 15 -ErrorAction SilentlyContinue)
         if ($tail.Count -eq 0) { return }
@@ -1065,6 +1071,16 @@ $TpwInstallCode = @(& {
             if ($line -match 'refs/tags/v(\d+)\.(\d+)\.(\d+)$') { $versions += [version]"$($Matches[1]).$($Matches[2]).$($Matches[3])" }
         }
         if ($versions.Count -eq 0) {
+            if ($St.Channel -eq 'stable' -and (Read-Channel) -eq 'dev') {
+                # a dev install, run without -Dev before any release exists: it stays on main, and that is no bug
+                $old = Get-Info (Join-Path $Dir 'build\install-info.txt') 'version'
+                if (-not $old) { $old = 'unknown' }
+                Set-UiWarn 'installed' "this install follows main ($old); there is no release to switch it to yet"
+                Say 'No release has been published yet. This install follows main (the development version); to update it, run:'
+                Say '  themepark update -Dev'
+                if ($St.GitFetched) { Say "Nothing else was changed (Git was fetched into $(Join-Path $Dir 'tools\MinGit'))." } else { Say 'Nothing was changed.' }
+                Fail 'No release has been published yet. This install follows main; run themepark update -Dev to update it.'
+            }
             Say 'No release has been published yet, so there is nothing to install by default.'
             Say 'To try the version that is being made (it can have bugs), run this with -Dev:'
             Say '  & ([scriptblock]::Create((irm https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.ps1))) -Dev'
@@ -1212,6 +1228,7 @@ $TpwInstallCode = @(& {
         $rules = Get-LogRules
         # the progress view's log holds the downloads' output too; the build's goes after it
         $writer = New-Object System.IO.StreamWriter($Log, ($Ui.Mode -ne 'plain'), (New-Object System.Text.UTF8Encoding($false)))
+        $St.LogStarted = $true
         # CI=1: build.ps1 downloads without a progress bar, which would be one long line here.
         $oldCI = $env:CI
         $env:CI = '1'
@@ -1783,12 +1800,11 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
             if (-not $Stage) { Set-UiPending 'startmenu' 'STP/TPW Launcher' }
             if (-not $Stage -and -not $NoLaunch) { Set-UiPending 'start' '' }
         }
-        if ($St.Channel -eq 'stable' -and (Read-Channel) -eq 'dev') {
-            Say 'This install followed main (-Dev); it now follows the newest release. Add -Dev to stay on main.'
-            if ($Ui.Mode -ne 'plain') {
-                $Ui.Notes.Clear()
-                Set-UiWarn 'installed' "this install follows main ($oldShown). Without -Dev the line switches it to the newest release. Add -Dev to stay on main."
-            }
+        # A dev install run without -Dev: the row says so at once; the plain line comes once a release is known
+        # (Select-Target: with none, the install stays on main, and "it now follows the newest release" would be wrong).
+        $switching = $St.Channel -eq 'stable' -and (Read-Channel) -eq 'dev'
+        if ($switching) {
+            Set-UiWarn 'installed' "this install follows main ($oldShown). Without -Dev the line switches it to the newest release. Add -Dev to stay on main."
         }
 
         # check, download, build, verify; then switch, the shortcut and the start unless -Stage
@@ -1816,9 +1832,13 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
             $Ui.Version = $St.Version
         } else {
             # the log holds the downloads' output too in the progress view
-            if ($Ui.Mode -ne 'plain') { try { Write-Text $Log '' } catch { Fail "Couldn't write $Log." } }
+            if ($Ui.Mode -ne 'plain') {
+                try { Write-Text $Log '' } catch { Fail "Couldn't write $Log." }
+                $St.LogStarted = $true
+            }
             Get-Source
         }
+        if ($switching) { Info 'This install followed main (-Dev); it now follows the newest release. Add -Dev to stay on main.' }
 
         $buildInfo = Join-Path $Dir 'build\install-info.txt'
         $nextInfo = Join-Path $Next 'install-info.txt'

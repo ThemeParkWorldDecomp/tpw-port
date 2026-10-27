@@ -1,0 +1,54 @@
+# Pictures of the launcher as a Windows player first sees it, on Windows Server 2022 and 2025 (the nearest GitHub has to
+# the Windows 10 and 11 kernels): the installer builds it for real from a local tag of this checkout (the `shots` case
+# of .github/installer-ci/win.ps1, the same install as installer-broad's `real` jobs), then the driver opens a Windows
+# PowerShell window, takes a picture of the screen, types `themepark` in that window as a player does, waits a few
+# seconds, takes a second picture, and checks that the window in front is now the launcher's (the focus check: the job
+# fails when it is not, after the pictures are taken). Then one of the launcher alone, the icon the launcher's window
+# carries (the title bar's and the taskbar's) and the icon of tpw_launcher.exe. No game data: the launcher shows its
+# first-run screen. The Mac pictures are taken by hand (GitHub's macOS runners are too scarce for a job like this).
+#
+# Runs by hand (Run workflow) and on a push to a ci-shots-* branch, never on main. Each job keeps its pictures as the
+# artifact screenshots-<runner> (PNG), with focus-check.txt (what was in front before and after) and the launcher's log
+# lines about its icon and its window (launcher-log-lines.txt).
+name: screenshots
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['ci-shots-*']
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Keep line endings as stored
+        shell: powershell
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install by the installer, then pictures of the screen
+        shell: powershell
+        env:
+          TPW_CI_WORK: ${{ runner.temp }}\tpw-shots
+          TPW_CI_SOURCE: ${{ github.workspace }}
+          TPW_CI_VERSION: 0.0.99
+          TPW_CI_SHOTS: ${{ runner.temp }}\shots
+        run: |
+          $ErrorActionPreference = 'Continue'
+          & .\.github\installer-ci\win.ps1 shots
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots-${{ matrix.os }}
+          path: ${{ runner.temp }}\shots
+          if-no-files-found: warn

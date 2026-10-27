@@ -84,3 +84,15 @@ while kill -0 $pid 2>/dev/null; do
 done
 wait $pid 2>/dev/null
 echo "exit=$?" >> "$build/launch-$name.log"
+# The launcher window's Play starts the game as an application of its own beside the launcher (launcher/game_app.h, a
+# separate process the launcher does not wait for), and the game's exit may open the launcher again (Settings: back to
+# the launcher after playing): the run goes on while any process runs from an application bundle in the build folder,
+# within the same limit, and what is left at the limit is force-quit too. (The game's own log is in the data folder's
+# logs folder, not in launch-NAME.log.) The program inside a game's bundle carries the game's name, so any program
+# under a bundle's Contents/MacOS in the build folder counts.
+absbuild=$(cd "$build" && pwd)
+apps() { pgrep -f "^$absbuild/[^/]*\.app/Contents/MacOS/" 2>/dev/null; }
+while [ -n "$(apps)" ]; do
+  sleep 1; n=$((n + 1))
+  if [ $n -ge $limit ]; then apps | xargs kill -9 2>/dev/null; echo "force-quit the game's application after ${limit}s" >> "$build/launch-$name.log"; break; fi
+done
