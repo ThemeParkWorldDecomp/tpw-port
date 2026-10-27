@@ -558,6 +558,19 @@ void CSaveLoad::PreLoadOperations() {
     gUIInterface.PreLevelLoad();
 }
 
+namespace {
+// What ResearchPanelCategoryComplete (src/game/ui/ui_researchPanel.cpp) does for each research category when told it is
+// complete: a category whose current project is finished moves on to its next one.
+void MoveFinishedResearchOn() {
+    CResearchLab* lab = gGameWorld->GetResearchLab();
+    if (lab == nullptr) return;
+    for (int32_t category = 0; category < 5; ++category) {
+        const ResearchCat cat = static_cast<ResearchCat>(category);
+        if (lab->mCategories[category].mF08 >= 0 && !lab->IsCategoryActive(cat)) lab->NextProject(cat);
+    }
+}
+}  // namespace
+
 // Rebuilds what the engine holds after a park is read. The particle system is low spec when the current detail is 0.
 void CSaveLoad::PostLoadOperations() {
     InitialiseWeather();
@@ -572,6 +585,8 @@ void CSaveLoad::PostLoadOperations() {
     TickRideAnims();
     RegenerateRideSigns();
     gUIInterface.PostLevelLoad();
+    // TPW_PORT_FIX researchmsg CSaveLoad::PostLoadOperations | Mac: (none: a category moves on as its project finishes, so none is saved on a finished one) | Port: each research category whose current project is finished moves on to its next one, as ResearchPanelCategoryComplete does when the category-updated message reaches it | Why: the translation's message type 0 (include/ThingReceivers.h) never reached it, so parks saved by earlier port builds keep categories on finished projects that no message will move on
+    MoveFinishedResearchOn();
     ADV_Kill(1);
     if (gPlayerSettings.mCurrent.mDetail == 0) {
         PAR_SetLowSpec(1);
