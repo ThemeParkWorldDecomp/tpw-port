@@ -82,6 +82,8 @@ bool gReopenLauncher = false;   // a game started from the window has quit with 
 std::string gFromLauncher;      // --from-launcher DIR: this --play run is the launcher window's Play, in its own process (game_app.h)
 int gArgc = 0;                  // main's arguments, for the game's own process (StartGameApp) and ReopenLauncher
 char** gArgv = nullptr;
+std::string gGameIconFolder;    // the data folder whose icon.png the game's window shows (DressGameWindow)
+bool gGameUs = true;            // the edition playing is the US one (DressGameWindow)
 bool gTraceStubs = false;
 long gStubCalls = 0;
 const char* volatile gLastStub = nullptr;
@@ -270,8 +272,13 @@ void Usage(const char* program) {
                  "                 verified files, the saves and launcher.ini are kept in the data folder (below)\n"
                  "  --play E       without the window: start edition E (us or eur) from the data folder, as Play does\n"
                  "  --from-launcher DIR  with --play: this run is the launcher window's Play, as the game's own process\n"
-                 "                 on a Mac (Sim Theme Park.app or Theme Park World.app beside the launcher), in the\n"
-                 "                 launcher's folder DIR; \"Back to the launcher after playing\" is read from launcher.ini\n"
+                 "                 (on a Mac Sim Theme Park.app or Theme Park World.app beside the launcher, on Windows Sim\n"
+                 "                 Theme Park.exe or Theme Park World.exe beside tpw_launcher.exe), in the launcher's folder\n"
+                 "                 DIR; \"Back to the launcher after playing\" is read from launcher.ini\n"
+                 "  --game-app-test E  the window's Play's hand-over without a game (a test with no discs): start edition\n"
+                 "                 E's (us or eur) own process as Play does, with a bare window named after the game for\n"
+                 "                 --frames passes (300 by default) in place of the game, log what each side did, and exit:\n"
+                 "                 0 when the game's process was started and showed its window\n"
                  "  --import PATH [PATH ...]  without the window: import these discs, disc images, zips, installers or\n"
                  "                 folders into the data folder, as a drop on the window does, log what was found, and\n"
                  "                 exit: 0 when the US, European and Gold editions are all ready, 1 otherwise\n"
@@ -357,7 +364,8 @@ bool TakesValue(const std::string& arg) {
     static const char* const kWithValue[] = {"--game",  "--data",        "--play",       "--import",     "--program",    "--window-click",
                                              "--user",  "--edition",     "--resolution", "--aspect",     "--frames",
                                              "--click", "--drag",        "--type",       "--dump-frames", "--dump-every",
-                                             "--dump-limit", "--display", "--write-icon", tpw::launcher::kFromLauncherOption};
+                                             "--dump-limit", "--display", "--write-icon", tpw::launcher::kFromLauncherOption,
+                                             tpw::launcher::kGameAppTestOption};
     for (const char* option : kWithValue)
         if (arg == option) return true;
     return false;
@@ -543,6 +551,10 @@ void NameAppMenu(const char* name) {
     const char* text = now != nullptr ? reinterpret_cast<SendUtf8>(objc_msgSend)(now, sel_registerName("UTF8String")) : nullptr;
     if (text != nullptr && std::strcmp(text, name) == 0) tpw::Log("app name: %s", name);
     else tpw::Log("app name: not changed (the menu kept \"%s\")", text != nullptr ? text : "");
+#elif defined(_WIN32)
+    tpw::Log("app name: not changed (Windows has no menu bar for it: the taskbar and the Task Manager name the program "
+             "after its version resource; port_CONTRIBUTING.md, \"The game's own process\")");
+    (void)name;
 #else
     tpw::Log("app name: not changed (only the macOS menu bar has one)");
     (void)name;
@@ -566,6 +578,106 @@ void KeepSettings(const tpw::ui::ImporterBackend& backend, const std::string& pr
         std::string ignored;
         if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, option.key, value, ignored);
     }
+}
+
+// The game's window, made (platform/handoff.h SetGameWindowMadeHook): the game's icon (icon.png in the data folder, or the
+// stand-in), and on Windows, in the game's own process, the game's taskbar identity (game_app.h TagGameWindow). A Mac's
+// game bundle carries its icon itself.
+void DressGameWindow(SDL_Window* window) {
+    tpw::launcher::ApplyAppIcon(gGameIconFolder, window);
+#if defined(_WIN32)
+    if (!tpw::launcher::CurrentGameBundle().empty()) tpw::launcher::TagGameWindow(window, gGameUs);
+#endif
+}
+
+// --game-app-test us|eur: the window's Play's hand-over (launcher/game_app.h) without a game, which CI has no discs for.
+// The launcher's side starts the game's own process as Play does, waits for its window as Play does and exits (0 when
+// the window came up); the game's side (--from-launcher, which the launcher adds) opens a bare window named after the
+// game, dressed as the game's is (DressGameWindow), for --frames passes, then reads "Back to the launcher after
+// playing" as the game does, so main opens the launcher again after it as after a game.
+int GameAppTest(const tpw::Config& config, const std::string& dataDir, const std::string& edition) {
+    if (edition != "us" && edition != "eur") {
+        tpw::LogRawF("launcher: %s wants us or eur: %s\n", tpw::launcher::kGameAppTestOption, edition.c_str());
+        return 2;
+    }
+    const bool us = edition == "us";
+    std::string prefPath = dataDir;
+    if (prefPath.empty()) {
+        if (char* pref = SDL_GetPrefPath("", tpw::ui::kDataFolderName)) {
+            prefPath = pref;
+            SDL_free(pref);
+        }
+    }
+    tpw::ui::ImporterBackend backend(prefPath);
+    std::string err;
+    if (prefPath.empty() || !backend.Open(err)) {
+        tpw::LogRawF("launcher: game app test: the data folder \"%s\" cannot be used: %s\n", prefPath.c_str(), err.c_str());
+        return 1;
+    }
+#if defined(__APPLE__) || defined(_WIN32)
+    if (gFromLauncher.empty()) {
+        tpw::launcher::GameApp app;
+        std::string why;
+        if (!tpw::launcher::StartGameApp(gArgc, gArgv, us, backend.DataFolder(), !config.background, app, why)) {
+            tpw::Log("game app test: %s not started (%s)", tpw::launcher::GameAppName(us), why.c_str());
+            return 1;
+        }
+        tpw::Log("game app test: %s started as %s (process %d; %s)", tpw::launcher::GameAppName(us), app.bundle.c_str(),
+                 app.pid, app.made.c_str());
+        const auto opened = std::chrono::steady_clock::now();
+        bool up = true;
+        while (!tpw::launcher::GameAppFinishedLaunching(app)) {
+            if (std::chrono::steady_clock::now() - opened > std::chrono::seconds(30)) {
+                up = false;
+                break;
+            }
+            SDL_Delay(16);
+        }
+        tpw::Log("game app test: %s, %.0f ms after it was started; the launcher closes",
+                 up ? "the game's window is up" : "the game's window is still not up after 30 s",
+                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - opened).count());
+        tpw::launcher::ReleaseGameApp(app);
+        return up ? 0 : 1;
+    }
+    if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+        tpw::Log("game app test: no video (%s)", SDL_GetError());
+        return 1;
+    }
+    gGameIconFolder = backend.DataFolder();
+    gGameUs = us;
+    SDL_Window* window = SDL_CreateWindow(tpw::launcher::GameAppName(us), 800, 600, SDL_WINDOW_HIDDEN);
+    if (window == nullptr) {
+        tpw::Log("game app test: no window (%s)", SDL_GetError());
+        return 1;
+    }
+    DressGameWindow(window);
+    SDL_ShowWindow(window);
+    SDL_Renderer* renderer = SDL_CreateRenderer(window, nullptr);
+    const int passes = config.maxFrames > 0 ? config.maxFrames : 300;
+    int pass = 0;
+    for (bool quit = false; pass < passes && !quit; ++pass) {
+        SDL_Event event;
+        while (SDL_PollEvent(&event))
+            if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) quit = true;
+        if (renderer != nullptr) {
+            SDL_SetRenderDrawColor(renderer, 0x2e, 0x7d, 0x32, 0xff);
+            SDL_RenderClear(renderer);
+            SDL_RenderPresent(renderer);
+        }
+        SDL_Delay(16);
+    }
+    gReopenLauncher = backend.Setting(tpw::ui::kBackToLauncherKey) == "1";
+    tpw::Log("game app test: the game's window \"%s\" was up for %d passes; back to the launcher after playing: %s",
+             tpw::launcher::GameAppName(us), pass, gReopenLauncher ? "on" : "off");
+    if (renderer != nullptr) SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    return 0;
+#else
+    (void)config;
+    (void)us;
+    tpw::Log("game app test: the game plays in the launcher's process on this system (launcher/game_app.h)");
+    return 1;
+#endif
 }
 
 // No --game: the edition comes from the data folder, through the launcher's window or --play. Fills in the game
@@ -684,11 +796,12 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
     // "Skip the intro films" is as --no-movies; "Back to the launcher after playing" opens the launcher again when a
     // game started from its window quits (ReopenLauncher).
     KeepSettings(backend, prefPath);
-#if defined(__APPLE__)
-    // The window's Play on a Mac: the game plays as an application of its own, "Sim Theme Park" or "Theme Park World"
-    // (launcher/game_app.h), so the Dock, Cmd-Tab and Force Quit name the game. This process opens it, keeps its Starting
-    // screen up until the game's application has started (its window follows in a moment) and exits; the game's own log
-    // file takes it from there. Only when the bundle cannot be made or opened does the game play in this process.
+#if defined(__APPLE__) || defined(_WIN32)
+    // The window's Play: the game plays as an application of its own, "Sim Theme Park" or "Theme Park World"
+    // (launcher/game_app.h; port_CONTRIBUTING.md, "The game's own process"), so the Dock, Cmd-Tab and Force Quit (the
+    // taskbar, Alt+Tab and the Task Manager) name the game. This process opens it, keeps its Starting screen up until the
+    // game's application has started (on Windows, until its window is shown) and exits; the game's own log file takes it
+    // from there. Only when the bundle (the game's program) cannot be made or started does the game play in this process.
     if (play.empty()) {
         const bool usApp = choice.edition == tpw::assets::kEditionUs;
         tpw::launcher::GameApp app;
@@ -701,6 +814,9 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
                           backend.importer()->GameFolder(choice.edition).c_str());
             const auto opened = std::chrono::steady_clock::now();
             const char* ended = "the game's application is up";
+#if defined(_WIN32)
+            ended = "the game's window is up";
+#endif
             while (!tpw::launcher::GameAppFinishedLaunching(app)) {
                 if (std::chrono::steady_clock::now() - opened > std::chrono::seconds(30)) {
                     ended = "the game's application is still starting after 30 s";
@@ -724,6 +840,11 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
     }
 #endif
     gBackToLauncher = choice.backToLauncher;
+#if !defined(__APPLE__)
+    gGameIconFolder = backend.DataFolder();
+    gGameUs = choice.edition == tpw::assets::kEditionUs;
+    tpw::SetGameWindowMadeHook(&DressGameWindow);
+#endif
     // The Settings box's "Full screen" (on unless launcher.ini says 0): off is --windowed, a window with a title bar.
     if (backend.Setting(tpw::ui::kFullScreenKey) == "0") {
         config.debugOptions[1] = 0;
@@ -888,18 +1009,24 @@ int ImportFromOptions(const std::string& dataDir, const std::vector<std::string>
 // from main, after the log file's "exit:" line has the game's code. From tpw-port PR #22 by samueleagle91. On a Mac
 // the game is its own application (game_app.h): the launcher's bundle beside it is opened as the active application,
 // with this run's arguments less the --play and --from-launcher the window's Play added; should that fail, the bare
-// program is started with them, and runs from the launcher's bundle itself (app_bundle.h).
+// program is started with them, and runs from the launcher's bundle itself (app_bundle.h). On Windows the same:
+// tpw_launcher.exe beside the game's program (game_app_win.cpp OpenLauncherApp), then SDL's process start of it.
 void ReopenLauncher(int argc, char** argv) {
     std::vector<std::string> kept;
     std::vector<const char*> args;
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(_WIN32)
     if (const std::string gameBundle = tpw::launcher::CurrentGameBundle(); !gameBundle.empty()) {
         std::string why;
         if (tpw::launcher::OpenLauncherApp(argc, argv, why)) return;
         tpw::Log("launcher: cannot open the launcher's application again (%s); the program is started instead", why.c_str());
         kept = tpw::launcher::LauncherArguments(argc, argv);
+#if defined(_WIN32)
+        // tpw_launcher.exe, beside the game's program (this process's program is its copy under the game's name)
+        const std::string program = (std::filesystem::u8path(gameBundle).parent_path() / "tpw_launcher.exe").u8string();
+#else
         // the bare program, beside the game's bundle (this process's program is the hard link under the game's name)
         const std::string program = (std::filesystem::path(gameBundle).parent_path() / "tpw_launcher").string();
+#endif
         kept.insert(kept.begin(), program);
         for (const std::string& arg : kept) args.push_back(arg.c_str());
     }
@@ -950,7 +1077,8 @@ int LauncherMain(int argc, char** argv) {
     tpw::win32::DivideLikeTheMac();        // x86 traps what the Mac divides (host_win.h)
     tpw::win32::RecordFatalExceptions();   // for the crash report (OnCrash)
     if (!tpw::win32::HasStandardError()) {
-        // Started from Explorer (a Windows app has no console): the log goes to launcher.log beside launcher.ini.
+        // Started from Explorer (a Windows app has no console): the log goes to launcher.log beside launcher.ini; the
+        // game's own process, which the launcher starts with no standard streams then (game_app.h), to game.log.
         std::string folder;
         for (int i = 1; i + 1 < argc; ++i)
             if (std::strcmp(argv[i], "--data") == 0) folder = argv[i + 1];
@@ -960,7 +1088,8 @@ int LauncherMain(int argc, char** argv) {
                 SDL_free(pref);
             }
         }
-        if (!folder.empty()) tpw::win32::LogToFile((std::filesystem::u8path(folder) / "launcher.log").u8string());
+        const char* file = tpw::launcher::FromLauncherFolder(argc, argv).empty() ? "launcher.log" : "game.log";
+        if (!folder.empty()) tpw::win32::LogToFile((std::filesystem::u8path(folder) / file).u8string());
     }
 #else
     for (int crash : {SIGSEGV, SIGBUS, SIGTRAP, SIGILL, SIGABRT}) {
@@ -982,6 +1111,7 @@ int LauncherMain(int argc, char** argv) {
     std::string dataDir, play;       // --data, --play: the launcher's data folder (no --game)
     std::vector<std::string> imports;   // --import: the paths to import into it, with no window
     bool gameGiven = false;             // --game (TPW_GAME_DIR alone does not stop --import)
+    std::string appTest;                // --game-app-test: the edition whose hand-over is tested (GameAppTest)
     if (const char* file = std::getenv("TPW_GAME_PROGRAM")) program = file;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -999,6 +1129,7 @@ int LauncherMain(int argc, char** argv) {
         }
         else if (arg == "--data") dataDir = value();
         else if (arg == tpw::launcher::kFromLauncherOption) gFromLauncher = value();
+        else if (arg == tpw::launcher::kGameAppTestOption) appTest = value();
         else if (arg == "--play") {
             play = value();
             if (play != "us" && play != "eur") {
@@ -1151,6 +1282,11 @@ int LauncherMain(int argc, char** argv) {
     // Asked for before the first SDL video start (the launcher window's or the game's), which reads the hint. A
     // --background run stays behind.
     if (!config.background) SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "0");
+    if (!appTest.empty()) {
+        const int exitCode = GameAppTest(config, dataDir, appTest);
+        SDL_Quit();
+        return exitCode;
+    }
     if (config.gameDir.empty()) {
         const int exitCode = ChooseFromDataFolder(config, program, packs, dataDir, play);
         if (exitCode >= 0) {
@@ -1297,6 +1433,13 @@ int main(int argc, char** argv) {
 #if defined(__APPLE__)
     if (const std::string gameBundle = tpw::launcher::CurrentGameBundle(); !gameBundle.empty())
         tpw::Log("app bundle: running from %s (the game's own application: the Dock, Cmd-Tab and Force Quit name the game)", gameBundle.c_str());
+#elif defined(_WIN32)
+    if (const std::string gameExe = tpw::launcher::CurrentGameBundle(); !gameExe.empty()) {
+        // Before any window: the taskbar groups a window by the AppUserModelID its process has when the window is made.
+        tpw::Log("game program: running from %s (the game's own: the taskbar, Alt+Tab and the Task Manager name the game)",
+                 gameExe.c_str());
+        tpw::launcher::NameGameProcess(std::filesystem::u8path(gameExe).filename().u8string() == tpw::launcher::GameExeName(true));
+    }
 #endif
     if (!fromLauncher.empty())
         tpw::Log("from the launcher window's Play, in its folder %s%s", fromLauncher.c_str(),

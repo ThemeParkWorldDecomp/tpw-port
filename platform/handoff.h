@@ -21,6 +21,8 @@
 #include <string>
 #include <vector>
 
+struct SDL_Window;
+
 namespace tpw {
 
 // ---- The bar's amount
@@ -61,6 +63,12 @@ void SetGameWindowShownHook(GameWindowShownHook hook);
 // The game's window was shown (platform/window.cpp ShowWindow). The first call logs the stamp and runs the hook; the
 // later ones do nothing.
 void OnGameWindowShown();
+// What runs on the game's window once it is made, before it is shown: the launcher gives it the game's icon (icon.png)
+// and, on Windows, its taskbar identity (launcher/game_app.h TagGameWindow). None: the window as SDL makes it.
+using GameWindowMadeHook = void (*)(SDL_Window* window);
+void SetGameWindowMadeHook(GameWindowMadeHook hook);
+// The game's window was made (platform/window.cpp): runs the hook.
+void OnGameWindowMade(SDL_Window* window);
 
 // ---- The preload
 

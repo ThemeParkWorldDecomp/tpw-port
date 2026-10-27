@@ -10,7 +10,10 @@
 // (that run, or the .app opened from the Finder or kept in the Dock) it runs as it is. The game itself plays from a
 // bundle of its own beside it, "Sim Theme Park.app" or "Theme Park World.app", made the same way by the window's Play
 // (launcher/game_app.h); one of those opened without --play (double-clicked in the Finder) runs the launcher from the
-// launcher's own bundle, as the bare program does.
+// launcher's own bundle, as the bare program does. On Windows the launcher is tpw_launcher.exe as it is (the taskbar and
+// the Task Manager name it after its version resource, "STP/TPW Launcher"), and the game's program beside it, "Sim Theme
+// Park.exe" or "Theme Park World.exe", started without --play hands over to it the same way (port_CONTRIBUTING.md,
+// "The game's own process").
 #pragma once
 #include <string>
 #include <vector>
@@ -21,6 +24,8 @@ namespace tpw::launcher {
 // program from it; returns only when it could not (`note` says why; the run goes on as it is). Inside a bundle already,
 // for a run with none of a window's work (--version, --help, --check-updates, --import), or not on macOS, returns at
 // once with `note` empty. On success the run that follows logs the note it left in TPW_APP_BUNDLE_NOTE (TakeBundleNote).
+// On Windows, from the game's program without --play, starts tpw_launcher.exe with this run's arguments and exits
+// (game_app.h HandOverToLauncher); returns only when it could not.
 bool RunFromAppBundle(int argc, char** argv, std::string& note);
 // The note RunFromAppBundle's execv left for the run that followed, once; empty when there was none.
 std::string TakeBundleNote();

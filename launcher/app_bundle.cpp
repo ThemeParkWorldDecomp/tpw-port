@@ -18,7 +18,9 @@
 #include <mach-o/ldsyms.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
 
+#if defined(__APPLE__) || defined(_WIN32)
 #include "game_app.h"
 #endif
 
@@ -28,9 +30,7 @@ namespace {
 
 const char* const kNoteVariable = "TPW_APP_BUNDLE_NOTE";
 
-#if defined(__APPLE__)
-namespace fs = std::filesystem;
-
+#if defined(__APPLE__) || defined(_WIN32)
 // The runs that open no window (--write-icon included: the install script runs it before the launcher's first start):
 // Cmd-Tab and the Dock never see them, so they stay where they are.
 bool WindowlessRun(int argc, char** argv) {
@@ -48,6 +48,10 @@ bool HasPlay(int argc, char** argv) {
         if (std::strcmp(argv[i], "--play") == 0) return true;
     return false;
 }
+#endif
+
+#if defined(__APPLE__)
+namespace fs = std::filesystem;
 
 std::string ReadWhole(const fs::path& path) {
     std::ifstream in(path, std::ios::binary);
@@ -204,6 +208,12 @@ bool RunFromAppBundle(int argc, char** argv, std::string& note) {
         return false;
     }
     return ExecFromBundle(exe, exe.parent_path() / kLauncherBundleName, plist, argc, argv, "STP/TPW Launcher", note);
+#elif defined(_WIN32)
+    // The game's program started without --play (its taskbar button pinned, or double-clicked): the launcher's window
+    // would be the game's in the taskbar, so tpw_launcher.exe beside it runs instead (game_app.h HandOverToLauncher).
+    if (WindowlessRun(argc, argv) || HasPlay(argc, argv) || CurrentGameBundle().empty()) return false;
+    HandOverToLauncher(argc, argv, note);
+    return false;
 #else
     (void)argc;
     (void)argv;
@@ -215,7 +225,9 @@ std::string TakeBundleNote() {
     const char* left = std::getenv(kNoteVariable);
     if (left == nullptr) return "";
     std::string note = left;
-#if !defined(_WIN32)
+#if defined(_WIN32)
+    _putenv_s(kNoteVariable, "");   // the C runtime's copy and the process's: the game process started later has none
+#else
     unsetenv(kNoteVariable);
 #endif
     return note;

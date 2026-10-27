@@ -1,5 +1,6 @@
-// game_app.cpp: the game's own application on macOS (game_app.h), the part that runs everywhere: the bundle's names,
-// its Info.plist, the arguments both ways and the .icns. The macOS calls are in game_app_mac.cpp.
+// game_app.cpp: the game's own application on macOS and Windows (game_app.h), the part that runs everywhere: the
+// bundle's names, its Info.plist, the arguments both ways and the .icns; the program's name, its version resource and its
+// icon resources, and the command line. The macOS calls are in game_app_mac.cpp, the Windows ones in game_app_win.cpp.
 #include "game_app.h"
 
 #include <algorithm>
@@ -68,6 +69,12 @@ std::string GamePlist(bool us, const std::string& launcherPlist) {
 
 std::vector<std::string> GameArguments(int argc, char** argv, bool us, const std::string& workingFolder) {
     std::vector<std::string> args = LauncherArguments(argc, argv);
+    for (int i = 1; i + 1 < argc; ++i)
+        if (std::strcmp(argv[i], kGameAppTestOption) == 0) {
+            args.push_back(argv[i]);
+            args.push_back(argv[i + 1]);
+            break;
+        }
     args.push_back("--play");
     args.push_back(us ? "us" : "eur");
     args.push_back(kFromLauncherOption);
@@ -79,7 +86,7 @@ std::vector<std::string> LauncherArguments(int argc, char** argv) {
     std::vector<std::string> args;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--play") == 0 || std::strcmp(argv[i], kFromLauncherOption) == 0 ||
-            std::strcmp(argv[i], "--window-click") == 0) {
+            std::strcmp(argv[i], "--window-click") == 0 || std::strcmp(argv[i], kGameAppTestOption) == 0) {
             if (i + 1 < argc) ++i;   // its value
             continue;
         }
@@ -92,6 +99,305 @@ std::string FromLauncherFolder(int argc, char** argv) {
     for (int i = 1; i + 1 < argc; ++i)
         if (std::strcmp(argv[i], kFromLauncherOption) == 0) return argv[i + 1];
     return "";
+}
+
+std::string GameAppId(bool us) { return std::string("org.tpw-port.launcher") + (us ? ".stp" : ".tpw"); }
+
+std::string GameExeName(bool us) { return std::string(GameAppName(us)) + ".exe"; }
+
+std::string WindowsCommandLine(const std::vector<std::string>& args) {
+    std::string line;
+    for (const std::string& arg : args) {
+        if (!line.empty()) line += ' ';
+        if (!arg.empty() && arg.find_first_of(" \t\n\v\"") == std::string::npos) {
+            line += arg;
+            continue;
+        }
+        line += '"';
+        size_t slashes = 0;
+        for (const char c : arg) {
+            if (c == '\\') {
+                ++slashes;
+                continue;
+            }
+            // backslashes before a quote are doubled, and the quote escaped; elsewhere they are as they are
+            line.append(c == '"' ? slashes * 2 + 1 : slashes, '\\');
+            slashes = 0;
+            line += c;
+        }
+        line.append(slashes * 2, '\\');   // before the closing quote
+        line += '"';
+    }
+    return line;
+}
+
+namespace {
+
+// UTF-8 to UTF-16 and back, for the version resource's text (a bad byte becomes U+FFFD).
+std::u16string Utf16(const std::string& text) {
+    std::u16string out;
+    for (size_t i = 0; i < text.size();) {
+        const unsigned char c = static_cast<unsigned char>(text[i]);
+        uint32_t code = 0xFFFD;
+        size_t length = 1;
+        if (c < 0x80) code = c;
+        else if ((c >> 5) == 6) code = c & 0x1F, length = 2;
+        else if ((c >> 4) == 14) code = c & 0x0F, length = 3;
+        else if ((c >> 3) == 30) code = c & 0x07, length = 4;
+        if (length > 1) {
+            if (i + length > text.size()) length = 1, code = 0xFFFD;
+            for (size_t k = 1; k < length; ++k) {
+                const unsigned char next = static_cast<unsigned char>(text[i + k]);
+                if ((next >> 6) != 2) {
+                    length = 1, code = 0xFFFD;
+                    break;
+                }
+                code = (code << 6) | (next & 0x3F);
+            }
+        }
+        i += length;
+        if (code >= 0x10000) {
+            code -= 0x10000;
+            out += static_cast<char16_t>(0xD800 + (code >> 10));
+            out += static_cast<char16_t>(0xDC00 + (code & 0x3FF));
+        } else {
+            out += static_cast<char16_t>(code);
+        }
+    }
+    return out;
+}
+
+std::string Utf8(const std::u16string& text) {
+    std::string out;
+    for (size_t i = 0; i < text.size(); ++i) {
+        uint32_t code = text[i];
+        if (code >= 0xD800 && code < 0xDC00 && i + 1 < text.size() && text[i + 1] >= 0xDC00 && text[i + 1] < 0xE000)
+            code = 0x10000 + ((code - 0xD800) << 10) + (text[++i] - 0xDC00);
+        if (code < 0x80) {
+            out += static_cast<char>(code);
+        } else if (code < 0x800) {
+            out += static_cast<char>(0xC0 | (code >> 6));
+            out += static_cast<char>(0x80 | (code & 0x3F));
+        } else if (code < 0x10000) {
+            out += static_cast<char>(0xE0 | (code >> 12));
+            out += static_cast<char>(0x80 | ((code >> 6) & 0x3F));
+            out += static_cast<char>(0x80 | (code & 0x3F));
+        } else {
+            out += static_cast<char>(0xF0 | (code >> 18));
+            out += static_cast<char>(0x80 | ((code >> 12) & 0x3F));
+            out += static_cast<char>(0x80 | ((code >> 6) & 0x3F));
+            out += static_cast<char>(0x80 | (code & 0x3F));
+        }
+    }
+    return out;
+}
+
+uint16_t Le16(const std::vector<uint8_t>& bytes, size_t at) { return static_cast<uint16_t>(bytes[at] | (bytes[at + 1] << 8)); }
+uint32_t Le32(const std::vector<uint8_t>& bytes, size_t at) {
+    return static_cast<uint32_t>(Le16(bytes, at)) | (static_cast<uint32_t>(Le16(bytes, at + 2)) << 16);
+}
+void PutLe16(std::vector<uint8_t>& out, uint16_t v) {
+    out.push_back(static_cast<uint8_t>(v));
+    out.push_back(static_cast<uint8_t>(v >> 8));
+}
+void PutLe32(std::vector<uint8_t>& out, uint32_t v) {
+    PutLe16(out, static_cast<uint16_t>(v));
+    PutLe16(out, static_cast<uint16_t>(v >> 16));
+}
+void Align4(std::vector<uint8_t>& out) {
+    while (out.size() % 4 != 0) out.push_back(0);
+}
+
+// One block of a version resource: wLength, wValueLength, wType (1: the value is text), the key, padding to four bytes,
+// the value, padding, the children. Offsets count from the resource's start, which is four-byte aligned.
+struct VersionNode {
+    std::u16string key;
+    bool text = false;
+    std::vector<uint8_t> value;   // as stored (text: UTF-16LE with its terminating zero)
+    std::vector<VersionNode> children;
+};
+
+bool ParseNode(const std::vector<uint8_t>& blob, size_t at, size_t end, VersionNode& node, size_t& next) {
+    if (at + 6 > end) return false;
+    const size_t length = Le16(blob, at), valueLength = Le16(blob, at + 2), type = Le16(blob, at + 4);
+    if (length < 6 || at + length > end || type > 1) return false;
+    const size_t stop = at + length;
+    size_t p = at + 6;
+    node.key.clear();
+    for (;; p += 2) {
+        if (p + 2 > stop) return false;
+        const char16_t c = static_cast<char16_t>(Le16(blob, p));
+        if (c == 0) break;
+        node.key += c;
+    }
+    p = (p + 2 + 3) & ~size_t(3);
+    node.text = type == 1;
+    // Text values count characters; some tools count bytes, so a text value is read up to its zero instead.
+    size_t valueBytes = node.text ? valueLength * 2 : valueLength;
+    if (node.text && valueLength > 0) {
+        size_t q = p;
+        while (q + 2 <= stop && Le16(blob, q) != 0) q += 2;
+        valueBytes = std::min(stop, q + 2) - p;
+    }
+    if (p + valueBytes > stop) valueBytes = stop > p ? stop - p : 0;
+    node.value.assign(blob.begin() + static_cast<long>(p), blob.begin() + static_cast<long>(p + valueBytes));
+    p = (p + valueBytes + 3) & ~size_t(3);
+    node.children.clear();
+    while (p + 6 <= stop) {
+        VersionNode child;
+        size_t after = 0;
+        if (!ParseNode(blob, p, stop, child, after)) return false;
+        node.children.push_back(std::move(child));
+        p = (after + 3) & ~size_t(3);
+    }
+    next = stop;
+    return true;
+}
+
+void EncodeNode(const VersionNode& node, std::vector<uint8_t>& out) {
+    const size_t at = out.size();
+    PutLe16(out, 0);
+    PutLe16(out, static_cast<uint16_t>(node.text ? node.value.size() / 2 : node.value.size()));
+    PutLe16(out, node.text ? 1 : 0);
+    for (const char16_t c : node.key) PutLe16(out, static_cast<uint16_t>(c));
+    PutLe16(out, 0);
+    Align4(out);
+    out.insert(out.end(), node.value.begin(), node.value.end());
+    for (const VersionNode& child : node.children) {
+        Align4(out);
+        EncodeNode(child, out);
+    }
+    const size_t length = out.size() - at;
+    out[at] = static_cast<uint8_t>(length);
+    out[at + 1] = static_cast<uint8_t>(length >> 8);
+}
+
+std::vector<uint8_t> TextValue(const std::string& text) {
+    std::vector<uint8_t> value;
+    for (const char16_t c : Utf16(text)) PutLe16(value, static_cast<uint16_t>(c));
+    PutLe16(value, 0);
+    return value;
+}
+
+std::string TextOf(const std::vector<uint8_t>& value) {
+    std::u16string text;
+    for (size_t i = 0; i + 1 < value.size(); i += 2) {
+        const char16_t c = static_cast<char16_t>(Le16(value, i));
+        if (c == 0) break;
+        text += c;
+    }
+    return Utf8(text);
+}
+
+}  // namespace
+
+bool ParseVersionResource(const std::vector<uint8_t>& blob, VersionResource& out) {
+    VersionNode root;
+    size_t next = 0;
+    if (!ParseNode(blob, 0, blob.size(), root, next) || root.key != u"VS_VERSION_INFO") return false;
+    out = VersionResource();
+    if (root.value.size() == 52 && Le32(root.value, 0) == 0xFEEF04BD) out.fixed = root.value;
+    for (const VersionNode& info : root.children) {
+        if (info.key == u"StringFileInfo" && !info.children.empty()) {
+            const VersionNode& table = info.children.front();
+            out.table = Utf8(table.key);
+            for (const VersionNode& entry : table.children) out.strings.emplace_back(Utf8(entry.key), TextOf(entry.value));
+        } else if (info.key == u"VarFileInfo") {
+            for (const VersionNode& var : info.children)
+                if (var.key == u"Translation" && var.value.size() >= 4) out.translation = Le32(var.value, 0);
+        }
+    }
+    return true;
+}
+
+std::vector<uint8_t> EncodeVersionResource(const VersionResource& resource) {
+    VersionNode root;
+    root.key = u"VS_VERSION_INFO";
+    root.value = resource.fixed;
+    VersionNode info;
+    info.key = u"StringFileInfo";
+    info.text = true;
+    VersionNode table;
+    table.key = Utf16(resource.table);
+    table.text = true;
+    for (const auto& [key, value] : resource.strings) {
+        VersionNode entry;
+        entry.key = Utf16(key);
+        entry.text = true;
+        entry.value = TextValue(value);
+        table.children.push_back(std::move(entry));
+    }
+    info.children.push_back(std::move(table));
+    root.children.push_back(std::move(info));
+    VersionNode vars;
+    vars.key = u"VarFileInfo";
+    vars.text = true;
+    VersionNode translation;
+    translation.key = u"Translation";
+    PutLe32(translation.value, resource.translation);
+    vars.children.push_back(std::move(translation));
+    root.children.push_back(std::move(vars));
+    std::vector<uint8_t> out;
+    EncodeNode(root, out);
+    return out;
+}
+
+std::string VersionString(const VersionResource& resource, const char* key) {
+    for (const auto& [name, value] : resource.strings)
+        if (name == key) return value;
+    return "";
+}
+
+void SetVersionString(VersionResource& resource, const char* key, const std::string& value) {
+    for (auto& [name, current] : resource.strings)
+        if (name == key) {
+            current = value;
+            return;
+        }
+    resource.strings.emplace_back(key, value);
+}
+
+VersionResource GameVersionResource(bool us, const VersionResource& launcher, const std::string& stamp) {
+    VersionResource game = launcher;
+    const std::string name = GameAppName(us);
+    if (game.fixed.size() != 52) {   // a launcher built without its resources: version 0, an application
+        game.fixed.clear();
+        for (uint32_t word : {0xFEEF04BDu, 0x00010000u, 0u, 0u, 0u, 0u, 0x3Fu, 0u, 0x40004u, 1u, 0u, 0u, 0u}) PutLe32(game.fixed, word);
+    }
+    SetVersionString(game, "FileDescription", name);   // what the Task Manager's Processes tab names the process
+    SetVersionString(game, "InternalName", name);
+    SetVersionString(game, "OriginalFilename", GameExeName(us));
+    SetVersionString(game, "ProductName", name);
+    if (VersionString(game, "FileVersion").empty()) SetVersionString(game, "FileVersion", "0");
+    if (VersionString(game, "ProductVersion").empty()) SetVersionString(game, "ProductVersion", "0");
+    SetVersionString(game, "Comments",
+                     "The game's program, written by the launcher beside tpw_launcher.exe when its window's Play starts the "
+                     "game: the launcher's program under the game's name, with the game's icon");
+    SetVersionString(game, kGameExeStampKey, stamp);
+    return game;
+}
+
+bool IconResourcesFromIco(const std::vector<uint8_t>& ico, uint16_t firstId, IconResources& out) {
+    out = IconResources();
+    if (ico.size() < 6 || Le16(ico, 0) != 0 || Le16(ico, 2) != 1) return false;
+    const size_t count = Le16(ico, 4);
+    if (count == 0 || ico.size() < 6 + 16 * count) return false;
+    PutLe16(out.group, 0);
+    PutLe16(out.group, 1);
+    PutLe16(out.group, static_cast<uint16_t>(count));
+    for (size_t i = 0; i < count; ++i) {
+        const size_t entry = 6 + 16 * i;
+        const uint32_t size = Le32(ico, entry + 8), offset = Le32(ico, entry + 12);
+        if (size == 0 || offset > ico.size() || size > ico.size() - offset) {
+            out = IconResources();
+            return false;
+        }
+        // GRPICONDIRENTRY: the ICONDIRENTRY's first twelve bytes, then the picture's resource ID for its offset
+        out.group.insert(out.group.end(), ico.begin() + static_cast<long>(entry), ico.begin() + static_cast<long>(entry + 12));
+        PutLe16(out.group, static_cast<uint16_t>(firstId + i));
+        out.images.emplace_back(ico.begin() + static_cast<long>(offset), ico.begin() + static_cast<long>(offset + size));
+    }
+    return true;
 }
 
 IconImage ResampleIcon(const IconImage& icon, int size) {
