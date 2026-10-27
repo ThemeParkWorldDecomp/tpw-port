@@ -1114,14 +1114,21 @@ struct sPylonHeadRec {
     uint8_t mF00[0x34];               // 0x00
     float mY;                         // 0x34
 };
+// TPW_PORT_FIX coasterhead sPylonHeadEntry | Mac: 0x14-byte entries, the record pointer at 0x04 | Port: the host's sEmbeddedRecord (include/TPEngine.h, which TPInitialiseEmbeddedData builds): the three words after the pointer are kept, so an entry is as long as a record | Why: a 64-bit build; with only the first two words the host stepped 16 bytes an entry where the records are 32 apart, so BraceHeight (index 1 or 2) and the stacked-pylon height in UpdatePylonStackMeshes (index up to 4) read another record's words as the pointer, and stacking track on a pylon crashed
 struct sPylonHeadEntry {
     uint32_t mF00;                    // 0x00
     sPylonHeadRec* mRec;              // 0x04
+    uint32_t mF08;                    // 0x08
+    uint32_t mF0C;                    // 0x0c
+    uint32_t mF10;                    // 0x10
 };
+static_assert(sizeof(sPylonHeadEntry) == sizeof(sEmbeddedRecord), "a head entry is a record of the mesh's embedded set");
+static_assert(offsetof(sPylonHeadEntry, mRec) == offsetof(sEmbeddedRecord, mBlock), "the record's block is the head");
 struct sPylonHeadTable {
     uint32_t mF00;                    // 0x00
     sPylonHeadEntry* mEntries;        // 0x04
 };
+static_assert(offsetof(sPylonHeadTable, mEntries) == offsetof(sEmbeddedSet, mRecords), "the set's records are the entries");
 extern uint32_t gPylonStackSkip;      // 0x102b68a0  (defined in src/game/rides/CoasterPylon.cpp) nonzero: UpdatePylonStackMeshes does nothing unless told to
 
 // ---- Unit v5190 (src/game/rides/CoasterPylon.cpp): SetPotentialPylonArea is declared above
