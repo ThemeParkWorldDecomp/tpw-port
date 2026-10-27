@@ -1463,13 +1463,11 @@ void DeleteTrackBrace(tag_sCoasterInstance* instance, tag_sTrackBrace* brace) {
             if (cur->mFlags & 0x40) cur = SkipMarked(cur->mNext);
             tag_sRideAnimSet* set = gRideAnimSets[cur->mWord70];
             int32_t index = ControlOf_2(cur->mData)->mF2C;
-            const uint8_t* a = static_cast<const uint8_t*>(set->mHeads->mF28);
-            const uint8_t* b;
-            std::memcpy(&b, a + 4, sizeof(b));
-            const uint8_t* c;
-            std::memcpy(&c, b + index * 0x14 + 4, sizeof(c));
+            // TPW_PORT_FIX coasterundo DeleteTrackBrace | Mac: the set's word 4 (its records), then the word 4 of the 0x14-byte record `index` (its block), then the float 0x34 of the block | Port: the host's sEmbeddedSet::mRecords[index].mBlock and its float 0x34, as CoasterPylon.cpp reads the same height | Why: a 64-bit build; the host set and records hold 8-byte pointers at other offsets, so Backspace in the coaster editor read a pointer from padding and crashed
+            const sEmbeddedSet* embedded = static_cast<const sEmbeddedSet*>(set->mHeads->mF28);
+            const uint8_t* block = embedded->mRecords[index].mBlock;
             float value = 0.0f;
-            if (c != nullptr) std::memcpy(&value, c + 0x34, sizeof(value));
+            if (block != nullptr) std::memcpy(&value, block + 0x34, sizeof(value));
             instance->mF118 = value;
         }
     }
