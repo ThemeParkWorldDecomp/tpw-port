@@ -23,16 +23,21 @@ void main() {
         colour = constants.flags.y == 1 ? texel : colour * texel;
     }
     // GL_NEVER .. GL_ALWAYS are 0x200 .. 0x207: 0 never, 1 less, 2 equal, 3 lequal, 4 greater, 5 notequal, 6 gequal, 7 always.
+    // The test compares 8-bit values, as OpenGL's fixed-function alpha test did (the reference and the fragment's alpha
+    // both converted to the colour buffer's precision). The game draws its cut-out textures (the river banks, a ride's
+    // fur) with GL_GEQUAL 1.0: a filtered alpha of 0.9999, which bilinear filtering gives between texels that are all
+    // 1.0, passes that test rounded, and fails it as a float, in stripes wherever the filter's weights fall short.
     int func = constants.flags.z;
-    float ref = constants.params.x;
+    int a = int(clamp(colour.a, 0.0, 1.0) * 255.0 + 0.5);
+    int ref = int(clamp(constants.params.x, 0.0, 1.0) * 255.0 + 0.5);
     bool pass = true;
     if (func == 0) pass = false;
-    else if (func == 1) pass = colour.a < ref;
-    else if (func == 2) pass = colour.a == ref;
-    else if (func == 3) pass = colour.a <= ref;
-    else if (func == 4) pass = colour.a > ref;
-    else if (func == 5) pass = colour.a != ref;
-    else if (func == 6) pass = colour.a >= ref;
+    else if (func == 1) pass = a < ref;
+    else if (func == 2) pass = a == ref;
+    else if (func == 3) pass = a <= ref;
+    else if (func == 4) pass = a > ref;
+    else if (func == 5) pass = a != ref;
+    else if (func == 6) pass = a >= ref;
     if (!pass) discard;
     outColour = colour;
 }
