@@ -266,7 +266,7 @@ jobs:
           key: flatpak-user-${{ runner.os }}-freedesktop-25.08
       - name: Install Flatpak and flatpak-builder
         run: |
-          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder elfutils   # (eu-strip, for flatpak-builder's finish)
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
       - name: Build the Flatpak bundle
         run: sh devtools/flatpak.sh
