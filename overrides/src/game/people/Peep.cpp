@@ -663,11 +663,12 @@ int32_t CPeep::PeepWalks() {
         const uint8_t kind = static_cast<uint8_t>(Bytes(this)[2]);
         if (kind == 1 || kind == 7) fast = true;
     }
-    void* code = kWalkScript;
+    // TPW_PORT_FIX walkscript CPeep::PeepWalks | Mac: the walk, carry and run scripts are asked after (ESP_RURunningThis) by their addresses, places in the script code | Port: while gPortScriptCode (include/analyser.h) is set, by those places in the host's script code (ScriptCodeAt) | Why: ESP_RURunningThis takes a host pointer into the script code (SCR_CodeAddress, src/game/Script.cpp), so the bare Mac addresses never matched and every walking or running peep's script was started again at its first frame every turn
+    void* code = gPortScriptCode ? ScriptCodeAt(0x1029f2acu) : kWalkScript;
     int32_t script = 1;
     if (static_cast<uint8_t>(Bytes(this)[2]) == 7) {
         if (reinterpret_cast<CGuard*>(this)->IsCarrying()) {
-            code = kCarryScript;
+            code = gPortScriptCode ? ScriptCodeAt(0x1029f948u) : kCarryScript;
             script = 0x17;
         }
     }
@@ -676,7 +677,8 @@ int32_t CPeep::PeepWalks() {
         if (ESP_RURunningThis(At_2<int32_t>(this, 0xc), code) == 0) ds->SetSpriteScript(static_cast<CDelayedScript::ScriptIdx>(script));
     }
     if (fast) {
-        if (ESP_RURunningThis(At_2<int32_t>(this, 0xc), kRunScript) == 0) ds->SetSpriteScript(static_cast<CDelayedScript::ScriptIdx>(2));
+        void* const run = gPortScriptCode ? ScriptCodeAt(0x1029f308u) : kRunScript;
+        if (ESP_RURunningThis(At_2<int32_t>(this, 0xc), run) == 0) ds->SetSpriteScript(static_cast<CDelayedScript::ScriptIdx>(2));
     }
     const int32_t ddx = x1 - x0, ddy = y1 - y0;
     const int32_t sq = static_cast<int32_t>(static_cast<uint32_t>(ddx) * static_cast<uint32_t>(ddx) + static_cast<uint32_t>(ddy) * static_cast<uint32_t>(ddy));
