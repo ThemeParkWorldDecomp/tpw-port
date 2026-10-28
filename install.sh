@@ -76,17 +76,23 @@
 # Mac's administrators as a group, so an administrator writes there with no password; for anyone else it goes in the
 # player's own ~/Applications, which Launchpad and Spotlight search too, and the player is told. The application is
 # small and the install folder is not in it: an Info.plist (the same name and identifier as the launcher's own,
-# launcher/macos/Info.plist.in), the icon as an .icns, and as its program a few lines of shell that start
-# DIR/build/tpw_launcher in DIR, exactly as the themepark command does (write_app below; the launcher then runs from the
-# bundle it keeps beside itself, launcher/app_bundle.h, as it does from themepark). So an update that replaces
-# DIR/build changes nothing in the application, and a launcher that is gone (the install folder deleted) gets a plain
-# message to run the installer again. The icon is the launcher's own (tpw_launcher --write-icon: the game's icon once a
+# launcher/macos/Info.plist.in, and APP_MARK in a comment), the icon as an .icns, and as its program a symbolic link to
+# DIR/build/tpw_launcher (write_app below). macOS then starts the launcher itself as this application: one Dock tile,
+# the one in Applications, which comes to the front, stops bouncing and is the one "Keep in Dock" keeps; the launcher
+# sees that it was opened so and runs on as it is (launcher/app_bundle.h), where from themepark it goes on from the
+# bundle it keeps beside itself. Until 0.1.1 the program was a few lines of shell that started the launcher apart, which
+# gave two tiles, this one bouncing on. So an update that replaces DIR/build changes nothing in the application (the
+# link names the same path), and a launcher that is gone (the install folder deleted) gets macOS's own message that the
+# application cannot be opened. The icon is the launcher's own (tpw_launcher --write-icon: the game's icon once a
 # game is imported, the launcher's stand-in before; app_icon.h), turned into an .icns by Apple's sips and iconutil,
-# which every Mac has. The icon in the Finder and Launchpad is the one of the last install or update; the Dock's while
-# the launcher runs is always the current one. The application is written again at every run and is only ever replaced
-# when it is this script's (APP_MARK in its program); nothing else in /Applications is touched or deleted. It is made
-# by this script on this Mac, never downloaded, so Gatekeeper has nothing to say about it. To remove it, drag it to the
-# Trash (it comes back at the next install or update).
+# which every Mac has. Between installs the launcher keeps that icon.icns up to date itself (launcher/installed_icon.h:
+# when an import ends or the data folder changes, it writes the icon again and touches the .app, as this script does),
+# so the Finder and Launchpad show the game's icon as soon as a game is imported, as the Dock does while the launcher
+# runs. The application is written again at every run and is only ever replaced when it is this script's (APP_MARK in
+# its Info.plist, or in its program, the shell lines of 0.1.0); nothing else in /Applications is touched or deleted.
+# The launcher this script starts at the end is opened as this application too (launch below), so that it is the same
+# tile as the one opened from Applications. It is made by this script on this Mac, never downloaded, so Gatekeeper has
+# nothing to say about it. To remove it, drag it to the Trash (it comes back at the next install or update).
 #
 # The launcher itself writes two more bundles, inside DIR/build and nowhere else (launcher/game_app.h): at each Play of
 # its window the game starts as an application of its own, "Sim Theme Park.app" (the US game) or "Theme Park
@@ -1341,10 +1347,15 @@ EOF
     say "They are in ~/Library/Application Support/STP-TPW Launcher, and this install uses them as they are."
 }
 
+# Opens the launcher: as the application in Applications when write_app put it there (one Dock tile with the one opened
+# from Applications, as the player kept it in the Dock), else the program itself, from DIR. The test hook's
+# application folder (TPW_INSTALL_APPS) is never opened through macOS: a test's launcher starts from DIR.
 launch() {
     info "Starting $DIR/build/tpw_launcher"
     ui_active start "opening the launcher"
-    if (cd "$DIR" && nohup "$DIR/build/tpw_launcher" >/dev/null 2>&1 </dev/null &); then
+    if [ -n "$APP_DIR" ] && [ -z "${TPW_INSTALL_APPS:-}" ] && open "$APP_DIR/$APP_NAME" >/dev/null 2>&1 </dev/null; then
+        ui_done start "the launcher is open"
+    elif (cd "$DIR" && nohup "$DIR/build/tpw_launcher" >/dev/null 2>&1 </dev/null &); then
         ui_done start "the launcher is open"
     else
         say "Couldn't start the launcher. Start it yourself: $DIR/build/tpw_launcher"
@@ -1479,8 +1490,10 @@ write_app() {
     fi
     app="$apps/$APP_NAME"
     exe="$app/Contents/MacOS/STP-TPW-Launcher"
-    # another program of the same name is never replaced; one of ours, or a half-written one with no program, is
-    if [ -e "$app" ] && ! grep -qF "$APP_MARK" "$exe" 2>/dev/null && [ -n "$(ls -A "$app/Contents/MacOS" 2>/dev/null)" ]; then
+    # another program of the same name is never replaced; one of ours (the mark in its Info.plist, or in the shell
+    # program 0.1.0 wrote), or a half-written one with no program, is
+    if [ -e "$app" ] && ! grep -qF "$APP_MARK" "$app/Contents/Info.plist" 2>/dev/null \
+        && ! { [ ! -L "$exe" ] && grep -qF "$APP_MARK" "$exe" 2>/dev/null; } && [ -n "$(ls -A "$app/Contents/MacOS" 2>/dev/null)" ]; then
         say "$app was not made by this installer, so it is left alone."
         return 1
     fi
@@ -1498,7 +1511,7 @@ write_app() {
     make_app_icon "$work" "$icns" && icon=1
     ok=1
     mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" || ok=0
-    [ "$ok" = 0 ] || { write_app_program "$exe.tmp" && chmod 755 "$exe.tmp" && mv -f "$exe.tmp" "$exe"; } || ok=0
+    [ "$ok" = 0 ] || { rm -f "$exe.tmp" && ln -s "$DIR/build/tpw_launcher" "$exe.tmp" && mv -f "$exe.tmp" "$exe"; } || ok=0
     [ "$ok" = 0 ] || { write_app_plist "$app/Contents/Info.plist.tmp" "$icon" && mv -f "$app/Contents/Info.plist.tmp" "$app/Contents/Info.plist"; } || ok=0
     [ "$ok" = 0 ] || { printf 'APPL????' >"$app/Contents/PkgInfo.tmp" && mv -f "$app/Contents/PkgInfo.tmp" "$app/Contents/PkgInfo"; } || ok=0
     if [ "$ok" = 1 ]; then
@@ -1517,29 +1530,9 @@ write_app() {
     APP_DIR=$apps
 }
 
-# The application's program: a few lines of shell that start DIR/build/tpw_launcher in DIR, as the themepark command
-# does (write_command_file), detached: an exec'd launcher stays behind the other windows, a detached one comes to the
-# front (tried both on 2026-10-26). DIR is written in (an application in /Applications cannot find the install from its own
-# place). A missing launcher (the install folder deleted) gets a message, not a silent nothing.
-write_app_program() {
-    # DIR between single quotes: a ' in it becomes '\'' (the installer refuses ", $, ` and \ in it)
-    quoted=$(printf '%s\n' "$DIR" | sed "s/'/'\\\\''/g")
-    cat >"$1" <<EOF
-#!/bin/sh
-$APP_MARK
-# Starts the STP/TPW Launcher installed in the folder named below, as the themepark command does. The installer
-# (install.sh) writes this application again at every install and update. To remove it, drag it to the Trash.
-dir='$quoted'
-if [ ! -x "\$dir/build/tpw_launcher" ]; then
-    osascript -e "display alert \\"STP/TPW Launcher is not installed any more\\" message \\"The launcher was in \$dir. Run the installer again to put it back.\\" as critical" >/dev/null 2>&1
-    exit 1
-fi
-cd "\$dir" && nohup "\$dir/build/tpw_launcher" >/dev/null 2>&1 </dev/null &
-EOF
-}
-
 # The application's Info.plist: the launcher's own name and identifier (launcher/macos/Info.plist.in), the version
-# installed (its numbers: 0.1.1-dev is 0.1.1), the icon when $2 is 1.
+# installed (its numbers: 0.1.1-dev is 0.1.1), the icon when $2 is 1, and APP_MARK in a comment (its program is a link
+# to the launcher, which holds no mark).
 write_app_plist() {
     numbers=${VERSION%-dev}
     case "$numbers" in [0-9]*.[0-9]*.[0-9]*) ;; *) numbers=0.0.0 ;; esac
@@ -1550,6 +1543,9 @@ write_app_plist() {
     cat >"$1" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- $APP_MARK
+     Its program is a link to the STP/TPW Launcher in the install folder. The installer (install.sh) writes this
+     application again at every install and update. To remove it, drag it to the Trash. -->
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>

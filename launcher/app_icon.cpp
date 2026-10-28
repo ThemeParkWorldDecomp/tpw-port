@@ -3,10 +3,16 @@
 
 #include <cctype>
 #include <cstdint>
+#include <cstdlib>
+#include <filesystem>
 #include <string>
+#include <vector>
 
+#include "app_bundle.h"
 #include "app_icon_standin.h"
+#include "game_app.h"
 #include "icon.h"
+#include "installed_icon.h"
 
 // platform.h is not included: it brings the game's own headers, whose Rect and DebugStr clash with Apple's MacTypes.h
 // (platform/gdi_text.cpp keeps clear of it the same way). The one thing wanted from it is the log line.
@@ -104,6 +110,41 @@ void ApplyAppIcon(const std::string& dataFolder, SDL_Window* window) {
     if (surface == nullptr || !SDL_SetWindowIcon(window, surface)) tpw::Log("app icon: not set (%s)", SDL_GetError());
     else tpw::Log("app icon: %s%s%s (%dx%d)", what, own ? ", from " : "", own ? source.c_str() : "", icon.width, icon.height);
     if (surface != nullptr) SDL_DestroySurface(surface);
+#endif
+}
+
+void RefreshInstalledIcon(const std::string& dataFolder) {
+#if defined(__APPLE__) || defined(_WIN32)
+    std::string target;
+#if defined(__APPLE__)
+    // the launcher's build folder: the one holding its bundle (build/STP:TPW Launcher.app), or its program
+    const std::string exe = ExecutablePath();
+    const std::string bundle = BundleOf(exe);
+    const std::string build = exe.empty() ? "" : std::filesystem::path(bundle.empty() ? exe : bundle).parent_path().string();
+    std::vector<std::string> folders;   // where install.sh puts the application (apps_folder)
+    const char* apps = std::getenv("TPW_INSTALL_APPS");
+    const char* home = std::getenv("HOME");
+    if (apps != nullptr && *apps != 0) folders.push_back(apps);
+    else folders = {"/Applications", home != nullptr && *home != 0 ? std::string(home) + "/Applications" : ""};
+    target = InstallerApp(folders, build);
+#else
+    target = ShortcutIconFile(ProgramFolder());
+#endif
+    if (target.empty()) return;   // not installed (a build run where it was built): nothing to keep up to date
+    bool own = false;
+    std::string source, why;
+    const IconImage icon = LoadIcon(dataFolder, own, source);
+#if defined(__APPLE__)
+    const IconRefresh done = RefreshAppIcns(target, EncodeIcns(icon), why);
+#else
+    const IconRefresh done = KeepIconFile(target, tpw::assets::EncodeIco(icon), why);
+    if (done == IconRefresh::Written) TellExplorer(target);
+#endif
+    const char* what = own ? "the game's icon" : "the launcher's stand-in";
+    if (done == IconRefresh::Written) tpw::Log("installed icon: %s now shows %s", target.c_str(), what);
+    else if (done == IconRefresh::Failed) tpw::Log("installed icon: %s not written (%s)", target.c_str(), why.c_str());
+#else
+    (void)dataFolder;
 #endif
 }
 

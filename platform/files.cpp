@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 
 #include "gold_rides.h"
+#include "language_pack.h"
 #include "packs.h"
 #include "platform.h"
 #include "platform/macdoze.h"
@@ -63,7 +64,7 @@ std::vector<std::string> SplitGamePath(const std::string& gamePath) {
 // which the game's names may hold (a park saved as "Test?"; the Mac refused only ':', its separator, and the game turns a
 // character it cannot store in a narrow name into '?'). There each of them, and '%' itself, is kept as '%' and its two hex
 // digits, and read back so when a folder is listed; a '%' that does not start one of those is read as itself, so a file
-// named before stays found. Elsewhere the names are the same.
+// named before stays found. Elsewhere the names are the same. From tpw-port PR #73 by samueleagle91.
 #ifdef _WIN32
 static const char kEscapedInHostNames[] = "<>\"|?*%";
 
@@ -181,6 +182,11 @@ fs::path FindHostPath(const std::string& gamePath) {
     const auto parts = SplitGamePath(gamePath);
     fs::path found = FindUnder(config().userDir, parts);
     if (!found.empty()) return found;
+    // The chosen language (language_pack.h): its text, speech and pictures, at their places in the game folder.
+    if (LanguagePackCovers(parts)) {
+        found = FindUnder(LanguagePackFolder(), parts);
+        if (!found.empty()) return found;
+    }
     // From a pack only a file a pack may hold, so neither a folder nor another kind of file there (one put in
     // ".unpacked" by hand, or unpacked by older rules) takes a game file's place.
     if (PackMayHold(JoinParts(parts))) {
@@ -247,16 +253,22 @@ uint64_t FileTimeOf(const fs::path& path) {
 std::vector<DirEntry> ListGameFolder(const std::string& gamePath) {
     const auto parts = SplitGamePath(gamePath);
     const std::string inside = JoinParts(parts);
-    // The user folder, the asset packs (packs.h), the game folder; from a pack only the files a pack may hold. The Gold
-    // rides (gold_rides.h) are listed with the game folder, as the Gold installer's copies would be in it: a Gold copy
-    // of a base ride takes the base entry's place, a new ride is sorted in among the base ones.
-    std::vector<std::pair<fs::path, bool>> roots{{config().userDir, false}};
-    for (const fs::path& pack : PackDirs()) roots.emplace_back(pack, true);
-    roots.emplace_back(config().gameDir, false);
+    // The user folder, the chosen language (language_pack.h), the asset packs (packs.h), the game folder; from the
+    // language only the folders it covers (in data/Language its own folder alone, so the game takes it as its language),
+    // from a pack only the files a pack may hold. The Gold rides (gold_rides.h) are listed with the game folder, as the
+    // Gold installer's copies would be in it: a Gold copy of a base ride takes the base entry's place, a new ride is
+    // sorted in among the base ones.
+    enum class Root { kUser, kLanguage, kPack, kGame };
+    std::vector<std::pair<fs::path, Root>> roots{{config().userDir, Root::kUser}};
+    if (LanguagePackCovers(parts) || LanguagePackLists(parts, LanguagePackName()))
+        roots.emplace_back(LanguagePackFolder(), Root::kLanguage);
+    for (const fs::path& pack : PackDirs()) roots.emplace_back(pack, Root::kPack);
+    roots.emplace_back(config().gameDir, Root::kGame);
     std::vector<DirEntry> entries;
     for (size_t r = 0; r < roots.size(); ++r) {
-        const auto& [root, pack] = roots[r];
-        const bool game = r + 1 == roots.size();
+        const auto& [root, source] = roots[r];
+        const bool pack = source == Root::kPack;
+        const bool game = source == Root::kGame;
         const std::vector<DirEntry> gold = game ? GoldRideEntries(inside) : std::vector<DirEntry>();
         const fs::path folder = FindUnder(root, parts);
         std::error_code ec;
@@ -268,6 +280,7 @@ std::vector<DirEntry> ListGameFolder(const std::string& gamePath) {
             if (name.empty() || name[0] == '.' || IsDumpSideFile(it->path())) continue;
             std::error_code kind;
             if (pack && (!it->is_regular_file(kind) || !PackMayHold(inside.empty() ? name : inside + "/" + name))) continue;
+            if (source == Root::kLanguage && !LanguagePackLists(parts, name)) continue;
             const bool seen = std::any_of(entries.begin(), entries.end(),
                                           [&](const DirEntry& e) { return EqualNoCase(e.name, name); });
             if (seen) continue;

@@ -7,7 +7,9 @@
 // device until a sample plays; SDL pulls from it, and the stream's get callback calls the channel's
 // pull function (the game's TbSoundPipeChannel::StreamerCallback) for one chunk at a time, so the
 // game's pipes are drained exactly as fast as the speakers play. The callback runs on SDL's audio
-// thread.
+// thread. With gPortSoundPan, each chunk goes into its stream as 16-bit stereo at the sample's rate, with the stream's
+// pan applied (SetPan), and the counts below (Feed, Queued) are still in the sample's own format; without it
+// the chunk goes in as the sample has it, and SetPan changes nothing heard.
 #pragma once
 #include <atomic>
 #include <cstdint>
@@ -29,6 +31,10 @@ struct SoundSource {
 // false when this was the end (the buffer then holds nothing worth playing, as the Mac's callback
 // did not play it either).
 using SoundPull = std::function<bool(void* buffer, uint32_t size)>;
+
+// The launcher's "Stereo panning" (tpw-port PR #19, samueleagle91): set before the game starts; read when a sample is set on
+// a stream. False, the original's way: every chunk goes in as it is and every sound plays centred.
+inline bool gPortSoundPan = false;
 
 class SoundDevice {
 public:
@@ -74,6 +80,12 @@ public:
     bool SetGain(uint32_t stream, float gain);
     float Gain(uint32_t stream) const;
 
+    // How much of the sample each speaker plays (0..1), for a sound placed in the park; 1 and 1
+    // at first and after SetSource. A pull plays its chunk moving from the last chunk's pair to
+    // this one, so a sound that moves does not click.
+    void SetPan(uint32_t stream, float left, float right);
+    void Pan(uint32_t stream, float* left, float* right) const;
+
     // State, for the tests and the log.
     bool IsBound(uint32_t stream) const;       // the stream is bound to the device
     bool IsEnded(uint32_t stream) const;       // a pull answered false: nothing more is pulled
@@ -86,7 +98,9 @@ public:
     void SetDevicePaused(bool paused);
 
     // Every chunk put in a stream is appended to the file TPW_SOUND_CAPTURE names (raw samples in
-    // the stream's source format) and described in a line of "<file>.log"; set when Open ran.
+    // the stream's source format) and described in a line of "<file>.log"; set when Open ran. With
+    // gPortSoundPan the same chunk as it went into the stream (16-bit stereo, panned) goes to
+    // "<file>.stereo", with a line of "<file>.stereo.log" giving its stream, rate, frames, time and pan.
     static bool CaptureActive();
 
     struct Stream;
@@ -99,5 +113,14 @@ private:
 // The bytes of one sample in the formats the stream takes: 1 for 8 bits, 2 for 16, 4 for 32, 0 for
 // a width SDL cannot play.
 uint32_t SoundBytesPerSample(uint32_t bits);
+
+// `bytes` of `source` samples as 16-bit stereo frames in `out`, each frame's left and right scaled
+// by gains that move in a straight line from `from` (left, right) to `to` over the chunk, reaching
+// `to` on its last frame. 8 bits become 16 as SDL widens them; 32 go to 16 as SDL converts them (to the
+// nearest, not cut). A mono sample plays the same sample on both sides; a stereo one has its left
+// scaled by the left gain and its right by the right (a balance; the game plays no stereo sample on a
+// 3D channel, so it is never panned).
+void SoundToStereo(const void* in, uint32_t bytes, const SoundSource& source, const float from[2], const float to[2],
+                   std::vector<int16_t>& out);
 
 }  // namespace tpw

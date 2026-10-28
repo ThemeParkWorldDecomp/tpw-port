@@ -15,7 +15,6 @@ name: installer
 
 on:
   push:
-    branches-ignore: [ci-play]
     paths: [install.sh, install.ps1, devtools/test_install_log_scrub.sh, .github/workflows/installer.yml]
   pull_request:
     paths: [install.sh, install.ps1, devtools/test_install_log_scrub.sh, .github/workflows/installer.yml]
@@ -81,16 +80,16 @@ jobs:
             if ! grep -q '<string>STP/TPW Launcher</string>' "$app/Contents/Info.plist"; then
               echo "::error::$name: $app has no Info.plist naming STP/TPW Launcher"; exit 1
             fi
-            if [ ! -x "$app/Contents/MacOS/STP-TPW-Launcher" ] || ! "$app/Contents/MacOS/STP-TPW-Launcher"; then
-              echo "::error::$name: the application's program did not run"; exit 1
+            # its program is a link to the launcher in DIR: macOS opens the launcher itself as this application
+            # (one Dock tile; launcher/app_bundle.h)
+            if [ ! -L "$app/Contents/MacOS/STP-TPW-Launcher" ] || [ ! "$app/Contents/MacOS/STP-TPW-Launcher" -ef "$dir/build/tpw_launcher" ]; then
+              echo "::error::$name: the application's program is not a link to $dir/build/tpw_launcher"; exit 1
             fi
-            # the program starts the launcher detached and returns at once: give the stand-in a moment to write its line
-            for _ in $(seq 40); do
-              [ "$(grep -cF "STP/TPW Launcher v0.0.0-dev args= cwd=$dir" "$dir/stub-launch.txt" 2>/dev/null)" = 1 ] && break
-              sleep 0.5
-            done
-            if [ "$(grep -cF "STP/TPW Launcher v0.0.0-dev args= cwd=$dir" "$dir/stub-launch.txt" 2>/dev/null)" != 1 ]; then
-              echo "::error::$name: the application's program did not start the launcher in $dir"; exit 1
+            if ! grep -qF '<!-- # tpw-port installer: the STP/TPW Launcher application' "$app/Contents/Info.plist"; then
+              echo "::error::$name: the application's Info.plist does not carry the installer's mark"; exit 1
+            fi
+            if ! "$app/Contents/MacOS/STP-TPW-Launcher" --version | grep -qxF 'STP/TPW Launcher v0.0.0-dev'; then
+              echo "::error::$name: the application's program did not run the launcher"; exit 1
             fi
           done
       - name: The same line installs, then updates, and leaves an old clone alone

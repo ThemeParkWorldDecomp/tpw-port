@@ -172,6 +172,9 @@ template<> void CFSOnlineSystemList<TbPtrList<CFSOnlineCity>, ccCityList>::Compl
 // __ptr_glue, and a city record's virtual destructor (vtable +8, flag 1). The host fields cannot hold a function pointer and CFSOnlineCity
 // has no vtable, so both go through these hooks (the defaults treat the word as a 32-bit address, and delete the record); tests replace them.
 extern void (*gOnlineListCallbackCaller)(int32_t callback, int32_t error, int32_t context, void* list);
+// TPW_PORT_FIX list64 gPortCityListCallback/gPortCityListContext | Mac: the city list's callback and its context are kept only in the 32-bit words at 0x1c and 0x20 | Port: the whole pointers are kept here as well (CFSOnlineSystemCityList::GetList), and the default caller (CallListCallbackDefault) calls these while the words still hold their low 32 bits | Why: a 64-bit build; the words cannot hold a host pointer, so the login panel's Cancel called the globe's list callback at a cut-down address and crashed
+inline OnlineListCallback<TbPtrList<CFSOnlineCity>>::Type gPortCityListCallback = nullptr;
+inline const void* gPortCityListContext = nullptr;
 extern void (*gCityRecordDeleter)(CFSOnlineCity* city);
 
 class CFSOnlineSystemCityList : public CFSOnlineSystemList<TbPtrList<CFSOnlineCity>, ccCityList> {

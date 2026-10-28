@@ -307,25 +307,24 @@ check_build() { # DIR VERSION CHANNEL
 }
 
 # The application in the folder that stands for /Applications (TPW_INSTALL_APPS): named for the Finder, its Info.plist
-# names STP/TPW Launcher and carries the version's numbers, its program is the installer's and starts the launcher of DIR
-# (the stand-in notes "args= cwd=DIR" once more). ICON=1: the icon is there too (a real build).
+# names STP/TPW Launcher, carries the version's numbers and the installer's mark, and its program is a link to the
+# launcher of DIR, which it runs (macOS opens the launcher itself as this application; launcher/app_bundle.h). ICON=1:
+# the icon is there too (a real build).
 check_app() { # DIR VERSION [ICON]
-    local app="$TPW_INSTALL_APPS/STP:TPW Launcher.app" exe before
+    local app="$TPW_INSTALL_APPS/STP:TPW Launcher.app" exe
     exe="$app/Contents/MacOS/STP-TPW-Launcher"
     [ -d "$app" ] || bad "$app is missing"
     grep -qF '<string>STP/TPW Launcher</string>' "$app/Contents/Info.plist" || bad "the application's Info.plist does not name STP/TPW Launcher"
     grep -qF "<string>${2%-dev}</string>" "$app/Contents/Info.plist" || bad "the application's Info.plist does not carry version ${2%-dev}"
     grep -qF '<string>org.tpw-port.launcher</string>' "$app/Contents/Info.plist" || bad "the application's Info.plist has not the launcher's identifier"
-    expect_in "$exe" '# tpw-port installer: the STP/TPW Launcher application'
-    [ -x "$exe" ] || bad "the application's program is not executable"
+    expect_in "$app/Contents/Info.plist" '<!-- # tpw-port installer: the STP/TPW Launcher application'
+    { [ -L "$exe" ] && [ "$exe" -ef "$1/build/tpw_launcher" ]; } || bad "the application's program is not a link to $1/build/tpw_launcher"
     expect_eq "PkgInfo" "$(cat "$app/Contents/PkgInfo")" 'APPL????'
     if [ "${3:-0}" = 1 ]; then
         [ -s "$app/Contents/Resources/icon.icns" ] || bad "the application has no icon"
         grep -qF '<string>icon</string>' "$app/Contents/Info.plist" || bad "the application's Info.plist names no icon"
     else
-        before=$(launch_count "$1" "STP/TPW Launcher v$2 args= cwd=$1")
-        "$exe" || bad "the application's program did not run"
-        wait_for_count "$1" "STP/TPW Launcher v$2 args= cwd=$1" "$before" || bad "the application did not start the launcher of $1"
+        expect_eq "the application's program --version" "$("$exe" --version | head -n 1)" "STP/TPW Launcher v$2"
     fi
 }
 
@@ -607,19 +606,33 @@ case_rerun() {
     [ ! -e "$DIR/build-next" ] || bad "a run with nothing new left a build-next"
     check_new_shell "$DIR" 0.0.1
 
+    # the application as 0.1.0 wrote it (no mark in its Info.plist, a shell program with the mark), which the update
+    # replaces with the link
+    local app="$TPW_INSTALL_APPS/STP:TPW Launcher.app"
+    sed '/tpw-port installer/d' "$app/Contents/Info.plist" >"$C/plist" && mv "$C/plist" "$app/Contents/Info.plist"
+    rm -f "$app/Contents/MacOS/STP-TPW-Launcher"
+    printf '#!/bin/sh\n# tpw-port installer: the STP/TPW Launcher application\n' >"$app/Contents/MacOS/STP-TPW-Launcher"
     # a newer release (annotated this time): it updates, keeps the one before
     fake_release 0.0.2
     run_line "$C/out3" --no-launch
     ok_run "$C/out3" 0.0.2
     expect_text "$C/out3" 'Switched to version 0.0.2. The one before is kept in'
     check_build "$DIR" 0.0.2 stable
+    check_app "$DIR" 0.0.2
     expect_in "$DIR/build-prev/install-info.txt" "version=0.0.1"
     expect_eq ".zprofile lines" "$(marked_lines "$H/.zprofile")" 1
     check_new_shell "$DIR" 0.0.2
-    # the launcher the update starts (no --no-launch): from DIR, as the new version
+    # another application of that name (no mark anywhere) is left alone; the launcher the update starts (no
+    # --no-launch): from DIR, as the new version
+    sed '/tpw-port installer/d' "$app/Contents/Info.plist" >"$C/plist" && mv "$C/plist" "$app/Contents/Info.plist"
+    rm -f "$app/Contents/MacOS/STP-TPW-Launcher"
+    printf '#!/bin/sh\necho not ours\n' >"$app/Contents/MacOS/STP-TPW-Launcher"
     fake_release 0.0.3
     run_line "$C/out4"
     ok_run "$C/out4" 0.0.3
+    expect_text "$C/out4" 'was not made by this installer, so it is left alone'
+    [ ! -L "$app/Contents/MacOS/STP-TPW-Launcher" ] && grep -qx 'echo not ours' "$app/Contents/MacOS/STP-TPW-Launcher" \
+        || bad "another application of that name was replaced"
     wait_for_count "$DIR" "STP/TPW Launcher v0.0.3 args= cwd=$DIR" 0 || bad "the update did not start the new launcher"
     snap "$DATA" >"$C/data-after.txt"
     cmp -s "$C/data-before.txt" "$C/data-after.txt" || bad "the data folder was changed"

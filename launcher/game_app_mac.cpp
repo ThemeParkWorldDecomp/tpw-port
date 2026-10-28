@@ -123,7 +123,7 @@ std::string WorkingFolder() {
 bool StartGameApp(int argc, char** argv, bool us, const std::string& dataFolder, bool activate, GameApp& app, std::string& why) {
     const std::string exe = ExecutablePath();
     const std::string own = BundleOf(exe);
-    if (own.empty()) {
+    if (own.empty() && LauncherApp().empty()) {
         why = "the launcher does not run from its own bundle";
         return false;
     }
@@ -132,7 +132,9 @@ bool StartGameApp(int argc, char** argv, bool us, const std::string& dataFolder,
         why = "the program has no Info.plist embedded";
         return false;
     }
-    const fs::path bundle = fs::path(own).parent_path() / GameBundleName(us);
+    // beside the launcher's bundle in build/; run as the installer's application (app_bundle.h), the program is the
+    // bare one in build/ itself, so beside it: never in Applications
+    const fs::path bundle = (own.empty() ? fs::path(exe) : fs::path(own)).parent_path() / GameBundleName(us);
     bool ownIcon = false;
     std::string source;
     const std::vector<uint8_t> icns = EncodeIcns(LoadAppIcon(dataFolder, ownIcon, source));
@@ -173,9 +175,14 @@ bool OpenLauncherApp(int argc, char** argv, std::string& why) {
         why = "the program has no Info.plist embedded";
         return false;
     }
-    const fs::path launcher = fs::path(own).parent_path() / kLauncherBundleName;
-    std::string program, made;
-    if (!KeepBundle(exe, launcher.string(), plist, {}, program, made, why)) return false;
+    // The installer's application when the launcher ran as it (TPW_LAUNCHER_APP, app_bundle.h) and its program is still
+    // this one: the Dock's tile in Applications lights up again. It is the installer's, so it is opened as it is.
+    fs::path launcher = LauncherApp();
+    if (launcher.empty() || !AppRunsProgram(launcher.string(), exe)) {
+        launcher = fs::path(own).parent_path() / kLauncherBundleName;
+        std::string program, made;
+        if (!KeepBundle(exe, launcher.string(), plist, {}, program, made, why)) return false;
+    }
     Id running = nullptr;
     int pid = 0;
     if (!OpenApplication(launcher.string(), LauncherArguments(argc, argv), true, running, pid, why)) return false;

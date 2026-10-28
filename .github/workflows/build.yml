@@ -8,7 +8,6 @@ name: build
 
 on:
   push:
-    branches-ignore: [ci-play]   # the temporary play workflow builds these sources itself
   pull_request:
   workflow_dispatch:
 
@@ -34,6 +33,28 @@ jobs:
           submodules: recursive
       - name: No network code outside launcher/net
         run: python3 -I devtools/check_offline.py
+
+  # The "no game data" rule (CONTRIBUTING.md, "Before a pull request"): the repository never holds the game's files, a
+  # link to them, or what names a particular download. A pull request fails when it adds an item or download link of the
+  # Internet Archive, a web address ending in a disc image, a magnet or torrent link, a file host's share link, a disc
+  # image's file name, an MD5, a long hash beside a disc or download, a Redump id, a game-download site's name or an item
+  # title, or a commit message with one. A push to a branch checks every tracked file. A static read, so any
+  # runner does; the patterns and what they allow are at the top of devtools/check_no_game_data.py.
+  no-game-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: The patterns still catch and still allow what they should
+        run: python3 -I devtools/check_no_game_data.py --self-test
+      - name: A pull request adds no link to the game's files
+        if: github.event_name == 'pull_request'
+        run: python3 -I devtools/check_no_game_data.py --base "${{ github.event.pull_request.base.sha }}"
+      - name: No tracked file holds a link to the game's files
+        if: github.event_name != 'pull_request'
+        run: python3 -I devtools/check_no_game_data.py --tree
 
   windows:
     strategy:

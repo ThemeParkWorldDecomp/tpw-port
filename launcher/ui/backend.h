@@ -39,6 +39,8 @@ public:
     // a new value there.
     virtual std::string Setting(const std::string& key) const { return std::string(); }
     virtual bool SaveSetting(const std::string& key, const std::string& value, std::string& err) { return true; }
+    // Every language pack's state (assets/importer.h Languages()): available, partial with what is missing, or absent.
+    virtual std::vector<assets::LanguageStatus> Languages() const { return {}; }
 };
 
 class ImporterBackend : public ImportBackend {
@@ -79,6 +81,7 @@ public:
     // Kept straight in the file (SaveIniExtra), and remembered here: the open importer's copy of the file does not see it.
     std::string Setting(const std::string& key) const override;
     bool SaveSetting(const std::string& key, const std::string& value, std::string& err) override;
+    std::vector<assets::LanguageStatus> Languages() const override;
 
 private:
     std::string IniPath() const;

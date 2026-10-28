@@ -18,6 +18,8 @@
 
 #include <SDL3/SDL.h>
 
+#include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -36,10 +38,15 @@ bool gAudioInitialised = false;   // SDL_InitSubSystem(SDL_INIT_AUDIO) ran once;
 // The stream whose pull the calling thread is inside, if any.
 thread_local const void* gPulling = nullptr;
 
-// TPW_SOUND_CAPTURE: the raw samples of every chunk, and a line per chunk saying whose they are.
+// TPW_SOUND_CAPTURE: the raw samples of every chunk, and a line per chunk saying whose they are. With gPortSoundPan, beside
+// them, "<file>.stereo" keeps each chunk as it went into its stream (16-bit stereo, the pan applied) and "<file>.stereo.log"
+// a line per chunk with its stream, rate, frames, the milliseconds since the capture opened and the pan it moved from and to.
 std::mutex gCaptureLock;
 FILE* gCapture = nullptr;
 FILE* gCaptureLog = nullptr;
+FILE* gCaptureStereo = nullptr;
+FILE* gCaptureStereoLog = nullptr;
+std::chrono::steady_clock::time_point gCaptureStart;
 
 void CaptureOpen() {
     std::lock_guard<std::mutex> guard(gCaptureLock);
@@ -53,6 +60,11 @@ void CaptureOpen() {
     }
     const std::string logPath = std::string(path) + ".log";
     gCaptureLog = std::fopen(logPath.c_str(), "ab");
+    if (gPortSoundPan) {   // the stereo chunks exist only with the pan
+        gCaptureStereo = std::fopen((std::string(path) + ".stereo").c_str(), "ab");
+        gCaptureStereoLog = std::fopen((std::string(path) + ".stereo.log").c_str(), "ab");
+    }
+    gCaptureStart = std::chrono::steady_clock::now();
     tpw::Log("sound: capturing the chunks to %s", path);
 }
 
@@ -60,8 +72,12 @@ void CaptureClose() {
     std::lock_guard<std::mutex> guard(gCaptureLock);
     if (gCapture != nullptr) std::fclose(gCapture);
     if (gCaptureLog != nullptr) std::fclose(gCaptureLog);
+    if (gCaptureStereo != nullptr) std::fclose(gCaptureStereo);
+    if (gCaptureStereoLog != nullptr) std::fclose(gCaptureStereoLog);
     gCapture = nullptr;
     gCaptureLog = nullptr;
+    gCaptureStereo = nullptr;
+    gCaptureStereoLog = nullptr;
 }
 
 void CaptureChunk(uint32_t stream, const SoundSource& source, const void* data, uint32_t bytes) {
@@ -76,6 +92,21 @@ void CaptureChunk(uint32_t stream, const SoundSource& source, const void* data, 
     }
 }
 
+void CaptureStereoChunk(uint32_t stream, const SoundSource& source, const std::vector<int16_t>& stereo, const float from[2],
+                        const float to[2]) {
+    std::lock_guard<std::mutex> guard(gCaptureLock);
+    if (gCaptureStereo == nullptr) return;
+    std::fwrite(stereo.data(), sizeof(int16_t), stereo.size(), gCaptureStereo);
+    std::fflush(gCaptureStereo);
+    if (gCaptureStereoLog != nullptr) {
+        const long long ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - gCaptureStart).count();
+        std::fprintf(gCaptureStereoLog, "stream %u rate %u frames %u ms %lld from %.4f %.4f to %.4f %.4f\n", stream, source.rate,
+                     static_cast<uint32_t>(stereo.size() / 2), ms, from[0], from[1], to[0], to[1]);
+        std::fflush(gCaptureStereoLog);
+    }
+}
+
 SDL_AudioFormat FormatOf(uint32_t bits) {
     switch (bits) {
     case 8: return SDL_AUDIO_U8;
@@ -85,6 +116,12 @@ SDL_AudioFormat FormatOf(uint32_t bits) {
     }
 }
 
+// The bytes of one frame of the source (one sample per channel), and of the 16-bit stereo frame it becomes.
+uint32_t FrameBytes(const SoundSource& source) {
+    return SoundBytesPerSample(source.bits) * source.channels;
+}
+constexpr uint32_t kStereoFrameBytes = 4;
+
 }  // namespace
 
 uint32_t SoundBytesPerSample(uint32_t bits) {
@@ -93,6 +130,36 @@ uint32_t SoundBytesPerSample(uint32_t bits) {
     case 16: return 2;
     case 32: return 4;
     default: return 0;
+    }
+}
+
+void SoundToStereo(const void* in, uint32_t bytes, const SoundSource& source, const float from[2], const float to[2],
+                   std::vector<int16_t>& out) {
+    const uint32_t width = SoundBytesPerSample(source.bits);
+    const uint32_t frameBytes = FrameBytes(source);
+    const uint32_t frames = frameBytes == 0 ? 0 : bytes / frameBytes;
+    out.resize(static_cast<size_t>(frames) * 2);
+    const uint8_t* bytesIn = static_cast<const uint8_t*>(in);
+    auto sample = [&](uint32_t index) -> int32_t {
+        const uint8_t* at = bytesIn + static_cast<size_t>(index) * width;
+        switch (width) {
+        case 1: return (static_cast<int32_t>(at[0]) - 0x80) * 0x100;
+        case 2: { int16_t s; std::memcpy(&s, at, 2); return s; }
+        default: {   // as SDL: to a float by 2^-31, back by 2^15 rounded to the nearest, below
+            int32_t s;
+            std::memcpy(&s, at, 4);
+            return static_cast<int32_t>(std::lrintf(static_cast<float>(s) * (1.0f / 65536.0f)));
+        }
+        }
+    };
+    for (uint32_t i = 0; i < frames; ++i) {
+        const float step = static_cast<float>(i + 1) / static_cast<float>(frames);
+        const float gains[2] = {from[0] + (to[0] - from[0]) * step, from[1] + (to[1] - from[1]) * step};
+        for (uint32_t side = 0; side < 2; ++side) {
+            const int32_t s = sample(i * source.channels + (source.channels == 2 ? side : 0));
+            const float scaled = std::nearbyint(static_cast<float>(s) * gains[side]);   // to the nearest, as SDL's F32 to S16
+            out[i * 2 + side] = static_cast<int16_t>(scaled > 32767.0f ? 32767.0f : scaled < -32768.0f ? -32768.0f : scaled);
+        }
     }
 }
 
@@ -112,17 +179,23 @@ struct SoundDevice::Stream {
     bool unbindPending = false;   // bound in SDL although `bound` is false: an unbind was asked from inside the callback
     bool paused = false;
     bool ended = false;
+    float pan[2] = {1.0f, 1.0f};      // SetPan: what the next chunk moves to
+    float played[2] = {1.0f, 1.0f};   // what the last chunk ended on
+    bool panFresh = true;             // no chunk since the source was set: the first one starts at `pan`
+    bool panned = false;              // gPortSoundPan when the source was set: chunks go in as 16-bit stereo; else as they are
     std::atomic<uint32_t> pulled{0};
 
     enum class Result { Delivered, Over, Stale };
 
-    // One pull and, when it carries data, its chunk into the SDL stream. A paused stream is not pulled by SDL's callback
-    // (`firstChunk` is the one pull that Play makes whatever the pause). `bytes` gets the chunk's size.
+    // One pull and, when it carries data, its chunk into the SDL stream: as it is, or with gPortSoundPan as 16-bit stereo with
+    // the pan. A paused stream is not pulled by SDL's callback (`firstChunk` is the one pull that Play makes whatever the
+    // pause). `bytes` gets the size of what went into the stream.
     Result PullOnce(bool firstChunk, uint32_t* bytes) {
         SoundPull fn;
         SoundSource src;
         uint32_t size;
         uint64_t gen;
+        bool stereoOut;
         {
             std::lock_guard<std::mutex> guard(lock);
             if (!hasSource || !pull || ended || (paused && !firstChunk)) return Result::Stale;
@@ -130,6 +203,7 @@ struct SoundDevice::Stream {
             src = source;
             size = chunk;
             gen = generation;
+            stereoOut = panned;
         }
         thread_local std::vector<uint8_t> scratch;
         scratch.assign(size, src.bits == 8 ? 0x80 : 0);   // silence in the format
@@ -137,25 +211,44 @@ struct SoundDevice::Stream {
         gPulling = this;
         const bool more = fn(scratch.data(), size);
         gPulling = outer;
+        float from[2], to[2];
         {
             std::lock_guard<std::mutex> guard(lock);
             if (gen != generation) return Result::Stale;
             if (!more) ended = true;
+            to[0] = pan[0];
+            to[1] = pan[1];
+            from[0] = panFresh ? pan[0] : played[0];
+            from[1] = panFresh ? pan[1] : played[1];
+            if (more) {
+                played[0] = to[0];
+                played[1] = to[1];
+                panFresh = false;
+            }
         }
         if (!more) {
             SDL_FlushAudioStream(sdl);   // what is queued plays to its end
             return Result::Over;
         }
         CaptureChunk(index, src, scratch.data(), size);
-        if (!SDL_PutAudioStreamData(sdl, scratch.data(), static_cast<int>(size))) {
+        const void* data = scratch.data();
+        int putBytes = static_cast<int>(size);
+        thread_local std::vector<int16_t> stereo;
+        if (stereoOut) {
+            SoundToStereo(scratch.data(), size, src, from, to, stereo);
+            CaptureStereoChunk(index, src, stereo, from, to);
+            data = stereo.data();
+            putBytes = static_cast<int>(stereo.size() * sizeof(int16_t));
+        }
+        if (!SDL_PutAudioStreamData(sdl, data, putBytes)) {
             tpw::Log("sound: stream %u refused a chunk (%s)", index, SDL_GetError());
         }
         ++pulled;
-        if (bytes != nullptr) *bytes = size;
+        if (bytes != nullptr) *bytes = static_cast<uint32_t>(putBytes);
         return Result::Delivered;
     }
 
-    // SDL's get callback: `additional` bytes of the source format are needed that the stream does not
+    // SDL's get callback: `additional` bytes (in the format the chunks go in) are needed that the stream does not
     // hold; pull chunks until that is met (at least one chunk when anything is needed).
     uint32_t Feed(int additional) {
         uint32_t delivered = 0;
@@ -291,10 +384,11 @@ bool SoundDevice::SetSource(uint32_t index, const SoundSource& source, uint32_t 
     Stop(index);
     const uint32_t width = SoundBytesPerSample(source.bits);
     if (width == 0 || source.rate == 0 || source.channels < 1 || source.channels > 2 || chunk == 0) return false;
+    const bool panned = gPortSoundPan;   // with it, the chunks go in as 16-bit stereo at the sample's rate (PullOnce)
     SDL_AudioSpec spec;
     SDL_zero(spec);
-    spec.format = FormatOf(source.bits);
-    spec.channels = static_cast<int>(source.channels);
+    spec.format = panned ? SDL_AUDIO_S16 : FormatOf(source.bits);
+    spec.channels = panned ? 2 : static_cast<int>(source.channels);
     spec.freq = static_cast<int>(source.rate);
     if (!SDL_SetAudioStreamFormat(stream.sdl, &spec, nullptr)) {
         tpw::Log("sound: stream %u cannot take %u Hz, %u bits, %u channels (%s)", index, source.rate, source.bits,
@@ -306,6 +400,10 @@ bool SoundDevice::SetSource(uint32_t index, const SoundSource& source, uint32_t 
     stream.chunk = chunk;
     stream.hasSource = true;
     stream.pulled = 0;
+    stream.pan[0] = stream.pan[1] = 1.0f;
+    stream.played[0] = stream.played[1] = 1.0f;
+    stream.panFresh = true;
+    stream.panned = panned;
     return true;
 }
 
@@ -425,6 +523,24 @@ float SoundDevice::Gain(uint32_t index) const {
     return SDL_GetAudioStreamGain(mStreams[index]->sdl);
 }
 
+void SoundDevice::SetPan(uint32_t index, float left, float right) {
+    if (index >= mStreams.size()) return;
+    std::lock_guard<std::mutex> guard(mStreams[index]->lock);
+    mStreams[index]->pan[0] = left;
+    mStreams[index]->pan[1] = right;
+}
+
+void SoundDevice::Pan(uint32_t index, float* left, float* right) const {
+    float pan[2] = {0.0f, 0.0f};
+    if (index < mStreams.size()) {
+        std::lock_guard<std::mutex> guard(mStreams[index]->lock);
+        pan[0] = mStreams[index]->pan[0];
+        pan[1] = mStreams[index]->pan[1];
+    }
+    if (left != nullptr) *left = pan[0];
+    if (right != nullptr) *right = pan[1];
+}
+
 bool SoundDevice::IsBound(uint32_t index) const {
     if (index >= mStreams.size()) return false;
     std::lock_guard<std::mutex> guard(mStreams[index]->lock);
@@ -442,14 +558,34 @@ uint32_t SoundDevice::Pulled(uint32_t index) const {
     return mStreams[index]->pulled.load();
 }
 
+// A panned stream holds 16-bit stereo: its counts are turned back into the source's bytes.
 int SoundDevice::Queued(uint32_t index) const {
     if (index >= mStreams.size()) return 0;
-    return SDL_GetAudioStreamQueued(mStreams[index]->sdl);
+    uint32_t frameBytes;
+    bool panned;
+    {
+        std::lock_guard<std::mutex> guard(mStreams[index]->lock);
+        frameBytes = FrameBytes(mStreams[index]->source);
+        panned = mStreams[index]->panned;
+    }
+    const int queued = SDL_GetAudioStreamQueued(mStreams[index]->sdl);
+    if (!panned) return queued;
+    return queued <= 0 ? queued : queued / static_cast<int>(kStereoFrameBytes) * static_cast<int>(frameBytes);
 }
 
 uint32_t SoundDevice::Feed(uint32_t index, int bytes) {
     if (index >= mStreams.size()) return 0;
-    return mStreams[index]->Feed(bytes);
+    uint32_t frameBytes;
+    bool panned;
+    {
+        std::lock_guard<std::mutex> guard(mStreams[index]->lock);
+        frameBytes = FrameBytes(mStreams[index]->source);
+        panned = mStreams[index]->panned;
+    }
+    if (!panned) return mStreams[index]->Feed(bytes);
+    if (frameBytes == 0) return 0;
+    const int frames = (bytes + static_cast<int>(frameBytes) - 1) / static_cast<int>(frameBytes);
+    return mStreams[index]->Feed(frames * static_cast<int>(kStereoFrameBytes));
 }
 
 void SoundDevice::SetDevicePaused(bool paused) {

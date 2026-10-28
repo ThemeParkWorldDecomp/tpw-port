@@ -1,8 +1,13 @@
-// game_app_tests.cpp: the game's own application on a Mac (launcher/game_app.h), the part that runs everywhere: the
-// bundles' names, the Info.plist the launcher writes for them from its own, the arguments to the game's process and
-// back, and the .icns the launcher writes from the icon (its elements, each a PNG of the right size).
+// game_app_tests.cpp: the game's own application on a Mac and on Windows (launcher/game_app.h), the part that runs
+// everywhere: the bundles' names, the Info.plist the launcher writes for them from its own, the arguments to the game's
+// process and back, and the .icns the launcher writes from the icon (its elements, each a PNG of the right size); how
+// the launcher knows the installer's application by its program; the Windows program's name, its command line, its
+// version resource (read as the resource compiler writes one, and the game's made from the launcher's) and its icon
+// resources.
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -98,6 +103,19 @@ void Arguments() {
     const char* odd[] = {"p", "--play", "us", "--mute", "--from-launcher"};
     Check(LauncherArguments(5, const_cast<char**>(odd)) == std::vector<std::string>{"--mute"}, "an unfinished marker is taken out too");
     Check(std::string(kFromLauncherOption) == "--from-launcher", "the marker's name");
+    // the hand-over's test: its game gets the option, and the launcher opened again after it does not
+    const char* test[] = {"tpw_launcher.exe", "--data", "D", "--game-app-test", "us", "--frames", "90"};
+    const std::vector<std::string> testGame = GameArguments(7, const_cast<char**>(test), true, "C:\\w");
+    Check(testGame == std::vector<std::string>{"--data", "D", "--frames", "90", "--game-app-test", "us", "--play", "us",
+                                               "--from-launcher", "C:\\w"},
+          "the test's game: --game-app-test kept, before --play");
+    std::vector<std::string> testRun = {"Sim Theme Park.exe"};
+    testRun.insert(testRun.end(), testGame.begin(), testGame.end());
+    std::vector<char*> testArgv;
+    for (std::string& arg : testRun) testArgv.push_back(arg.data());
+    Check(LauncherArguments(static_cast<int>(testArgv.size()), testArgv.data()) ==
+              std::vector<std::string>{"--data", "D", "--frames", "90"},
+          "the launcher again after the test's game: no --game-app-test");
 }
 
 IconImage Checker(int size) {
@@ -172,6 +190,157 @@ void Icns() {
     Check(EncodeIcns(IconImage{}).empty(), "no icns without an icon");
 }
 
+// The installer's application (app_bundle.h): its program, named by its Info.plist, is a link to the launcher's.
+void LinkedApp() {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path root = fs::temp_directory_path(ec) / "tpw_game_app_tests_linked";
+    fs::remove_all(root, ec);
+    const fs::path app = root / "Launcher.app", macos = app / "Contents" / "MacOS";
+    const fs::path launcher = root / "build" / "tpw_launcher", other = root / "build" / "other";
+    fs::create_directories(macos, ec);
+    fs::create_directories(launcher.parent_path(), ec);
+    std::ofstream(launcher) << "the launcher";
+    std::ofstream(other) << "another program";
+    Check(!AppRunsProgram(app.string(), launcher.string()), "no Info.plist: not the launcher's application");
+    std::ofstream(app / "Contents" / "Info.plist") << kLauncherPlist;   // CFBundleExecutable tpw_launcher
+    Check(!AppRunsProgram(app.string(), launcher.string()), "no program: not the launcher's application");
+    fs::create_symlink(launcher, macos / "tpw_launcher", ec);
+    if (ec) {
+        std::printf("game_app tests: no symbolic links here (%s), the linked application is not checked\n", ec.message().c_str());
+    } else {
+        Check(AppRunsProgram(app.string(), launcher.string()), "a program that links to the launcher");
+        Check(!AppRunsProgram(app.string(), other.string()), "a program that links to another one");
+        fs::remove(launcher, ec);
+        Check(!AppRunsProgram(app.string(), launcher.string()), "a link to a launcher that is gone");
+        fs::remove(macos / "tpw_launcher", ec);
+        std::ofstream(launcher) << "the launcher";
+    }
+    fs::create_hard_link(launcher, macos / "tpw_launcher", ec);
+    if (!ec) Check(AppRunsProgram(app.string(), launcher.string()), "a program hard-linked to the launcher");
+    fs::remove_all(root, ec);
+}
+
+void WindowsNames() {
+    Check(GameExeName(true) == "Sim Theme Park.exe" && GameExeName(false) == "Theme Park World.exe", "the programs' names");
+    Check(GameAppId(true) == "org.tpw-port.launcher.stp" && GameAppId(false) == "org.tpw-port.launcher.tpw",
+          "the identifiers, the Mac bundles' own");
+    Check(GameAppId(true).find(' ') == std::string::npos && GameAppId(true).size() <= 128, "an AppUserModelID has no space and 128 characters at most");
+}
+
+void CommandLine() {
+    Check(WindowsCommandLine({"C:\\x\\Sim Theme Park.exe", "--play", "us"}) == "\"C:\\x\\Sim Theme Park.exe\" --play us",
+          "a path with spaces is quoted, a plain word is not");
+    Check(WindowsCommandLine({"a", ""}) == "a \"\"", "an empty argument is a pair of quotes");
+    Check(WindowsCommandLine({"C:\\a b\\"}) == "\"C:\\a b\\\\\"", "a backslash before the closing quote is doubled");
+    Check(WindowsCommandLine({"say \"hi\""}) == "\"say \\\"hi\\\"\"", "a quote inside is escaped");
+    Check(WindowsCommandLine({"a\\\\\"b c"}) == "\"a\\\\\\\\\\\"b c\"", "backslashes before a quote are doubled, then the quote escaped");
+    Check(WindowsCommandLine({"C:\\no\\spaces\\"}) == "C:\\no\\spaces\\", "backslashes elsewhere are as they are");
+}
+
+// The launcher's version resource as llvm-mingw's resource compiler writes it from launcher/win/launcher.rc.in (0.1.1).
+const uint8_t kLauncherGolden[] = {
+    0x5c, 0x02, 0x34, 0x00, 0x00, 0x00, 0x56, 0x00, 0x53, 0x00, 0x5f, 0x00, 0x56, 0x00, 0x45, 0x00, 0x52, 0x00, 0x53, 0x00,
+    0x49, 0x00, 0x4f, 0x00, 0x4e, 0x00, 0x5f, 0x00, 0x49, 0x00, 0x4e, 0x00, 0x46, 0x00, 0x4f, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0xbd, 0x04, 0xef, 0xfe, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x01, 0x00, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xbc, 0x01, 0x00, 0x00, 0x01, 0x00, 0x53, 0x00,
+    0x74, 0x00, 0x72, 0x00, 0x69, 0x00, 0x6e, 0x00, 0x67, 0x00, 0x46, 0x00, 0x69, 0x00, 0x6c, 0x00, 0x65, 0x00, 0x49, 0x00,
+    0x6e, 0x00, 0x66, 0x00, 0x6f, 0x00, 0x00, 0x00, 0x98, 0x01, 0x00, 0x00, 0x01, 0x00, 0x30, 0x00, 0x34, 0x00, 0x30, 0x00,
+    0x39, 0x00, 0x30, 0x00, 0x34, 0x00, 0x42, 0x00, 0x30, 0x00, 0x00, 0x00, 0x58, 0x00, 0x18, 0x00, 0x01, 0x00, 0x46, 0x00,
+    0x69, 0x00, 0x6c, 0x00, 0x65, 0x00, 0x44, 0x00, 0x65, 0x00, 0x73, 0x00, 0x63, 0x00, 0x72, 0x00, 0x69, 0x00, 0x70, 0x00,
+    0x74, 0x00, 0x69, 0x00, 0x6f, 0x00, 0x6e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x53, 0x00, 0x54, 0x00, 0x50, 0x00, 0x2f, 0x00,
+    0x54, 0x00, 0x50, 0x00, 0x57, 0x00, 0x20, 0x00, 0x4c, 0x00, 0x61, 0x00, 0x75, 0x00, 0x6e, 0x00, 0x63, 0x00, 0x68, 0x00,
+    0x65, 0x00, 0x72, 0x00, 0x20, 0x00, 0x76, 0x00, 0x30, 0x00, 0x2e, 0x00, 0x31, 0x00, 0x2e, 0x00, 0x31, 0x00, 0x00, 0x00,
+    0x2c, 0x00, 0x06, 0x00, 0x01, 0x00, 0x46, 0x00, 0x69, 0x00, 0x6c, 0x00, 0x65, 0x00, 0x56, 0x00, 0x65, 0x00, 0x72, 0x00,
+    0x73, 0x00, 0x69, 0x00, 0x6f, 0x00, 0x6e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x00, 0x2e, 0x00, 0x31, 0x00, 0x2e, 0x00,
+    0x31, 0x00, 0x00, 0x00, 0x3a, 0x00, 0x0d, 0x00, 0x01, 0x00, 0x49, 0x00, 0x6e, 0x00, 0x74, 0x00, 0x65, 0x00, 0x72, 0x00,
+    0x6e, 0x00, 0x61, 0x00, 0x6c, 0x00, 0x4e, 0x00, 0x61, 0x00, 0x6d, 0x00, 0x65, 0x00, 0x00, 0x00, 0x74, 0x00, 0x70, 0x00,
+    0x77, 0x00, 0x5f, 0x00, 0x6c, 0x00, 0x61, 0x00, 0x75, 0x00, 0x6e, 0x00, 0x63, 0x00, 0x68, 0x00, 0x65, 0x00, 0x72, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x4a, 0x00, 0x11, 0x00, 0x01, 0x00, 0x4f, 0x00, 0x72, 0x00, 0x69, 0x00, 0x67, 0x00, 0x69, 0x00,
+    0x6e, 0x00, 0x61, 0x00, 0x6c, 0x00, 0x46, 0x00, 0x69, 0x00, 0x6c, 0x00, 0x65, 0x00, 0x6e, 0x00, 0x61, 0x00, 0x6d, 0x00,
+    0x65, 0x00, 0x00, 0x00, 0x74, 0x00, 0x70, 0x00, 0x77, 0x00, 0x5f, 0x00, 0x6c, 0x00, 0x61, 0x00, 0x75, 0x00, 0x6e, 0x00,
+    0x63, 0x00, 0x68, 0x00, 0x65, 0x00, 0x72, 0x00, 0x2e, 0x00, 0x65, 0x00, 0x78, 0x00, 0x65, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x42, 0x00, 0x11, 0x00, 0x01, 0x00, 0x50, 0x00, 0x72, 0x00, 0x6f, 0x00, 0x64, 0x00, 0x75, 0x00, 0x63, 0x00, 0x74, 0x00,
+    0x4e, 0x00, 0x61, 0x00, 0x6d, 0x00, 0x65, 0x00, 0x00, 0x00, 0x00, 0x00, 0x53, 0x00, 0x54, 0x00, 0x50, 0x00, 0x2f, 0x00,
+    0x54, 0x00, 0x50, 0x00, 0x57, 0x00, 0x20, 0x00, 0x4c, 0x00, 0x61, 0x00, 0x75, 0x00, 0x6e, 0x00, 0x63, 0x00, 0x68, 0x00,
+    0x65, 0x00, 0x72, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x00, 0x06, 0x00, 0x01, 0x00, 0x50, 0x00, 0x72, 0x00, 0x6f, 0x00,
+    0x64, 0x00, 0x75, 0x00, 0x63, 0x00, 0x74, 0x00, 0x56, 0x00, 0x65, 0x00, 0x72, 0x00, 0x73, 0x00, 0x69, 0x00, 0x6f, 0x00,
+    0x6e, 0x00, 0x00, 0x00, 0x30, 0x00, 0x2e, 0x00, 0x31, 0x00, 0x2e, 0x00, 0x31, 0x00, 0x00, 0x00, 0x44, 0x00, 0x00, 0x00,
+    0x01, 0x00, 0x56, 0x00, 0x61, 0x00, 0x72, 0x00, 0x46, 0x00, 0x69, 0x00, 0x6c, 0x00, 0x65, 0x00, 0x49, 0x00, 0x6e, 0x00,
+    0x66, 0x00, 0x6f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x24, 0x00, 0x04, 0x00, 0x00, 0x00, 0x54, 0x00, 0x72, 0x00, 0x61, 0x00,
+    0x6e, 0x00, 0x73, 0x00, 0x6c, 0x00, 0x61, 0x00, 0x74, 0x00, 0x69, 0x00, 0x6f, 0x00, 0x6e, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x09, 0x04, 0xb0, 0x04,
+};
+
+void Version() {
+    VersionResource launcher;
+    for (uint32_t word : {0xFEEF04BDu, 0x00010000u, 0x00000001u, 0x00010000u, 0x00000001u, 0x00010000u, 0x3Fu, 0u, 0x40004u,
+                          1u, 0u, 0u, 0u})
+        for (int b = 0; b < 4; ++b) launcher.fixed.push_back(static_cast<uint8_t>(word >> (8 * b)));
+    launcher.strings = {{"FileDescription", "STP/TPW Launcher v0.1.1"}, {"FileVersion", "0.1.1"},
+                        {"InternalName", "tpw_launcher"},                {"OriginalFilename", "tpw_launcher.exe"},
+                        {"ProductName", "STP/TPW Launcher"},             {"ProductVersion", "0.1.1"}};
+    const std::vector<uint8_t> blob = EncodeVersionResource(launcher);
+    Check(blob.size() >= 6 && static_cast<size_t>(blob[0] | (blob[1] << 8)) == blob.size(), "the resource's length is its size");
+    Check(blob.size() > 40 && blob[2] == 52 && blob[3] == 0, "the fixed part's 52 bytes");
+    Check(blob.size() == sizeof kLauncherGolden && std::memcmp(blob.data(), kLauncherGolden, blob.size()) == 0,
+          "written byte for byte as the resource compiler writes it");
+    VersionResource read;
+    Check(ParseVersionResource(std::vector<uint8_t>(kLauncherGolden, kLauncherGolden + sizeof kLauncherGolden), read),
+          "the resource compiler's resource reads");
+    Check(read.fixed == launcher.fixed && read.strings == launcher.strings && read.table == "040904B0" &&
+              read.translation == 0x04B00409,
+          "every part of it read back");
+    Check(VersionString(read, "OriginalFilename") == "tpw_launcher.exe" && VersionString(read, "Comments").empty(),
+          "VersionString finds a value, and an absent one is empty");
+    for (const bool us : {true, false}) {
+        const std::string name = GameAppName(us);
+        const VersionResource game = GameVersionResource(us, read, "12345 bytes");
+        VersionResource back;
+        Check(ParseVersionResource(EncodeVersionResource(game), back) && back.strings == game.strings && back.fixed == read.fixed,
+              name + ": the game's resource reads back");
+        Check(VersionString(back, "FileDescription") == name, name + ": the Task Manager's name for it");
+        Check(VersionString(back, "ProductName") == name && VersionString(back, "InternalName") == name, name + ": its product name");
+        Check(VersionString(back, "OriginalFilename") == GameExeName(us), name + ": its file's name");
+        Check(VersionString(back, "FileVersion") == "0.1.1" && VersionString(back, "ProductVersion") == "0.1.1",
+              name + ": the launcher's version");
+        Check(VersionString(back, kGameExeStampKey) == "12345 bytes", name + ": the stamp it was made from");
+        Check(!VersionString(back, "Comments").empty(), name + ": a line saying what the file is");
+        bool launcherNamed = false;
+        for (const auto& entry : back.strings) launcherNamed = launcherNamed || entry.second.find("STP/TPW Launcher") != std::string::npos;
+        Check(!launcherNamed, name + ": the launcher's name is no value in it");
+    }
+    VersionResource none;
+    const VersionResource bare = GameVersionResource(true, none, "s");
+    Check(bare.fixed.size() == 52 && VersionString(bare, "FileVersion") == "0", "without the launcher's resource: version 0");
+    VersionResource accented;
+    accented.strings = {{"Comments", "Caf\xc3\xa9 \xf0\x9f\x8e\xa2"}};
+    VersionResource accentedBack;
+    Check(ParseVersionResource(EncodeVersionResource(accented), accentedBack) && accentedBack.strings == accented.strings,
+          "text beyond ASCII, a surrogate pair too, reads back");
+    Check(!ParseVersionResource({1, 2, 3}, accentedBack) && !ParseVersionResource({}, accentedBack), "a few bytes are no resource");
+}
+
+void IconGroup() {
+    const std::vector<uint8_t> ico = tpw::assets::EncodeIco(ResampleIcon(Checker(32), 256));
+    IconResources res;
+    Check(IconResourcesFromIco(ico, 1, res), "an .ico becomes resources");
+    const size_t count = ico.size() >= 6 ? static_cast<size_t>(ico[4] | (ico[5] << 8)) : 0;
+    Check(count == 7 && res.images.size() == count, "a picture each for 16, 24, 32, 48, 64, 128 and 256 pixels");
+    Check(res.group.size() == 6 + 14 * count, "the group: a header and fourteen bytes a picture");
+    bool same = res.group.size() == 6 + 14 * count;
+    for (size_t i = 0; same && i < count; ++i) {
+        const size_t g = 6 + 14 * i, e = 6 + 16 * i;
+        const uint32_t size = ico[e + 8] | (ico[e + 9] << 8) | (ico[e + 10] << 16) | (static_cast<uint32_t>(ico[e + 11]) << 24);
+        const uint32_t offset = ico[e + 12] | (ico[e + 13] << 8) | (ico[e + 14] << 16) | (static_cast<uint32_t>(ico[e + 15]) << 24);
+        same = std::memcmp(&res.group[g], &ico[e], 12) == 0 && static_cast<size_t>(res.group[g + 12] | (res.group[g + 13] << 8)) == 1 + i &&
+               res.images[i].size() == size && std::memcmp(res.images[i].data(), &ico[offset], size) == 0;
+    }
+    Check(same, "each entry as the file's, with its resource ID, and each picture its bytes");
+    Check(!IconResourcesFromIco({0, 0, 1, 0, 1, 0}, 1, res) && res.images.empty(), "a cut-off .ico is refused");
+}
+
 }  // namespace
 
 int main() {
@@ -180,6 +349,11 @@ int main() {
     Arguments();
     Resample();
     Icns();
+    LinkedApp();
+    WindowsNames();
+    CommandLine();
+    Version();
+    IconGroup();
     if (gFailures == 0) std::printf("game_app tests: all passed\n");
     else std::printf("game_app tests: %d FAILED\n", gFailures);
     return gFailures == 0 ? 0 : 1;

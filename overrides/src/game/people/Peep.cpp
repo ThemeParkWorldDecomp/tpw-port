@@ -663,7 +663,7 @@ int32_t CPeep::PeepWalks() {
         const uint8_t kind = static_cast<uint8_t>(Bytes(this)[2]);
         if (kind == 1 || kind == 7) fast = true;
     }
-    // TPW_PORT_FIX walkscript CPeep::PeepWalks | Mac: the walk, carry and run scripts are asked after (ESP_RURunningThis) by their addresses, places in the script code | Port: while gPortScriptCode (include/analyser.h) is set, by those places in the host's script code (ScriptCodeAt) | Why: ESP_RURunningThis takes a host pointer into the script code (SCR_CodeAddress, src/game/Script.cpp), so the bare Mac addresses never matched and every walking or running peep's script was started again at its first frame every turn
+    // TPW_PORT_FIX walkscript CPeep::PeepWalks | Mac: the walk, carry and run scripts are asked after (ESP_RURunningThis) by their addresses, places in the script code | Port: while gPortScriptCode (include/analyser.h) is set, by those places in the host's script code (ScriptCodeAt) | Why: ESP_RURunningThis takes a host pointer into the script code (SCR_CodeAddress, src/game/Script.cpp), so the bare Mac addresses never matched and every walking or running peep's script was started again at its first frame every turn; contributed by samueleagle91 (tpw-port PR #60)
     void* code = gPortScriptCode ? ScriptCodeAt(0x1029f2acu) : kWalkScript;
     int32_t script = 1;
     if (static_cast<uint8_t>(Bytes(this)[2]) == 7) {
