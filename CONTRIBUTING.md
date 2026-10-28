@@ -77,7 +77,8 @@ CI checks this on every push and pull request (.github/workflows/build.yml):
 
 - Pull requests target main. Main is always the next version: launcher/VERSION.txt says it with -dev (0.0.4-dev).
 - A release is a version without -dev, its tag (v0.0.4) on one commit of main, and the GitHub Release that
-  .github/workflows/release.yml builds from that tag: Windows and both Macs from the same code.
+  .github/workflows/release.yml builds from that tag: Windows, both Macs and Linux (the Flatpak bundle) from the same
+  code.
 - A release never changes. Its tag is never moved or deleted, its downloads are never replaced, and a version number is
   never used twice. A fix found after a release, even one for a problem in it, lands on main and ships in the next
   version.
@@ -87,8 +88,9 @@ CI checks this on every push and pull request (.github/workflows/build.yml):
   release too. Pull requests target main, never stable.
 - To work on main or test it, install it with the installer's `--dev` (`-Dev` on Windows), which builds main and updates
   to the newest main, or clone main by hand: `git clone --recurse-submodules https://github.com/ThemeParkWorldDecomp/tpw-port.git`, then the README's
-  building steps. A change to an installer is tested on both systems, and keeps its contract (the comment at the top of
-  each script): the launcher's updater reads its output.
+  building steps. A change to an installer is tested on every system it runs on (install.sh on Macs and on Linux,
+  install.ps1 on Windows; .github/workflows/installer.yml and installer-broad.yml run them on each), and keeps its
+  contract (the comment at the top of each script): the launcher's updater reads its output.
 
 ## The changelog
 
