@@ -380,8 +380,9 @@ bool TakesValue(const std::string& arg) {
 
 // The data folder as it is, for a run that must not make it (--write-icon, which the install script runs before the
 // launcher's first start): SDL's pref path makes the folder when it is missing, so the per-user place it names on a Mac
-// (~/Library/Application Support/<name>) and on Windows (%APPDATA%\<name>) is looked at first, and taken only when it is
-// there. Empty when there is none yet (the stand-in icon then).
+// (~/Library/Application Support/<name>), on Windows (%APPDATA%\<name>) and on Linux ($XDG_DATA_HOME/<name>, else
+// ~/.local/share/<name>) is looked at first, and taken only when it is there. Empty when there is none yet (the
+// stand-in icon then).
 std::string ExistingDataFolder() {
     std::error_code ec;
     std::filesystem::path guess;
@@ -391,6 +392,11 @@ std::string ExistingDataFolder() {
 #elif defined(_WIN32)
     if (const char* appData = std::getenv("APPDATA"); appData != nullptr && *appData != '\0')
         guess = std::filesystem::path(appData) / tpw::ui::kDataFolderName;
+#elif defined(__linux__)
+    if (const char* dataHome = std::getenv("XDG_DATA_HOME"); dataHome != nullptr && *dataHome != '\0')
+        guess = std::filesystem::path(dataHome) / tpw::ui::kDataFolderName;
+    else if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0')
+        guess = std::filesystem::path(home) / ".local" / "share" / tpw::ui::kDataFolderName;
 #endif
     if (!guess.empty()) return std::filesystem::is_directory(guess, ec) ? guess.string() : std::string();
     std::string folder;
