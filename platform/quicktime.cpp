@@ -66,6 +66,7 @@ struct Picture {
 // What a Movie handle leads to.
 struct MovieRecord {
     MovieRecord* self = nullptr;        // the handle is the address of this field
+    mutable bool boxLogged = false;     // the box was logged (once a film)
     AVFormatContext* format = nullptr;
     AVCodecContext* video = nullptr;
     AVCodecContext* audio = nullptr;
@@ -187,6 +188,10 @@ void Present(const MovieRecord& m, const Picture& picture) {
     int x, top, width, height, windowHeight;
     BoxInPixels(m, x, top, width, height, windowHeight);
     if (windowHeight <= 0 || picture.rgb.empty()) return;
+    if (!m.boxLogged) {   // once a film: where it lands (a box off the surface is the first thing to look at)
+        m.boxLogged = true;
+        tpw::Log("movie: box (%d, %d) %dx%d pixels on a surface %d high", x, top, width, height, windowHeight);
+    }
     glPushAttrib(0x000FFFFF);          // GL_ALL_ATTRIB_BITS
     glPushClientAttrib(0x00000001);    // GL_CLIENT_PIXEL_STORE_BIT
     for (unsigned int capability : {0x0DE1u /*TEXTURE_2D*/, 0x0B71u /*DEPTH_TEST*/, 0x0BE2u /*BLEND*/, 0x0BC0u /*ALPHA_TEST*/,
