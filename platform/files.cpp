@@ -59,14 +59,64 @@ std::vector<std::string> SplitGamePath(const std::string& gamePath) {
     return parts;
 }
 
+// A name of the game as the name of a file or folder on the host, and back. Windows refuses < > " | ? and * in a name,
+// which the game's names may hold (a park saved as "Test?"; the Mac refused only ':', its separator, and the game turns a
+// character it cannot store in a narrow name into '?'). There each of them, and '%' itself, is kept as '%' and its two hex
+// digits, and read back so when a folder is listed; a '%' that does not start one of those is read as itself, so a file
+// named before stays found. Elsewhere the names are the same.
+#ifdef _WIN32
+static const char kEscapedInHostNames[] = "<>\"|?*%";
+
+static std::string HostName(const std::string& name) {
+    std::string host;
+    for (char c : name) {
+        if (c != '\0' && std::strchr(kEscapedInHostNames, c) != nullptr) {
+            static const char kHex[] = "0123456789ABCDEF";
+            const unsigned char code = static_cast<unsigned char>(c);
+            host += '%';
+            host += kHex[code >> 4];
+            host += kHex[code & 15];
+        } else {
+            host += c;
+        }
+    }
+    return host;
+}
+
+static std::string GameName(const std::string& host) {
+    const auto hex = [](char c) {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        return -1;
+    };
+    std::string name;
+    for (size_t i = 0; i < host.size(); ++i) {
+        if (host[i] == '%' && i + 2 < host.size() && hex(host[i + 1]) >= 0 && hex(host[i + 2]) >= 0) {
+            const char c = static_cast<char>(hex(host[i + 1]) * 16 + hex(host[i + 2]));
+            if (c != '\0' && std::strchr(kEscapedInHostNames, c) != nullptr) {
+                name += c;
+                i += 2;
+                continue;
+            }
+        }
+        name += host[i];
+    }
+    return name;
+}
+#else
+static std::string HostName(const std::string& name) { return name; }
+static std::string GameName(const std::string& host) { return host; }
+#endif
+
 // `name` inside `folder`, matched ignoring case: the exact name if it exists, else the
 // first entry that differs only in case. Empty if there is none.
 static fs::path FindChild(const fs::path& folder, const std::string& name) {
     std::error_code ec;
-    const fs::path exact = folder / name;
+    const fs::path exact = folder / HostName(name);
     if (fs::exists(exact, ec)) return exact;
     for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
-        if (EqualNoCase(it->path().filename().string(), name)) return it->path();
+        if (EqualNoCase(GameName(it->path().filename().string()), name)) return it->path();
     return {};
 }
 
@@ -153,7 +203,7 @@ fs::path HostPathForWriting(const std::string& gamePath) {
     for (size_t i = 0; i < parts.size(); ++i) {
         // Reuse an existing entry whatever its case, so "Save" and "save" stay one folder.
         fs::path existing = FindChild(current, parts[i]);
-        current = existing.empty() ? current / parts[i] : existing;
+        current = existing.empty() ? current / HostName(parts[i]) : existing;
         if (i + 1 < parts.size()) fs::create_directories(current, ec);
     }
     if (parts.empty()) fs::create_directories(current, ec);
@@ -214,7 +264,7 @@ std::vector<DirEntry> ListGameFolder(const std::string& gamePath) {
         if (!listed && gold.empty()) continue;
         std::vector<DirEntry> found;
         for (fs::directory_iterator it(folder, ec), end; listed && !ec && it != end; it.increment(ec)) {
-            const std::string name = it->path().filename().string();
+            const std::string name = GameName(it->path().filename().string());
             if (name.empty() || name[0] == '.' || IsDumpSideFile(it->path())) continue;
             std::error_code kind;
             if (pack && (!it->is_regular_file(kind) || !PackMayHold(inside.empty() ? name : inside + "/" + name))) continue;
