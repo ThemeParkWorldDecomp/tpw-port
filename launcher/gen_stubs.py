@@ -354,10 +354,17 @@ def trampolines(functions):
 
 def label_thunks(labels):
     """Windows and Linux: a jump under each asm label in the Mach-O spelling to the symbol it means, under COFF's or
-    ELF's name."""
-    lines = ["__asm__(", '    ".text\\n"']
+    ELF's name (x86-64's jmp, AArch64's b). The compiler's preprocessor picks the mnemonic, not this script's host:
+    the Windows on ARM job builds with an x86-64 toolchain under emulation, where the host says arm64."""
+    lines = [
+        "#if defined(__aarch64__) || defined(_M_ARM64)",
+        '#define TPW_THUNK_JUMP "b"',
+        "#else",
+        '#define TPW_THUNK_JUMP "jmp"',
+        "#endif",
+        "__asm__(", '    ".text\\n"']
     for label in labels:
-        lines += [f'    ".globl {label}\\n"', f'    "{label}:\\n"', f'    "    jmp {label[1:]}\\n"']
+        lines += [f'    ".globl {label}\\n"', f'    "{label}:\\n"', f'    "    " TPW_THUNK_JUMP " {label[1:]}\\n"']
     lines.append(");")
     return lines
 
