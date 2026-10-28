@@ -54,6 +54,9 @@
 #ifdef _WIN32
 #include "host_win.h"
 #endif
+#ifdef __linux__
+#include "host_linux.h"
+#endif
 #include "platform/game_tables.h"
 #include "startup.h"
 #include "static_init.h"
@@ -975,6 +978,9 @@ int LauncherMain(int argc, char** argv) {
         sigemptyset(&action.sa_mask);
         sigaction(crash, &action, nullptr);
     }
+#ifdef __linux__
+    tpw::host_linux::DivideLikeTheMac();   // x86 traps what the Mac divides (host_linux.h)
+#endif
 #endif
     tpw::Config& config = tpw::config();
     int32_t resolution = kDefaultResolution;
