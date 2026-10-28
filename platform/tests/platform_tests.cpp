@@ -158,6 +158,19 @@ static void TestPaths(const fs::path& scratch) {
     for (const tpw::DirEntry& entry : data) names += entry.name + (entry.isDirectory ? "/ " : " ");
     CHECK(names == "sound.sam Language/ notes.rsrc ui/ ");
     CHECK(tpw::ListGameFolder("data:nowhere").empty());
+
+    // A name with characters Windows refuses (a park saved as "Test?") is written, found and listed under that name; a
+    // file named with a '%' before stays found.
+    const fs::path park = tpw::HostPathForWriting("save:users:1Tess:jungle:Test?<\"|*>%.TPWS");
+    Touch(park);
+    CHECK(fs::exists(park));
+    CHECK(Same(tpw::FindHostPath("SAVE:users:1Tess:jungle:test?<\"|*>%.tpws"), park));
+    Touch(config.userDir / "save" / "users" / "1Tess" / "jungle" / "100%.TPWS");
+    CHECK(Same(tpw::FindHostPath("save:users:1Tess:jungle:100%.TPWS"),
+               config.userDir / "save" / "users" / "1Tess" / "jungle" / "100%.TPWS"));
+    std::string parks;
+    for (const tpw::DirEntry& entry : tpw::ListGameFolder("save:users:1Tess:jungle:")) parks += entry.name + " ";
+    CHECK(parks == "100%.TPWS Test?<\"|*>%.TPWS ");
 }
 
 // Asset packs (packs.h) come after the user folder and before the game folder, the first pack before the next, and only
