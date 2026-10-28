@@ -262,7 +262,8 @@ int32_t GraphPanelMsg(InterfaceWindow* window, int32_t message, int32_t a, int32
 }
 
 __attribute__((weak)) int16_t gParkStatusScript[] = {TPW_WINDOW_SCRIPT_102AB734};   // 0x102ab734: the image's words (generated, devtools/gen_game_tables.py)
-__attribute__((weak)) const char gParkStatusMeshNames[] = "sad_undec.wct\0hap.wct";                 // 0x1024e180
+// TPW_PORT_FIX linux gParkStatusMeshNames | Mac: (none) | Port: the weak definition says extern | Why: a const array at namespace scope has internal linkage of its own, and GCC (the Linux build's compiler) refuses a weak definition of an internal name, where clang takes the header's extern declaration (MainWindowCallback.h) as the linkage; the explicit extern is external linkage on either
+__attribute__((weak)) extern const char gParkStatusMeshNames[] = "sad_undec.wct\0hap.wct";          // 0x1024e180
 
 // The callees the host cannot call as the Mac does: weak here, the test library defines its own fakes.
 static_assert(sizeof(InterfaceTextObjectSprite) <= 0x400 && sizeof(InterfaceDrawObjectSprite) <= 0x400 && sizeof(InterfaceDrawEngineHGradient) <= 0x400, "the allocation below is 0x400 at least");
