@@ -91,6 +91,24 @@ tpw::Event MakeEventAtMouse() {
     return MakeEvent(x, y);
 }
 
+// Shift, Control, Option (Alt), Command (the Windows key) and Caps Lock. The Mac's Event Manager sent no key-down or key-up
+// for them, only the modifier bits of other events, so they never took or released the remembered key. The game still sees
+// them: in each event's modifiers, and through GetAsyncKeyState, which reads SDL's keyboard state.
+bool IsModifierKey(SDL_Scancode scancode) {
+    switch (scancode) {
+    case SDL_SCANCODE_LSHIFT:
+    case SDL_SCANCODE_RSHIFT:
+    case SDL_SCANCODE_LCTRL:
+    case SDL_SCANCODE_RCTRL:
+    case SDL_SCANCODE_LALT:
+    case SDL_SCANCODE_RALT:
+    case SDL_SCANCODE_LGUI:
+    case SDL_SCANCODE_RGUI:
+    case SDL_SCANCODE_CAPSLOCK: return true;
+    default: return false;
+    }
+}
+
 bool MouseButtonFromSDL(uint8_t sdlButton, MouseButton& button) {
     switch (sdlButton) {
     case SDL_BUTTON_LEFT: button = kMouseButton0; return true;
@@ -170,6 +188,7 @@ void UGamework::Run() {
                     tpw::ToggleFullScreen();
                     break;
                 }
+                if (IsModifierKey(sdl.key.scancode)) break;   // not a key of its own, as on the Mac
                 // 0x100054c4: a key still down is released first (the Mac reported one key
                 // at a time), with a Process pass in between.
                 if (!sdl.key.repeat && gKey.keyCode != 0) {
@@ -194,6 +213,7 @@ void UGamework::Run() {
                 break;
             }
             case SDL_EVENT_KEY_UP:
+                if (IsModifierKey(sdl.key.scancode)) break;   // not a key of its own, as on the Mac
                 // 0x100056a0: releases the remembered key, whichever key came up.
                 if (gKey.character != 0 || gKey.keyCode != 0) {
                     HandleTyping(gKey.character, gKey.keyCode, gKey.modifiers, false);
@@ -265,6 +285,10 @@ void UGamework::Run() {
             SDL_KeyboardEvent sdlKey{};
             sdlKey.scancode = static_cast<SDL_Scancode>(key.scancode);
             sdlKey.mod = static_cast<SDL_Keymod>(tpw::ScriptedSDLModifiers());
+            if (IsModifierKey(sdlKey.scancode)) {   // a modifier only (ScriptedSDLModifiers), as above
+                tpw::Log("scripted key: %s %s (pass %d)", SDL_GetScancodeName(sdlKey.scancode), key.down == pass ? "down" : "up", pass);
+                continue;
+            }
             if (key.down == pass) {
                 if (gKey.keyCode != 0) {
                     HandleTyping(gKey.character, gKey.keyCode, gKey.modifiers, false);
