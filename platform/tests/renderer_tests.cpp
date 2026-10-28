@@ -3,7 +3,9 @@
 // vertex layout, the depth test, the alpha test, blending, a texture page, glDrawPixels at a zoom, the cursor's ortho
 // quad in immediate mode), read back with glReadPixels and checked pixel by pixel against what OpenGL 1.1 says; then
 // the two renderers' pictures compared. Run by ctest ("renderer") on Linux; it needs a display (CI gives it Xvfb) and a
-// Vulkan device (lavapipe, the Mesa software one, will do) and skips (exit 77) without them.
+// Vulkan device (lavapipe, the Mesa software one, will do) and skips (exit 77) without them. It asks gfx.h for each
+// renderer (Request), so a software Vulkan device draws here even beside a hardware OpenGL, which the launcher's default
+// would choose instead.
 #include <SDL3/SDL.h>
 
 #include <algorithm>

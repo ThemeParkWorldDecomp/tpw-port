@@ -134,6 +134,7 @@ struct Renderer {
     VkInstance instance = VK_NULL_HANDLE;
     VkPhysicalDevice physical = VK_NULL_HANDLE;
     VkPhysicalDeviceProperties properties{};
+    bool named = false;   // TPW_VULKAN_DEVICE named the device (PickDevice)
     VkPhysicalDeviceMemoryProperties memoryProperties{};
     VkDevice device = VK_NULL_HANDLE;
     uint32_t queueFamily = 0;

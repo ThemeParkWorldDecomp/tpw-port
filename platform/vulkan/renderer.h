@@ -28,6 +28,11 @@ namespace tpw::vkr {
 
 // ---- The backend (platform/gfx.h's calls)
 bool Probe(int& largest);
+// The device Probe settled on: its name, and whether it draws in software (VK_PHYSICAL_DEVICE_TYPE_CPU: Mesa's lavapipe,
+// SwiftShader), which PickDevice takes only when no other device can draw to the window, and TPW_VULKAN_DEVICE did not
+// name it. platform/gfx.cpp then weighs the system's OpenGL against it.
+const char* ProbedDevice();
+bool ProbedSoftware();
 uint32_t WindowFlags();
 bool Create(SDL_Window* window, bool fit, int wide, int high);
 void Destroy();

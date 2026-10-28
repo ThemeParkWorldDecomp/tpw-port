@@ -217,6 +217,7 @@ struct Candidate {
     uint32_t queueFamily = 0;
     int score = -1;
     VkPhysicalDeviceProperties properties{};
+    bool named = false;
 };
 
 bool HasSwapchainExtension(VkPhysicalDevice device) {
@@ -287,7 +288,10 @@ bool PickDevice(bool log) {
             const long index = std::strtol(wanted, &end, 10);
             asked = (end != wanted && *end == '\0') ? index == static_cast<long>(i)
                                                      : std::strstr(candidate.properties.deviceName, wanted) != nullptr;
-            if (asked) candidate.score += 100;
+            if (asked) {
+                candidate.score += 100;
+                candidate.named = true;
+            }
         }
         if (log) {
             tpw::Log("vulkan: device %u: \"%s\" (%s, Vulkan %u.%u)%s%s", i, candidate.properties.deviceName,
@@ -304,6 +308,7 @@ bool PickDevice(bool log) {
     r.physical = best.device;
     r.queueFamily = best.queueFamily;
     r.properties = best.properties;
+    r.named = best.named;
     r.api.vkGetPhysicalDeviceMemoryProperties(r.physical, &r.memoryProperties);
     return true;
 }
@@ -735,6 +740,8 @@ void ShutdownDevice() {
 
 bool gProbed = false, gProbeOk = false;
 int gProbeLargest = 0;
+std::string gProbeDevice;      // the device Probe settled on (its name)
+bool gProbeSoftware = false;   // it draws in software and TPW_VULKAN_DEVICE did not name it
 
 }  // namespace
 
@@ -1197,6 +1204,8 @@ bool Probe(int& largest) {
     const bool ok = InitDevice(probe, true);
     if (ok) {
         gProbeLargest = LargestSize();
+        gProbeDevice = R().properties.deviceName;
+        gProbeSoftware = R().properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU && !R().named;
         tpw::Log("vulkan: %s; frames up to %d pixels", R().description.c_str(), gProbeLargest);
     }
     ShutdownDevice();
@@ -1205,6 +1214,10 @@ bool Probe(int& largest) {
     largest = gProbeLargest;
     return ok;
 }
+
+const char* ProbedDevice() { return gProbeDevice.c_str(); }
+
+bool ProbedSoftware() { return gProbeSoftware; }
 
 uint32_t WindowFlags() { return SDL_WINDOW_VULKAN; }
 

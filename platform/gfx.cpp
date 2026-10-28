@@ -5,6 +5,8 @@
 #include "gfx.h"
 
 #include <algorithm>
+#include <cctype>
+#include <string>
 
 #include "platform.h"
 #ifdef TPW_HAVE_VULKAN
@@ -48,6 +50,9 @@ void BeginPresent();
 bool ReadPresent(uint8_t* rgb, int width, int height);
 void EndPresent(const fit::PixelBox& box, int windowWide, int windowHigh);
 const char* Description();
+#ifdef TPW_HAVE_VULKAN
+const char* ProbedRenderer();   // the probe's GL_RENDERER ("" before a probe that made a context)
+#endif
 }  // namespace gl
 
 namespace {
@@ -59,6 +64,51 @@ Api gRequested = Api::OpenGL;
 Api gChosen = gRequested;
 bool gProbed = false;
 int gLargest = 0;
+
+#ifdef TPW_HAVE_VULKAN
+bool gAsked = false;   // Request was called (--renderer, launcher.ini's renderer key): not just the build's default
+
+// Whether an OpenGL driver's GL_RENDERER names a renderer that draws on the processor: Mesa's llvmpipe (also inside
+// what zink on lavapipe reports), softpipe and the old swrast ("Software Rasterizer"), SwiftShader (as ANGLE or
+// SwiftShader's own GL names it) and Microsoft's WARP under WSL's d3d12 driver ("Microsoft Basic Render Driver").
+bool SoftwareOpenGL(std::string renderer) {
+    for (char& c : renderer) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    for (const char* name : {"llvmpipe", "softpipe", "software rasterizer", "swiftshader", "basic render driver"})
+        if (renderer.find(name) != std::string::npos) return true;
+    return false;
+}
+
+// Vulkan's only device draws in software (Mesa's lavapipe, SwiftShader: vkr::ProbedSoftware). Unless Vulkan was asked
+// for, the system's OpenGL is tried too, and draws instead when its renderer is hardware: a GPU without a Vulkan driver
+// often has an OpenGL one (an older card, a driver without Vulkan), and the game would otherwise be drawn on the
+// processor. When OpenGL is software too, or cannot be made, Vulkan's software device draws. True when OpenGL takes over.
+bool OpenGLForSoftwareVulkan() {
+    const char* device = vkr::ProbedDevice();
+    if (gAsked) {
+        tpw::Log("vulkan: only a software device (%s); Vulkan was asked for, so the game is drawn in software", device);
+        return false;
+    }
+    gChosen = Api::OpenGL;   // the probe's own OpenGL calls go to the system's OpenGL (platform/gl_entry.cpp)
+    int largest = 0;
+    const bool made = gl::Probe(largest);
+    const std::string renderer = made ? gl::ProbedRenderer() : "";
+    if (made && !renderer.empty() && !SoftwareOpenGL(renderer)) {
+        tpw::Log("vulkan: only a software device (%s); the system's OpenGL is hardware (%s), so OpenGL draws", device,
+                 renderer.c_str());
+        gLargest = largest;
+        return true;
+    }
+    if (!made)
+        tpw::Log("vulkan: only a software device (%s); the system's OpenGL cannot be made, so Vulkan draws", device);
+    else if (renderer.empty())
+        tpw::Log("vulkan: only a software device (%s); the system's OpenGL names no renderer, so Vulkan draws", device);
+    else
+        tpw::Log("vulkan: only a software device (%s); the system's OpenGL is software too (%s), so Vulkan draws", device,
+                 renderer.c_str());
+    gChosen = Api::Vulkan;
+    return false;
+}
+#endif
 }  // namespace
 
 void Request(Api api) {
@@ -68,6 +118,9 @@ void Request(Api api) {
     }
     gRequested = api;
     gChosen = api;
+#ifdef TPW_HAVE_VULKAN
+    gAsked = true;
+#endif
     gProbed = false;
 }
 
@@ -94,6 +147,7 @@ int Probe() {
     if (gRequested == Api::Vulkan) {
         if (vkr::Probe(gLargest)) {
             gChosen = Api::Vulkan;
+            if (vkr::ProbedSoftware() && OpenGLForSoftwareVulkan()) gChosen = Api::OpenGL;
             return gLargest;
         }
         tpw::Log("renderer: Vulkan cannot draw here; OpenGL instead");
