@@ -1390,7 +1390,8 @@ void CPerson::DrawBalloon(float x, float y, float z, int32_t mode) {
 void CPerson::MakeBalloonPop() {
     int32_t* script = FieldAt<int32_t>(this, 0x210);
     if (*script != 0) {
-        ESP_ForceGoto(*script, &gBalloonPopTarget);
+        // TPW_PORT_FIX balloonpop CPerson::MakeBalloonPop | Mac: the balloon's script goes to the command at 0x1029fd84, inside the script code (0x3c into the balloon's block at 0x1029fd48) | Port: while gPortScriptCode (include/analyser.h) is set, to that place in the script code (ScriptCodeAt) | Why: the host's copy (gBalloonPopTarget) lies outside the script code array, where ESP_ForceGoto restarts a script at no command, so a balloon a visitor lost (its life over, burst by a prankster, the visitor gone) stayed where it was last drawn, on the path
+        ESP_ForceGoto(*script, gPortScriptCode ? ScriptCodeAt(0x1029fd84u) : static_cast<void*>(&gBalloonPopTarget));
         *script = 0;
     }
 }
