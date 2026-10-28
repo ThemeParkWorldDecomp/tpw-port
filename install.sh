@@ -1089,14 +1089,19 @@ make_logged() {
 # Reads the build's output on stdin: it goes unchanged to the screen, and a copy with nothing personal in it is
 # appended to the log $1 (the log is what a player is asked to send; the screen is theirs). The home folder becomes ~,
 # any /Users/NAME ~ or /Users/<user>, a volume's name <volume>, /var/folders/xx/yyyy <id>, the account name <user> (only
-# after user=, owner: and the like, so a name that is a common word is not changed elsewhere) and this Mac's name
-# <computer> (4 letters or more). Scrubbing again changes nothing. It mirrors platform/log_scrub.h.
+# after user=, owner: and the like, so a name that is a common word is not changed elsewhere) and this computer's name
+# <computer> (4 letters or more). Scrubbing again changes nothing. It mirrors platform/log_scrub.h. On Linux the home
+# is any /home/NAME where a path begins (~, as log_scrub.h has it) and /root when that is the home, and a removable
+# drive's folder, /run/media/NAME/LABEL or /media/NAME/LABEL, names the account and the drive as /Volumes/NAME names a
+# drive on a Mac, so it becomes /run/media/<user>/<volume> (a rule log_scrub.h does not have). /tmp needs none: the
+# temporary folder's name is not the account's there.
 scrub_tee() {
     TPW_S_LOG=$1 \
         TPW_S_HOMES="$(printf '%s\n%s\n' "$HOME" "$(cd "$HOME" 2>/dev/null && pwd -P)")" \
         TPW_S_USER="${USER:-$(id -un 2>/dev/null)}" \
-        TPW_S_HOST="${TPW_INSTALL_HOSTNAME:-$(hostname 2>/dev/null)}" \
+        TPW_S_HOST="${TPW_INSTALL_HOSTNAME:-$(hostname 2>/dev/null || uname -n 2>/dev/null)}" \
         TPW_S_VOLUMES="$(ls /Volumes 2>/dev/null)" \
+        TPW_S_MOUNTS="$(for m in /run/media/*/* /media/*/*; do [ -d "$m" ] && printf '%s\n' "$m"; done 2>/dev/null)" \
         LC_ALL=C awk '
 function isname(c) { return c ~ /[A-Za-z0-9_.-]/ || c >= "\200" }
 function isword(c) { return c ~ /[A-Za-z0-9_-]/ || c >= "\200" }
@@ -1134,6 +1139,40 @@ function generic(s,   out, name, pre, rep) {
     }
     return out s
 }
+# Where a path begins at s[i], as log_scrub.h has it: nothing name-like, no separator and no ~ just before.
+function pathstart(s, i,   pre) {
+    if (i == 1) return 1
+    pre = substr(s, i - 1, 1)
+    return !(isname(pre) || pre == "/" || pre == "\\" || pre == "~")
+}
+# /home/NAME of any account where a path begins (not /srv/home/x, not -I/home/x): ~, but for the shared accounts.
+function linuxhome(s,   out, name, low) {
+    out = ""
+    while (match(s, /\/home\/[^\/ \t"\047<>]+/)) {
+        name = substr(s, RSTART + 6, RLENGTH - 6)
+        low = tolower(name)
+        if (pathstart(s, RSTART) && low != "shared" && low != "public" && low != "default" && low != "all") {
+            out = out substr(s, 1, RSTART - 1) "~"
+        } else {
+            out = out substr(s, 1, RSTART + RLENGTH - 1)
+        }
+        s = substr(s, RSTART + RLENGTH)
+    }
+    return out s
+}
+# The folder of a removable drive, PREFIX/NAME/LABEL where a path begins (PREFIX /run/media or /media):
+# PREFIX/<user>/<volume>.
+function mount(s, prefix,   out, re, n) {
+    out = ""
+    n = length(prefix)
+    re = prefix "/[^/ \t\"\047<>]+/[^/ \t\"\047<>]+"
+    while (match(s, re)) {
+        if (pathstart(s, RSTART)) out = out substr(s, 1, RSTART - 1) prefix "/<user>/<volume>"
+        else out = out substr(s, 1, RSTART + RLENGTH - 1)
+        s = substr(s, RSTART + RLENGTH)
+    }
+    return out s
+}
 function account(s,   out, hay, i, n, before, after, key) {
     n = length(U)
     if (n == 0) return s
@@ -1163,7 +1202,11 @@ function every(s, re, rep,   out) {
 function scrub(s,   k) {
     for (k = 1; k <= NH; k++) s = lit(s, H[k], "~", 0, 0)
     for (k = 1; k <= NV; k++) s = lit(s, "/Volumes/" V[k], "/Volumes/<volume>", 0, 0)
+    for (k = 1; k <= NM; k++) s = lit(s, M[k], (substr(M[k], 1, 5) == "/run/" ? "/run" : "") "/media/<user>/<volume>", 0, 0)
     s = generic(s)
+    s = linuxhome(s)
+    s = mount(s, "/run/media")
+    s = mount(s, "/media")
     s = every(s, "/Volumes/[^/ \t\"\047<>]+", "/Volumes/<volume>")
     s = every(s, "/var/folders/[^/ \t\"\047<>]+/[^/ \t\"\047<>]+", "/var/folders/<id>")
     if (length(C) >= 4) s = lit(s, C, "<computer>", 1, length(C) >= 6)
@@ -1172,6 +1215,7 @@ function scrub(s,   k) {
 BEGIN {
     NH = split(ENVIRON["TPW_S_HOMES"], H, "\n")
     NV = split(ENVIRON["TPW_S_VOLUMES"], V, "\n")
+    NM = split(ENVIRON["TPW_S_MOUNTS"], M, "\n")
     for (k = 1; k <= NH; k++) if (length(H[k]) < 2 || H[k] == "/") H[k] = ""
     U = ENVIRON["TPW_S_USER"]
     C = ENVIRON["TPW_S_HOST"]
