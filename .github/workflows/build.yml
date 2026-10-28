@@ -1,6 +1,6 @@
 # Builds the port on every push and pull request: on Windows with build.cmd, the same command a tester runs (every tool
-# fetched into build\tools\, nothing preinstalled used), and on an Apple Silicon Mac with make; then runs the tests each
-# build has. The launcher each job builds is kept as the run's artifact.
+# fetched into build\tools\, nothing preinstalled used), on an Apple Silicon Mac with make, and on Ubuntu with the
+# README's Linux steps; then runs the tests each build has. The launcher each job builds is kept as the run's artifact.
 #
 # GitHub has no Windows 10 or 11 desktop images. The nearest are its server images: windows-2022 (build 20348, the
 # Windows 10 era's server release) and windows-2025 (build 26100, the same build as Windows 11 24H2; windows-latest).
@@ -22,9 +22,9 @@ permissions:
 
 jobs:
   # The "playable offline" rule (CONTRIBUTING.md): no network code outside launcher/net/. A static read of the sources,
-  # so any runner does; the tests and the launcher also run with the network blocked on the Macs (the macos job). There
-  # is no Linux build to run them on here, and Windows has no switch a step can use to block one program's network
-  # (its firewall rules need the program installed first and apply to the whole runner), so its jobs do not.
+  # so any runner does; the tests and the launcher also run with the network blocked on the Macs (the macos job) and on
+  # Linux (the linux job). Windows has no switch a step can use to block one program's network (its firewall rules need
+  # the program installed first and apply to the whole runner), so its jobs do not.
   offline:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -196,6 +196,77 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-logs-windows-11-arm
+          path: build/logs/
+          if-no-files-found: ignore
+
+  # Linux: the launcher built as the README's Linux steps build it (the distribution's GCC, CMake and Ninja, SDL's
+  # development packages), its tests under a virtual screen, then the tests and the update check again with the network
+  # blocked (unshare -n: no interface but the loopback). libclang-18-dev is for the platform tests' slicer.
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install the build's packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build python3 git \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxkbcommon-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
+            libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev libudev-dev libibus-1.0-dev \
+            xvfb libclang-18-dev
+      # Each step's output is kept in build/logs/ (the run's artifact when a step fails), and the error lines of a failed
+      # build are also given as annotations, which the API lists for a machine that cannot fetch the runner's log.
+      - name: Build the launcher
+        run: |
+          mkdir -p build/logs
+          set -o pipefail
+          ok=0
+          cmake -S . -B build -G Ninja 2>&1 | tee build/logs/configure.log || ok=1
+          if [ $ok = 0 ]; then cmake --build build --target tpw_launcher 2>&1 | tee build/logs/build.log || ok=1; fi
+          if [ $ok != 0 ]; then
+            grep -hE 'error|Error|FAILED' build/logs/configure.log build/logs/build.log 2>/dev/null | tail -n 40 | sed 's/^/::error::/'
+            exit 1
+          fi
+      - name: Start the launcher (--version)
+        run: |
+          build/tpw_launcher --version
+          # Only the system's C and C++ runtimes: no OpenGL, Vulkan, X11 or audio library is linked (SDL opens them at run time).
+          ldd build/tpw_launcher
+          ! ldd build/tpw_launcher | grep -E 'libGL|libvulkan|libX11|libwayland|libasound|libpulse'
+      - name: Build and run the tests
+        env:
+          SDL_AUDIO_DRIVER: dummy   # the runner has no sound device
+        run: |
+          cmake --build build
+          xvfb-run -a -s "-screen 0 1280x800x24" ctest --test-dir build --output-on-failure
+      # The same tests with the network blocked for them and everything they start (a network namespace with no
+      # interface but the loopback): the game, the launcher and their tests need no internet.
+      - name: Run the tests offline
+        env:
+          SDL_AUDIO_DRIVER: dummy
+        run: sudo -E unshare -n sh -c 'ip link set lo up 2>/dev/null; xvfb-run -a -s "-screen 0 1280x800x24" ctest --test-dir build --output-on-failure'
+      - name: Check for updates offline (--check-updates)
+        timeout-minutes: 2
+        run: |
+          out=$(sudo unshare -n build/tpw_launcher --check-updates)
+          echo "$out"
+          echo "$out" | grep -Eq '^answer: none \(.*\) after [0-4]\.[0-9] s$'
+      # One file, build/tpw_launcher (the zip drops its executable bit: chmod +x after unzipping). It links only glibc
+      # (the C++ runtime is linked in), so it runs on a distribution with a glibc as new as Ubuntu 24.04's.
+      - name: Keep the launcher
+        uses: actions/upload-artifact@v4
+        with:
+          name: tpw_launcher-linux-x86_64
+          path: build/tpw_launcher
+          if-no-files-found: error
+      - name: Keep the build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-ubuntu-24.04
           path: build/logs/
           if-no-files-found: ignore
 
