@@ -128,7 +128,9 @@ void COpenGLTexture::SetState(int32_t state) {
         else glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, mMinFilter);
     }
     if ((changed & kStateRepeat) != 0) {
-        const GLint wrap = (state & kStateRepeat) == 0 ? GL_CLAMP : GL_REPEAT;
+        // TPW_PORT_FIX clampedge COpenGLTexture::SetState | Mac: GL_CLAMP | Port: GL_CLAMP_TO_EDGE (OpenGL 1.2, 0x812f) | Why: today's drivers blend GL_CLAMP's edge texels with the black border colour, which drew a black line along every tile of the ground with Ground blending off; clamp to edge repeats the edge texel, as the PC's Direct3D clamp does
+        constexpr GLint kClampToEdge = 0x812f;
+        const GLint wrap = (state & kStateRepeat) == 0 ? kClampToEdge : GL_REPEAT;
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap);
     }
