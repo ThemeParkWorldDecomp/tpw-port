@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.ThemeParkWorldDecomp.Launcher</id>
+  <name>STP/TPW Launcher</name>
+  <summary>Play Sim Theme Park and Theme Park World from your own discs</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <description>
+    <p>An unofficial port of Sim Theme Park (Theme Park World, 1999). You need your own copy of the game: the launcher imports it from your discs.</p>
+  </description>
+  <launchable type="desktop-id">io.github.ThemeParkWorldDecomp.Launcher.desktop</launchable>
+  <url type="homepage">https://github.com/ThemeParkWorldDecomp/tpw-port</url>
+  <url type="bugtracker">https://github.com/ThemeParkWorldDecomp/tpw-port/issues</url>
+  <provides>
+    <binary>tpw_launcher</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+</component>

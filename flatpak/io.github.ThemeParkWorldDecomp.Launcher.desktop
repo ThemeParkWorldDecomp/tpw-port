@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=STP/TPW Launcher
+Comment=Play Sim Theme Park and Theme Park World from your own discs
+Exec=tpw_launcher
+Icon=io.github.ThemeParkWorldDecomp.Launcher
+Categories=Game;
+Terminal=false
