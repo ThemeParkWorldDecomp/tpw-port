@@ -1,7 +1,8 @@
 // gl_names.h: OpenGL's names (gl.h's numbers) for the platform layer's own OpenGL code, which on Linux defines the game's
-// OpenGL 1.1 calls itself (platform/gl_entry.cpp) and reads no system gl.h. The game's own header
-// (include/platform/opengl.h) has the few it uses; these are the rest of the 1.1 state the game sets, under the names
-// gl.h gives them, so that the code can be read against the OpenGL specification.
+// OpenGL 1.1 calls itself (platform/gl_entry.cpp) and draws them with the port's Vulkan renderer (platform/vulkan/), and
+// reads no system gl.h. The game's own header (include/platform/opengl.h) has the few it uses; these are the rest of the
+// 1.1 state the game sets, under the names gl.h gives them, so that both renderers can be read against the OpenGL
+// specification.
 #pragma once
 #include <cstdint>
 

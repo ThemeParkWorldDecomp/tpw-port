@@ -1,9 +1,15 @@
-// gfx.cpp: the calls of gfx.h, handed to the backend, and the mip filter (HalfSizeRGBA). The one backend is OpenGL
-// (platform/gl_backend.cpp), in every build; another renderer would be chosen here and its calls handed to it in the
-// same way.
+// gfx.cpp: the choice of backend behind gfx.h, the calls handed to it, and the mip filter (HalfSizeRGBA). The OpenGL
+// backend (platform/gl_backend.cpp) is every build's; the Vulkan renderer (platform/vulkan/) is the Linux build's
+// (TPW_HAVE_VULKAN, CMakeLists.txt), where it is the default and OpenGL the fallback when no Vulkan device can draw to
+// the window. A Mac and Windows have OpenGL only, and their calls go to it as before.
 #include "gfx.h"
 
 #include <algorithm>
+
+#include "platform.h"
+#ifdef TPW_HAVE_VULKAN
+#include "vulkan/renderer.h"
+#endif
 
 namespace tpw::gfx {
 
@@ -44,17 +50,79 @@ void EndPresent(const fit::PixelBox& box, int windowWide, int windowHigh);
 const char* Description();
 }  // namespace gl
 
-int Probe() {
-    int largest = 0;
-    gl::Probe(largest);
-    return largest;
+namespace {
+#ifdef TPW_HAVE_VULKAN
+Api gRequested = Api::Vulkan;
+#else
+Api gRequested = Api::OpenGL;
+#endif
+Api gChosen = gRequested;
+bool gProbed = false;
+int gLargest = 0;
+}  // namespace
+
+void Request(Api api) {
+    if (!Available(api)) {
+        tpw::Log("renderer: %s is not in this build; %s", Name(api), Name(Api::OpenGL));
+        api = Api::OpenGL;
+    }
+    gRequested = api;
+    gChosen = api;
+    gProbed = false;
 }
 
-// The backend a call goes to: OpenGL's, the only one.
-#define TPW_GFX_CALL(call) gl::call
+Api Requested() { return gRequested; }
 
-uint32_t WindowFlags() { return TPW_GFX_CALL(WindowFlags()); }
+Api Chosen() { return gChosen; }
+
+const char* Name(Api api) { return api == Api::Vulkan ? "Vulkan" : "OpenGL"; }
+
+bool Available(Api api) {
+#ifdef TPW_HAVE_VULKAN
+    (void)api;
+    return true;
+#else
+    return api == Api::OpenGL;
+#endif
+}
+
+int Probe() {
+    if (gProbed) return gLargest;
+    gProbed = true;
+    gLargest = 0;
+#ifdef TPW_HAVE_VULKAN
+    if (gRequested == Api::Vulkan) {
+        if (vkr::Probe(gLargest)) {
+            gChosen = Api::Vulkan;
+            return gLargest;
+        }
+        tpw::Log("renderer: Vulkan cannot draw here; OpenGL instead");
+        gChosen = Api::OpenGL;
+    }
+#endif
+    gl::Probe(gLargest);
+    return gLargest;
+}
+
+// The backend a call goes to: the chosen one on Linux; OpenGL's, the only one, elsewhere.
+#ifdef TPW_HAVE_VULKAN
+#define TPW_GFX_CALL(call) (gChosen == Api::Vulkan ? vkr::call : gl::call)
+#else
+#define TPW_GFX_CALL(call) gl::call
+#endif
+
+// With two backends the window is made for the one that works, so the choice is settled first. Probe has run already
+// when the launcher asked for the largest frame (tpw::LargestGameSize), but not when TPW_LARGEST_GAME_SIZE stood in for it.
+uint32_t WindowFlags() {
+#ifdef TPW_HAVE_VULKAN
+    if (!gProbed) Probe();
+#endif
+    return TPW_GFX_CALL(WindowFlags());
+}
 bool Create(SDL_Window* window, bool fit, int gameWide, int gameHigh) {
+#ifdef TPW_HAVE_VULKAN
+    if (!gProbed) Probe();
+#endif
     return TPW_GFX_CALL(Create(window, fit, gameWide, gameHigh));
 }
 void Destroy() { TPW_GFX_CALL(Destroy()); }

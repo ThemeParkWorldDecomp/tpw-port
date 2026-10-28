@@ -1,7 +1,7 @@
-// window.cpp: the game's one window and the graphics backend on it (platform/gfx.h: OpenGL). The game makes the window
-// with the Mac Window Manager (NewCWindow), asks indirectx for an OpenGL "DirectDraw implementation" on it
-// (IdxMakeOpenGLImplementation, which owns the UOpenGL context: here, the backend's device), and moves and sizes it
-// with macdoze's Win32 window calls.
+// window.cpp: the game's one window and the graphics backend on it (platform/gfx.h: OpenGL, or on Linux the port's
+// Vulkan renderer). The game makes the window with the Mac Window Manager (NewCWindow), asks indirectx for an OpenGL
+// "DirectDraw implementation" on it (IdxMakeOpenGLImplementation, which owns the UOpenGL context: here, the backend's
+// device), and moves and sizes it with macdoze's Win32 window calls.
 //
 // The window FITS THE SCREEN (platform/fit.h, unless --no-fit): the game draws at its own resolution into an
 // offscreen framebuffer (platform/offscreen.cpp), and every presented frame is scaled into the window, which is as large
@@ -183,7 +183,8 @@ void WindowSizes(int& pointsWide, int& pointsHigh, int& pixelsWide, int& pixelsH
 
 bool FitActive() { return gWindowMade && gFit.wanted; }
 
-// The backend is asked on a hidden window (gfx::Probe), before the game's window exists.
+// The backend is asked on a hidden window (gfx::Probe), before the game's window exists. On Linux a Vulkan that cannot
+// draw falls back to OpenGL then, and the window is made for the backend that works.
 int LargestGameSize() {
     if (!StartVideo()) return 0;
     return gfx::Probe();
@@ -476,7 +477,8 @@ GrafPort* NewCWindow(void*, const Rect* bounds, const unsigned char* title, bool
     const std::string edition = tpw::config().edition.empty() ? tpw::EditionOf(tpw::config().gameDir) : tpw::config().edition;
     const std::string name = tpw::WindowTitle(edition, title);
 
-    // The window is made for the backend (OpenGL: a legacy context, as the engine draws with OpenGL 1.1 calls).
+    // The window is made for the backend (OpenGL: a legacy context, as the engine draws with OpenGL 1.1 calls; Vulkan: a
+    // window with a Vulkan surface).
     SDL_WindowFlags flags = tpw::gfx::WindowFlags() | SDL_WINDOW_HIDDEN;
     const SDL_DisplayID chosen = ChooseDisplay();
     gFit = FitState();
@@ -791,7 +793,8 @@ IdxDirectDraw* IdxDirectDraw::mImplementation = nullptr;
 
 IdxDirectDraw::~IdxDirectDraw() {}
 
-// Makes the backend's device (the OpenGL context) on the window. NULL when it fails (the backend logs why).
+// Makes the backend's device (the OpenGL context, or the Vulkan device) on the window. NULL when it fails (the backend
+// logs why).
 IdxDirectDraw* IdxMakeOpenGLImplementation(SamsUtilities::DeviceKind, GrafPort* window, void*) {
     if (window != &gWindow || !gWindowMade) return nullptr;
     if (!tpw::gfx::Created()) {
