@@ -44,10 +44,11 @@ struct WindowPlacement {
     void (*videoStarted)() = nullptr;
     // Called once the window is on screen (macOS: the application menu is named after the launcher from then on).
     void (*windowShown)() = nullptr;
-    // Called with the window as soon as it is made (before it is shown) and again each time an import ends, with the
-    // data folder of the moment: the launcher's Dock or taskbar icon (launcher/app_icon.h: the game's own icon.png from
-    // that folder, or the stand-in). Null: nothing.
-    void (*windowIcon)(SDL_Window* window, const char* dataFolder) = nullptr;
+    // Called with the window as soon as it is made (before it is shown; `changed` false) and again each time an import
+    // ends or the data folder changes (`changed` true), with the data folder of the moment: the launcher's Dock or
+    // taskbar icon, and once it may have changed the installer's application or Start menu shortcut too
+    // (launcher/app_icon.h: the game's own icon.png from that folder, or the stand-in). Null: nothing.
+    void (*windowIcon)(SDL_Window* window, const char* dataFolder, bool changed) = nullptr;
     // The folder holding the bare program, for the update check (updater.h FindInstall): on macOS the folder that holds
     // the .app the launcher runs from (launcher/app_bundle.h ProgramFolder); empty: SDL_GetBasePath.
     std::string programFolder;

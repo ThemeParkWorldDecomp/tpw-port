@@ -26,6 +26,7 @@
 #include "dialogs.h"
 #include "email.h"
 #include "gold_rides.h"
+#include "language_pack.h"
 #include "packs.h"
 #include "TbAudioSystem.h"
 #include "platform.h"
@@ -158,19 +159,6 @@ static void TestPaths(const fs::path& scratch) {
     for (const tpw::DirEntry& entry : data) names += entry.name + (entry.isDirectory ? "/ " : " ");
     CHECK(names == "sound.sam Language/ notes.rsrc ui/ ");
     CHECK(tpw::ListGameFolder("data:nowhere").empty());
-
-    // A name with characters Windows refuses (a park saved as "Test?") is written, found and listed under that name; a
-    // file named with a '%' before stays found.
-    const fs::path park = tpw::HostPathForWriting("save:users:1Tess:jungle:Test?<\"|*>%.TPWS");
-    Touch(park);
-    CHECK(fs::exists(park));
-    CHECK(Same(tpw::FindHostPath("SAVE:users:1Tess:jungle:test?<\"|*>%.tpws"), park));
-    Touch(config.userDir / "save" / "users" / "1Tess" / "jungle" / "100%.TPWS");
-    CHECK(Same(tpw::FindHostPath("save:users:1Tess:jungle:100%.TPWS"),
-               config.userDir / "save" / "users" / "1Tess" / "jungle" / "100%.TPWS"));
-    std::string parks;
-    for (const tpw::DirEntry& entry : tpw::ListGameFolder("save:users:1Tess:jungle:")) parks += entry.name + " ";
-    CHECK(parks == "100%.TPWS Test?<\"|*>%.TPWS ");
 }
 
 // Asset packs (packs.h) come after the user folder and before the game folder, the first pack before the next, and only
@@ -340,6 +328,109 @@ static void TestGoldRides(const fs::path& scratch) {
     CHECK(tpw::UseGoldRides(config.gameDir) == 0);
     config.gameDir = gameDir;
     config.userDir = userDir;
+}
+
+// The chosen language laid over the game folder (language_pack.h): data:Language: lists its folder first, so the game
+// takes it as its language, its text, speech and pictures are found before the packs' and the game folder's, and nothing
+// else in its folder is seen. Off, the game folder alone, as before.
+static void TestLanguagePack(const fs::path& scratch) {
+    CHECK(tpw::LanguageName("french") == "French");
+    CHECK(tpw::LanguageName("TRADITIONALCHINESE") == "TraditionalChinese");
+    CHECK(tpw::LanguageName("American") == "American");
+    CHECK(tpw::LanguageName("Klingon").empty() && tpw::LanguageName("").empty());
+
+    tpw::Config& config = tpw::config();
+    const fs::path gameDir = config.gameDir;
+    const fs::path userDir = config.userDir;
+    const std::vector<fs::path> packDirs = tpw::PackDirs();
+    config.gameDir = scratch / "game";
+    config.userDir = scratch / "user";
+    const fs::path pack = scratch / "pack";
+    tpw::PackDirs() = {pack};
+    const fs::path root = scratch / "assets";
+    const fs::path french = root / "lang" / "french";   // the folder in any case
+    const fs::path speech = fs::path("data") / "global" / "speech";
+    const fs::path space = fs::path("data") / "levels" / "space";
+    Touch(config.gameDir / "data" / "Language" / "English" / "ResIdx.dat", "english index");
+    Touch(config.gameDir / "data" / "Language" / "English" / "uitext.str", "english text");
+    Touch(config.gameDir / speech / "speechHD.SDT", "english speech");
+    Touch(config.gameDir / speech / "cat_speechBANK.map", "english bank");
+    Touch(config.gameDir / speech / "extra.map", "english extra");
+    Touch(config.gameDir / space / "speech" / "speechHD.SDT", "english space speech");
+    Touch(config.gameDir / space / "global.sam", "game settings");
+    Touch(config.gameDir / "data" / "global" / "sound" / "sfx.sdt", "game sound");
+    Touch(config.gameDir / "data" / "Init" / "640" / "legal.tga", "game legal");
+    Touch(french / "data" / "Language" / "French" / "ResIdx.dat", "french index");
+    Touch(french / "data" / "Language" / "French" / "uitext.str", "french text");
+    Touch(french / "data" / "Language" / "English" / "uitext.str", "not the language's");   // outside what it covers
+    Touch(french / "data" / "global" / "Speech" / "speechHD.SDT", "french speech, longer");   // the disc's Speech
+    Touch(french / "data" / "global" / "Speech" / "cat_speechBANK.map", "french bank");
+    Touch(french / "data" / "global" / "sound" / "sfx.sdt", "not the language's");
+    Touch(french / space / "speech" / "speechHD.SDT", "french space speech");
+    Touch(french / space / "global.sam", "not the language's");
+    Touch(french / "data" / "Init" / "640" / "Splash_French.tga", "french splash");
+    Touch(french / "data" / "Init" / "640" / "Welcome_French.tga", "french welcome");
+    Touch(config.userDir / "data" / "Init" / "640" / "Welcome_French.tga", "user welcome");
+    Touch(pack / speech / "speechHD.SDT", "pack speech");
+    Touch(pack / "data" / "Init" / "640" / "legal.tga", "pack legal");
+
+    CHECK(!tpw::UseLanguagePack(root, "Klingon") && tpw::LanguagePackName().empty());
+    CHECK(!tpw::UseLanguagePack(root, "German"));   // no folder
+    CHECK(!tpw::UseLanguagePack(fs::path(), "French"));
+    CHECK(tpw::UseLanguagePack(root, "FRENCH"));
+    CHECK(tpw::LanguagePackName() == "French" && Same(tpw::LanguagePackFolder(), french));
+
+    // Listing order: the language's folder first in data:Language:, ahead of the edition's English (as FS_Registry.cpp's
+    // FindFirstFile sees it too), and in a speech folder its files ahead of the pack's and the game folder's.
+    auto names = [](const std::vector<tpw::DirEntry>& entries) {
+        std::string text;
+        for (const tpw::DirEntry& entry : entries) text += entry.name + (entry.isDirectory ? "/ " : " ");
+        return text;
+    };
+    CHECK(names(tpw::ListGameFolder("data:Language")) == "French/ English/ ");
+    NS_MacDoze::_WIN32_FIND_DATAA found{};
+    NS_MacDoze::InternalHandle* search = NS_MacDoze::FindFirstFile("TPW:Theme Park Data:data:language:*", &found);
+    CHECK(search != reinterpret_cast<NS_MacDoze::InternalHandle*>(-1));
+    CHECK(std::string(found.cFileName) == "French");
+    NS_MacDoze::FindClose(search);
+    const auto voices = tpw::ListGameFolder("data:global:speech");
+    CHECK(names(voices) == "cat_speechBANK.map speechHD.SDT extra.map ");
+    CHECK(voices[1].size == std::strlen("french speech, longer"));
+    CHECK(names(tpw::ListGameFolder("data:Language:French")) == "ResIdx.dat uitext.str ");
+    CHECK(names(tpw::ListGameFolder("data:Language:English")) == "ResIdx.dat uitext.str ");
+    CHECK(tpw::ListGameFolder("data:Language:English")[1].size == std::strlen("english text"));
+    CHECK(names(tpw::ListGameFolder("data:levels:space:speech")) == "speechHD.SDT ");
+    CHECK(names(tpw::ListGameFolder("data:levels:space")) == "global.sam speech/ ");
+    CHECK(names(tpw::ListGameFolder("data:global")) == "sound/ speech/ ");
+    CHECK(names(tpw::ListGameFolder("data:Init:640")) == "Welcome_French.tga Splash_French.tga legal.tga ");
+
+    // Paths: the user folder first, then the language, then the packs and the game folder; outside the folders it
+    // covers the language's files are not seen.
+    CHECK(Same(tpw::FindHostPath("data:Language:French:ResIdx.dat"), french / "data/Language/French/ResIdx.dat"));
+    CHECK(Same(tpw::FindHostPath("TPW:Theme Park Data:data\\language\\french\\UITEXT.str"),
+               french / "data/Language/French/uitext.str"));
+    CHECK(Same(tpw::FindHostPath("data:Language:French"), french / "data/Language/French"));
+    CHECK(Same(tpw::FindHostPath("data:Language:English:uitext.str"), config.gameDir / "data/Language/English/uitext.str"));
+    CHECK(Same(tpw::FindHostPath("data:global:speech:speechHD.SDT"), french / "data/global/Speech/speechHD.SDT"));
+    CHECK(Same(tpw::FindHostPath("data:global:speech:extra.map"), config.gameDir / speech / "extra.map"));
+    CHECK(Same(tpw::FindHostPath("data:levels:space:speech:speechHD.SDT"), french / space / "speech/speechHD.SDT"));
+    CHECK(Same(tpw::FindHostPath("data:levels:space:global.sam"), config.gameDir / space / "global.sam"));
+    CHECK(Same(tpw::FindHostPath("data:global:sound:sfx.sdt"), config.gameDir / "data/global/sound/sfx.sdt"));
+    CHECK(Same(tpw::FindHostPath("data:Init:640:Splash_French.tga"), french / "data/Init/640/Splash_French.tga"));
+    CHECK(Same(tpw::FindHostPath("data:Init:640:Welcome_French.tga"), config.userDir / "data/Init/640/Welcome_French.tga"));
+    CHECK(Same(tpw::FindHostPath("data:Init:640:legal.tga"), pack / "data/Init/640/legal.tga"));
+
+    // Off: the game folder alone, as before.
+    CHECK(!tpw::UseLanguagePack(root, ""));
+    CHECK(tpw::LanguagePackName().empty() && tpw::LanguagePackFolder().empty());
+    CHECK(names(tpw::ListGameFolder("data:Language")) == "English/ ");
+    CHECK(tpw::FindHostPath("data:Language:French:ResIdx.dat").empty());
+    CHECK(Same(tpw::FindHostPath("data:global:speech:speechHD.SDT"), pack / speech / "speechHD.SDT"));
+    CHECK(names(tpw::ListGameFolder("data:global:speech")) == "speechHD.SDT cat_speechBANK.map extra.map ");
+    CHECK(names(tpw::ListGameFolder("data:Init:640")) == "Welcome_French.tga legal.tga ");
+    config.gameDir = gameDir;
+    config.userDir = userDir;
+    tpw::PackDirs() = packDirs;
 }
 
 // The std::ifstream shims of SwearFilter::LoadWordList (platform/msl_ifstream.cpp): a word file as
@@ -2918,6 +3009,7 @@ int main() {
     TestPaths(scratch);
     TestPacks(scratch / "packs");
     TestGoldRides(scratch / "gold");
+    TestLanguagePack(scratch / "language");
     TestEdition(scratch / "edition");
     TestSwearStreams();
     TestMslRuntime();

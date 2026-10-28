@@ -314,4 +314,8 @@ void WideStringDtor(void* string, int16_t flag) {
     if (flag > 0) IME::MslDelete(string);
 }
 
+// Slot 0x34 of the publish globe, CLBScreenComponentPublishGlobe::HandleOnlineBacktrack 0x100af094 (src/game/online/lobby_globe.cpp): the
+// lobby menu's item while the publish globe shows (MainLobbyMenuCB) and the end of an upload request (PostRequestUploadCallbackFunction).
+void PublishGlobeSlot34(void* screen) { static_cast<CLBScreenComponentOnlineGlobe*>(screen)->HandleOnlineBacktrack(); }
+
 }  // namespace mainmenu_callee

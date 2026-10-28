@@ -16,10 +16,17 @@
 #include <mach-o/dyld.h>
 #include <mach-o/getsect.h>
 #include <mach-o/ldsyms.h>
+#include <objc/message.h>
+#include <objc/runtime.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
 
+#if defined(__APPLE__) || defined(_WIN32)
 #include "game_app.h"
+
+extern "C" void* objc_autoreleasePoolPush(void);
+extern "C" void objc_autoreleasePoolPop(void* pool);
 #endif
 
 namespace tpw::launcher {
@@ -28,16 +35,15 @@ namespace {
 
 const char* const kNoteVariable = "TPW_APP_BUNDLE_NOTE";
 
-#if defined(__APPLE__)
-namespace fs = std::filesystem;
-
+#if defined(__APPLE__) || defined(_WIN32)
 // The runs that open no window (--write-icon included: the install script runs it before the launcher's first start):
 // Cmd-Tab and the Dock never see them, so they stay where they are.
 bool WindowlessRun(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         const char* arg = argv[i];
         if (std::strcmp(arg, "--version") == 0 || std::strcmp(arg, "--help") == 0 || std::strcmp(arg, "-h") == 0 ||
-            std::strcmp(arg, "--check-updates") == 0 || std::strcmp(arg, "--import") == 0 || std::strcmp(arg, "--write-icon") == 0)
+            std::strcmp(arg, "--check-updates") == 0 || std::strcmp(arg, "--import") == 0 ||
+            std::strcmp(arg, "--verify") == 0 || std::strcmp(arg, "--write-icon") == 0)
             return true;
     }
     return false;
@@ -48,6 +54,10 @@ bool HasPlay(int argc, char** argv) {
         if (std::strcmp(argv[i], "--play") == 0) return true;
     return false;
 }
+#endif
+
+#if defined(__APPLE__)
+namespace fs = std::filesystem;
 
 std::string ReadWhole(const fs::path& path) {
     std::ifstream in(path, std::ios::binary);
@@ -102,6 +112,26 @@ bool ExecFromBundle(const fs::path& exe, const fs::path& app, const std::string&
     unsetenv(kNoteVariable);
     note = "not from the bundle: cannot run " + program + ": " + std::strerror(errno);
     return false;
+}
+
+// The application macOS opened this process as: [[NSRunningApplication currentApplication] bundleURL], asked only when
+// macOS's launch said it opened one with the launcher's identifier (__CFBundleIdentifier, which LaunchServices sets for
+// every application it opens; a Terminal's shell has the Terminal's). Empty otherwise, and for a program started from a
+// shell, whose bundleURL is the program itself.
+std::string OpenedAsApp(const std::string& plist) {
+    const char* opened = std::getenv("__CFBundleIdentifier");
+    if (opened == nullptr || PlistString(plist, "CFBundleIdentifier") != opened) return "";
+    using Id = void*;
+    using SendId = Id (*)(Id, SEL);
+    const auto send = [](Id to, const char* selector) {
+        return to != nullptr ? reinterpret_cast<SendId>(objc_msgSend)(to, sel_registerName(selector)) : nullptr;
+    };
+    void* pool = objc_autoreleasePoolPush();
+    Id path = send(send(send(reinterpret_cast<Id>(objc_getClass("NSRunningApplication")), "currentApplication"), "bundleURL"), "path");
+    const char* text = path != nullptr ? reinterpret_cast<const char* (*)(Id, SEL)>(objc_msgSend)(path, sel_registerName("UTF8String")) : nullptr;
+    std::string app = text != nullptr ? text : "";
+    objc_autoreleasePoolPop(pool);
+    return app.size() > 4 && app.compare(app.size() - 4, 4, ".app") == 0 ? app : "";
 }
 #endif
 
@@ -196,14 +226,30 @@ bool RunFromAppBundle(int argc, char** argv, std::string& note) {
         // after the game, so it runs from the launcher's own bundle beside it, as the bare program does below.
         const fs::path app = inside;
         const bool gameBundle = app.filename() == GameBundleName(true) || app.filename() == GameBundleName(false);
-        if (!gameBundle || HasPlay(argc, argv) || plist.empty()) return false;
+        if (gameBundle && HasPlay(argc, argv)) return false;   // the game keeps TPW_LAUNCHER_APP: its way back
+        unsetenv(kLauncherAppVariable);
+        if (!gameBundle || plist.empty()) return false;
         return ExecFromBundle(exe, app.parent_path() / kLauncherBundleName, plist, argc, argv, "STP/TPW Launcher", note);
     }
+    unsetenv(kLauncherAppVariable);
     if (plist.empty()) {
         note = "not from the bundle: the program has no Info.plist embedded";
         return false;
     }
+    // Opened by macOS as the installer's application, whose program is a link to this one (app_bundle.h): it runs on as
+    // that application, which the Dock shows; an execv into the bundle beside would be a second application.
+    if (const std::string opened = OpenedAsApp(plist); !opened.empty() && AppRunsProgram(opened, exePath)) {
+        setenv(kLauncherAppVariable, opened.c_str(), 1);
+        note = "running as " + opened + " (macOS opened that application, whose program is a link to this one; the Dock shows it)";
+        return false;
+    }
     return ExecFromBundle(exe, exe.parent_path() / kLauncherBundleName, plist, argc, argv, "STP/TPW Launcher", note);
+#elif defined(_WIN32)
+    // The game's program started without --play (its taskbar button pinned, or double-clicked): the launcher's window
+    // would be the game's in the taskbar, so tpw_launcher.exe beside it runs instead (game_app.h HandOverToLauncher).
+    if (WindowlessRun(argc, argv) || HasPlay(argc, argv) || CurrentGameBundle().empty()) return false;
+    HandOverToLauncher(argc, argv, note);
+    return false;
 #else
     (void)argc;
     (void)argv;
@@ -211,11 +257,20 @@ bool RunFromAppBundle(int argc, char** argv, std::string& note) {
 #endif
 }
 
+#if defined(__APPLE__)
+std::string LauncherApp() {
+    const char* app = std::getenv(kLauncherAppVariable);
+    return app != nullptr ? app : "";
+}
+#endif
+
 std::string TakeBundleNote() {
     const char* left = std::getenv(kNoteVariable);
     if (left == nullptr) return "";
     std::string note = left;
-#if !defined(_WIN32)
+#if defined(_WIN32)
+    _putenv_s(kNoteVariable, "");   // the C runtime's copy and the process's: the game process started later has none
+#else
     unsetenv(kNoteVariable);
 #endif
     return note;

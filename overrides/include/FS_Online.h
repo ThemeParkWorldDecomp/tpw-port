@@ -2,7 +2,6 @@
 // untranslated (the OnlineConfig constructor is in src/game/online/FS_Online.cpp).
 #pragma once
 #include <cstdint>
-#include <new>
 #include <string>
 
 #include "FS_OnlineList.h"
@@ -520,6 +519,8 @@ public:
 extern InterfaceWindow* gOnlineCityOverlay;            // 0x10395d04, the overlay window, NULL when none
 extern const CFSOnlineCity* gOnlineCityOverlayShown;   // 0x10395d00, the city the overlay shows now
 extern int32_t gOnlineLoginPanelFlag;                  // 0x10395d2c, cleared when the login panel gets message 0x14
+// TPW_PORT_FIX login64 gPortOnlineLoginPanel | Mac: the login panel's window is kept only in the 32-bit word gOnlineLoginPanelFlag | Port: the whole pointer is kept here as well (CreateOnlineLoginPanel), and RemoveOnlineLoginPanel closes this window while the word still holds its low 32 bits | Why: a 64-bit build; the word cannot hold a host pointer, so the login panel's Cancel sent its close message to a cut-down address and crashed
+inline InterfaceWindow* gPortOnlineLoginPanel = nullptr;
 extern char16_t gOnlineLoginPassword[33];              // 0x10395d30 (size from the next global)
 extern char16_t gOnlineLoginName[33];                  // 0x10395d72 (size invented)
 extern int16_t gCityInfoOverlayScript[];               // 0x102b0288, initialised data of the window script (not defined by this unit)
@@ -553,15 +554,9 @@ public:
 // The one game type object: a function-local static of an inline accessor in the
 // original (0x102b3aa0, guard byte 0x102b3aa4), so every user inlines the guard test and
 // constructs it on first use. The accessor's name is not known.
-// TPW_PORT_FIX gametype TheGameType | Mac: one object at 0x102b3aa0 with its guard byte at 0x102b3aa4, which the research button, loans, entry price and finance panels test inline | Port: the accessor uses the storage and guard those four spell out (gLoansGameTypeStorage and gLoansGameTypeGuard, src/game/ui/ui_loansPanel.cpp) in place of a static of its own | Why: with a static of its own there were two game type objects: a player's login set the accessor's, while the four panels read the other, which kept the type of the first player whose park opened one, so after a switch of player an Instant Action game showed the research button, loans, entry price and finance controls, and a Full Simulation game hid them
-extern unsigned char gLoansGameTypeStorage[4];   // 0x102b3aa0 (a CGameType)
-extern int8_t gLoansGameTypeGuard;               // 0x102b3aa4
 inline CGameType& TheGameType() {
-    if (gLoansGameTypeGuard == 0) {
-        new (gLoansGameTypeStorage) CGameType();
-        gLoansGameTypeGuard = 1;
-    }
-    return *reinterpret_cast<CGameType*>(gLoansGameTypeStorage);
+    static CGameType sGameType;
+    return sGameType;
 }
 
 // The online servers and ports, copied from COnlineBalance by SetInitialOnlineValues

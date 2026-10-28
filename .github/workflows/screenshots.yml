@@ -4,12 +4,16 @@
 # PowerShell window, takes a picture of the screen, types `themepark` in that window as a player does, waits a few
 # seconds, takes a second picture, and checks that the window in front is now the launcher's (the focus check: the job
 # fails when it is not, after the pictures are taken). Then one of the launcher alone, the icon the launcher's window
-# carries (the title bar's and the taskbar's) and the icon of tpw_launcher.exe. No game data: the launcher shows its
-# first-run screen. The Mac pictures are taken by hand (GitHub's macOS runners are too scarce for a job like this).
+# carries (the title bar's and the taskbar's) and the icon of tpw_launcher.exe. Then the game's own process, with no
+# game (tpw_launcher --game-app-test us starts "Sim Theme Park.exe" as Play does, with a bare window named after the
+# game): the screen with its window and the taskbar, the taskbar alone, the Task Manager, the icons of its window and
+# of Sim Theme Park.exe, and the launcher's window back after it. No game data: the launcher shows its first-run
+# screen. The Mac pictures are taken by hand (GitHub's macOS runners are too scarce for a job like this).
 #
 # Runs by hand (Run workflow) and on a push to a ci-shots-* branch, never on main. Each job keeps its pictures as the
-# artifact screenshots-<runner> (PNG), with focus-check.txt (what was in front before and after) and the launcher's log
-# lines about its icon and its window (launcher-log-lines.txt).
+# artifact screenshots-<runner> (PNG), with focus-check.txt (what was in front before and after), the launcher's log
+# lines about its icon and its window (launcher-log-lines.txt), what Windows says of the game's process
+# (game-process.txt) and the log lines about it (game-process-log-lines.txt).
 name: screenshots
 
 on:

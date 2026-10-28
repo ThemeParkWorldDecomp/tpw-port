@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 
 #include "gold_rides.h"
+#include "language_pack.h"
 #include "packs.h"
 #include "platform.h"
 #include "platform/macdoze.h"
@@ -59,64 +60,14 @@ std::vector<std::string> SplitGamePath(const std::string& gamePath) {
     return parts;
 }
 
-// A name of the game as the name of a file or folder on the host, and back. Windows refuses < > " | ? and * in a name,
-// which the game's names may hold (a park saved as "Test?"; the Mac refused only ':', its separator, and the game turns a
-// character it cannot store in a narrow name into '?'). There each of them, and '%' itself, is kept as '%' and its two hex
-// digits, and read back so when a folder is listed; a '%' that does not start one of those is read as itself, so a file
-// named before stays found. Elsewhere the names are the same.
-#ifdef _WIN32
-static const char kEscapedInHostNames[] = "<>\"|?*%";
-
-static std::string HostName(const std::string& name) {
-    std::string host;
-    for (char c : name) {
-        if (c != '\0' && std::strchr(kEscapedInHostNames, c) != nullptr) {
-            static const char kHex[] = "0123456789ABCDEF";
-            const unsigned char code = static_cast<unsigned char>(c);
-            host += '%';
-            host += kHex[code >> 4];
-            host += kHex[code & 15];
-        } else {
-            host += c;
-        }
-    }
-    return host;
-}
-
-static std::string GameName(const std::string& host) {
-    const auto hex = [](char c) {
-        if (c >= '0' && c <= '9') return c - '0';
-        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-        return -1;
-    };
-    std::string name;
-    for (size_t i = 0; i < host.size(); ++i) {
-        if (host[i] == '%' && i + 2 < host.size() && hex(host[i + 1]) >= 0 && hex(host[i + 2]) >= 0) {
-            const char c = static_cast<char>(hex(host[i + 1]) * 16 + hex(host[i + 2]));
-            if (c != '\0' && std::strchr(kEscapedInHostNames, c) != nullptr) {
-                name += c;
-                i += 2;
-                continue;
-            }
-        }
-        name += host[i];
-    }
-    return name;
-}
-#else
-static std::string HostName(const std::string& name) { return name; }
-static std::string GameName(const std::string& host) { return host; }
-#endif
-
 // `name` inside `folder`, matched ignoring case: the exact name if it exists, else the
 // first entry that differs only in case. Empty if there is none.
 static fs::path FindChild(const fs::path& folder, const std::string& name) {
     std::error_code ec;
-    const fs::path exact = folder / HostName(name);
+    const fs::path exact = folder / name;
     if (fs::exists(exact, ec)) return exact;
     for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
-        if (EqualNoCase(GameName(it->path().filename().string()), name)) return it->path();
+        if (EqualNoCase(it->path().filename().string(), name)) return it->path();
     return {};
 }
 
@@ -181,6 +132,11 @@ fs::path FindHostPath(const std::string& gamePath) {
     const auto parts = SplitGamePath(gamePath);
     fs::path found = FindUnder(config().userDir, parts);
     if (!found.empty()) return found;
+    // The chosen language (language_pack.h): its text, speech and pictures, at their places in the game folder.
+    if (LanguagePackCovers(parts)) {
+        found = FindUnder(LanguagePackFolder(), parts);
+        if (!found.empty()) return found;
+    }
     // From a pack only a file a pack may hold, so neither a folder nor another kind of file there (one put in
     // ".unpacked" by hand, or unpacked by older rules) takes a game file's place.
     if (PackMayHold(JoinParts(parts))) {
@@ -203,7 +159,7 @@ fs::path HostPathForWriting(const std::string& gamePath) {
     for (size_t i = 0; i < parts.size(); ++i) {
         // Reuse an existing entry whatever its case, so "Save" and "save" stay one folder.
         fs::path existing = FindChild(current, parts[i]);
-        current = existing.empty() ? current / HostName(parts[i]) : existing;
+        current = existing.empty() ? current / parts[i] : existing;
         if (i + 1 < parts.size()) fs::create_directories(current, ec);
     }
     if (parts.empty()) fs::create_directories(current, ec);
@@ -247,16 +203,22 @@ uint64_t FileTimeOf(const fs::path& path) {
 std::vector<DirEntry> ListGameFolder(const std::string& gamePath) {
     const auto parts = SplitGamePath(gamePath);
     const std::string inside = JoinParts(parts);
-    // The user folder, the asset packs (packs.h), the game folder; from a pack only the files a pack may hold. The Gold
-    // rides (gold_rides.h) are listed with the game folder, as the Gold installer's copies would be in it: a Gold copy
-    // of a base ride takes the base entry's place, a new ride is sorted in among the base ones.
-    std::vector<std::pair<fs::path, bool>> roots{{config().userDir, false}};
-    for (const fs::path& pack : PackDirs()) roots.emplace_back(pack, true);
-    roots.emplace_back(config().gameDir, false);
+    // The user folder, the chosen language (language_pack.h), the asset packs (packs.h), the game folder; from the
+    // language only the folders it covers (in data/Language its own folder alone, so the game takes it as its language),
+    // from a pack only the files a pack may hold. The Gold rides (gold_rides.h) are listed with the game folder, as the
+    // Gold installer's copies would be in it: a Gold copy of a base ride takes the base entry's place, a new ride is
+    // sorted in among the base ones.
+    enum class Root { kUser, kLanguage, kPack, kGame };
+    std::vector<std::pair<fs::path, Root>> roots{{config().userDir, Root::kUser}};
+    if (LanguagePackCovers(parts) || LanguagePackLists(parts, LanguagePackName()))
+        roots.emplace_back(LanguagePackFolder(), Root::kLanguage);
+    for (const fs::path& pack : PackDirs()) roots.emplace_back(pack, Root::kPack);
+    roots.emplace_back(config().gameDir, Root::kGame);
     std::vector<DirEntry> entries;
     for (size_t r = 0; r < roots.size(); ++r) {
-        const auto& [root, pack] = roots[r];
-        const bool game = r + 1 == roots.size();
+        const auto& [root, source] = roots[r];
+        const bool pack = source == Root::kPack;
+        const bool game = source == Root::kGame;
         const std::vector<DirEntry> gold = game ? GoldRideEntries(inside) : std::vector<DirEntry>();
         const fs::path folder = FindUnder(root, parts);
         std::error_code ec;
@@ -264,10 +226,11 @@ std::vector<DirEntry> ListGameFolder(const std::string& gamePath) {
         if (!listed && gold.empty()) continue;
         std::vector<DirEntry> found;
         for (fs::directory_iterator it(folder, ec), end; listed && !ec && it != end; it.increment(ec)) {
-            const std::string name = GameName(it->path().filename().string());
+            const std::string name = it->path().filename().string();
             if (name.empty() || name[0] == '.' || IsDumpSideFile(it->path())) continue;
             std::error_code kind;
             if (pack && (!it->is_regular_file(kind) || !PackMayHold(inside.empty() ? name : inside + "/" + name))) continue;
+            if (source == Root::kLanguage && !LanguagePackLists(parts, name)) continue;
             const bool seen = std::any_of(entries.begin(), entries.end(),
                                           [&](const DirEntry& e) { return EqualNoCase(e.name, name); });
             if (seen) continue;
