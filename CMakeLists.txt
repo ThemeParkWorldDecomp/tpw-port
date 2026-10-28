@@ -157,7 +157,7 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
     target_link_libraries(tpw_platform PUBLIC "-framework CoreText" "-framework CoreGraphics" "-framework CoreFoundation" objc)
   elseif(WIN32)
     # The WIN32 parts of this file: Windows port contributed by samueleagle91 (tpw-port PR #1).
-    # The signs' text is drawn with stb_truetype (third_party/stb, platform/gdi_text_win.cpp) in place of CoreText
+    # The signs' text is drawn with stb_truetype (third_party/stb, platform/gdi_text_stb.cpp) in place of CoreText
     # (platform/gdi_text.cpp). The POSIX calls MinGW lacks come from platform/win: its headers, and posix_win.h ahead of
     # every file (quoted inside SHELL:, which splits at spaces, so a clone in a folder with a space builds). The sockets
     # are Windows' (platform/winsock.cpp), and gluBuild2DMipmaps, in the Mac's OpenGL framework, is glu32's.

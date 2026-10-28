@@ -173,7 +173,7 @@ tests, `BUILD=<folder>` builds in another folder, and each step's output is kept
 launcher's DLL imports, and test builds check the test programs too: only Windows system libraries are allowed. The
 record is build\logs\imports.log. CI also copies the launcher away from its build tools and starts it with only
 Windows system folders on PATH. What it does differently is all in the platform layer and the build: the signs' text
-is drawn with stb_truetype (platform/gdi_text_win.cpp) from the game's fonts and the Windows fonts folder; the POSIX
+is drawn with stb_truetype (platform/gdi_text_stb.cpp) from the game's fonts and the Windows fonts folder; the POSIX
 calls MinGW lacks are in platform/win and platform/posix_win.cpp; a division the x86 traps (by zero, INT_MIN / -1) gets
 the answer the Mac's processor gives (platform/host_win.cpp); and the build makes its own copy of the one tpw-decomp file
 the game library builds sliced (devtools/slice_win.py), so it needs no libclang. tpw_platform_tests does: its sources
