@@ -406,6 +406,16 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   target_link_libraries(tpw_log_scrub_tests PRIVATE tpw_platform)
   add_test(NAME log_scrub COMMAND tpw_log_scrub_tests)
 
+  if(TPW_LINUX)
+    # The Vulkan renderer against the system's OpenGL, through the game's OpenGL calls (platform/tests/renderer_tests.cpp):
+    # needs a display and a Vulkan device (CI runs it under Xvfb with Mesa's software ones), skips (77) without them.
+    add_executable(tpw_renderer_tests platform/tests/renderer_tests.cpp)
+    target_include_directories(tpw_renderer_tests PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    target_link_libraries(tpw_renderer_tests PRIVATE tpw_platform)
+    add_test(NAME renderer COMMAND tpw_renderer_tests)
+    set_tests_properties(renderer PROPERTIES SKIP_RETURN_CODE 77)
+  endif()
+
   # Where the intro films are drawn (include/platform/filmbox.h): pure arithmetic, no game or window.
   add_executable(tpw_host_filmbox ${TPW_DECOMP_DIR}/tests/host_filmbox.cpp)
   target_include_directories(tpw_host_filmbox PRIVATE ${TPW_INCLUDE_DIR})
