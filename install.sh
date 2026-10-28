@@ -2677,6 +2677,16 @@ main() {
     case "$DIR" in
         *[\"\$\`\\]*) die "Not using \"$DIR\" as the install folder: a double quote, \$, backtick or backslash in its name breaks the build. Choose another with --dir." ;;
     esac
+    # On Linux these too: CMake cannot configure a folder with ; # * ? [ ] or a comma in its name, and the shell lines of
+    # SDL's Wayland step (its protocol headers, which are not made on a Mac) hold the folder unquoted, where ' ( ) & or
+    # : breaks them. A Linux account's name, and so its home folder, has none of them.
+    if [ "$OS" = linux ]; then
+        for c in "'" "(" ")" "&" ":" ";" "#" "*" "?" "[" "]" ","; do
+            case "$DIR" in
+                *"$c"*) die "Not using \"$DIR\" as the install folder: on Linux a $c in its name breaks the build. Choose another with --dir." ;;
+            esac
+        done
+    fi
 
     SRC="$DIR/source"
     NEXT="$DIR/build-next"
