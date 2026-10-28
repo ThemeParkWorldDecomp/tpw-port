@@ -1,7 +1,8 @@
 // gl_backend.cpp: the OpenGL backend of gfx.h: the context SDL makes on the game's window, the offscreen framebuffers
 // of platform/offscreen.cpp when the window is fitted, and the swap. This is what platform/window.cpp did with OpenGL
 // itself before the window's graphics went behind gfx.h: the same calls in the same order. The calls below are the
-// system's OpenGL, as the game's own are (include/platform/opengl.h).
+// system's OpenGL, as the game's own are (include/platform/opengl.h): on Linux through platform/gl_entry.cpp, which
+// takes the system's entry points when a context is made current here (OnGLContextMade).
 #include <SDL3/SDL.h>
 
 #include <cstdint>
@@ -64,6 +65,7 @@ bool Probe(int& largest) {
     if (probe == nullptr) return false;
     bool ok = false;
     if (SDL_GLContext context = SDL_GL_CreateContext(probe)) {
+        OnGLContextMade();
         gLargest = offscreen::LargestSize();
         SDL_GL_MakeCurrent(probe, nullptr);
         SDL_GL_DestroyContext(context);
@@ -88,6 +90,7 @@ bool Create(SDL_Window* window, bool fit, int wide, int high) {
         return false;
     }
     SDL_GL_MakeCurrent(window, gContext);
+    OnGLContextMade();
     gDescription = Describe();
     SDL_GL_SetSwapInterval(1);
     // The game's picture goes into a framebuffer of its own size from here on (see EndPresent); the fit is dropped by the
@@ -154,3 +157,9 @@ void EndPresent(const fit::PixelBox& box, int windowWide, int windowHigh) {
 const char* Description() { return gDescription.c_str(); }
 
 }  // namespace tpw::gfx::gl
+
+#ifndef __linux__
+namespace tpw::gfx {
+void OnGLContextMade() {}   // the OpenGL calls are the system library's (on Linux: platform/gl_entry.cpp)
+}  // namespace tpw::gfx
+#endif

@@ -2,8 +2,10 @@
 // keeps the picture the game draws (at its own resolution, platform/fit.h) and shows it. The backend is OpenGL
 // (platform/gl_backend.cpp with platform/offscreen.cpp): the context SDL makes on the window, the offscreen
 // framebuffers when the window is fitted, and the swap. The game itself draws with OpenGL 1.1 calls
-// (include/platform/opengl.h). The window asks this interface for all of it rather than calling OpenGL itself, so
-// that another renderer can stand behind the interface in OpenGL's place.
+// (include/platform/opengl.h); on a Mac and on Windows those are the system's OpenGL library, on Linux the platform
+// layer's own (platform/gl_entry.cpp), which hands them to the system's OpenGL opened through SDL. The window asks this
+// interface for all of it rather than calling OpenGL itself, so that another renderer can stand behind the interface
+// in OpenGL's place.
 //
 // The frame, as window.cpp drives it: the game draws into its target; at the swap BeginPresent copies the game's picture
 // into the present target (which the OpenGL calls then draw into: the cursor overlay goes on the copy, so the game's own
@@ -11,6 +13,7 @@
 // window's box and shows it, after which the game's target is drawn into again.
 #pragma once
 #include <cstdint>
+#include <vector>
 
 #include "fit.h"
 
@@ -51,5 +54,16 @@ void EndPresent(const fit::PixelBox& box, int windowWide, int windowHigh);
 
 // A line for the log once the device exists: the API, the device and its driver.
 const char* Description();
+
+// The OpenGL backend made a context current: on Linux platform/gl_entry.cpp takes the system's OpenGL calls then (a
+// no-op elsewhere, where they are the system library's).
+void OnGLContextMade();
+
+// The next level of a mip chain of RGBA8 pixels: each pixel the mean of the 2 x 2 under it (a row or column that has no
+// pair is used alone), which is GLU's box filter for the powers of two the game's pages are. It is the one mip filter
+// of any renderer behind this interface that builds its own chains: on Linux gluBuild2DMipmaps, which the system's
+// OpenGL library does not have, is built with it (platform/gl_entry.cpp).
+std::vector<uint8_t> HalfSizeRGBA(const std::vector<uint8_t>& level, int32_t width, int32_t height, int32_t& outWide,
+                                  int32_t& outHigh);
 
 }  // namespace tpw::gfx

@@ -35,7 +35,9 @@ constexpr unsigned int kRenderbuffer = 0x8D41, kColorAttachment0 = 0x8CE0, kDept
 constexpr unsigned int kFramebufferComplete = 0x8CD5, kRgba8 = 0x8058, kDepth24 = 0x81A6;
 constexpr unsigned int kColorBufferBit = 0x00004000, kNearest = 0x2600, kLinear = 0x2601;
 constexpr unsigned int kExtensions = 0x1F03, kScissorTest = 0x0C11, kAllAttribBits = 0xffffffff;
-constexpr unsigned int kFront = 0x0404, kBack = 0x0405, kFrontAndBack = 0x0408;
+#ifndef __linux__
+constexpr unsigned int kFront = 0x0404, kBack = 0x0405, kFrontAndBack = 0x0408;   // (the two calls answered at the end)
+#endif
 
 struct Api {
     void (*genFramebuffers)(int, unsigned int*) = nullptr;
@@ -249,6 +251,8 @@ void DrainErrors(const char* where) {
 }  // namespace tpw::offscreen
 
 // ---- The game's two calls that name the window's buffers ------------------------------------------
+// On Linux every OpenGL call is the platform layer's own (platform/gl_entry.cpp), which answers these two the same way.
+#ifndef __linux__
 namespace {
 bool NamesWindowBuffer(unsigned int mode) { return mode == kFront || mode == kBack || mode == kFrontAndBack; }
 
@@ -273,3 +277,4 @@ void glReadBuffer(unsigned int mode) {
     CallSystem(false, mode);
 }
 }
+#endif

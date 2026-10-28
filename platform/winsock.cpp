@@ -48,7 +48,7 @@ static_assert(sizeof(GameAddress) == 16, "winsock's sockaddr_in is 16 bytes");
 sockaddr_in ToHost(const void* game, int32_t length) {
     sockaddr_in host;
     std::memset(&host, 0, sizeof host);
-#ifndef _WIN32   // BSD's field; Windows' has none
+#ifdef __APPLE__   // BSD's field; Windows' and Linux's have none
     host.sin_len = sizeof host;
 #endif
     host.sin_family = AF_INET;
@@ -125,7 +125,7 @@ namespace ftp_callee {
 int32_t Socket(int32_t family, int32_t type, int32_t) {
     const int fd = ::socket(family == 2 ? AF_INET : family, type, 0);
     if (fd < 0) return -1;
-#ifndef _WIN32   // Windows has no SIGPIPE
+#ifdef SO_NOSIGPIPE   // BSD (the Mac): no SIGPIPE from this socket; Windows has no SIGPIPE, Linux asks per send (Send)
     const int on = 1;
     ::setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof on);
 #endif
@@ -205,7 +205,7 @@ int32_t Accept(int32_t sock, void* addr, int32_t* length) {
     socklen_t size = sizeof host;
     const int fd = ::accept(sock, reinterpret_cast<sockaddr*>(&host), &size);
     if (fd < 0) return -1;
-#ifndef _WIN32   // Windows has no SIGPIPE
+#ifdef SO_NOSIGPIPE   // BSD (the Mac): no SIGPIPE from this socket; Windows has no SIGPIPE, Linux asks per send (Send)
     const int on = 1;
     ::setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof on);
 #endif
@@ -241,7 +241,11 @@ void WinsockStart(int32_t, void* data) { Startup(data); }
 namespace csock_callee {
 // send 0x1023a798
 int32_t Send(int32_t sock, const char* data, int32_t length, int32_t flags) {
+#ifdef __linux__   // no SIGPIPE from a send on a closed connection (what SO_NOSIGPIPE does on the Mac, in Socket and Accept)
+    return static_cast<int32_t>(::send(sock, data, length, (flags & 3) | MSG_NOSIGNAL));
+#else
     return static_cast<int32_t>(::send(sock, data, length, flags & 3));
+#endif
 }
 }  // namespace csock_callee
 
