@@ -1,0 +1,204 @@
+# Plays the 0.2.0 release candidate from a fresh install on GitHub's runners (Linux, macOS on Apple silicon and Intel,
+# Windows), the way a player would: the installer's own line on its stable channel builds the launcher from this very
+# commit on the runner, the installed launcher imports the game bundle with --import (the drop's import), and plays the
+# US edition, the European edition and the US edition with the Gold rides on, through the easy-park recipe up to the
+# Park Information panel, keeping the frames as png and the logs.
+#
+# TEMPORARY: this workflow lives on the ci-020-fresh branch only, never on main. A push to the branch starts it
+# (workflow_dispatch alone cannot register a workflow that is absent from the default branch). Everything outside
+# .github/ is the release candidate's tree, checked below.
+#
+# The game bundle: its address, its size in bytes and its MD5 are three repository Actions secrets the maintainer sets
+# (TPW_FRESH_BUNDLE_URL, TPW_FRESH_BUNDLE_SIZE, TPW_FRESH_BUNDLE_MD5); the first step fails while one is missing, and
+# the address is never printed. The game's files exist only on the runner for the job's life: no cache, no artifact
+# and no commit of them, and the last step deletes the bundle and the data folder (if: always()).
+#
+# The installer's line fetches releases/latest from GitHub. Here it gets a local release instead (its test hook
+# TPW_INSTALL_REPO): a copy of this checkout whose only release tag is a local vVERSION (launcher/VERSION.txt) on this
+# commit, so that the stable channel, the players' path, builds exactly this. The tag exists only on the runner.
+#
+# The recipe: devtools/playtest.sh's 4:3 easy-park clicks at 2048 x 1536 game pixels, halved at 1024 x 768 (the safest
+# size on the software OpenGL of the Linux and Windows runners). The test desktops: Linux gets xvfb and Mesa (llvmpipe
+# for OpenGL, lavapipe for Vulkan), Windows the pinned Mesa llvmpipe of the old trial; both get SDL's software renderer
+# for the launcher's own 2D window. macOS runs as it is.
+name: fresh-play
+
+on:
+  push:
+    branches: [ci-020-fresh]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # The release candidate this branch tests: everything outside .github/ must be its tree.
+  RC_COMMIT: c51a5c03db10e2a4d14199ca51a2f502a01d7cfa
+  BUNDLE_URL: ${{ secrets.TPW_FRESH_BUNDLE_URL }}
+  BUNDLE_SIZE: ${{ secrets.TPW_FRESH_BUNDLE_SIZE }}
+  BUNDLE_MD5: ${{ secrets.TPW_FRESH_BUNDLE_MD5 }}
+  # The recipe's clicks are at pass numbers; a test run swaps at every refresh (platform/window.cpp), as
+  # devtools/playtest.sh's runs do.
+  TPW_VSYNC_EVERY_REFRESH: '1'
+
+jobs:
+  play-unix:
+    strategy:
+      fail-fast: false   # one runner failing must not hide the others' results
+      matrix:
+        os: [ubuntu-24.04, macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # Fails: one of the three secrets is not set.
+      - name: Check the bundle's secrets
+        run: |
+          [ -n "$BUNDLE_URL" ] && [ -n "$BUNDLE_SIZE" ] && [ -n "$BUNDLE_MD5" ] && { echo "the bundle's three secrets are set"; exit 0; }
+          missing=""
+          [ -n "$BUNDLE_URL" ] || missing="$missing TPW_FRESH_BUNDLE_URL"
+          [ -n "$BUNDLE_SIZE" ] || missing="$missing TPW_FRESH_BUNDLE_SIZE"
+          [ -n "$BUNDLE_MD5" ] || missing="$missing TPW_FRESH_BUNDLE_MD5"
+          echo "::error::the bundle's secrets are not set:$missing (Settings, Secrets and variables, Actions)"
+          exit 1
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      # Fails: a file outside .github/ or a submodule's pin differs from the release candidate's.
+      - name: Check the tree against the release candidate
+        run: |
+          git diff --stat --exit-code "$RC_COMMIT" HEAD -- . ':!.github'
+          git submodule status --recursive | tee "$RUNNER_TEMP/submodules.txt"
+          if grep -v '^ ' "$RUNNER_TEMP/submodules.txt"; then echo "::error::a submodule is not on its pinned commit"; exit 1; fi
+          echo "the tree is the release candidate's, launcher/VERSION.txt says $(head -n 1 launcher/VERSION.txt)"
+      - name: Make the local release
+        run: bash .github/fresh-play/unix.sh release
+      # Fails: the install (its output says which step; DIR/last-build.log is kept in the artifact).
+      - name: Install with the players' line (stable channel)
+        timeout-minutes: 100
+        run: bash .github/fresh-play/unix.sh install
+      - name: Check the installed launcher's version
+        run: bash .github/fresh-play/unix.sh version
+      - name: Set up the test desktop
+        run: bash .github/fresh-play/unix.sh desktop
+      - name: Fetch the game bundle
+        timeout-minutes: 45
+        run: bash .github/fresh-play/unix.sh fetch
+      - name: Import the bundle with the installed launcher (--import, the drop's import)
+        id: import
+        timeout-minutes: 20
+        run: bash .github/fresh-play/unix.sh import
+      - name: Play the US edition
+        if: always() && steps.import.outcome == 'success'
+        timeout-minutes: 17
+        run: bash .github/fresh-play/unix.sh play us
+      - name: Play the European edition
+        if: always() && steps.import.outcome == 'success'
+        timeout-minutes: 17
+        run: bash .github/fresh-play/unix.sh play eur
+      - name: Play the US edition with the Gold rides (the launcher window's Play)
+        if: always() && steps.import.outcome == 'success'
+        timeout-minutes: 17
+        run: bash .github/fresh-play/unix.sh play gold
+      # Information, not a pass condition: Vulkan on Mesa's software lavapipe.
+      - name: Play the US edition with the Vulkan renderer (lavapipe)
+        if: always() && steps.import.outcome == 'success' && runner.os == 'Linux'
+        continue-on-error: true
+        timeout-minutes: 17
+        run: bash .github/fresh-play/unix.sh play us-vulkan
+      - name: Convert the frames to png and keep the logs
+        if: always()
+        run: bash .github/fresh-play/unix.sh frames
+      - name: Keep the frames and the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-play-${{ matrix.os }}
+          path: ${{ runner.temp }}/play-out/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Delete the bundle and the game files
+        if: always()
+        run: bash .github/fresh-play/unix.sh clean
+
+  play-windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Check the bundle's secrets
+        run: |
+          $missing = @()
+          if (-not $env:BUNDLE_URL) { $missing += 'TPW_FRESH_BUNDLE_URL' }
+          if (-not $env:BUNDLE_SIZE) { $missing += 'TPW_FRESH_BUNDLE_SIZE' }
+          if (-not $env:BUNDLE_MD5) { $missing += 'TPW_FRESH_BUNDLE_MD5' }
+          if ($missing.Count -gt 0) { Write-Host "::error::the bundle's secrets are not set: $($missing -join ' ') (Settings, Secrets and variables, Actions)"; exit 1 }
+          Write-Host "the bundle's three secrets are set"
+      - name: Keep line endings as stored
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: Check the tree against the release candidate
+        shell: bash
+        run: |
+          git diff --stat --exit-code "$RC_COMMIT" HEAD -- . ':!.github'
+          git submodule status --recursive | tee "$RUNNER_TEMP/submodules.txt"
+          if grep -v '^ ' "$RUNNER_TEMP/submodules.txt"; then echo "::error::a submodule is not on its pinned commit"; exit 1; fi
+          echo "the tree is the release candidate's, launcher/VERSION.txt says $(head -n 1 launcher/VERSION.txt)"
+      - name: Make the local release
+        run: '& .github\fresh-play\win.ps1 release; exit $LASTEXITCODE'
+      - name: Install with the players' line (stable channel)
+        timeout-minutes: 100
+        run: '& .github\fresh-play\win.ps1 install; exit $LASTEXITCODE'
+      - name: Check the installed launcher's version
+        run: '& .github\fresh-play\win.ps1 version; exit $LASTEXITCODE'
+      - name: Set up the test desktop
+        run: '& .github\fresh-play\win.ps1 desktop; exit $LASTEXITCODE'
+      - name: Fetch the game bundle
+        timeout-minutes: 45
+        run: '& .github\fresh-play\win.ps1 fetch; exit $LASTEXITCODE'
+      - name: Import the bundle with the installed launcher (--import, the drop's import)
+        id: import
+        timeout-minutes: 20
+        run: '& .github\fresh-play\win.ps1 import; exit $LASTEXITCODE'
+      - name: Play the US edition
+        if: always() && steps.import.outcome == 'success'
+        timeout-minutes: 17
+        run: '& .github\fresh-play\win.ps1 play us; exit $LASTEXITCODE'
+      - name: Play the European edition
+        if: always() && steps.import.outcome == 'success'
+        timeout-minutes: 17
+        run: '& .github\fresh-play\win.ps1 play eur; exit $LASTEXITCODE'
+      - name: Play the US edition with the Gold rides (the launcher window's Play)
+        if: always() && steps.import.outcome == 'success'
+        timeout-minutes: 17
+        run: '& .github\fresh-play\win.ps1 play gold; exit $LASTEXITCODE'
+      - name: Convert the frames to png and keep the logs
+        if: always()
+        run: '& .github\fresh-play\win.ps1 frames; exit $LASTEXITCODE'
+      - name: Keep the frames and the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-play-${{ matrix.os }}
+          path: ${{ runner.temp }}/play-out/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Delete the bundle and the game files
+        if: always()
+        run: '& .github\fresh-play\win.ps1 clean; exit $LASTEXITCODE'
