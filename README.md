@@ -45,16 +45,90 @@ The Settings box has these rows:
 
 - Skip the intro films: off by default.
 - Back to the launcher: off by default.
+- Renderer (Linux only): OpenGL by default, the system's OpenGL, the API the original draws with. Vulkan draws the game
+  with the port's own Vulkan renderer instead (Building on Linux below).
 - Smooth wheel zoom: off by default, which keeps the original's step zoom. On, the wheel eases the zoom toward the pointer.
 - Varied sounds: on by default, as the PC release plays them: a sound changes between its recordings, volumes and
   pitches. Off is the Mac's way, where each sound plays the same recording all through a launch.
+- Stereo panning: off by default, which plays every sound in the middle, as the original did. On, a sound placed in the
+  park is heard louder in the speaker on its side of the camera, and a little in the other (never in one ear only).
 - Interface size: 100% by default, the original. 85% or 70% shrink the panels so the park shows more, with the panels
   still at the edges of the screen.
-- Graphics: seven options of the original's options files (low.sam, med.sam, high.sam), each Default by default, which
+- Language: one for Sim Theme Park and one for Theme Park World, each the edition's own language by default (American
+  English for Sim Theme Park, English for Theme Park World). The list offers only the languages the data folder holds
+  whole, the ones you imported from your discs; one with some of its speech missing says so, and the edition's own
+  recordings fill in. The choice sets the game's text and the advisor's voice. Japanese, Korean, both Chinese and
+  Hebrew are listed by their English names, as the launcher's fonts cannot draw their own. If a chosen language leaves the data
+  folder, the game plays in the edition's own and the row says so.
+- Graphics: eight options of the original's options files (low.sam, med.sam, high.sam), each Default by default, which
   keeps the value of the game's own graphics quality: view distance (Short, Medium, Long, Max), sky layers (1, 2, 4),
-  cloud shadows, ground blending (Off, 16, 32, 64), texture quality (Low, High), lighting and visitor shadows (Off, On).
+  cloud shadows, ground blending (Off, 16, 32, 64), texture quality (Low, High), lighting and visitor shadows (Off, On),
+  and visitor looks (2, 4, 6, 8: how many kinds of visitor walk around the park).
 - Check for updates: on by default (the one launcher setting that is; see Updates below). Off, the launcher never asks.
 - Check again: rehashes every file.
+
+### Cheats
+
+The original game's cheats are all there, off until you turn on cheat mode in a park:
+
+1. Press G: the entry price panel opens.
+2. Click the park's name at the top of the panel: the Rename Item box opens, with two lines.
+3. Clear both lines, then type `Kevin the` on the first and `Cosmic Cow` on the second, exactly so: capitals as shown,
+   one space, nothing more. Return moves from the first line to the second.
+4. Press Return (or click the tick). The entrance sign now reads Kevin the Cosmic Cow.
+
+Control+Shift+Option+C on a Mac (Ctrl+Shift+Alt+C on Windows and Linux) also turns it on, and puts $1 in the bank.
+Cheat mode stays on while you play (renaming the sign again does not turn it off) and is saved with the park: loading
+a park saved without it turns it off.
+
+On a Mac every key below needs the port's fixes on, as every tpw-port build has them (the HandleTyping row of
+[FIXES.md](FIXES.md)): the Mac original read the character a key typed, so the cheats held with Option or Control on a
+letter or number, or with Shift on a number, never worked there.
+
+- Control is Control or Command on a Mac.
+- The keypad keys are the numeric keypad's, so a Mac laptop needs a keyboard with one.
+- On a Mac keyboard F11 and F12 are the volume keys: hold fn with them, or turn on "Use F1, F2, etc. keys as standard
+  function keys" in System Settings, Keyboard. macOS may also keep F11 for Show Desktop, and Linux may keep Ctrl+Alt with
+  an F key for switching to a text console.
+- The people, litter and vomit appear where the pointer is. Guests come only while the park is open: with its gates
+  closed, the guest keys open the park instead.
+- The golden ticket keys work without cheat mode too: the original's debug keys hold the same ones.
+- Tried in a game says on which systems the row was checked by playing. The others were checked against the game's code
+  and the port's key tests only: no row has been tried in a game on Windows or Linux yet.
+
+| What it does | macOS | Windows | Linux | Tried in a game |
+| --- | --- | --- | --- | --- |
+| +$10,000 | Option+1 | Alt+1 | Alt+1 | Mac |
+| Complete all research: everything can be built | Option+R | Alt+R | Alt+R | not yet |
+| Undo that: only the research done so far stays | Option+Shift+R | Alt+Shift+R | Alt+Shift+R | not yet |
+| Spawn a guest | Shift+1 | Shift+1 | Shift+1 | Mac |
+| Spawn five guests | Control+Shift+1 | Ctrl+Shift+1 | Ctrl+Shift+1 | not yet |
+| Fill every path with guests, and a mechanic or handyman at each entrance | Control+Shift+Option+1 | Ctrl+Shift+Alt+1 | Ctrl+Shift+Alt+1 | not yet |
+| Spawn a security guard | Shift+5 | Shift+5 | Shift+5 | Mac |
+| Spawn a researcher | Shift+6 | Shift+6 | Shift+6 | Mac |
+| Spawn a mechanic | Shift+7 | Shift+7 | Shift+7 | Mac |
+| Spawn a handyman | Shift+8 | Shift+8 | Shift+8 | not yet |
+| Spawn an entertainer | Shift+9 | Shift+9 | Shift+9 | not yet |
+| Spawn one of each of the five staff | Shift+0 | Shift+0 | Shift+0 | Mac |
+| Drop litter | Shift+L | Shift+L | Shift+L | Mac |
+| Drop vomit | Shift+V | Shift+V | Shift+V | not yet |
+| Clean up all the litter in the park | Shift+Y | Shift+Y | Shift+Y | not yet |
+| Break down the ride under the pointer | Shift+B | Shift+B | Shift+B | not yet |
+| Nothing (the original's "ride worn" cheat is empty) | Option+Shift+B | Alt+Shift+B | Alt+Shift+B | not yet |
+| All staff go on strike, and the month's costs are charged at once | Control+Option+S | Ctrl+Alt+S | Ctrl+Alt+S | Mac |
+| Play the winning sequence (again to stop it) | Option+Shift+1 | Alt+Shift+1 | Alt+Shift+1 | Mac |
+| Start the bankruptcy sequence | Option+Shift+0 | Alt+Shift+0 | Alt+Shift+0 | not yet |
+| Take out the bank's loan 1, 2, 3 or 4 | Control+keypad 1 to 4 | Ctrl+keypad 1 to 4 | Ctrl+keypad 1 to 4 | not yet |
+| Win a golden ticket | Option+G | Alt+G | Alt+G | Mac |
+| Win one of the other golden tickets (each key its own) | Option+keypad 1 to 9 | Alt+keypad 1 to 9 | Alt+keypad 1 to 9 | not yet |
+| Weather a step up the game's scale (1 to 100) | Option+F12 | Alt+F12 | Alt+F12 | not yet |
+| Weather a step down | Option+F11 | Alt+F11 | Alt+F11 | not yet |
+| Weather ten steps up | Shift+F12 | Shift+F12 | Shift+F12 | not yet |
+| Weather ten steps down | Shift+F11 | Shift+F11 | Shift+F11 | not yet |
+| Weather off (the top of the scale, kept) | Control+Shift+F12 | Ctrl+Shift+F12 | Ctrl+Shift+F12 | not yet |
+| The game's own weather again | Control+F12 | Ctrl+F12 | Ctrl+F12 | not yet |
+| Real-time lighting off or on | Control+Shift+Option+F12 | Ctrl+Shift+Alt+F12 | Ctrl+Shift+Alt+F12 | not yet |
+| Show or hide the frame rate | Control+Shift+Option+F11 | Ctrl+Shift+Alt+F11 | Ctrl+Shift+Alt+F11 | not yet |
 
 ### Updates
 
@@ -79,12 +153,13 @@ The game itself never needs the internet: everything plays offline.
 ## What you need
 
 - A Mac (Apple Silicon or Intel) with macOS 11 or newer, a PC with 64-bit Windows 10 or 11 (Intel, AMD or Arm; an
-  Arm PC needs Windows 11), or a 64-bit Linux (x86-64 or AArch64) with a Vulkan driver (or, failing that, OpenGL),
-  and about 2.5 GB of free space.
+  Arm PC needs Windows 11), or a 64-bit Linux on x86-64 with OpenGL (or Vulkan; from version 0.2.0), and about 2.5 GB
+  of free space. A Mac also needs Apple's command line developer tools (`xcode-select --install`): without them the
+  installer says so and changes nothing.
 - Your own copy of the game:
   - The US Mac CD gives Sim Theme Park.
-  - The Mac CD plus the European PC CD give Theme Park World too. Only the 2000 pressings of the PC CD work (Redump
-    66484 and 9465), and the 1999 pressing (Redump 66100) is refused.
+  - The Mac CD plus the European PC CD give Theme Park World too. Only the later pressings of the PC CD work (2000
+    and after); the 1999 first pressing holds version 1.0 data and is refused.
   - The PC Gold bonus CD adds its Gold bonus rides to either edition: 18 new rides and newer copies of 17 others, laid
     over the game's files when you play (the Gold Edition switch on each play tile turns them off). A park saved
     with a Gold ride built needs the switch on: with it off, the game refuses the park as the original does when a
@@ -93,11 +168,12 @@ The game itself never needs the internet: everything plays offline.
 
 Your checked game files and your saves live in `~/Library/Application Support/STP-TPW Launcher` on a Mac, in
 `%APPDATA%\STP-TPW Launcher` on Windows and in `~/.local/share/STP-TPW Launcher` on Linux (in the Flatpak,
-`~/.var/app/io.github.ThemeParkWorldDecomp.Launcher/data/STP-TPW Launcher`). `make clean` and
-`build.cmd clean` never touch that folder. Each run's log goes to its logs folder
-(launcher-YYYYMMDD-HHMMSS.log, the 10 most recent runs kept; the About box's Show logs button opens it with the newest log selected, and its Export logs button saves the newest to your Downloads folder), and
-`tpw_launcher --version` prints the launcher's version. On Windows the launcher has no console: what it prints goes to
-launcher.log in that folder too, unless its output is redirected (`build\tpw_launcher.exe 2> log.txt`).
+`~/.var/app/io.github.ThemeParkWorldDecomp.Launcher/data/STP-TPW Launcher`). `make clean` and `build.cmd clean` never
+touch that folder. The log is one file, `logs/launcher.log` in that folder, that every run of the launcher and of the
+game adds to, each run under a line with its number, the date, the launcher's version and the system; it keeps the
+newest 5 MB. The About box's Show logs button shows it, and its Export logs button saves its recent runs as one file in
+your Downloads folder. `tpw_launcher --version` prints the launcher's version. On Windows the launcher has no console:
+what it prints goes into the same log file, unless its output is redirected (`build\tpw_launcher.exe 2> log.txt`).
 
 ## Asset packs
 
@@ -161,7 +237,7 @@ on the Mac, bugs included. This repository adds what it takes to play:
   game's window: OpenGL (platform/gl_backend.cpp, platform/offscreen.cpp), or on Linux the port's own Vulkan renderer
   (platform/vulkan/), which draws the OpenGL 1.1 calls the game makes. On Linux those calls are the platform layer's own
   (platform/gl_entry.cpp), handed to the Vulkan renderer or to the system's OpenGL.
-- overrides/: the port's fixes, 229 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
+- overrides/: the port's fixes, 239 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
   the port does and why. Each file there is built in place of the tpw-decomp file of the same path. Headers are read
   from a copy of tpw-decomp's headers in the build folder with the overridden ones laid over it.
 - mods/: the [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) submodule, for optional changes to how the game plays. It holds no mods yet
@@ -197,18 +273,17 @@ where CI builds it with GCC too and runs its tests under a virtual screen with M
 Linux (KDE Plasma on Wayland, NVIDIA's Vulkan and OpenGL drivers). What it does differently is all in the platform layer
 and the build:
 
-- The game is drawn by the port's own Vulkan renderer (platform/vulkan/): every OpenGL 1.1 call the game and the
-  platform layer make (include/platform/opengl.h) is the platform layer's own (platform/gl_entry.cpp) and goes to the
-  renderer, which draws the game's picture into an image of the game's resolution through one render pass, with one
-  pipeline per blending and depth state and the game's vertices as they come (the engine's own vertex layout is the
-  shaders' input), and presents it scaled into the window, as many times a frame as the vsync pacing asks. The loader
-  (libvulkan.so.1) is opened at run time through SDL, with the API's headers vendored (third_party/vulkan), so no Vulkan
-  package is needed to build.
-- Without a Vulkan device that can draw to the window, or when its only one draws in software and the system's OpenGL
-  is a graphics card's (Building on Linux below; `--renderer` chooses), the same calls go to the system's OpenGL, which
-  SDL opens at run time and whose entry points are taken once a context exists. Nothing of OpenGL is linked either, and
-  GLU's one call, gluBuild2DMipmaps, is built there with GLU's own box filter, the one the Vulkan renderer's mip chains
-  use too (platform/gfx.h, HalfSizeRGBA).
+- Every OpenGL 1.1 call the game and the platform layer make (include/platform/opengl.h) is the platform layer's own
+  (platform/gl_entry.cpp). Chosen in Settings (Renderer) or with `--renderer vulkan`, the calls go to the port's own
+  Vulkan renderer (platform/vulkan/), which draws the game's picture into an image of the game's resolution through one
+  render pass, with one pipeline per blending and depth state and the game's vertices as they come (the engine's own
+  vertex layout is the shaders' input), and presents it scaled into the window, as many times a frame as the vsync
+  pacing asks. The loader (libvulkan.so.1) is opened at run time through SDL, with the API's headers vendored
+  (third_party/vulkan), so no Vulkan package is needed to build.
+- Otherwise (the default), or without a Vulkan device that can draw to the window, the same calls go to the system's
+  OpenGL, which SDL opens at run time and whose entry points are taken once a context exists. Nothing of OpenGL is
+  linked either, and GLU's one call, gluBuild2DMipmaps, is built there with GLU's own box filter, the one the Vulkan
+  renderer's mip chains use too (platform/gfx.h, HalfSizeRGBA).
 - platform/tests/renderer_tests.cpp draws one frame as the game draws with each renderer and compares them pixel by
   pixel (ctest "renderer"; in CI under a virtual screen with Mesa's software Vulkan and OpenGL, where they differ in no
   pixel). The shaders (platform/vulkan/shaders/) are committed compiled, as C arrays beside their GLSL:
@@ -232,12 +307,13 @@ and the build:
   set), and its Downloads folder for Export logs is `~/Downloads`. Installed with the one line, the Update button
   updates it as on a Mac; built by hand, it opens the release's page.
 - The one-line installer is install.sh, the Mac's, with Linux's checks in place of the Mac's: the distribution, the
-  processor, the free space and the build's packages, which it installs with apt-get, dnf or pacman through sudo (or
-  prints the exact command when nothing can ask for the password, as from the Update button). The themepark command's
-  line goes in `~/.profile` and in the file a terminal window's shell reads (`~/.bashrc`, or `~/.zshrc` and
-  `~/.zprofile`), and the menu entry is `~/.local/share/applications/stp-tpw-launcher.desktop`, with the launcher's
-  icon in `~/.local/share/icons/hicolor`. `--flatpak` installs the release's Flatpak instead (flatpak/,
-  devtools/flatpak.sh).
+  processor, the C++ compiler (GCC 13 or clang 18, or newer, checked before anything is installed; the one `CXX` names
+  is kept for the install's updates), the free space and the build's packages, which it installs with apt-get, dnf or
+  pacman through sudo (or prints the exact command when nothing can ask for the password, as from the Update button).
+  The themepark command's line goes in `~/.profile` and in the file a terminal window's shell reads (`~/.bashrc`, or
+  `~/.zshrc` and `~/.zprofile`), and the menu entry is `~/.local/share/applications/stp-tpw-launcher.desktop`, with the
+  launcher's icon in `~/.local/share/icons/hicolor`. `--flatpak` installs the release's Flatpak instead, when the
+  release has one (flatpak/, devtools/flatpak.sh).
 
 ### Building by hand
 
@@ -270,9 +346,10 @@ the same folder. A clone of a local folder needs `git -c protocol.file.allow=alw
 
 ### Building on Linux
 
-The one-line installer above does all of this for you. By hand: on a 64-bit Linux (x86-64 or AArch64) with a C++17
-compiler (GCC 13 or clang 18, or newer), CMake 3.20 or newer, Ninja, Python 3 and the development packages SDL needs for
-the window, the keyboard and the sound. On Debian and Ubuntu:
+The one-line installer above does all of this for you. By hand, these steps work from version 0.2.0, the first with a
+Linux build (the stable branch they clone has none before it). On a 64-bit Linux on x86-64 (the one CI builds) with a
+C++17 compiler (GCC 13 or clang 18, or newer), CMake 3.20 or newer, Ninja, Python 3 and the development packages SDL
+needs for the window, the keyboard and the sound. On Debian and Ubuntu:
 
     sudo apt install build-essential cmake ninja-build python3 git \
         libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxkbcommon-dev \
@@ -303,7 +380,7 @@ Then:
 
 The first build takes a few minutes. The launcher is one program, build/tpw_launcher, that needs nothing beside it and
 links only the system's C and C++ runtimes: SDL opens the window system (Wayland or X11), the sound system (PipeWire,
-PulseAudio or ALSA) and the graphics driver (Vulkan's loader, or the system's OpenGL) at run time, so the launcher built
+PulseAudio or ALSA) and the graphics driver (the system's OpenGL, or Vulkan's loader) at run time, so the launcher built
 on one distribution runs on another with a glibc as new (the C++ runtime is linked in; `-DTPW_STATIC_RUNTIME=OFF` uses
 the system's instead, as a package would). To update, run `git pull`, `git submodule update --init --recursive` and the
 two cmake lines again. The Makefile works on Linux as on a Mac: `make` builds build/tpw_launcher, `make run` starts it,
@@ -312,25 +389,24 @@ launcher as the Flatpak bundle the release hands out (it needs Flatpak, and uses
 org.flatpak.Builder flatpak and the freedesktop SDK from Flathub). Alt+Enter switches between full screen and a window
 while playing.
 
-The game is drawn by the port's own Vulkan renderer (platform/vulkan/), on any Vulkan 1.0 driver. Without a Vulkan
-driver that can draw to the window it is drawn with the system's OpenGL instead, and the log says so. The same happens
-when the only Vulkan driver draws in software (Mesa's lavapipe, SwiftShader) and the system's OpenGL is a graphics
-card's: the game is not drawn on the processor while the card could draw it. `--renderer opengl` (or `renderer=opengl`
-in launcher.ini) asks for OpenGL; `--renderer vulkan` (or `renderer=vulkan`) asks for Vulkan, which then draws with a
-software driver too.
+The game is drawn with the system's OpenGL, as the original draws. The Settings box's Renderer row (Linux only) chooses
+the port's own Vulkan renderer (platform/vulkan/) instead, on any Vulkan 1.0 driver, a software one (Mesa's lavapipe,
+SwiftShader) too; `--renderer vulkan` (or `renderer=vulkan` in launcher.ini) does the same for one run, and
+`--renderer opengl` asks for OpenGL. Without a Vulkan driver that can draw to the window the game is drawn with the
+system's OpenGL whatever was asked, and the log says so.
 
 ### Game data from the command line
 
-The launcher's window is the easy way. devtools/import_originals.py does the same from the command line. It finds the
-originals by their MD5 (any file names), unpacks them and checks every file it writes against the SHA-256 list it
+The launcher's window is the easy way. devtools/import_originals.py does the same from the command line. It finds your
+discs by what is in them (any file names), unpacks them and checks every file it writes against the SHA-256 list it
 carries:
 
-| Original | MD5 |
-| --- | --- |
-| From the US Mac CD (SimThemePark Mac US CD v2.0.1): the zip holding the CD image "Theme Park.toast"; all the US edition needs | f03abce3f375bc72d863cc527749e645 |
-| From the demo and bonus item (ThemeParkWorld Mac Demo and Bonus Stuff): the Bonus Stuff zip; optional, its fonts serve only the platform tests | 1adeba0b0cf5edcc623d44181a321f28 |
-| From the UK PC CD item (ThemeParkWorld PC UK-European CD Bullfrog EA): Redump 66484, ThemeParkWorld.img; optional, for the European (Theme Park World) edition, with the Mac CD zip (devtools/import_eur.py writes extracted/tpw-eur) | cd1cc4c33c1bd10673b855edd4b9e0f2 |
-| From the same item: Redump 9465, TPWORLD.bin; optional, the other European image (either one will do; the two older ISO images, df7d864394ad46860984be60f2a3e448 and 50ffee97f9abc37e751f36d7239caea4, are still accepted) | 3c6590e438b3134e9208b407cc970d33 |
+- The US Mac CD image: a zip holding the disc image ("Theme Park.toast"). All the US edition needs.
+- The European PC CD image (an ISO 9660 image, raw or cooked). Optional, for the European (Theme Park World) edition,
+  with the Mac CD above (devtools/import_eur.py writes extracted/tpw-eur).
+- The Theme Park World Bonus Stuff zip. Optional: its fonts serve only the platform tests.
+
+`--find` only says which of these are in the folder and writes nothing.
 
 It needs Python 3.8 or later. Put the originals in one folder, then from WORK, the folder holding tpw-port:
 
@@ -415,16 +491,17 @@ The recipes' pass numbers are timed without the 60 frames a second pacing, so th
 
 Open an issue (the form asks for each of these) or post on Discord, and say:
 
-1. **The launcher version**, for example 0.1.0. The window title, the About box and the log's first line show it, and
-   `tpw_launcher --version` prints it. A report without it cannot be checked, since each version is different code. A
-   version ending in -dev (0.0.4-dev) is a build of main, not a release: give the build too, which the log's first line
-   names (`build: ...`).
+1. **The launcher version**, for example 0.1.0. The window title, the About box and each run's first line in the log
+   show it, and `tpw_launcher --version` prints it. A report without it cannot be checked, since each version is
+   different code. A version ending in -dev (0.0.4-dev) is a build of main, not a release: give the build too, which
+   each run's first line in the log names (`build: ...`).
 2. Your system (macOS or Windows and its version, or your Linux distribution, Apple Silicon, Intel, AMD or Arm).
 3. Your edition: US, European or Gold.
-4. The launcher's newest log, attached. Open the launcher's About box, click **Export logs**, then attach the file it
-   saves in your Downloads folder ("STP-TPW Launcher log" and the date). The log's own folder is
-   `~/Library/Application Support/STP-TPW Launcher/logs` on a Mac, `%APPDATA%\STP-TPW Launcher\logs` on Windows and
-   `~/.local/share/STP-TPW Launcher/logs` on Linux (the About box's Show logs button opens it).
+4. The launcher's log, attached. Open the launcher's About box, click **Export logs**, then attach the file it saves
+   in your Downloads folder ("STP-TPW Launcher logs" and the date). The log file itself is
+   `~/Library/Application Support/STP-TPW Launcher/logs/launcher.log` on a Mac,
+   `%APPDATA%\STP-TPW Launcher\logs\launcher.log` on Windows and `~/.local/share/STP-TPW Launcher/logs/launcher.log`
+   on Linux (the About box's Show logs button shows it).
    The log holds no username, computer name or home folder (each shows as `~`, `<user>` or `<computer>`), so it is safe
    to share.
 5. What you clicked before it went wrong, and whether it happens again when you do the same.

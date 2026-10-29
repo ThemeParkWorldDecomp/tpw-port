@@ -32,7 +32,6 @@ name: installer-broad
 
 on:
   push:
-    branches-ignore: [ci-play]
     paths: [install.sh, install.ps1, '.github/installer-ci/**', .github/workflows/installer-broad.yml]
   pull_request:
     paths: [install.sh, install.ps1, '.github/installer-ci/**', .github/workflows/installer-broad.yml]
@@ -166,7 +165,7 @@ jobs:
         cases:
           - fresh shells legacy flatpak
           - rerun updater dev tags
-          - refusals paths packages buildfail interrupt interrupt_first
+          - refusals paths packages compiler buildfail interrupt interrupt_first
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:

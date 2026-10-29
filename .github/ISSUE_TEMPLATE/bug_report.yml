@@ -12,8 +12,8 @@ body:
     attributes:
       label: Launcher version
       description: >-
-        As the window title, the About box or the log's first line shows it, for example 0.1.0. A build of main says
-        -dev (0.0.4-dev): then also give the build the log's first line names (build: ...).
+        As the window title, the About box or each run's first line in the log shows it, for example 0.1.0. A build of
+        main says -dev (0.0.4-dev): then also give the build that line names (build: ...).
       placeholder: 0.1.0
     validations:
       required: true
@@ -60,7 +60,7 @@ body:
       label: Log
       description: >-
         Open the launcher's About box, click Export logs, then drag the file it saves in your Downloads folder here. (The
-        logs are in ~/Library/Application Support/STP-TPW Launcher/logs on a Mac and %APPDATA%\STP-TPW Launcher\logs on
-        Windows; the About box's Show logs button opens the folder.)
+        log file is ~/Library/Application Support/STP-TPW Launcher/logs/launcher.log on a Mac and
+        %APPDATA%\STP-TPW Launcher\logs\launcher.log on Windows; the About box's Show logs button shows it.)
     validations:
       required: true

@@ -30,6 +30,53 @@ struct KeyState {
 KeyState gKey;
 int32_t gFrames = 0;
 
+// The autoKey events the Mac's Event Manager sent while the key that went down last stayed down: the first after the
+// system's delay, then one at each interval (UGamework::Run takes an autoKey as a key-down, 0x100054c4). The port
+// makes them itself, as the Event Manager did, and SDL's own repeats are not used. A scripted key's times are counted
+// in passes at 30 a second with the fallback timing, so a scripted run repeats the same on every machine.
+struct AutoKey {
+    int32_t scancode = 0;   // the SDL key; 0 when none repeats
+    bool scripted = false;  // a scripted key (--key, --hold)
+    uint64_t due = 0;       // the time of the next autoKey, in milliseconds
+    uint32_t intervalMs = 0;
+};
+AutoKey gAutoKey;
+
+uint64_t AutoKeyClock(bool scripted) {
+    return scripted ? static_cast<uint64_t>(gFrames + 1) * 1000u / 30u : SDL_GetTicks();
+}
+
+AutoKey StartAutoKey(SDL_Scancode scancode, bool scripted) {
+    const tpw::KeyRepeatTiming timing = scripted ? tpw::KeyRepeatTiming() : tpw::SystemKeyRepeat();
+    AutoKey autoKey;
+    autoKey.scancode = static_cast<int32_t>(scancode);
+    autoKey.scripted = scripted;
+    autoKey.due = AutoKeyClock(scripted) + timing.delayMs;
+    autoKey.intervalMs = timing.intervalMs;
+    return autoKey;
+}
+
+// Shift, Control, Option (Alt), Command (the Windows key) and Caps Lock. The Mac's Event Manager sent no key-down or
+// key-up for them, only the modifier bits of other events, so they never took or released the remembered key. The
+// game still sees them: in each event's modifiers, and through GetAsyncKeyState, which reads SDL's keyboard state.
+// From tpw-port PR #87 by samueleagle91.
+bool IsModifierKey(SDL_Scancode scancode) {
+    switch (scancode) {
+    case SDL_SCANCODE_LSHIFT:
+    case SDL_SCANCODE_RSHIFT:
+    case SDL_SCANCODE_LCTRL:
+    case SDL_SCANCODE_RCTRL:
+    case SDL_SCANCODE_LALT:
+    case SDL_SCANCODE_RALT:
+    case SDL_SCANCODE_LGUI:
+    case SDL_SCANCODE_RGUI:
+    case SDL_SCANCODE_CAPSLOCK:
+        return true;
+    default:
+        return false;
+    }
+}
+
 // The scripted pointer (tpw::Config::clicks): where a scripted click put it and whether its button is still down.
 struct ScriptedState {
     bool active = false;
@@ -126,6 +173,27 @@ void UGamework::HandleCommand(int32_t command, uint32_t) {
 
 void UGamework::Run() {
     if (!Initialise()) return;
+    // 0x100056a0, and the start of 0x100054c4: the remembered key comes up with the modifiers it went down with.
+    auto releaseKey = [this]() {
+        HandleTyping(gKey.character, gKey.keyCode, gKey.modifiers, false);
+        gKey = KeyState();
+    };
+    // The rest of 0x100054c4: the key goes down with its event's modifiers and is remembered with them. False when the
+    // game is given no key: Command-Q is the Quit command, and a key with no Mac key code is none.
+    auto pressKey = [this](const SDL_KeyboardEvent& key) {
+        const uint8_t macKey = tpw::MacKeyCodeFromScancode(key.scancode);
+        if (macKey == 0xff) return false;
+        const uint16_t modifiers = tpw::MacModifiersFromSDL(static_cast<uint16_t>(key.mod));
+        if ((modifiers & 0x100) != 0 && key.scancode == SDL_SCANCODE_Q) {   // Command-Q
+            HandleCommand(3, modifiers);
+            return false;
+        }
+        gKey.character = MacCharacter(key);
+        gKey.keyCode = static_cast<char>(macKey);
+        gKey.modifiers = modifiers;
+        HandleTyping(gKey.character, gKey.keyCode, gKey.modifiers, true);
+        return true;
+    };
     while (mRunning) {
         SDL_Event sdl;
         while (mRunning && SDL_PollEvent(&sdl)) {
@@ -170,35 +238,27 @@ void UGamework::Run() {
                     tpw::ToggleFullScreen();
                     break;
                 }
+                // The host's repeats are not the Mac's (the autoKeys are made below), and a modifier is no key.
+                if (sdl.key.repeat || IsModifierKey(sdl.key.scancode)) break;
+                gAutoKey = AutoKey();
                 // 0x100054c4: a key still down is released first (the Mac reported one key
                 // at a time), with a Process pass in between.
-                if (!sdl.key.repeat && gKey.keyCode != 0) {
-                    HandleTyping(gKey.character, gKey.keyCode, gKey.modifiers, false);
-                    gKey = KeyState();
+                if (gKey.keyCode != 0) {
+                    releaseKey();
                     if (!Process()) {
                         mRunning = false;
                         break;
                     }
                 }
-                const uint8_t macKey = tpw::MacKeyCodeFromScancode(sdl.key.scancode);
-                if (macKey == 0xff) break;
-                const uint16_t modifiers = tpw::MacModifiersFromSDL(static_cast<uint16_t>(sdl.key.mod));
-                if ((modifiers & 0x100) != 0 && sdl.key.scancode == SDL_SCANCODE_Q) {   // Command-Q
-                    HandleCommand(3, modifiers);
-                    break;
-                }
-                gKey.character = MacCharacter(sdl.key);
-                gKey.keyCode = static_cast<char>(macKey);
-                gKey.modifiers = modifiers;
-                HandleTyping(gKey.character, gKey.keyCode, gKey.modifiers, true);
+                if (pressKey(sdl.key)) gAutoKey = StartAutoKey(sdl.key.scancode, false);
                 break;
             }
             case SDL_EVENT_KEY_UP:
-                // 0x100056a0: releases the remembered key, whichever key came up.
-                if (gKey.character != 0 || gKey.keyCode != 0) {
-                    HandleTyping(gKey.character, gKey.keyCode, gKey.modifiers, false);
-                    gKey = KeyState();
-                }
+                // 0x100056a0: releases the remembered key, whichever key came up. The Event Manager repeated the key
+                // that went down last until that key came up.
+                if (IsModifierKey(sdl.key.scancode)) break;
+                if (sdl.key.scancode == gAutoKey.scancode) gAutoKey = AutoKey();
+                if (gKey.character != 0 || gKey.keyCode != 0) releaseKey();
                 break;
             case SDL_EVENT_WINDOW_FOCUS_GAINED:
                 HandleActivateWindow(tpw::MainWindow(), true);
@@ -265,26 +325,49 @@ void UGamework::Run() {
             SDL_KeyboardEvent sdlKey{};
             sdlKey.scancode = static_cast<SDL_Scancode>(key.scancode);
             sdlKey.mod = static_cast<SDL_Keymod>(tpw::ScriptedSDLModifiers());
+            tpw::Log("scripted key: %s %s (pass %d)", SDL_GetScancodeName(sdlKey.scancode),
+                     key.down == pass ? "down" : "up", pass);
+            if (IsModifierKey(sdlKey.scancode)) continue;   // only in the modifiers (ScriptedSDLModifiers)
             if (key.down == pass) {
-                if (gKey.keyCode != 0) {
-                    HandleTyping(gKey.character, gKey.keyCode, gKey.modifiers, false);
-                    gKey = KeyState();
-                }
-                const uint8_t macKey = tpw::MacKeyCodeFromScancode(key.scancode);
-                tpw::Log("scripted key: %s down (pass %d)", SDL_GetScancodeName(sdlKey.scancode), pass);
-                if (macKey == 0xff) continue;
-                gKey.character = MacCharacter(sdlKey);
-                gKey.keyCode = static_cast<char>(macKey);
-                gKey.modifiers = tpw::MacModifiersFromSDL(sdlKey.mod);
-                HandleTyping(gKey.character, gKey.keyCode, gKey.modifiers, true);
+                gAutoKey = AutoKey();
+                if (gKey.keyCode != 0) releaseKey();
+                if (pressKey(sdlKey)) gAutoKey = StartAutoKey(sdlKey.scancode, true);
             } else {
-                tpw::Log("scripted key: %s up (pass %d)", SDL_GetScancodeName(sdlKey.scancode), pass);
-                if (gKey.character != 0 || gKey.keyCode != 0) {
-                    HandleTyping(gKey.character, gKey.keyCode, gKey.modifiers, false);
-                    gKey = KeyState();
-                }
+                if (sdlKey.scancode == gAutoKey.scancode) gAutoKey = AutoKey();
+                if (gKey.character != 0 || gKey.keyCode != 0) releaseKey();
             }
         }
+        if (!mRunning) break;
+        // The autoKey of the key that went down last (AutoKey, above), at most one a pass. It is 0x100054c4 for that
+        // key: the remembered key is released with the modifiers it went down with, then pressed and remembered with
+        // the modifiers held now, so a modifier pressed or let go while the key is held reaches the game at the next
+        // autoKey, as on the Mac. The release is skipped only when the key remembered has no key code and the same
+        // modifiers ('A' is key code 0, which 0x100054c4 takes for no key: it is pressed again unreleased).
+        if (gAutoKey.scancode != 0) {
+            const SDL_Scancode scancode = static_cast<SDL_Scancode>(gAutoKey.scancode);
+            const uint64_t now = AutoKeyClock(gAutoKey.scripted);
+            if (!SDL_GetKeyboardState(nullptr)[scancode] && !tpw::ScriptedKeyDown(gAutoKey.scancode)) {
+                // Up with no key-up seen (the system kept it): released as a key-up would.
+                gAutoKey = AutoKey();
+                if (gKey.character != 0 || gKey.keyCode != 0) releaseKey();
+            } else if (now >= gAutoKey.due) {
+                gAutoKey.due = now + gAutoKey.intervalMs;
+                SDL_KeyboardEvent sdlKey{};
+                sdlKey.scancode = scancode;
+                sdlKey.mod = static_cast<SDL_Keymod>(SDL_GetModState() | tpw::ScriptedSDLModifiers());
+                const uint16_t modifiers = tpw::MacModifiersFromSDL(static_cast<uint16_t>(sdlKey.mod));
+                if (gKey.keyCode != 0 || (gKey.character != 0 && gKey.modifiers != modifiers)) {
+                    releaseKey();
+#ifdef TPW_PORT_FIX
+                    // TPW_PORT_FIX autokey UGamework::Run | Mac: 0x100054c4 runs a Process pass between the release and the press of an autoKey | Port: the release and the press are in the same pass, one after the other in the game's message queue | Why: in that pass every held key read as up, so walking in first person and moving the camera with a held arrow key lost a frame at each repeat
+#else
+                    if (!Process()) mRunning = false;
+#endif
+                }
+                if (mRunning && !pressKey(sdlKey)) gAutoKey = AutoKey();
+            }
+        }
+        if (!mRunning) break;
         // The scripted drags (--drag): hover, press, move in steps, release.
         for (const tpw::Config::ScriptedDrag& drag : tpw::config().drags) {
             const int32_t step = gFrames + 1 - drag.pass;

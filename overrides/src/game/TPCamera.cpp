@@ -931,7 +931,7 @@ void WheelZoom(float dt) {
     }
     gCameraF68 = after;
     gWheelZoomLeft = after;
-    // TPW_PORT_FIX linux WheelZoom | Mac: (none) | Port: the height field pointer is read through Ptr32's conversion before the test | Why: GCC (the Linux build's compiler) refuses a conditional between a Ptr32 and nullptr, which clang converts
+    // TPW_PORT_FIX linux WheelZoom | Mac: (none) | Port: the height field pointer is read through Ptr32's conversion before the test for NULL | Why: GCC (the Linux build's compiler) refuses a conditional between a Ptr32 and nullptr, which clang converts; the value is the same
     const sHField* field = gHeightfieldHeader != nullptr ? static_cast<const sHField*>(gHeightfieldHeader->mHField) : nullptr;
     if ((gFirstPersonFlags & 0x100) != 0 || field == nullptr || !(before > 0.0f)) return;
     const float width = field->mF08[2] * static_cast<float>(field->mF18[0]);

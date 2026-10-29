@@ -1,7 +1,7 @@
 // gfx.cpp: the choice of backend behind gfx.h, the calls handed to it, and the mip filter (HalfSizeRGBA). The OpenGL
 // backend (platform/gl_backend.cpp) is every build's; the Vulkan renderer (platform/vulkan/) is the Linux build's
-// (TPW_HAVE_VULKAN, CMakeLists.txt), where it is the default and OpenGL the fallback when no Vulkan device can draw to
-// the window. A Mac and Windows have OpenGL only, and their calls go to it as before.
+// (TPW_HAVE_VULKAN, CMakeLists.txt), where the player can choose it, with OpenGL the fallback when no Vulkan device can
+// draw to the window. A Mac and Windows have OpenGL only, and their calls go to it as before.
 #include "gfx.h"
 
 #include <algorithm>
@@ -56,11 +56,13 @@ const char* ProbedRenderer();   // the probe's GL_RENDERER ("" before a probe th
 }  // namespace gl
 
 namespace {
-#ifdef TPW_HAVE_VULKAN
-Api gRequested = Api::Vulkan;
-#else
-Api gRequested = Api::OpenGL;
-#endif
+// The backend drawn with when none is asked for: OpenGL on every system, the API the original draws with (the
+// maintainer, 2026-10-28: the Settings box's Renderer row is off by default, and off is the original). On Linux the
+// port's own Vulkan renderer is the player's to choose (--renderer, launcher.ini's renderer key, which the Renderer row
+// writes). With Vulkan as this default, a Vulkan whose only device draws in software would give way to a hardware
+// OpenGL (OpenGLForSoftwareVulkan); one asked for draws in software.
+constexpr Api kDefault = Api::OpenGL;
+Api gRequested = kDefault;
 Api gChosen = gRequested;
 bool gProbed = false;
 int gLargest = 0;
@@ -112,12 +114,9 @@ bool OpenGLForSoftwareVulkan() {
 }  // namespace
 
 void Request(Api api) {
-    if (!Available(api)) {
-        tpw::Log("renderer: %s is not in this build; %s", Name(api), Name(Api::OpenGL));
-        api = Api::OpenGL;
-    }
-    gRequested = api;
-    gChosen = api;
+    gRequested = api;   // as asked, which the launcher's summary line names
+    gChosen = Available(api) ? api : Api::OpenGL;
+    if (gChosen != api) tpw::Log("renderer: %s is not in this build; %s", Name(api), Name(gChosen));
 #ifdef TPW_HAVE_VULKAN
     gAsked = true;
 #endif

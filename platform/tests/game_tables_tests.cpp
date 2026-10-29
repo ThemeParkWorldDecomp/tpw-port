@@ -4,7 +4,7 @@
 // once by the content search, and every table it fills must equal the generated array byte for byte: the response table,
 // the message table (record -1 and the spare included), the balance description rows, the 351 scorers (pointers to
 // member: this program's own bodies, one per name, so a scorer named wrong points elsewhere), the seven legal texts, the
-// 38 window scripts and the ride templates. A program that is absent is skipped with a message (none at all: the
+// 48 window scripts and the ride templates. A program that is absent is skipped with a message (none at all: the
 // test is skipped).
 // Prints counts and names only, never the tables.
 #include <cstdio>

@@ -107,4 +107,63 @@ extern "C" int posix_memalign(void** block, size_t alignment, size_t size) {
     *block = std::malloc(size);
     return *block != nullptr || size == 0 ? 0 : ENOMEM;
 }
+
+bool tpw_win_decode(unsigned codePage, const std::string& bytes, std::u16string& text) {
+    text.clear();
+    if (bytes.empty()) return true;
+    const int count = static_cast<int>(bytes.size());
+    const int length = MultiByteToWideChar(codePage, MB_ERR_INVALID_CHARS, bytes.data(), count, nullptr, 0);
+    if (length <= 0) return false;
+    std::wstring wide(static_cast<size_t>(length), L'\0');
+    if (MultiByteToWideChar(codePage, MB_ERR_INVALID_CHARS, bytes.data(), count, wide.data(), length) != length) return false;
+    text.assign(wide.begin(), wide.end());
+    return true;
+}
+
+bool tpw_win_encode(unsigned codePage, const std::u16string& text, std::string& bytes) {
+    bytes.clear();
+    if (text.empty()) return true;
+    const std::wstring wide(text.begin(), text.end());
+    const int count = static_cast<int>(wide.size());
+    BOOL usedDefault = FALSE;
+    const int size = WideCharToMultiByte(codePage, WC_NO_BEST_FIT_CHARS, wide.data(), count, nullptr, 0, nullptr, &usedDefault);
+    if (size <= 0 || usedDefault) return false;
+    bytes.assign(static_cast<size_t>(size), '\0');
+    return WideCharToMultiByte(codePage, WC_NO_BEST_FIT_CHARS, wide.data(), count, bytes.data(), size, nullptr, &usedDefault) ==
+               size &&
+           !usedDefault;
+}
+
+namespace {
+// `wide` in the ANSI code page, with no character lost or replaced by a look-alike.
+bool Ansi(const std::wstring& wide, std::string& narrow) {
+    const bool utf8 = GetACP() == CP_UTF8;   // which takes no default character
+    BOOL usedDefault = FALSE;
+    const DWORD flags = utf8 ? 0 : WC_NO_BEST_FIT_CHARS;
+    BOOL* used = utf8 ? nullptr : &usedDefault;
+    const int size = WideCharToMultiByte(CP_ACP, flags, wide.c_str(), -1, nullptr, 0, nullptr, used);
+    if (size <= 0 || usedDefault) return false;
+    narrow.assign(static_cast<size_t>(size), '\0');
+    if (WideCharToMultiByte(CP_ACP, flags, wide.c_str(), -1, narrow.data(), size, nullptr, used) != size || usedDefault) return false;
+    narrow.resize(static_cast<size_t>(size - 1));   // without the NUL
+    return true;
+}
+}  // namespace
+
+bool tpw_win_narrow_path(const wchar_t* path, std::string& narrow) {
+    const std::wstring wide(path);
+    if (Ansi(wide, narrow)) return true;
+    // The folder by its short name (it exists: the file itself may not yet), then the file's own name.
+    const size_t cut = wide.find_last_of(L"\\/");
+    if (cut == std::wstring::npos) return false;
+    const std::wstring folder = wide.substr(0, cut);
+    const DWORD length = GetShortPathNameW(folder.c_str(), nullptr, 0);
+    if (length == 0) return false;
+    std::wstring shortFolder(length, L'\0');
+    const DWORD written = GetShortPathNameW(folder.c_str(), shortFolder.data(), length);
+    if (written == 0 || written >= length) return false;
+    shortFolder.resize(written);
+    return Ansi(shortFolder + wide.substr(cut), narrow);
+}
+
 #endif

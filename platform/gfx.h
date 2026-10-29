@@ -2,7 +2,7 @@
 // keeps the picture the game draws (at its own resolution, platform/fit.h) and shows it. Two backends: OpenGL
 // (platform/gl_backend.cpp with platform/offscreen.cpp, every system's): the context SDL makes on the window, the
 // offscreen framebuffers when the window is fitted, and the swap; and, on Linux, the port's own Vulkan renderer
-// (platform/vulkan/), the default there, with OpenGL as its fallback. The game itself draws with OpenGL 1.1 calls
+// (platform/vulkan/), the player's choice there, with OpenGL as its fallback. The game itself draws with OpenGL 1.1 calls
 // (include/platform/opengl.h) whichever backend is in use: on a Mac and on Windows those are the system's OpenGL library,
 // on Linux the platform layer's own (platform/gl_entry.cpp), which hands them to the Vulkan renderer or to the system's
 // OpenGL opened through SDL. The window asks this interface for all of it rather than calling OpenGL itself.
@@ -24,13 +24,12 @@ namespace tpw::gfx {
 enum class Api { OpenGL, Vulkan };
 
 // The backend the launcher asks for (--renderer, launcher.ini's renderer key), before the window and before Probe.
-// Without a request the build's default is used: Vulkan on Linux, OpenGL elsewhere. One this build has not is OpenGL,
-// and the log says so.
+// Without a request the default is used: OpenGL, on every system (gfx.cpp, kDefault). One this build has not is drawn
+// with OpenGL, and the log says so; Requested still answers the one asked for.
 void Request(Api api);
 Api Requested();
 // The backend in use, as Probe settled it, and the log says why when it is not the one asked for: a Vulkan that cannot
-// draw falls back to OpenGL; so does the default Vulkan whose only device draws in software (Mesa's lavapipe) when the
-// system's OpenGL is hardware. A Vulkan asked for (Request) draws with a software device.
+// draw falls back to OpenGL. A Vulkan asked for (Request) draws with a software device (Mesa's lavapipe) too.
 Api Chosen();
 const char* Name(Api api);
 // Whether this build has the backend at all (Vulkan: Linux).

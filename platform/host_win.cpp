@@ -19,7 +19,7 @@
 #include <string>
 #include <thread>
 
-#include "log_file.h"   // WriteScrubbed (log_scrub.h): launcher.log is scrubbed like the log files
+#include "log_file.h"   // the log file's descriptor, and WriteScrubbed (log_scrub.h): what is printed is scrubbed like every line
 
 namespace tpw {
 void Log(const char* format, ...) __attribute__((format(printf, 1, 2)));   // platform.h
@@ -181,23 +181,31 @@ bool HasStandardError() {
 
 namespace {
 
-// launcher.log is fed through a pipe: stderr and stdout write into it, and a thread moves what arrives into the file one
-// whole line at a time, scrubbed (log_scrub.h), so the file never holds the player's name or the computer's. Lines are cut
-// where a line ends, never inside a name.
+// What the process prints goes into the log file (log_file.h) through a pipe: stderr and stdout write into it, and a
+// thread moves what arrives into the file one whole line at a time, each in one write (the file's handle may only append,
+// so a line of the game's own process and one of the launcher never overwrite or split each other), scrubbed
+// (log_scrub.h), so the file never holds the player's name or the computer's. Lines are cut where a line ends, never
+// inside a name.
 struct LogPipe {
     HANDLE read = nullptr;
-    int file = -1;
     std::string pending;
     std::mutex lock;
 };
 LogPipe* gLogPipe = nullptr;
 
-// What `pending` holds up to its last newline (all of it when `all`, or when a line has run very long) goes to the file.
+// What `pending` holds up to its last newline (all of it when `all`, or when a line has run very long) goes to the file,
+// a line at a time.
 void WritePending(LogPipe& pipe, bool all) {
     size_t end = all ? pipe.pending.size() : pipe.pending.rfind('\n') + 1;   // npos + 1 is 0: no whole line yet
     if (!all && end == 0 && pipe.pending.size() > 8192) end = pipe.pending.size();
     if (end == 0) return;
-    tpw::WriteScrubbed(pipe.file, pipe.pending.data(), end);
+    const int file = tpw::LogFileDescriptor();
+    for (size_t at = 0; file >= 0 && at < end;) {
+        const size_t newline = pipe.pending.find('\n', at);
+        const size_t next = newline == std::string::npos || newline >= end ? end : newline + 1;
+        tpw::WriteScrubbed(file, pipe.pending.data() + at, next - at);
+        at = next;
+    }
     pipe.pending.erase(0, end);
 }
 
@@ -228,22 +236,16 @@ void DrainLog() {
     if (gLogPipe != nullptr) PumpLog(*gLogPipe, true);
 }
 
-bool LogToFile(const std::string& path) {
-    std::wstring wide(static_cast<size_t>(MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0)), L'\0');
-    if (wide.empty() || MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, wide.data(), static_cast<int>(wide.size())) == 0)
-        return false;
+bool LoggingToFile() { return gLogPipe != nullptr; }
+
+bool CaptureOutputToLog() {
+    if (gLogPipe != nullptr) return true;
+    if (tpw::LogFileDescriptor() < 0) return false;   // no log file this run: nowhere to put it
     tpw::EnsureScrubIdentity();
-    // Made new each start. _O_BINARY: every line ends in \n alone, as the log file's do.
-    const int file = _wopen(wide.c_str(), _O_WRONLY | _O_CREAT | _O_TRUNC | _O_NOINHERIT | _O_BINARY, _S_IREAD | _S_IWRITE);
-    if (file < 0) return false;
     HANDLE readEnd = nullptr, writeEnd = nullptr;
-    if (!CreatePipe(&readEnd, &writeEnd, nullptr, 1 << 20)) {
-        _close(file);
-        return false;
-    }
+    if (!CreatePipe(&readEnd, &writeEnd, nullptr, 1 << 20)) return false;
     const int pipeFd = _open_osfhandle(reinterpret_cast<intptr_t>(writeEnd), _O_WRONLY | _O_BINARY);
     if (pipeFd < 0 || _dup2(pipeFd, 2) != 0 || _dup2(pipeFd, 1) != 0) {
-        _close(file);
         CloseHandle(readEnd);
         if (pipeFd >= 0) _close(pipeFd); else CloseHandle(writeEnd);
         return false;
@@ -254,7 +256,9 @@ bool LogToFile(const std::string& path) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     gLogPipe = new LogPipe;   // never freed: the thread and the crash report use it to the end
     gLogPipe->read = readEnd;
-    gLogPipe->file = file;
+    // The lines the log file takes anyway (log_file.h LogRaw, platform/log.cpp) are no longer printed too: they would be
+    // in the file twice.
+    tpw::gStderrIsLogFile.store(true);
     std::atexit(DrainAtExit);
     std::thread([] {
         for (;;) {
@@ -267,13 +271,12 @@ bool LogToFile(const std::string& path) {
 
 }  // namespace tpw::win32
 
-// The OpenGL calls past 1.1, the most opengl32.dll exports: GL_EXT_compiled_vertex_array's (include/platform/opengl.h) and
-// glWindowPos2i (OpenGL 1.4, platform/quicktime.cpp's films). They go to the driver's own entry points, asked of the
-// current context at the first call (both are made while drawing). A driver without them leaves them doing nothing: the
-// arrays' lock is a hint, and every driver of the last twenty years has glWindowPos2i. The log says when one is
-// missing (a film drawn without glWindowPos2i is black with its sound playing), with whether a context was current:
-// wglGetProcAddress answers for the current context only, so a first call without one would leave the function
-// missing for good.
+// The OpenGL calls past 1.1, the most opengl32.dll exports: GL_EXT_compiled_vertex_array's (include/platform/opengl.h).
+// They go to the driver's own entry points, asked of the current context at the first call (both are made while
+// drawing). A driver without them leaves them doing nothing: the arrays' lock is a hint. The log says when one is
+// missing, with whether a context was current: wglGetProcAddress answers for the current context only, so a first call
+// without one would leave the function missing for good. (The films draw with OpenGL 1.1 calls alone,
+// platform/film_frame.cpp.)
 namespace {
 template <class Function> Function DriverGLProc(const char* name) {
     const PROC proc = wglGetProcAddress(name);
@@ -297,11 +300,6 @@ void glLockArraysEXT(int32_t first, int32_t count) {
 void glUnlockArraysEXT() {
     static const auto function = DriverGLProc<void(APIENTRY*)()>("glUnlockArraysEXT");
     if (function != nullptr) function();
-}
-
-void glWindowPos2i(int x, int y) {
-    static const auto function = DriverGLProc<void(APIENTRY*)(int, int)>("glWindowPos2i");
-    if (function != nullptr) function(x, y);
 }
 }
 #endif

@@ -119,29 +119,52 @@ run_themepark() { # OUT ARGS...
 }
 
 # The application in the folder that stands for /Applications (TPW_INSTALL_APPS): named for the Finder, its Info.plist
-# names STP/TPW Launcher and carries the version's numbers, its program is the installer's and starts the launcher of DIR
-# (the stand-in notes "args= cwd=DIR" once more). ICON=1: the icon is there too (a real build).
+# names STP/TPW Launcher, carries the version's numbers and the installer's mark, and its program is a link to the
+# launcher of DIR, which it runs (macOS opens the launcher itself as this application; launcher/app_bundle.h). ICON=1:
+# the icon is there too (a real build).
 check_app() { # DIR VERSION [ICON]
-    local app="$TPW_INSTALL_APPS/STP:TPW Launcher.app" exe before
+    local app="$TPW_INSTALL_APPS/STP:TPW Launcher.app" exe
     exe="$app/Contents/MacOS/STP-TPW-Launcher"
     [ -d "$app" ] || bad "$app is missing"
     grep -qF '<string>STP/TPW Launcher</string>' "$app/Contents/Info.plist" || bad "the application's Info.plist does not name STP/TPW Launcher"
     grep -qF "<string>${2%-dev}</string>" "$app/Contents/Info.plist" || bad "the application's Info.plist does not carry version ${2%-dev}"
     grep -qF '<string>org.tpw-port.launcher</string>' "$app/Contents/Info.plist" || bad "the application's Info.plist has not the launcher's identifier"
-    expect_in "$exe" '# tpw-port installer: the STP/TPW Launcher application'
-    [ -x "$exe" ] || bad "the application's program is not executable"
+    expect_in "$app/Contents/Info.plist" '<!-- # tpw-port installer: the STP/TPW Launcher application'
+    { [ -L "$exe" ] && [ "$exe" -ef "$1/build/tpw_launcher" ]; } || bad "the application's program is not a link to $1/build/tpw_launcher"
     expect_eq "PkgInfo" "$(cat "$app/Contents/PkgInfo")" 'APPL????'
     if [ "${3:-0}" = 1 ]; then
         [ -s "$app/Contents/Resources/icon.icns" ] || bad "the application has no icon"
         grep -qF '<string>icon</string>' "$app/Contents/Info.plist" || bad "the application's Info.plist names no icon"
     else
-        before=$(launch_count "$1" "STP/TPW Launcher v$2 args= cwd=$1")
-        "$exe" || bad "the application's program did not run"
-        wait_for_count "$1" "STP/TPW Launcher v$2 args= cwd=$1" "$before" || bad "the application did not start the launcher of $1"
+        expect_eq "the application's program --version" "$("$exe" --version | head -n 1)" "STP/TPW Launcher v$2"
     fi
 }
 
 # A PATH that holds only links to the commands the installer needs, minus the ones named: a Mac without them.
+# The rerun case's steps for the application (common.sh, app_step): the one 0.1.0 wrote (no mark in its Info.plist, a
+# shell program with the mark), which the update replaces with the link; another application of that name (no mark
+# anywhere), which it leaves alone.
+app_step() { # STEP [ARG]
+    local app="$TPW_INSTALL_APPS/STP:TPW Launcher.app"
+    case "$1" in
+        old | foreign)
+            sed '/tpw-port installer/d' "$app/Contents/Info.plist" >"$C/plist" && mv "$C/plist" "$app/Contents/Info.plist"
+            rm -f "$app/Contents/MacOS/STP-TPW-Launcher"
+            if [ "$1" = old ]; then
+                printf '#!/bin/sh\n# tpw-port installer: the STP/TPW Launcher application\n' >"$app/Contents/MacOS/STP-TPW-Launcher"
+            else
+                printf '#!/bin/sh\necho not ours\n' >"$app/Contents/MacOS/STP-TPW-Launcher"
+            fi
+            ;;
+        updated) check_app "$DIR" "$2" ;;
+        foreign_kept)
+            expect_text "$2" 'was not made by this installer, so it is left alone'
+            [ ! -L "$app/Contents/MacOS/STP-TPW-Launcher" ] && grep -qx 'echo not ours' "$app/Contents/MacOS/STP-TPW-Launcher" \
+                || bad "another application of that name was replaced"
+            ;;
+    esac
+}
+
 tool_farm() { # FOLDER OMITTED...
     local farm=$1 t skip o
     shift

@@ -3,7 +3,8 @@
 // drawn with OpenGL and DirectDraw only frames it: a display mode, a primary surface with
 // a back buffer, a clipper. So the surfaces here are plain memory the engine can lock (it
 // does for screenshots), and nothing is presented from them: the frame reaches the screen
-// through UOpenGL::Swap.
+// through UOpenGL::Swap. A lock of the back buffer reads the OpenGL picture into it first
+// (see Lock).
 //
 // What is reported to the engine (pixel formats, capability words, video memory) is this
 // layer's choice, not a reproduction of indirectx: see the notes on each call.
@@ -13,10 +14,12 @@
 #include <unordered_map>
 #include <vector>
 
+#include "gfx.h"
 #include "platform.h"
 #include "platform/indirectx.h"
 #include "platform/interfacelib.h"
 #include "platform/macdoze.h"
+#include "platform/opengl.h"
 #include "WinScrn.h"
 
 namespace {
@@ -164,7 +167,42 @@ int32_t BltSurface(Surface* dest, const Surface* from, uint32_t flags, DDBLTFX* 
         std::memcpy(dest->mPixels.data(), from->mPixels.data(), dest->mPixels.size());
     return DD_OK;
 }
+
+// The surfaces the PC's Direct3D drew the picture into: a flipping chain's back buffer (DDSCAPS_BACKBUFFER, full screen)
+// and the windowed engine's offscreen 3D surface (DDSCAPS_3DDEVICE, caps 0x6040 in tb_ddraw.cpp).
+bool HoldsPicture(const Surface& surface) { return (surface.mCaps & (0x4u | 0x2000u)) != 0; }
+
+bool ReadGamePicture(uint8_t* rgba, int wide, int high) {
+    if (!tpw::gfx::Created()) return false;
+    glReadPixels(0, 0, wide, high, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    return true;
+}
+tpw::PictureReader gPictureReader = ReadGamePicture;
+
+// The picture into the surface, rows from the top, in the format FillPixelFormat reports for its depth.
+void ReadPicture(Surface& surface) {
+    const size_t wide = surface.mWidth, high = surface.mHeight;
+    std::vector<uint8_t> rgba(wide * high * 4);
+    if (rgba.empty() || !gPictureReader(rgba.data(), static_cast<int>(wide), static_cast<int>(high))) return;
+    for (size_t y = 0; y < high; ++y) {
+        const uint8_t* from = &rgba[(high - 1 - y) * wide * 4];
+        for (size_t x = 0; x < wide; ++x, from += 4) {
+            const uint32_t r = from[0], g = from[1], b = from[2];
+            if (surface.mDepth == 16) {
+                const uint16_t pixel = static_cast<uint16_t>((r >> 3) << 11 | (g >> 2) << 5 | b >> 3);
+                std::memcpy(&surface.mPixels[(y * wide + x) * 2], &pixel, 2);
+            } else {
+                const uint32_t pixel = 0xff000000u | r << 16 | g << 8 | b;
+                std::memcpy(&surface.mPixels[(y * wide + x) * 4], &pixel, 4);
+            }
+        }
+    }
+}
 }  // namespace
+
+namespace tpw {
+void SetPictureReader(PictureReader reader) { gPictureReader = reader != nullptr ? reader : ReadGamePicture; }
+}  // namespace tpw
 
 // ---- IUnknown ----------------------------------------------------------------------------
 namespace NS_MacDoze {
@@ -319,9 +357,13 @@ int32_t IDirectDrawSurface4::GetAttachedSurface(DDSCAPS2* caps, IDirectDrawSurfa
     return DD_OK;
 }
 
+// The back buffer holds the picture drawn so far, as a DirectDraw lock gives it: the engine's screenshot (F8,
+// tb_capture.cpp) and the postcard lock it. (indirectx's OpenGL surface gave a fresh buffer, so the Mac's F8 saved no
+// picture either.)
 int32_t IDirectDrawSurface4::Lock(SamsUtilities::URectangle::LongRect*, DDSURFACEDESC2* desc, uint32_t,
                                  NS_MacDoze::InternalHandle*) {
     Surface* surface = AsSurface(this);
+    if (HoldsPicture(*surface)) ReadPicture(*surface);
     surface->Describe(desc);
     desc->lpSurface = surface->mPixels.data();
     return DD_OK;

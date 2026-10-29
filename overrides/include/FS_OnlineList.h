@@ -166,7 +166,7 @@ public:
 };
 
 // Unit v5215 (src/game/online/FS_OnlineList.cpp): the city instances, 0x10178414 and 0x10173f98.
-// TPW_PORT_FIX linux CFSOnlineSystemList::~CFSOnlineSystemList | Mac: (none) | Port: the park, city and theme lists' destructor specializations (src/game/online/FS_Online.cpp, FS_OnlineList.cpp) are declared here, as the server and ride lists' are above | Why: each file defines its specialization after the class it derives from has instantiated the destructor, which GCC (the Linux build's compiler) refuses without a declaration first, and clang accepts
+// TPW_PORT_FIX linux CFSOnlineSystemList::~CFSOnlineSystemList | Mac: (none) | Port: the three lists' destructor specializations (src/game/online/FS_Online.cpp, FS_OnlineList.cpp) are declared before the classes that derive from them, as the server and ride lists' already are | Why: each file defines its specialization after the class it derives from has instantiated the destructor, which GCC (the Linux build's compiler) refuses without a declaration first, and clang accepts; nothing the game does changes
 template<> CFSOnlineSystemList<TbPtrList<CFSOnlinePark>, ccParkList>::~CFSOnlineSystemList();
 template<> CFSOnlineSystemList<TbPtrList<CFSOnlineCity>, ccCityList>::~CFSOnlineSystemList();
 template<> CFSOnlineSystemList<TbPtrList<CFSOnlineTheme>, ccThemeList>::~CFSOnlineSystemList();
@@ -176,6 +176,9 @@ template<> void CFSOnlineSystemList<TbPtrList<CFSOnlineCity>, ccCityList>::Compl
 // __ptr_glue, and a city record's virtual destructor (vtable +8, flag 1). The host fields cannot hold a function pointer and CFSOnlineCity
 // has no vtable, so both go through these hooks (the defaults treat the word as a 32-bit address, and delete the record); tests replace them.
 extern void (*gOnlineListCallbackCaller)(int32_t callback, int32_t error, int32_t context, void* list);
+// TPW_PORT_FIX list64 gPortCityListCallback/gPortCityListContext | Mac: the city list's callback and its context are kept only in the 32-bit words at 0x1c and 0x20 | Port: the whole pointers are kept here as well (CFSOnlineSystemCityList::GetList), and the default caller (CallListCallbackDefault) calls these while the words still hold their low 32 bits | Why: a 64-bit build; the words cannot hold a host pointer, so the login panel's Cancel called the globe's list callback at a cut-down address and crashed
+inline OnlineListCallback<TbPtrList<CFSOnlineCity>>::Type gPortCityListCallback = nullptr;
+inline const void* gPortCityListContext = nullptr;
 extern void (*gCityRecordDeleter)(CFSOnlineCity* city);
 
 class CFSOnlineSystemCityList : public CFSOnlineSystemList<TbPtrList<CFSOnlineCity>, ccCityList> {

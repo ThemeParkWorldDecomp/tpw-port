@@ -1114,7 +1114,10 @@ struct sPylonHeadRec {
     uint8_t mF00[0x34];               // 0x00
     float mY;                         // 0x34
 };
-// TPW_PORT_FIX coasterhead sPylonHeadEntry | Mac: 0x14-byte entries, the record pointer at 0x04 | Port: the host's sEmbeddedRecord (include/TPEngine.h, which TPInitialiseEmbeddedData builds): the three words after the pointer are kept, so an entry is as long as a record | Why: a 64-bit build; with only the first two words the host stepped 16 bytes an entry where the records are 32 apart, so BraceHeight (index 1 or 2) and the stacked-pylon height in UpdatePylonStackMeshes (index up to 4) read another record's words as the pointer, and stacking track on a pylon crashed
+// corrected 2026-10-28: an entry is a whole record of the mesh's embedded set (sEmbeddedRecord, include/TPEngine.h, which
+// TPInitialiseEmbeddedData builds), 0x14 bytes as on the Mac; it had only the first two words, so a 64-bit host stepped
+// 16 bytes an entry where the records are 32 apart, and BraceHeight and UpdatePylonStackMeshes read another record's
+// words as the pointer (found by samueleagle91, tpw-port PR #66)
 struct sPylonHeadEntry {
     uint32_t mF00;                    // 0x00
     sPylonHeadRec* mRec;              // 0x04

@@ -266,7 +266,9 @@ void glDeleteLists(uint32_t list, int32_t range) {   // (COpenGLPrintf::Close: t
 int32_t gluBuild2DMipmaps(uint32_t target, int32_t internalFormat, int32_t width, int32_t height, uint32_t format, uint32_t type,
                           const void* pixels) {
     if (Vulkan()) return vk::BuildMipmaps(target, internalFormat, width, height, format, type, pixels);
-    // The system's OpenGL is given every level as RGBA8, which is what the game asks for (GL_RGBA, GL_RGBA8).
+    // The game asks for GL_RGBA4 (COpenGLTexture::UnlockSurface, src/engine/OpenGLTexture.cpp); the system's OpenGL is
+    // given every level as RGBA8 instead, so Linux keeps a mipmapped page at 8 bits a channel, as a Windows 10 driver
+    // keeps a GL_RGBA4 page, where macOS keeps it at 4 (FIXES.md, texnibble).
     return BuildMipmapsWithGL(target, width, height, format, type, pixels);
 }
 }  // extern "C"

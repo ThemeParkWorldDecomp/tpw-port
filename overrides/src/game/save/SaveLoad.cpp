@@ -58,6 +58,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <new>
 #include <vector>
 
@@ -561,6 +562,7 @@ void CSaveLoad::PreLoadOperations() {
 }
 
 namespace {
+// TPW_PORT_FIX balloonpop PopLostBalloons | Mac: no such pass | Port: sends the lost balloons a park keeps to the pop command | Why: see CSaveLoad::PostLoadOperations, below; contributed by samueleagle91 (tpw-port PR #60)
 // What CPerson::MakeBalloonPop (src/game/people/Person.cpp) does with a balloon a visitor loses, for each script of the
 // balloon sprite set (10) that no visitor holds and whose next code word lies outside the script code: it goes to the pop
 // command (0x1029fd84), where it fades out and ends.
@@ -584,6 +586,20 @@ void PopLostBalloons() {
 }
 }  // namespace
 
+namespace {
+// TPW_PORT_FIX researchmsg MoveFinishedResearchOn | Mac: no such pass | Port: moves each research category on from a finished project | Why: see CSaveLoad::PostLoadOperations, below; contributed by samueleagle91 (tpw-port PR #57)
+// What ResearchPanelCategoryComplete (src/game/ui/ui_researchPanel.cpp) does for each research category when told it is
+// complete: a category whose current project is finished moves on to its next one.
+void MoveFinishedResearchOn() {
+    CResearchLab* lab = gGameWorld->GetResearchLab();
+    if (lab == nullptr) return;
+    for (int32_t category = 0; category < static_cast<int32_t>(std::size(lab->mCategories)); ++category) {
+        const ResearchCat cat = static_cast<ResearchCat>(category);
+        if (lab->mCategories[category].mF08 >= 0 && !lab->IsCategoryActive(cat)) lab->NextProject(cat);
+    }
+}
+}  // namespace
+
 // Rebuilds what the engine holds after a park is read. The particle system is low spec when the current detail is 0.
 void CSaveLoad::PostLoadOperations() {
     InitialiseWeather();
@@ -598,8 +614,10 @@ void CSaveLoad::PostLoadOperations() {
     TickRideAnims();
     RegenerateRideSigns();
     gUIInterface.PostLevelLoad();
-    // TPW_PORT_FIX balloonpop CSaveLoad::PostLoadOperations | Mac: (none: a lost balloon's script goes to the pop command, fades out and ends, so none is saved) | Port: each script of the balloon sprite set that no visitor holds and whose next code word lies outside the script code goes to the pop command, as CPerson::MakeBalloonPop sends a lost balloon there | Why: MakeBalloonPop sent lost balloons outside the script code in earlier port builds (src/game/people/Person.cpp), and parks saved by them keep them, frozen on the path
+    // TPW_PORT_FIX balloonpop CSaveLoad::PostLoadOperations | Mac: (none: a lost balloon's script goes to the pop command, fades out and ends, so none is saved) | Port: each script of the balloon sprite set that no visitor holds and whose next code word lies outside the script code goes to the pop command, as CPerson::MakeBalloonPop sends a lost balloon there | Why: MakeBalloonPop sent lost balloons outside the script code in earlier port builds (src/game/people/Person.cpp), and parks saved by them keep them, frozen on the path; contributed by samueleagle91 (tpw-port PR #60)
     PopLostBalloons();
+    // TPW_PORT_FIX researchmsg CSaveLoad::PostLoadOperations | Mac: (none: a category moves on as its project finishes, so none is saved on a finished one) | Port: each research category whose current project is finished moves on to its next one, as ResearchPanelCategoryComplete does when the category-updated message reaches it | Why: the translation's message type 0 (include/ThingReceivers.h) never reached it, so parks saved by earlier port builds keep categories on finished projects that no message will move on; contributed by samueleagle91 (tpw-port PR #57)
+    MoveFinishedResearchOn();
     ADV_Kill(1);
     if (gPlayerSettings.mCurrent.mDetail == 0) {
         PAR_SetLowSpec(1);

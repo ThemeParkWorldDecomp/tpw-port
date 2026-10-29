@@ -4,17 +4,19 @@
 // The game's films are QuickTime files (Sorenson video at half width, IMA ADPCM sound).
 // They are decoded with FFmpeg (built from third_party/ffmpeg when TPW_MOVIES is on, the
 // default): MoviesTask draws the frame that is due into the window's back buffer, scaled to
-// the movie's box, and presents it, and the sound goes to an SDL audio stream. With
-// TPW_MOVIES off, or with the launcher's --no-movies, OpenMovieFile answers that the routine
-// is not implemented; the game's player reports the error and says the movie has finished,
-// as it does when a file is missing.
+// the movie's box by the graphics card (platform/film_frame.h), and presents it, and the
+// sound goes to an SDL audio stream. With TPW_MOVIES off, or with the launcher's
+// --no-movies, OpenMovieFile answers that the routine is not implemented; the game's player
+// reports the error and says the movie has finished, as it does when a file is missing.
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <chrono>
 #include <map>
 #include <string>
 #include <vector>
 
+#include "film_frame.h"
 #include "platform.h"
 #include "platform/macdoze.h"
 #include "platform/quicktime.h"
@@ -25,25 +27,6 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/imgutils.h>
 #include <libswscale/swscale.h>
-}
-
-// The OpenGL calls a frame is drawn with (the game's own are in platform/opengl.h).
-extern "C" {
-void glPushAttrib(unsigned int mask);
-void glPopAttrib();
-void glPushClientAttrib(unsigned int mask);
-void glPopClientAttrib();
-void glDisable(unsigned int capability);
-void glDepthMask(unsigned char flag);
-void glColorMask(unsigned char red, unsigned char green, unsigned char blue, unsigned char alpha);
-void glClearColor(float red, float green, float blue, float alpha);
-void glClear(unsigned int mask);
-void glViewport(int x, int y, int width, int height);
-void glWindowPos2i(int x, int y);
-void glPixelStorei(unsigned int name, int value);
-void glPixelZoom(float x, float y);
-void glDrawPixels(int width, int height, unsigned int format, unsigned int type, const void* pixels);
-void glDrawBuffer(unsigned int mode);
 }
 #endif
 
@@ -56,9 +39,10 @@ bool gToldAboutMovies = false;
 #ifdef TPW_HAVE_FFMPEG
 using Clock = std::chrono::steady_clock;
 
+// A decoded frame, kept as the decoder gave it: only the one that is shown is converted (Present), not those stepped
+// over while catching up (MoviesTask).
 struct Picture {
-    std::vector<uint8_t> rgb;   // top row first, 3 bytes a pixel
-    int width = 0, height = 0;
+    AVFrame* frame = nullptr;
     double time = 0;            // seconds from the start of the movie
 };
 }  // namespace
@@ -72,10 +56,11 @@ struct MovieRecord {
     AVCodecContext* audio = nullptr;
     int videoIndex = -1, audioIndex = -1;
     SwsContext* scale = nullptr;
-    AVFrame* frame = nullptr;
     AVPacket* packet = nullptr;
     SDL_AudioStream* sound = nullptr;
     Picture shown, next;                // the frame on screen and the one decoded ahead of time
+    std::vector<uint8_t> rgb;           // the shown frame at its own size, top row first, 3 bytes a pixel
+    tpw::film::Texture texture;         // where it goes to be drawn
     bool haveShown = false, haveNext = false, ended = false;
     Rect box = {0, 0, 0, 0};            // where it plays, in the window's coordinates
     bool playing = false;
@@ -129,34 +114,25 @@ void QueueSound(MovieRecord& m, const AVFrame* frame) {
     }
 }
 
-// The decoded frame as a picture of the box's size.
-void Convert(MovieRecord& m, const AVFrame* frame, Picture& out) {
-    int x, top, width, height, windowHeight;
-    BoxInPixels(m, x, top, width, height, windowHeight);
-    if (width <= 0 || height <= 0) {
-        width = frame->width;
-        height = frame->height;
-    }
-    m.scale = sws_getCachedContext(m.scale, frame->width, frame->height, static_cast<AVPixelFormat>(frame->format), width, height,
-                                   AV_PIX_FMT_RGB24, SWS_BILINEAR, nullptr, nullptr, nullptr);
-    out.width = width;
-    out.height = height;
-    out.rgb.resize(static_cast<size_t>(width) * height * 3);
-    uint8_t* planes[4] = {out.rgb.data(), nullptr, nullptr, nullptr};
-    int strides[4] = {width * 3, 0, 0, 0};
+// The decoded frame as RGB at its own size (the graphics card scales it to the box).
+void Convert(MovieRecord& m, const AVFrame* frame) {
+    m.scale = sws_getCachedContext(m.scale, frame->width, frame->height, static_cast<AVPixelFormat>(frame->format), frame->width,
+                                   frame->height, AV_PIX_FMT_RGB24, SWS_BILINEAR, nullptr, nullptr, nullptr);
+    m.rgb.resize(static_cast<size_t>(frame->width) * frame->height * 3);
+    uint8_t* planes[4] = {m.rgb.data(), nullptr, nullptr, nullptr};
+    int strides[4] = {frame->width * 3, 0, 0, 0};
     if (m.scale != nullptr) sws_scale(m.scale, frame->data, frame->linesize, 0, frame->height, planes, strides);
-    const AVRational base = m.format->streams[m.videoIndex]->time_base;
-    out.time = frame->best_effort_timestamp == AV_NOPTS_VALUE ? 0.0 : frame->best_effort_timestamp * av_q2d(base);
 }
 
 // Reads the file on to the next video frame (sound met on the way is queued); false at
 // the end of the movie.
 bool DecodeNext(MovieRecord& m, Picture& out) {
     for (;;) {
-        const int got = avcodec_receive_frame(m.video, m.frame);
+        const int got = avcodec_receive_frame(m.video, out.frame);
         if (got == 0) {
-            Convert(m, m.frame, out);
-            av_frame_unref(m.frame);
+            const AVRational base = m.format->streams[m.videoIndex]->time_base;
+            const int64_t stamp = out.frame->best_effort_timestamp;
+            out.time = stamp == AV_NOPTS_VALUE ? 0.0 : stamp * av_q2d(base);
             return true;
         }
         if (got == AVERROR_EOF) return false;
@@ -184,52 +160,32 @@ bool DecodeNext(MovieRecord& m, Picture& out) {
 
 // The picture into the back buffer at the movie's box, on black, and onto the screen. The
 // game's own OpenGL state is put back as it was.
-void Present(const MovieRecord& m, const Picture& picture) {
+void Present(MovieRecord& m, const Picture& picture) {
     int x, top, width, height, windowHeight;
     BoxInPixels(m, x, top, width, height, windowHeight);
-    if (windowHeight <= 0 || picture.rgb.empty()) return;
+    if (windowHeight <= 0 || picture.frame == nullptr || picture.frame->width <= 0 || picture.frame->height <= 0) return;
+    if (width <= 0 || height <= 0) {   // no box: the film at its own size
+        width = picture.frame->width;
+        height = picture.frame->height;
+    }
     if (!m.boxLogged) {   // once a film: where it lands (a box off the surface is the first thing to look at)
         m.boxLogged = true;
         tpw::Log("movie: box (%d, %d) %dx%d pixels on a surface %d high", x, top, width, height, windowHeight);
     }
-    glPushAttrib(0x000FFFFF);          // GL_ALL_ATTRIB_BITS
-    glPushClientAttrib(0x00000001);    // GL_CLIENT_PIXEL_STORE_BIT
-    for (unsigned int capability : {0x0DE1u /*TEXTURE_2D*/, 0x0B71u /*DEPTH_TEST*/, 0x0BE2u /*BLEND*/, 0x0BC0u /*ALPHA_TEST*/,
-                                    0x0B50u /*LIGHTING*/, 0x0B60u /*FOG*/, 0x0C11u /*SCISSOR_TEST*/, 0x0B90u /*STENCIL_TEST*/,
-                                    0x0B44u /*CULL_FACE*/}) {
-        glDisable(capability);
-    }
-    glDepthMask(0);
-    glColorMask(1, 1, 1, 1);
-    glDrawBuffer(0x0405);              // GL_BACK (with the fit, the game's framebuffer: platform/offscreen.cpp answers)
+    Convert(m, picture.frame);
     int pointsWide, pointsHigh, pixelsWide, pixelsHigh;
     tpw::WindowSizes(pointsWide, pointsHigh, pixelsWide, pixelsHigh);
-    glViewport(0, 0, pixelsWide, pixelsHigh);
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(0x00004000);               // GL_COLOR_BUFFER_BIT
-    glPixelStorei(0x0CF5, 1);          // GL_UNPACK_ALIGNMENT
-    glPixelStorei(0x0CF2, 0);          // GL_UNPACK_ROW_LENGTH
-    glPixelStorei(0x0CF3, 0);          // GL_UNPACK_SKIP_ROWS
-    glPixelStorei(0x0CF4, 0);          // GL_UNPACK_SKIP_PIXELS
-    // Rows go downwards from the box's top edge (a window position is valid anywhere). A box larger than the window, or
-    // with a negative left or top (a widescreen film that fills the window and crops its overflow, src/game/Movie.cpp),
-    // needs nothing more: glWindowPos2i sets the raster position valid wherever it lies (OpenGL 2.1 section 2.18 and
-    // ARB_window_pos, unlike glRasterPos, which is invalid outside the clip volume), glDrawPixels then makes a fragment
-    // for each pixel of the picture (section 3.6.4), and those outside the window fail the pixel ownership test
-    // (section 4.1.1), so only the visible part is written.
-    glWindowPos2i(x, windowHeight - top);
-    glPixelZoom(1.0f, -1.0f);
-    glDrawPixels(picture.width, picture.height, 0x1907 /*RGB*/, 0x1401 /*UNSIGNED_BYTE*/, picture.rgb.data());
-    glPixelZoom(1.0f, 1.0f);
-    glPopClientAttrib();
-    glPopAttrib();
+    tpw::film::Draw(m.texture, m.rgb.data(), picture.frame->width, picture.frame->height, tpw::film::Box{x, top, width, height},
+                    pixelsWide, pixelsHigh);
     tpw::SwapBuffers();
 }
 
 void Free(MovieRecord* m) {
     if (m->sound != nullptr) SDL_DestroyAudioStream(m->sound);
     if (m->scale != nullptr) sws_freeContext(m->scale);
-    if (m->frame != nullptr) av_frame_free(&m->frame);
+    tpw::film::Release(m->texture);
+    if (m->shown.frame != nullptr) av_frame_free(&m->shown.frame);
+    if (m->next.frame != nullptr) av_frame_free(&m->next.frame);
     if (m->packet != nullptr) av_packet_free(&m->packet);
     if (m->video != nullptr) avcodec_free_context(&m->video);
     if (m->audio != nullptr) avcodec_free_context(&m->audio);
@@ -295,7 +251,8 @@ OSErr NewMovieFromFile(Movie* movie, int16_t refNum, int16_t*, unsigned char*, i
         return kNoMovie;
     }
     if (m->audioIndex >= 0) m->audio = OpenDecoder(m->format->streams[m->audioIndex]);
-    m->frame = av_frame_alloc();
+    m->shown.frame = av_frame_alloc();
+    m->next.frame = av_frame_alloc();
     m->packet = av_packet_alloc();
     if (m->audio != nullptr && !tpw::config().mute && SDL_InitSubSystem(SDL_INIT_AUDIO)) {
         SDL_AudioSpec spec;
@@ -328,7 +285,11 @@ void SetMovieVolume(Movie movie, int16_t volume) {
     if (m->sound != nullptr) SDL_SetAudioStreamGain(m->sound, volume <= 0 ? 0.0f : static_cast<float>(volume) / 256.0f);
 }
 
-// Shows the frame that is due. Before the movie is started that is its first frame.
+// Shows the frame that is due. Before the movie is started that is its first frame. The game
+// calls it in a loop while a film plays (src/game/GameSys.cpp, MOVIE_Tick), so when no frame is
+// due yet it waits, a few milliseconds at most and never past a millisecond before the next
+// frame is due (SDL_DelayPrecise wakes on time), rather than keep a core busy (tpw-port issue
+// #77): each frame is shown when it was before.
 void MoviesTask(Movie movie, int32_t) {
     MovieRecord* m = Of(movie);
     if (m == nullptr) return;
@@ -346,7 +307,13 @@ void MoviesTask(Movie movie, int32_t) {
         changed = true;
         if (!m->playing) break;
     }
-    if (changed) Present(*m, m->shown);
+    if (changed) {
+        Present(*m, m->shown);
+    } else if (m->playing && m->haveNext && m->rate > 0) {
+        constexpr double kLongestWait = 0.005, kEarly = 0.001;   // seconds
+        const double wait = std::min((m->next.time - now) / m->rate - kEarly, kLongestWait);
+        if (wait > 0) SDL_DelayPrecise(static_cast<Uint64>(wait * 1e9));
+    }
 }
 
 TimeValue GetMovieTime(Movie movie, void*) {
