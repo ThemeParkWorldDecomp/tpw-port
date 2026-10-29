@@ -85,6 +85,23 @@ uint16_t MacModifiersFromSDL(uint16_t sdlModifiers) {
     return modifiers;
 }
 
+// The key a Mac key code is on the host's layout with no modifier, upper-cased as the PC's
+// virtual keys are, or 0 for a key that is no character. It is SDL's key code of the key
+// event, so a layout whose plain number row is symbols (AZERTY) gives its digits and one
+// without Latin letters (Cyrillic, Greek) gives the QWERTY letter, as Windows' virtual keys
+// do. While AltGr (SDL's mode key, Linux's third level) is held it is 0: that key types a
+// character and is no shortcut.
+char PlainKeyCharacter(uint8_t macKeyCode) {
+    if (SDL_GetModState() & SDL_KMOD_MODE) return 0;
+    for (const ScancodeKey& key : kScancodeKeys) {
+        if (key.macKey != macKeyCode) continue;
+        const SDL_Keycode code = SDL_GetKeyFromScancode(key.scancode, SDL_KMOD_NONE, true);
+        if (code < 0x20 || code >= 0x7f) return 0;
+        return static_cast<char>(code >= 'a' && code <= 'z' ? code - 'a' + 'A' : code);
+    }
+    return 0;
+}
+
 }  // namespace tpw
 
 namespace NS_MacDoze {

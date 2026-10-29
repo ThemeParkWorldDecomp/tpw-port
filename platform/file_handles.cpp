@@ -82,17 +82,17 @@ InternalHandle* CreateFile(const char* name, uint32_t access, uint32_t, void*, u
     if (creation == 3 && existing.empty()) return kInvalid;
     std::FILE* file = nullptr;
     if (creation == 1 || creation == 2) {
-        file = std::fopen(tpw::HostPathForWriting(name).string().c_str(), "w+b");
+        file = tpw::OpenHostFile(tpw::HostPathForWriting(name), "w+b");
     } else if (existing.empty()) {
         return kInvalid;
     } else if (!writing) {
-        file = std::fopen(existing.string().c_str(), "rb");
+        file = tpw::OpenHostFile(existing, "rb");
     } else {
         // The installed game is never written to: a game file opened for writing is first
         // copied to the user folder, which lookups prefer from then on.
         const fs::path target = tpw::HostPathForWriting(name);
         if (!fs::exists(target, ec)) fs::copy_file(existing, target, ec);
-        file = std::fopen(target.string().c_str(), "r+b");
+        file = tpw::OpenHostFile(target, "r+b");
     }
     if (file == nullptr) return kInvalid;
     auto* handle = new FileHandle;
@@ -268,11 +268,31 @@ int32_t ReadFileReference(int32_t reference, uint32_t offset, void* buffer, uint
     return -1;
 }
 
-std::string GamePathForWriting(const char* gamePath) { return HostPathForWriting(gamePath).string(); }
+std::FILE* OpenHostFile(const fs::path& path, const char* mode) {
+#ifdef _WIN32
+    const std::wstring wideMode(mode, mode + std::strlen(mode));
+    return _wfopen(path.c_str(), wideMode.c_str());
+#else
+    return std::fopen(path.c_str(), mode);
+#endif
+}
+
+// A host path as the narrow string the game's own fopen and MSL streams take. On Windows that is the ANSI code page,
+// which may lack the letters of a player's folder (a Hebrew or Japanese name on an English Windows): the folder's short
+// name then stands for it (posix_win.cpp).
+static std::string NarrowHostPath(const fs::path& path) {
+#ifdef _WIN32
+    std::string narrow;
+    if (tpw_win_narrow_path(path.c_str(), narrow)) return narrow;
+#endif
+    return path.string();
+}
+
+std::string GamePathForWriting(const char* gamePath) { return NarrowHostPath(HostPathForWriting(gamePath)); }
 
 std::string GamePathForReading(const char* gamePath) {
     const fs::path host = FindHostPath(gamePath);
-    return host.empty() ? std::string(gamePath) : host.string();
+    return host.empty() ? std::string(gamePath) : NarrowHostPath(host);
 }
 
 }  // namespace tpw

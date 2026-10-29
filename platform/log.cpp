@@ -17,6 +17,8 @@ Config& config() {
 void LogLine(const char* prefix, const char* text) {
     LogToFile(prefix, text);   // the log file takes every line, whatever logToStderr says (log_file.h)
     if (!config().logToStderr) return;
+    // Windows, started from Explorer: stderr goes into the log file itself (host_win.h CaptureOutputToLog).
+    if (gStderrIsLogFile.load(std::memory_order_relaxed) && gLogFileFd.load(std::memory_order_relaxed) >= 0) return;
     std::fprintf(stderr, "%s%s\n", prefix, text);
 }
 

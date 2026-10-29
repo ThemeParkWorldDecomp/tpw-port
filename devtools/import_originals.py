@@ -2,21 +2,20 @@
 """Make the game data folders the port reads, from the original downloads of the game.
 
 usage: python3 devtools/import_originals.py --from DOWNLOADS --to WORK/extracted [--whole-disc] [--replace]
+       python3 devtools/import_originals.py --from DOWNLOADS --find
        python3 devtools/import_originals.py --check WORK/extracted [--whole-disc]
 
-The originals are found in DOWNLOADS (searched with its subfolders) by their size and MD5, never by their names:
+The originals are found in DOWNLOADS (searched with its subfolders) by their content, never by their names, sizes or
+hashes of the downloads: whatever file looks like one of these is taken, and every file written is then checked against
+the SHA-256 list at the end of this script, so a wrong or damaged one is found there.
 
-  cd     the US CD image, SimTheme Park for the Mac 2.0.1 (a zip holding "Theme Park.toast", a hybrid ISO 9660 and HFS
-         disc), MD5 f03abce3f375bc72d863cc527749e645. This is all the US edition needs.
-  bonus  optional: Theme Park World Bonus Stuff (a zip; its TrueType fonts serve only the platform tests),
-         MD5 1adeba0b0cf5edcc623d44181a321f28
-  eur    optional: the Theme Park World European PC CD, an image of one of its pressings (for tpw --eur): the Redump
-         66484 ThemeParkWorld.img (MD5 cd1cc4c33c1bd10673b855edd4b9e0f2) or the Redump 9465 TPWORLD.bin (MD5
-         3c6590e438b3134e9208b407cc970d33), either as the raw 2352-byte-sector image, or one of the two earlier
-         ISO images (MD5 df7d864394ad46860984be60f2a3e448, 50ffee97f9abc37e751f36d7239caea4). The European edition
-         also needs the Mac CD above.
-  The 2.04b3 patch (a .sea.sit) is no longer needed: the data tables the build reads come from the CD's own program.
-  If it is among the downloads it is named and left alone.
+  cd     the US Mac CD image (SimTheme Park for the Mac, 2.0.1): a zip holding the disc image ("Theme Park.toast", a
+         hybrid ISO 9660 and HFS disc whose first bytes are an Apple partition map). This is all the US edition needs.
+  bonus  optional: the Theme Park World Bonus Stuff zip (a "Theme Park World Bonus Stuff/tpwfnt" folder of TrueType
+         fonts, which serve only the platform tests)
+  eur    optional: the Theme Park World European PC CD, an ISO 9660 image with Joliet names (raw 2352-byte sectors or
+         cooked 2048; for tpw --eur). The European edition also needs the Mac CD above.
+  Any patch file (.sea.sit) is not needed: the data tables the build reads come from the CD's own program.
 
 and unpacked into WORK/extracted as
 
@@ -66,15 +65,12 @@ _spec = importlib.util.spec_from_file_location("import_eur", os.path.join(os.pat
 import_eur = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(import_eur)
 
+# What the importer looks for: (key, description, required)
 ORIGINALS = [
-    # (key, MD5, size, description, required)
-    ("cd", "f03abce3f375bc72d863cc527749e645", 588983335,
-     "the SimTheme Park Mac US CD image 2.0.1 (a zip holding \"Theme Park.toast\")", True),
-    ("patch", "23bcbf4d6d6aec0b5ab00d47840b3f63", 2090425,
-     "the SimTheme Park Mac 2.04b3 patch (a .sea.sit; not needed)", False),
-    ("bonus", "1adeba0b0cf5edcc623d44181a321f28", 6687662,
-     "Theme Park World Bonus Stuff (a zip; optional, its fonts serve only the platform tests)", False),
-] + import_eur.EUR_ISOS
+    ("cd", "the US Mac CD image (a zip holding the disc image)", True),
+    ("bonus", "the Theme Park World Bonus Stuff zip (optional; its fonts serve only the platform tests)", False),
+    ("eur", "the European PC CD image (optional; for tpw --eur)", False),
+]
 
 DISC = "disc-hfs"
 GAME_FOLDER = "Theme Park Data"
@@ -97,46 +93,53 @@ def fail(msg):
 
 # ---- finding the originals
 
-def md5_of(path):
-    h = hashlib.md5()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
+def probe_zip(path):
+    """"cd" when PATH is a zip whose largest file starts like an Apple-partitioned disc image, "bonus" when it holds the
+    bonus fonts folder, else None. Only the zip's directory and the first bytes of that file are read."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            names = [i for i in z.infolist() if not i.is_dir() and not i.filename.startswith("__MACOSX/")]
+            if any("/".join(i.filename.split("/")[:-1]) == FONTS and i.filename.upper().endswith(".TTF") for i in names):
+                return "bonus"
+            if names:
+                with z.open(max(names, key=lambda i: i.file_size)) as f:
+                    head = f.read(4096)
+                if head[:2] == b"ER" and any(head[n:n + 2] == b"PM" for n in (512, struct.unpack_from(">H", head, 2)[0])
+                                              if n < len(head) - 1):
+                    return "cd"
+    except (zipfile.BadZipFile, OSError, NotImplementedError, struct.error, RuntimeError, ValueError, EOFError):
+        pass
+    return None
 
 
 def find_originals(root):
-    """{key: path} of the originals in ROOT and its subfolders. Only files of an original's size are hashed. A key
-    with more than one original (the UK ISO's two pressings) takes the first of them in ORIGINALS that is there."""
-    by_size = {size: (key, md5, rank) for rank, (key, md5, size, _, _) in enumerate(ORIGINALS)}
-    found, rank_of, damaged = {}, {}, []
+    """{key: [paths]} of the originals in ROOT and its subfolders, recognised by their content (see the top of this file),
+    each key's paths in the order the folders are walked."""
+    found = {}
     for folder, dirs, files in os.walk(root):
         dirs.sort()
         for name in sorted(files):
             path = os.path.join(folder, name)
             try:
                 size = os.path.getsize(path)
+                with open(path, "rb") as f:
+                    magic = f.read(4)
             except OSError:
                 continue
-            for r_md5, r_size, why in import_eur.REFUSED:
-                if size == r_size and md5_of(path) == r_md5:
-                    print("refused %s: %s" % (path, why))
-            if size not in by_size or rank_of.get(by_size[size][0], len(ORIGINALS)) <= by_size[size][2]:
+            if size < (1 << 20) and magic[:2] != b"PK":
                 continue
-            key, md5, rank = by_size[size]
-            if md5_of(path) == md5:
-                found[key], rank_of[key] = path, rank
+            if magic[:2] == b"PK":
+                key = probe_zip(path)
             else:
-                damaged.append(path)
-    for rank, (key, md5, size, what, required) in enumerate(ORIGINALS):
-        if rank_of.get(key) == rank and key == "patch":
-            print("found %-5s %s: %s (not needed, ignored: patches only replaced the game program, which the port translates from 2.04b3)" % (key, md5, found[key]))
-        elif rank_of.get(key) == rank:
-            print("found %-5s %s: %s" % (key, md5, found[key]))
-        elif key not in found:
-            print("%s %-5s %s (%d bytes): %s" % ("MISSING" if required else "missing", key, md5, size, what))
-    for path in damaged:
-        print("  %s has an original's size but not its MD5 (a damaged download?)" % path)
+                key = "eur" if import_eur.looks_like_eur(path) else None
+            if key:
+                found.setdefault(key, []).append(path)
+    for key, what, required in ORIGINALS:
+        if key in found:
+            print("found %-5s %s%s" % (key, found[key][0], "" if len(found[key]) == 1 else
+                                       " (and %d more like it)" % (len(found[key]) - 1)))
+        else:
+            print("%s %-5s %s" % ("MISSING" if required else "missing", key, what))
     return found
 
 
@@ -370,6 +373,7 @@ def main(argv):
     ap.add_argument("--whole-disc", action="store_true", help="write all of the CD's HFS volume, not only its game folder")
     ap.add_argument("--replace", action="store_true", help="delete and rewrite folders that are already there")
     ap.add_argument("--check", metavar="DIR", help="only check an existing layout against the list")
+    ap.add_argument("--find", action="store_true", help="only say which originals --from holds; write nothing")
     ap.add_argument("--make-list", metavar="DIR", help=argparse.SUPPRESS)
     a = ap.parse_args(argv)
     if a.make_list:
@@ -382,12 +386,14 @@ def main(argv):
         if os.path.isdir(os.path.join(a.check, import_eur.EDITION)):
             ok = check_eur(a.check) and ok
         return 0 if ok else 1
-    if not a.src or not a.to:
-        ap.error("--from and --to are needed (or --check DIR)")
+    if not a.src or not (a.to or a.find):
+        ap.error("--from and --to are needed (or --from and --find, or --check DIR)")
     if not os.path.isdir(a.src):
         fail("%s is not a folder" % a.src)
     found = find_originals(a.src)
-    missing = [k for k, _, _, _, req in ORIGINALS if req and k not in found]
+    missing = [k for k, _, req in ORIGINALS if req and k not in found]
+    if a.find:
+        return 1 if missing else 0
     if missing:
         fail("cannot go on without: %s (see the MISSING lines above)" % ", ".join(missing))
     groups, targets = groups_of(a.whole_disc, "bonus" in found)
@@ -398,9 +404,9 @@ def main(argv):
         fail("already there (give --replace to rewrite them): " + ", ".join(os.path.join(a.to, t) for t in there))
     stage = tempfile.mkdtemp(prefix=".import_originals-", dir=a.to)
     try:
-        unpack_cd(found["cd"], stage, a.whole_disc)
+        unpack_cd(found["cd"][0], stage, a.whole_disc)
         if "bonus" in found:
-            unpack_bonus(found["bonus"], stage)
+            unpack_bonus(found["bonus"][0], stage)
         for t in targets:
             dst = os.path.join(a.to, t)
             if os.path.lexists(dst):
@@ -411,10 +417,14 @@ def main(argv):
         shutil.rmtree(stage, ignore_errors=True)
     ok = check(a.to, groups)
     if ok and "eur" in found:
-        try:
-            import_eur.build_eur(found["eur"], a.to, replace=a.replace)
-        except import_eur.EurImportError as e:
-            fail("the UK ISO: %s" % e)
+        for iso in found["eur"]:
+            try:
+                import_eur.build_eur(iso, a.to, replace=a.replace)
+                break
+            except import_eur.EurImportError as e:
+                print("the European image %s: %s" % (iso, e))
+        else:
+            fail("none of the European images could be imported (see above)")
         ok = check_eur(a.to)
     if ok:
         print("Done. From the folder holding tpw-port and extracted: cmake -S tpw-port -B build, then\n"

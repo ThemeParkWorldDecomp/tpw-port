@@ -33,7 +33,7 @@
 #
 # THE CONTRACT. The launcher's updater runs this script and reads its output, so these never change:
 #   STEP n/N some plain words     one line as each step starts
-#   RESULT ok VERSION             the last line when it worked, and the exit code is 0 (VERSION: 0.1.0, 0.1.1-dev)
+#   RESULT ok VERSION             the last line when it worked, and the exit code is 0 (VERSION: 0.1.0, 0.2.0-dev)
 #   RESULT fail SOME REASON       the last line when it did not, and the exit code is not 0
 # Exactly one RESULT line is printed, last. Other lines are for people and may change. Options are only ever added.
 # These are the lines of plain mode, which is what the updater gets (the output is a pipe). Run from a Terminal window
@@ -84,17 +84,23 @@
 # Mac's administrators as a group, so an administrator writes there with no password; for anyone else it goes in the
 # player's own ~/Applications, which Launchpad and Spotlight search too, and the player is told. The application is
 # small and the install folder is not in it: an Info.plist (the same name and identifier as the launcher's own,
-# launcher/macos/Info.plist.in), the icon as an .icns, and as its program a few lines of shell that start
-# DIR/build/tpw_launcher in DIR, exactly as the themepark command does (write_app below; the launcher then runs from the
-# bundle it keeps beside itself, launcher/app_bundle.h, as it does from themepark). So an update that replaces
-# DIR/build changes nothing in the application, and a launcher that is gone (the install folder deleted) gets a plain
-# message to run the installer again. The icon is the launcher's own (tpw_launcher --write-icon: the game's icon once a
+# launcher/macos/Info.plist.in, and APP_MARK in a comment), the icon as an .icns, and as its program a symbolic link to
+# DIR/build/tpw_launcher (write_app below). macOS then starts the launcher itself as this application: one Dock tile,
+# the one in Applications, which comes to the front, stops bouncing and is the one "Keep in Dock" keeps; the launcher
+# sees that it was opened so and runs on as it is (launcher/app_bundle.h), where from themepark it goes on from the
+# bundle it keeps beside itself. Until 0.2.0 the program was a few lines of shell that started the launcher apart, which
+# gave two tiles, this one bouncing on. So an update that replaces DIR/build changes nothing in the application (the
+# link names the same path), and a launcher that is gone (the install folder deleted) gets macOS's own message that the
+# application cannot be opened. The icon is the launcher's own (tpw_launcher --write-icon: the game's icon once a
 # game is imported, the launcher's stand-in before; app_icon.h), turned into an .icns by Apple's sips and iconutil,
-# which every Mac has. The icon in the Finder and Launchpad is the one of the last install or update; the Dock's while
-# the launcher runs is always the current one. The application is written again at every run and is only ever replaced
-# when it is this script's (APP_MARK in its program); nothing else in /Applications is touched or deleted. It is made
-# by this script on this Mac, never downloaded, so Gatekeeper has nothing to say about it. To remove it, drag it to the
-# Trash (it comes back at the next install or update).
+# which every Mac has. Between installs the launcher keeps that icon.icns up to date itself (launcher/installed_icon.h:
+# when an import ends or the data folder changes, it writes the icon again and touches the .app, as this script does),
+# so the Finder and Launchpad show the game's icon as soon as a game is imported, as the Dock does while the launcher
+# runs. The application is written again at every run and is only ever replaced when it is this script's (APP_MARK in
+# its Info.plist, or in its program, the shell lines of 0.1.0); nothing else in /Applications is touched or deleted.
+# The launcher this script starts at the end is opened as this application too (launch below), so that it is the same
+# tile as the one opened from Applications. It is made by this script on this Mac, never downloaded, so Gatekeeper has
+# nothing to say about it. To remove it, drag it to the Trash (it comes back at the next install or update).
 #
 # THE MENU ENTRY (Linux). The same place on Linux is the applications menu: every install, update and swap writes the
 # desktop entry ~/.local/share/applications/stp-tpw-launcher.desktop ($XDG_DATA_HOME/applications when that is set),
@@ -123,8 +129,9 @@
 # must be there already, and the build fetches a CMake into its own folder when needed.
 #
 # LINUX. The same flow, with Linux's checks in place of the Mac's (check_linux): a 64-bit x86 or Arm processor, the
-# distribution (named from /etc/os-release), the free space, and the packages the build needs, which are the one thing
-# installed outside the player's own folders. They are the build workflow's Linux list without its test-only packages,
+# distribution (named from /etc/os-release), the free space, the C++ compiler (GCC 13 or clang 18, or newer: checked
+# before any package is installed or sudo asks for a password, linux_compiler), and the packages the build needs, which
+# are the one thing installed outside the player's own folders. They are the build workflow's Linux list without its test-only packages,
 # plus the Vulkan loader the launcher opens at run time, under each package manager's names (apt-get, dnf or pacman:
 # PKGS_APT, PKGS_DNF and PKGS_PACMAN below). The ones missing are installed with the package manager in one go: as they
 # are when this runs as root, else through sudo, which asks the player's password once, on the terminal (sudo reads it
@@ -207,6 +214,7 @@ Options:
 
 The build needs a compiler, CMake, Git, Python 3 and the development packages SDL builds against. The ones missing
 are installed with your distribution's package manager (apt-get, dnf or pacman), and sudo asks for your password once.
+The compiler must be GCC 13 or clang 18, or newer; CXX=g++-13 (in front of sh) names another, kept for the updates.
 After installing, open STP/TPW Launcher from your applications menu, or open a new terminal window and type themepark,
 from any folder, to play.
 Run the same line again, or type themepark update, to update. Both follow the newest release unless --dev is added
@@ -1090,6 +1098,85 @@ PKGS_PACMAN="gcc make cmake ninja python git pkgconf libx11 libxext libxrandr li
 libxkbcommon wayland wayland-protocols libdecor libglvnd mesa libdrm alsa-lib libpulse libpipewire dbus systemd-libs
 libibus vulkan-icd-loader"
 
+# The C++ compiler the build will use (CMake takes $CXX, else c++): GCC 13 or clang 18, or newer, the oldest that
+# compile the port (the README's Building on Linux). Checked before any package is installed or sudo asks for a
+# password, since an older one would fail the build only after both. With no compiler yet, the one apt would install is
+# checked (apt-cache policy, which needs no root); dnf's and pacman's are checked once the package step has installed
+# them ($1 = after). Stops with what to do when it is too old; says nothing new when it cannot tell. An install built
+# with CXX set keeps it (install-info.txt's cxx, verify_next), so that its updates, the Update button's too, use it.
+linux_compiler() { # [after]
+    [ -z "${COMPILER_OK:-}" ] || return 0
+    if [ -z "${CXX:-}" ]; then
+        CXX=$(info_get "$DIR/build/install-info.txt" cxx)
+        [ -z "$CXX" ] || export CXX
+    fi
+    _cxx=${CXX:-}
+    if [ -z "$_cxx" ]; then
+        for _c in c++ g++ clang++; do
+            if command -v "$_c" >/dev/null 2>&1; then
+                _cxx=$_c
+                break
+            fi
+        done
+    fi
+    _kind=""
+    _major=""
+    _from=""
+    if [ -n "$_cxx" ] && command -v "$_cxx" >/dev/null 2>&1; then
+        _v=$("$_cxx" --version 2>/dev/null </dev/null)
+        case "$_v" in
+            *clang*) _kind=clang ;;
+            *"Free Software Foundation"*) _kind=GCC ;;
+        esac
+        _major=$("$_cxx" -dumpversion 2>/dev/null </dev/null | sed -n '1p' | sed 's/[^0-9].*//')
+        _from="$_cxx"
+    elif [ -z "${CXX:-}" ] && [ -z "${1:-}" ] && command -v apt-cache >/dev/null 2>&1; then
+        # the candidate's version, without its epoch: 4:11.2.0-1ubuntu1 is GCC 11
+        _cand=$(apt-cache policy g++ 2>/dev/null </dev/null | sed -n 's/^ *Candidate: *//p' | sed -n '1p')
+        case "$_cand" in
+            "" | "(none)") ;;
+            *)
+                _kind=GCC
+                _major=$(printf '%s\n' "$_cand" | sed 's/^[0-9]*://; s/[^0-9].*//')
+                _from="the g++ that apt-get would install ($_cand)"
+                ;;
+        esac
+    fi
+    [ -n "$_kind" ] && [ -n "$_major" ] || return 0
+    _need=13
+    [ "$_kind" = GCC ] || _need=18
+    if [ "$_major" -ge "$_need" ]; then
+        info "The C++ compiler: $_kind $_major ($_from)."
+        COMPILER_OK=1
+        return 0
+    fi
+    # a newer one beside it, which CXX can name
+    _other=""
+    for _c in g++-16 g++-15 g++-14 g++-13 clang++-21 clang++-20 clang++-19 clang++-18; do
+        if command -v "$_c" >/dev/null 2>&1; then
+            _other=$_c
+            break
+        fi
+    done
+    _line="curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh |"
+    UI_FAIL_TEXT="the C++ compiler is $_kind $_major; the build needs GCC 13 or clang 18"
+    say "The build needs a C++ compiler of GCC 13 or clang 18, or newer, and $_from is $_kind $_major."
+    if [ -n "$_other" ]; then
+        say "This Linux also has $_other. To build with it, run the line with CXX=$_other in front of sh:"
+        say "  $_line CXX=$_other sh"
+    else
+        say "Install GCC 13 or clang 18 (or newer) from your distribution, then run the line again with CXX set to it in"
+        say "front of sh, for example:"
+        say "  $_line CXX=g++-13 sh"
+    fi
+    if [ "${1:-}" = after ]; then
+        say "The build's packages were installed; nothing else was changed."
+    else
+        say "Nothing was changed."
+    fi
+    die "The C++ compiler is $_kind $_major; the build needs GCC 13 or clang 18, or newer."
+}
+
 check_linux() {
     case "$(uname -m)" in
         x86_64 | aarch64 | arm64) ;;
@@ -1098,13 +1185,16 @@ check_linux() {
     distro=$(sed -n 's/^PRETTY_NAME=//p' /etc/os-release 2>/dev/null | tr -d '"' | sed -n '1p')
     [ -n "$distro" ] || distro="an unknown distribution"
     info "Linux: $distro, $(uname -m)"
-    # The space first: a full disk is found before anything is installed.
+    # The space first: a full disk is found before anything is installed. Then the compiler, before the packages.
     check_space
     if [ -n "${TPW_INSTALL_STUB:-}" ] || [ "${TPW_INSTALL_PACKAGES:-}" = skip ]; then
         info "The build's packages: not looked for (TPW_INSTALL_PACKAGES=skip, or a test build)."
         TOOLS_FOUND="the build's packages were not looked for"
+        [ -n "${TPW_INSTALL_STUB:-}" ] || linux_compiler
     else
+        linux_compiler
         linux_packages
+        linux_compiler after
     fi
     # What the script and the Makefile's first steps run (the compiler and CMake are the Makefile's to name).
     missing=""
@@ -1631,6 +1721,8 @@ verify_next() {
         printf 'version=%s\n' "$VERSION"
         printf 'channel=%s\n' "$CHANNEL"
         printf 'commit=%s\n' "$COMMIT"
+        # Linux: the compiler named with CXX (linux_compiler reads it back at the next update)
+        [ "$OS" != linux ] || [ -z "${CXX:-}" ] || printf 'cxx=%s\n' "$CXX"
     } >"$NEXT/install-info.txt" || die "Couldn't write $NEXT/install-info.txt."
 }
 
@@ -1714,10 +1806,15 @@ EOF
     say "They are in $DATA_TEXT, and this install uses them as they are."
 }
 
+# Opens the launcher: as the application in Applications when write_app put it there (one Dock tile with the one opened
+# from Applications, as the player kept it in the Dock), else the program itself, from DIR. The test hook's
+# application folder (TPW_INSTALL_APPS) is never opened through macOS: a test's launcher starts from DIR.
 launch() {
     info "Starting $DIR/build/tpw_launcher"
     ui_active start "opening the launcher"
-    if (cd "$DIR" && nohup "$DIR/build/tpw_launcher" >/dev/null 2>&1 </dev/null &); then
+    if [ -n "$APP_DIR" ] && [ -z "${TPW_INSTALL_APPS:-}" ] && open "$APP_DIR/$APP_NAME" >/dev/null 2>&1 </dev/null; then
+        ui_done start "the launcher is open"
+    elif (cd "$DIR" && nohup "$DIR/build/tpw_launcher" >/dev/null 2>&1 </dev/null &); then
         ui_done start "the launcher is open"
     else
         say "Couldn't start the launcher. Start it yourself: $DIR/build/tpw_launcher"
@@ -1852,8 +1949,10 @@ write_app() {
     fi
     app="$apps/$APP_NAME"
     exe="$app/Contents/MacOS/STP-TPW-Launcher"
-    # another program of the same name is never replaced; one of ours, or a half-written one with no program, is
-    if [ -e "$app" ] && ! grep -qF "$APP_MARK" "$exe" 2>/dev/null && [ -n "$(ls -A "$app/Contents/MacOS" 2>/dev/null)" ]; then
+    # another program of the same name is never replaced; one of ours (the mark in its Info.plist, or in the shell
+    # program 0.1.0 wrote), or a half-written one with no program, is
+    if [ -e "$app" ] && ! grep -qF "$APP_MARK" "$app/Contents/Info.plist" 2>/dev/null \
+        && ! { [ ! -L "$exe" ] && grep -qF "$APP_MARK" "$exe" 2>/dev/null; } && [ -n "$(ls -A "$app/Contents/MacOS" 2>/dev/null)" ]; then
         say "$app was not made by this installer, so it is left alone."
         return 1
     fi
@@ -1871,7 +1970,7 @@ write_app() {
     make_app_icon "$work" "$icns" && icon=1
     ok=1
     mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" || ok=0
-    [ "$ok" = 0 ] || { write_app_program "$exe.tmp" && chmod 755 "$exe.tmp" && mv -f "$exe.tmp" "$exe"; } || ok=0
+    [ "$ok" = 0 ] || { rm -f "$exe.tmp" && ln -s "$DIR/build/tpw_launcher" "$exe.tmp" && mv -f "$exe.tmp" "$exe"; } || ok=0
     [ "$ok" = 0 ] || { write_app_plist "$app/Contents/Info.plist.tmp" "$icon" && mv -f "$app/Contents/Info.plist.tmp" "$app/Contents/Info.plist"; } || ok=0
     [ "$ok" = 0 ] || { printf 'APPL????' >"$app/Contents/PkgInfo.tmp" && mv -f "$app/Contents/PkgInfo.tmp" "$app/Contents/PkgInfo"; } || ok=0
     if [ "$ok" = 1 ]; then
@@ -1890,29 +1989,9 @@ write_app() {
     APP_DIR=$apps
 }
 
-# The application's program: a few lines of shell that start DIR/build/tpw_launcher in DIR, as the themepark command
-# does (write_command_file), detached: an exec'd launcher stays behind the other windows, a detached one comes to the
-# front (tried both on 2026-10-26). DIR is written in (an application in /Applications cannot find the install from its own
-# place). A missing launcher (the install folder deleted) gets a message, not a silent nothing.
-write_app_program() {
-    # DIR between single quotes: a ' in it becomes '\'' (the installer refuses ", $, ` and \ in it)
-    quoted=$(printf '%s\n' "$DIR" | sed "s/'/'\\\\''/g")
-    cat >"$1" <<EOF
-#!/bin/sh
-$APP_MARK
-# Starts the STP/TPW Launcher installed in the folder named below, as the themepark command does. The installer
-# (install.sh) writes this application again at every install and update. To remove it, drag it to the Trash.
-dir='$quoted'
-if [ ! -x "\$dir/build/tpw_launcher" ]; then
-    osascript -e "display alert \\"STP/TPW Launcher is not installed any more\\" message \\"The launcher was in \$dir. Run the installer again to put it back.\\" as critical" >/dev/null 2>&1
-    exit 1
-fi
-cd "\$dir" && nohup "\$dir/build/tpw_launcher" >/dev/null 2>&1 </dev/null &
-EOF
-}
-
 # The application's Info.plist: the launcher's own name and identifier (launcher/macos/Info.plist.in), the version
-# installed (its numbers: 0.1.1-dev is 0.1.1), the icon when $2 is 1.
+# installed (its numbers: 0.2.0-dev is 0.2.0), the icon when $2 is 1, and APP_MARK in a comment (its program is a link
+# to the launcher, which holds no mark).
 write_app_plist() {
     numbers=${VERSION%-dev}
     case "$numbers" in [0-9]*.[0-9]*.[0-9]*) ;; *) numbers=0.0.0 ;; esac
@@ -1923,6 +2002,9 @@ write_app_plist() {
     cat >"$1" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- $APP_MARK
+     Its program is a link to the STP/TPW Launcher in the install folder. The installer (install.sh) writes this
+     application again at every install and update. To remove it, drag it to the Trash. -->
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>

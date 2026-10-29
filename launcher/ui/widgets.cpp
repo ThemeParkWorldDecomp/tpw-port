@@ -346,6 +346,73 @@ bool Ui::Segmented(const std::string& id, const Rect& r, const std::vector<std::
     return changed;
 }
 
+bool Ui::Dropdown(const std::string& id, const Rect& r, std::string_view label, bool open, bool enabled) {
+    bool clicked = Clicked(id, r, enabled);
+    bool hot = interactive_ && enabled && Hovered(r);
+    float hover = Spring(id + "#hover", hot || open ? 1.0f : 0.0f);
+    Rgba fill = enabled ? Mix(colour::kCream, colour::kYellowSoft, Clamp01(hover)) : Mix(colour::kGrey, colour::kPaper, 0.5f);
+    Rgba line = enabled ? colour::kInk : colour::kInkSoft;
+    canvas_.Shadow(r.Moved(0, 3), r.h * 0.5f, 6, colour::kShadow);
+    canvas_.Outlined(r, r.h * 0.5f, metric::kOutline, fill, line);
+    const float pad = 16, chevronW = 12;
+    std::string shown = text_.Fit(style::kButton, label, r.w - 2 * pad - chevronW - 8, false);
+    text_.Draw(style::kButton, r.x + pad, r.CentreY() - text_.LineHeight(style::kButton) * 0.5f, shown, line);
+    // The chevron points down, and up while the list is open.
+    float flip = Spring(id + "#open", open ? 1.0f : 0.0f);
+    float cx = r.Right() - pad - chevronW * 0.5f, cy = r.CentreY(), dy = chevronW * 0.28f * (1 - 2 * flip);
+    canvas_.Polyline({{cx - chevronW * 0.5f, cy - dy}, {cx, cy + dy}, {cx + chevronW * 0.5f, cy - dy}}, 3, line);
+    return clicked;
+}
+
+bool Ui::DropList(const std::string& id, const Rect& field, const Rect& bounds, const std::vector<std::string>& options,
+                  int& selected, bool& close, std::vector<Rect>* rows) {
+    int n = static_cast<int>(options.size());
+    if (rows) rows->clear();
+    if (n == 0) {
+        close = true;
+        return false;
+    }
+    const float pad = 6, gap = 6, tick = 28;
+    float rowH = 32;
+    float below = bounds.Bottom() - field.Bottom() - gap, above = field.y - bounds.y - gap;
+    bool down = n * rowH + 2 * pad <= below || below >= above;
+    float room = down ? below : above;
+    if (n * rowH + 2 * pad > room) rowH = std::max(20.0f, (room - 2 * pad) / n);   // a short window: tighter rows
+    float h = n * rowH + 2 * pad;
+    float w = field.w;
+    for (const std::string& option : options)   // a pixel to spare, or rounding leaves the longest one an ellipsis
+        w = std::max(w, std::ceil(text_.Width(style::kButton, option)) + 1 + 2 * 12 + tick + 2 * pad);
+    w = std::min(w, bounds.w);
+    float x = std::clamp(field.Right() - w, bounds.x, bounds.Right() - w);   // its right edge under the field's
+    Rect list{x, down ? field.Bottom() + gap : field.y - gap - h, w, h};
+    canvas_.Shadow(list.Moved(0, metric::kShadowDrop), 14, metric::kShadowBlur, colour::kShadow);
+    canvas_.Outlined(list, 14, metric::kOutline, colour::kPaper, colour::kInk);
+    bool chosen = false;
+    for (int i = 0; i < n; ++i) {
+        Rect cell{list.x + pad, list.y + pad + rowH * i, list.w - 2 * pad, rowH};
+        if (rows) rows->push_back(cell);
+        if (Clicked(id + "/" + std::to_string(i), cell, true)) {
+            selected = i;
+            chosen = true;
+            close = true;
+        }
+        if (i == selected)
+            canvas_.OutlinedGradient(cell, 10, 2, colour::kLimeBright, colour::kLime, colour::kInk);
+        else if (interactive_ && Hovered(cell))
+            canvas_.FillRound(cell, 10, colour::kYellowSoft);
+        std::string label = text_.Fit(style::kButton, options[static_cast<size_t>(i)], cell.w - 24 - tick, false);
+        text_.Draw(style::kButton, cell.x + 12, cell.CentreY() - text_.LineHeight(style::kButton) * 0.5f, label,
+                   colour::kInk);
+        if (i == selected)
+            canvas_.CheckMark(cell.Right() - tick * 0.5f - 4, cell.CentreY(), 14, 3, colour::kInk);
+    }
+    if (interactive_ && ((input_.pressed && !Hovered(list)) || input_.wheel != 0)) {
+        close = true;
+        active_ = id + "#dismissed";   // the release that follows clicks nothing, the field under it included
+    }
+    return chosen;
+}
+
 void Ui::DropField(const std::string& id, const Rect& r, bool dropHover, float iconTop, bool icon) {
     float k = Clamp01(Spring(id, dropHover ? 1.0f : 0.0f));
     const float radius = 22;

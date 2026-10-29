@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 
 #include "gold_rides.h"
+#include "language_pack.h"
 #include "packs.h"
 #include "platform.h"
 #include "platform/macdoze.h"
@@ -23,10 +24,17 @@ namespace tpw {
 const char kProjectDirMac[] = "TPW:Theme Park Data:";
 const char kRemoteDirMac[] = "Theme Park:Theme Park Data:";
 
+// In a double-byte code page a character's two bytes are compared as they are: a trail byte may be a letter's byte.
 static bool EqualNoCase(const std::string& a, const std::string& b) {
     if (a.size() != b.size()) return false;
-    for (size_t i = 0; i < a.size(); ++i)
+    for (size_t i = 0; i < a.size(); ++i) {
+        if (IsGameLeadByte(static_cast<uint8_t>(a[i])) && i + 1 < a.size()) {
+            if (a[i] != b[i] || a[i + 1] != b[i + 1]) return false;
+            ++i;
+            continue;
+        }
         if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i]))) return false;
+    }
     return true;
 }
 
@@ -51,9 +59,16 @@ std::vector<std::string> SplitGamePath(const std::string& gamePath) {
         if (!part.empty() && part != ".") parts.push_back(part);
         part.clear();
     };
-    for (char c : path) {
-        if (c == ':' || c == '\\' || c == '/') flush();
-        else part.push_back(c);
+    for (size_t i = 0; i < path.size(); ++i) {
+        const char c = path[i];
+        if (IsGameLeadByte(static_cast<uint8_t>(c)) && i + 1 < path.size()) {
+            part.push_back(c);
+            part.push_back(path[++i]);   // a trail byte, even 0x5c ('\\')
+        } else if (c == ':' || c == '\\' || c == '/') {
+            flush();
+        } else {
+            part.push_back(c);
+        }
     }
     flush();
     return parts;
@@ -63,38 +78,44 @@ std::vector<std::string> SplitGamePath(const std::string& gamePath) {
 // which the game's names may hold (a park saved as "Test?"; the Mac refused only ':', its separator, and the game turns a
 // character it cannot store in a narrow name into '?'). There each of them, and '%' itself, is kept as '%' and its two hex
 // digits, and read back so when a folder is listed; a '%' that does not start one of those is read as itself, so a file
-// named before stays found. Elsewhere the names are the same.
+// named before stays found. Elsewhere the names are the same. From tpw-port PR #73 by samueleagle91. The game's code page
+// is turned into the host's characters first (HostNameOf, code_page.cpp), so a double-byte character's trail byte is
+// never taken for one of those.
 #ifdef _WIN32
 static const char kEscapedInHostNames[] = "<>\"|?*%";
 
-static std::string HostName(const std::string& name) {
-    std::string host;
-    for (char c : name) {
-        if (c != '\0' && std::strchr(kEscapedInHostNames, c) != nullptr) {
-            static const char kHex[] = "0123456789ABCDEF";
-            const unsigned char code = static_cast<unsigned char>(c);
-            host += '%';
-            host += kHex[code >> 4];
-            host += kHex[code & 15];
+static bool EscapedInHostNames(wchar_t c) {
+    return c != 0 && c < 0x80 && std::strchr(kEscapedInHostNames, static_cast<char>(c)) != nullptr;
+}
+
+static fs::path HostName(const std::string& name) {
+    std::wstring host;
+    for (wchar_t c : HostNameOf(name).native()) {
+        if (EscapedInHostNames(c)) {
+            static const wchar_t kHex[] = L"0123456789ABCDEF";
+            host += L'%';
+            host += kHex[c >> 4];
+            host += kHex[c & 15];
         } else {
             host += c;
         }
     }
-    return host;
+    return fs::path(host);
 }
 
-static std::string GameName(const std::string& host) {
-    const auto hex = [](char c) {
-        if (c >= '0' && c <= '9') return c - '0';
-        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+static std::string GameName(const fs::path& hostName) {
+    const auto hex = [](wchar_t c) {
+        if (c >= L'0' && c <= L'9') return static_cast<int>(c - L'0');
+        if (c >= L'A' && c <= L'F') return static_cast<int>(c - L'A' + 10);
+        if (c >= L'a' && c <= L'f') return static_cast<int>(c - L'a' + 10);
         return -1;
     };
-    std::string name;
+    const std::wstring& host = hostName.native();
+    std::wstring name;
     for (size_t i = 0; i < host.size(); ++i) {
-        if (host[i] == '%' && i + 2 < host.size() && hex(host[i + 1]) >= 0 && hex(host[i + 2]) >= 0) {
-            const char c = static_cast<char>(hex(host[i + 1]) * 16 + hex(host[i + 2]));
-            if (c != '\0' && std::strchr(kEscapedInHostNames, c) != nullptr) {
+        if (host[i] == L'%' && i + 2 < host.size() && hex(host[i + 1]) >= 0 && hex(host[i + 2]) >= 0) {
+            const wchar_t c = static_cast<wchar_t>(hex(host[i + 1]) * 16 + hex(host[i + 2]));
+            if (EscapedInHostNames(c)) {
                 name += c;
                 i += 2;
                 continue;
@@ -102,21 +123,24 @@ static std::string GameName(const std::string& host) {
         }
         name += host[i];
     }
-    return name;
+    return GameNameOf(fs::path(name));
 }
 #else
-static std::string HostName(const std::string& name) { return name; }
-static std::string GameName(const std::string& host) { return host; }
+static fs::path HostName(const std::string& name) { return HostNameOf(name); }
+static std::string GameName(const fs::path& hostName) { return GameNameOf(hostName); }
 #endif
 
 // `name` inside `folder`, matched ignoring case: the exact name if it exists, else the
-// first entry that differs only in case. Empty if there is none.
+// first entry that differs only in case. Empty if there is none. The name is the game's
+// (HostName); an entry the code page cannot name is still found by its own bytes.
 static fs::path FindChild(const fs::path& folder, const std::string& name) {
     std::error_code ec;
-    const fs::path exact = folder / HostName(name);
+    const fs::path host = HostName(name);
+    const fs::path exact = folder / host;
     if (fs::exists(exact, ec)) return exact;
+    if (host.native() != fs::path(name).native() && fs::exists(folder / name, ec)) return folder / name;
     for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
-        if (EqualNoCase(GameName(it->path().filename().string()), name)) return it->path();
+        if (EqualNoCase(GameName(it->path().filename()), name)) return it->path();
     return {};
 }
 
@@ -181,6 +205,11 @@ fs::path FindHostPath(const std::string& gamePath) {
     const auto parts = SplitGamePath(gamePath);
     fs::path found = FindUnder(config().userDir, parts);
     if (!found.empty()) return found;
+    // The chosen language (language_pack.h): its text, speech and pictures, at their places in the game folder.
+    if (LanguagePackCovers(parts)) {
+        found = FindUnder(LanguagePackFolder(), parts);
+        if (!found.empty()) return found;
+    }
     // From a pack only a file a pack may hold, so neither a folder nor another kind of file there (one put in
     // ".unpacked" by hand, or unpacked by older rules) takes a game file's place.
     if (PackMayHold(JoinParts(parts))) {
@@ -247,16 +276,22 @@ uint64_t FileTimeOf(const fs::path& path) {
 std::vector<DirEntry> ListGameFolder(const std::string& gamePath) {
     const auto parts = SplitGamePath(gamePath);
     const std::string inside = JoinParts(parts);
-    // The user folder, the asset packs (packs.h), the game folder; from a pack only the files a pack may hold. The Gold
-    // rides (gold_rides.h) are listed with the game folder, as the Gold installer's copies would be in it: a Gold copy
-    // of a base ride takes the base entry's place, a new ride is sorted in among the base ones.
-    std::vector<std::pair<fs::path, bool>> roots{{config().userDir, false}};
-    for (const fs::path& pack : PackDirs()) roots.emplace_back(pack, true);
-    roots.emplace_back(config().gameDir, false);
+    // The user folder, the chosen language (language_pack.h), the asset packs (packs.h), the game folder; from the
+    // language only the folders it covers (in data/Language its own folder alone, so the game takes it as its language),
+    // from a pack only the files a pack may hold. The Gold rides (gold_rides.h) are listed with the game folder, as the
+    // Gold installer's copies would be in it: a Gold copy of a base ride takes the base entry's place, a new ride is
+    // sorted in among the base ones.
+    enum class Root { kUser, kLanguage, kPack, kGame };
+    std::vector<std::pair<fs::path, Root>> roots{{config().userDir, Root::kUser}};
+    if (LanguagePackCovers(parts) || LanguagePackLists(parts, LanguagePackName()))
+        roots.emplace_back(LanguagePackFolder(), Root::kLanguage);
+    for (const fs::path& pack : PackDirs()) roots.emplace_back(pack, Root::kPack);
+    roots.emplace_back(config().gameDir, Root::kGame);
     std::vector<DirEntry> entries;
     for (size_t r = 0; r < roots.size(); ++r) {
-        const auto& [root, pack] = roots[r];
-        const bool game = r + 1 == roots.size();
+        const auto& [root, source] = roots[r];
+        const bool pack = source == Root::kPack;
+        const bool game = source == Root::kGame;
         const std::vector<DirEntry> gold = game ? GoldRideEntries(inside) : std::vector<DirEntry>();
         const fs::path folder = FindUnder(root, parts);
         std::error_code ec;
@@ -264,10 +299,11 @@ std::vector<DirEntry> ListGameFolder(const std::string& gamePath) {
         if (!listed && gold.empty()) continue;
         std::vector<DirEntry> found;
         for (fs::directory_iterator it(folder, ec), end; listed && !ec && it != end; it.increment(ec)) {
-            const std::string name = GameName(it->path().filename().string());
+            const std::string name = GameName(it->path().filename());
             if (name.empty() || name[0] == '.' || IsDumpSideFile(it->path())) continue;
             std::error_code kind;
             if (pack && (!it->is_regular_file(kind) || !PackMayHold(inside.empty() ? name : inside + "/" + name))) continue;
+            if (source == Root::kLanguage && !LanguagePackLists(parts, name)) continue;
             const bool seen = std::any_of(entries.begin(), entries.end(),
                                           [&](const DirEntry& e) { return EqualNoCase(e.name, name); });
             if (seen) continue;

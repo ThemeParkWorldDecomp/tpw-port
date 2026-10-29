@@ -60,9 +60,10 @@ void LeaveCriticalSection(void** handle) {
 int32_t InterlockedIncrement(int32_t* value) { return ++*value; }
 int32_t InterlockedDecrement(int32_t* value) { return --*value; }
 
-// Whether a byte starts a double-byte character in the system code page. The host side
-// of that code page is single-byte (see the conversions below), so never.
-int32_t IsDBCSLeadByte(uint8_t) { return 0; }
+// Whether a byte starts a double-byte character in the system code page: never in the shim's
+// Latin-1 (see the conversions below), the PC's lead bytes in a Japanese, Korean or Chinese
+// game (platform/code_page.cpp).
+int32_t IsDBCSLeadByte(uint8_t ch) { return tpw::IsGameLeadByte(ch) ? 1 : 0; }
 
 char* _strdup(const char* text) {
     const size_t size = std::strlen(text) + 1;
@@ -112,7 +113,8 @@ char16_t* _itow(int32_t value, char16_t* text, int32_t radix) {
 
 // Code page conversions. The game converts names it shows or uses as file names; the host
 // side of the "system code page" is Latin-1 here: characters up to 0xff map one to one,
-// anything else becomes the default character ('?').
+// anything else becomes the default character ('?'). A Hebrew, Japanese, Korean or Chinese
+// game converts in its own code page instead, as on the PC (platform/code_page.cpp).
 // TODO(platform): the Mac converted through the system script (Mac OS Roman); file names
 // with accents need the real table once saved games carry such names.
 int32_t WideCharToMultiByte(uint32_t, uint32_t, const char16_t* text, int32_t length, char* out, int32_t size,
@@ -123,6 +125,16 @@ int32_t WideCharToMultiByte(uint32_t, uint32_t, const char16_t* text, int32_t le
         ++length;
     }
     if (usedDefault != nullptr) *usedDefault = 0;
+    if (tpw::GameCodePage() != 0) {
+        bool defaulted = false;
+        const std::string bytes =
+            tpw::NarrowGameText(text, static_cast<size_t>(length), defaultChar != nullptr ? *defaultChar : '?', defaulted);
+        if (usedDefault != nullptr && defaulted) *usedDefault = 1;
+        const auto needed = static_cast<int32_t>(bytes.size());
+        if (size == 0) return needed;
+        std::memcpy(out, bytes.data(), static_cast<size_t>(needed < size ? needed : size));
+        return needed <= size ? needed : 0;   // 0: the buffer was too small
+    }
     if (size == 0) return length;
     int32_t written = 0;
     for (; written < length && written < size; ++written) {
@@ -139,6 +151,13 @@ int32_t WideCharToMultiByte(uint32_t, uint32_t, const char16_t* text, int32_t le
 
 int32_t MultiByteToWideChar(uint32_t, uint32_t, const char* text, int32_t length, char16_t* out, int32_t size) {
     if (length < 0) length = static_cast<int32_t>(std::strlen(text)) + 1;
+    if (tpw::GameCodePage() != 0) {
+        const std::u16string wide = tpw::WidenGameText(text, static_cast<size_t>(length));
+        const auto needed = static_cast<int32_t>(wide.size());
+        if (size == 0) return needed;
+        std::memcpy(out, wide.data(), static_cast<size_t>(needed < size ? needed : size) * sizeof(char16_t));
+        return needed <= size ? needed : 0;   // 0: the buffer was too small
+    }
     if (size == 0) return length;
     int32_t written = 0;
     for (; written < length && written < size; ++written) out[written] = static_cast<unsigned char>(text[written]);

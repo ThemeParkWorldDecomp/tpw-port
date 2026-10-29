@@ -7,20 +7,14 @@
 #include <cstdint>
 
 #include "AudioPlaceHolder.h"
+#include "BMP_InsideArea.h"
 
 uint32_t gCdequeMinCap = 1;      // 0x102b1420
 int32_t gFlyMinHeight = 0x2ee0;  // 0x1029d2c0
 uint32_t gLCFontIndex = 7;       // 0x102aed60
 int32_t gStaffRoomMsg406 = 1;    // 0x102aed68
 
-// 0x102b56c0, gColList of BMP_InsideArea.h: the bump world is 0x3c bytes on the Mac (src/game/rides/BumperRide.cpp's view;
-// BMP_Load takes link nodes from its free list at 0x34) where the header's tabCOLLIST covers 0x20, the size a generated stand-in has.
-// The _WIN32 parts of this file: Windows port contributed by samueleagle91 (tpw-port PR #1).
-#ifdef __APPLE__
-alignas(16) unsigned char gColListStorage[0x40] __asm__("_gColList");   // Mach-O puts an underscore before a C name
-#else
-alignas(16) unsigned char gColListStorage[0x40] __asm__("gColList");    // COFF on x86-64 and ELF (Linux) do not
-#endif
+tabCOLLIST gColList;   // 0x102b56c0, the bump world's 0x3c bytes (BMP_InsideArea.h), zero at start like the Mac's
 
 double gMathLibPi = 3.141592653589793;  // 0x1007561c, MathLib::pi
 extern "C" double gLbMathsAtanScale;

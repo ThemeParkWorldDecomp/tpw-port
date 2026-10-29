@@ -135,6 +135,10 @@ bool ImporterBackend::ChangeDataFolder(const std::string& folder, std::string& e
     return false;
 }
 
+std::vector<assets::LanguageStatus> ImporterBackend::Languages() const {
+    return importer_ ? importer_->Languages() : std::vector<assets::LanguageStatus>();
+}
+
 long ImporterBackend::VerifyEdition(Edition edition, std::string& err) {
     if (!importer_) {
         err = "the data folder is not open";

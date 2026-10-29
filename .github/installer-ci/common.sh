@@ -3,7 +3,8 @@
 # install.sh, the fake release, and the cases that run the same on both. Each driver sources this file after setting
 # INSTALL_SH, WORK and CASE, and defines the parts of its own system: new_case (the home folder, the player's shell,
 # DIR, DATA and PROFILE, the file whose PATH line the cases count: ~/.zprofile on a Mac, ~/.profile on Linux), run_tty,
-# snap, seed_data, check_new_shell and run_themepark, then its own cases. Bash 3.2 (the Mac's own) is enough.
+# snap, seed_data, check_new_shell and run_themepark, then its own cases; a Mac's also defines app_step (below). Bash
+# 3.2 (the Mac's own) is enough.
 
 # ---- checks
 
@@ -299,6 +300,11 @@ case_legacy() {
     (cd "$DATA" && snap . >"$C/data-b.txt") && true
 }
 
+# The rerun case's steps for the Mac's application in /Applications (mac.sh defines its own; Linux has none): "old" makes
+# it the one 0.1.0 wrote, "updated VERSION" checks it after the update, "foreign" makes it another program's of that
+# name and "foreign_kept OUT" checks that the update left that one alone and said so in OUT.
+app_step() { :; }
+
 # Run again with nothing new (nothing changes), with a newer release (updates), tags that are not releases.
 case_rerun() {
     new_case rerun
@@ -320,19 +326,23 @@ case_rerun() {
     [ ! -e "$DIR/build-next" ] || bad "a run with nothing new left a build-next"
     check_new_shell "$DIR" 0.0.1
 
+    app_step old
     # a newer release (annotated this time): it updates, keeps the one before
     fake_release 0.0.2
     run_line "$C/out3" --no-launch
     ok_run "$C/out3" 0.0.2
     expect_text "$C/out3" 'Switched to version 0.0.2. The one before is kept in'
     check_build "$DIR" 0.0.2 stable
+    app_step updated 0.0.2
     expect_in "$DIR/build-prev/install-info.txt" "version=0.0.1"
     expect_eq "$PROFILE lines" "$(marked_lines "$H/$PROFILE")" 1
     check_new_shell "$DIR" 0.0.2
     # the launcher the update starts (no --no-launch): from DIR, as the new version
+    app_step foreign
     fake_release 0.0.3
     run_line "$C/out4"
     ok_run "$C/out4" 0.0.3
+    app_step foreign_kept "$C/out4"
     wait_for_count "$DIR" "STP/TPW Launcher v0.0.3 args= cwd=$DIR" 0 || bad "the update did not start the new launcher"
     snap "$DATA" >"$C/data-after.txt"
     cmp -s "$C/data-before.txt" "$C/data-after.txt" || bad "the data folder was changed"

@@ -203,9 +203,9 @@ void PostcardBitmap::alphablt(PostcardBitmap& dest, uint32_t x, uint32_t y) {
 // or more wraps). Every output row averages its rows' runs across into a row buffer, then the buffer's rows down. The
 // averages are (sum & 0xffff) / count per channel. The formats: 1 writes the bytes channel 1, 2, 3 and 0xff (the first
 // channel is dropped), 2 a 4444 halfword of channels 1, 2 and 3 with 0xf, 3 the bytes 0xff and channels 0, 1 and 2 (the last
-// channel is dropped); format 1's word is written the way the Mac's store lays it (high byte first), format 2's halfword as a
-// host word (TPW_PORT_FIX previewcolours, below). Any other format writes
-// nothing and `out` does not move. A buffer that cannot be had answers 0 and keeps the ones already made.
+// channel is dropped); both words are written the way the Mac's stores lay them (high byte first; the port's fixes write
+// format 2's halfword as a host word, below). Any other format writes nothing and `out` does not move. A buffer that
+// cannot be had answers 0 and keeps the ones already made.
 int32_t PostcardBitmap::resize_into_buffer(uint8_t* out, int32_t width, int32_t height, int32_t format) {
     const int32_t sourceWidth = static_cast<int32_t>(mWidth);
     const uint8_t* source = mPixels;
@@ -279,7 +279,7 @@ int32_t PostcardBitmap::resize_into_buffer(uint8_t* out, int32_t width, int32_t 
                 out += 4;
             } else if (format == 2) {
                 const uint32_t half = ((average2 << 4) & 0xf00) | ((average1 << 8) & 0xf000) | (average3 & 0xf0) | 0xf;
-                // TPW_PORT_FIX previewcolours PostcardBitmap::resize_into_buffer | Mac: format 2's 4444 halfword is stored as one halfword (sth at 0x100a151c in the 2.0.1 CD's program), so its bytes are big-endian | Port: it is stored as one host-order halfword | Why: the port's 16-bit texels are host-order words (the texture cache, and COpenGLTexture::Download, which reads the surface as uint16_t), so the two bytes written high byte first were read swapped on a little-endian host (every system the port builds for), 0xRGBA as 0xBARG: the Send Postcard preview showed the card's cream back light cyan (204,255,255) and its picture tinted green; the online outbox's preview calls it the same way
+                // TPW_PORT_FIX previewcolours PostcardBitmap::resize_into_buffer | Mac: format 2's 4444 halfword is stored as one halfword (sth at 0x100a151c in the 2.0.1 CD's program), so its bytes are big-endian | Port: it is stored as one host-order halfword | Why: the port's 16-bit texels are host-order words (the texture cache, and COpenGLTexture::Download, which reads the surface as uint16_t), so the two bytes written high byte first were read swapped on a little-endian host (every system the port builds for), 0xRGBA as 0xBARG: the Send Postcard preview showed the card's cream back light cyan (204,255,255) and its picture tinted green; the online outbox's preview calls it the same way; contributed by samueleagle91 (tpw-port PR #88)
                 const uint16_t texel = static_cast<uint16_t>(half);
                 std::memcpy(out, &texel, 2);
                 out += 2;

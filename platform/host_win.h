@@ -25,11 +25,18 @@ const char* LastFatalException();
 // from Explorer has neither, and its log would go nowhere.
 bool HasStandardError();
 
-// Sends stdout and stderr to the file (UTF-8 path), made new each start, unbuffered so that a crash leaves it complete.
-// What is written is scrubbed first (platform/log_scrub.h): a thread moves it, one line at a time, from a pipe to the file.
-bool LogToFile(const std::string& path);
+// Sends stdout and stderr into the open log file (platform/log_file.h, logs/launcher.log), unbuffered so that a crash
+// leaves it complete: what SDL, the C runtime and the game print goes in with the log's own lines. What is written is
+// scrubbed first (platform/log_scrub.h): a thread moves it, one whole line per write, from a pipe to the file. The lines
+// the log file takes anyway are then not printed too (log_file.h gStderrIsLogFile). False, changing nothing, when no log
+// file is open or the pipe cannot be made.
+bool CaptureOutputToLog();
+// Whether CaptureOutputToLog is in effect: stdout and stderr are that pipe, which ends with this process. A process this
+// one starts gets no standard streams then, and captures its own into the same log file (launcher/game_app.h, the game's
+// process).
+bool LoggingToFile();
 // Writes what is still in that pipe to the file (the crash report, before the process ends; also at exit). No effect when
-// LogToFile did not run.
+// CaptureOutputToLog did not run.
 void DrainLog();
 
 }  // namespace tpw::win32

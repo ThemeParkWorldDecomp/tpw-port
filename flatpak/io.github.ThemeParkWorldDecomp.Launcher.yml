@@ -28,8 +28,9 @@ modules:
     buildsystem: simple
     # The SDK's default flags (its /etc/flatpak-builder/defaults.json) add -Wp,-D_FORTIFY_SOURCE=3 and
     # -D_GLIBCXX_ASSERTIONS after the compiler's own options, where CMakeLists.txt's -U_FORTIFY_SOURCE cannot undo them,
-    # and the fortified memset aborted while a park loaded (BumperRide.cpp clears the bump world over gColList, see
-    # CMakeLists.txt). The flags here replace the defaults: the same optimisation and debug info, without the two checks.
+    # and the fortified memset aborted while a park loaded (BumperRide.cpp cleared the bump world over gColList, whose
+    # declaration was too small; see CMakeLists.txt for why the checks stay off). The flags here replace the defaults:
+    # the same optimisation and debug info, without the two checks.
     build-options:
       cflags-override: true
       cxxflags-override: true

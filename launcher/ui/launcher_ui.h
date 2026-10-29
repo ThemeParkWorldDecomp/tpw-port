@@ -38,14 +38,52 @@ inline constexpr const char* kPcSoundPicksKey = "pc_sound_picks";
 // always been; "0": it plays in a window with a title bar, as --windowed starts it). Alt+Enter in the game switches on
 // Windows, Cmd+Ctrl+F or the green button on a Mac.
 inline constexpr const char* kFullScreenKey = "fullscreen";
-// Linux: what draws the game, "vulkan" (the default) or "opengl" (launcher/main.cpp reads it; there is no row for it yet).
+// launcher.ini's key for the Settings box's "Renderer" (Linux only): what draws the game, "opengl" (absent: the system's
+// OpenGL, the default, the API the original draws with) or "vulkan" (the port's own Vulkan renderer, platform/vulkan/).
+// Play asks for it as --renderer does (launcher/main.cpp; --renderer wins when both are given).
 inline constexpr const char* kRendererKey = "renderer";
+// Whether the Settings box has the Renderer row: on Linux, the one system with a second renderer (platform/gfx.h).
+#ifdef __linux__
+inline constexpr bool kRendererRow = true;
+#else
+inline constexpr bool kRendererRow = false;
+#endif
 // launcher.ini's keys for the "Gold Edition" switch, one an edition: on the play tiles of the all-confirmed home and on the
 // Play screen's card. "0": that edition plays plain although the Gold bonus rides are installed; absent or "1": with them
 // (the maintainer, 2026-10-25: players who have the Gold data must be able to play without it).
 inline constexpr const char* kGoldUsKey = "gold_us";
 inline constexpr const char* kGoldEurKey = "gold_eur";
 inline const char* GoldKey(assets::Edition edition) { return edition == assets::kEditionUs ? kGoldUsKey : kGoldEurKey; }
+// launcher.ini's keys for the Settings box's "Language", one an edition (a player may want American on the US edition and
+// Danish on the European one): the language of the game's text and the advisor's voice, as the original spells it
+// (FS_Registry.cpp's names: "French", "TraditionalChinese"). Absent: the edition's own, English for the European edition
+// and American for the US one, the original's default. Play hands it to the game as --language does
+// (platform/language_pack.h).
+inline constexpr const char* kLanguageUsKey = "language_us";
+inline constexpr const char* kLanguageEurKey = "language_eur";
+inline const char* LanguageKey(assets::Edition edition) {
+    return edition == assets::kEditionUs ? kLanguageUsKey : kLanguageEurKey;
+}
+// The edition's own language, as the original spells it: "American" for the US edition, "English" for the European one.
+inline const char* OwnLanguage(assets::Edition edition) { return edition == assets::kEditionUs ? "American" : "English"; }
+
+// A choice of the Settings box's Language rows: the language as the original spells it and as the list shows it.
+struct LanguageChoice {
+    std::string name;    // "Spanish"
+    std::string shown;   // "Espa\xC3\xB1ol (some speech in English)", UTF-8
+};
+// The language as the Language list shows it: its own name (Francais, Deutsch, Dansk, ...) where the launcher's fonts can
+// draw it, and its English name for Japanese, Korean and both Chinese, which they cannot.
+std::string LanguageShownName(const std::string& name);
+// The Language list of `edition` from the data folder's languages (ImportBackend::Languages()): the edition's own first,
+// then every other one that is available, or partial with only some of its speech missing (shown so: the edition's own
+// recordings take those places). One that needs the base edition's date fonts only while they are there.
+std::vector<LanguageChoice> LanguageChoices(assets::Edition edition, const std::vector<assets::LanguageStatus>& languages);
+// The index in `choices` of launcher.ini's value: 0 (the edition's own) when it is absent, the own name, or not offered.
+int LanguageChoiceIndex(const std::vector<LanguageChoice>& choices, const std::string& value);
+// launcher.ini's key for the Settings box's "Stereo panning" ("1": a sound placed in the park plays louder in the speaker on
+// its side of the camera; absent or "0": every sound plays centred, as the original did). From tpw-port PR #19 by samueleagle91.
+inline constexpr const char* kSoundPanKey = "sound_panning";
 
 // An option of the original's options files (low.sam, med.sam, high.sam) that the Settings box's Graphics section offers:
 // launcher.ini's key, its slot in the game's options table (gPortSamOptions, OptionsBalance.h), the row's title and line,
@@ -70,10 +108,11 @@ struct LogsExport {
     std::string message;
     std::string folder;
 };
-// Shows the newest log of the logs folder selected in the system's file manager; false when it could not (the About box's
-// Show logs then opens the folder). launcher/main.cpp supplies it.
+// Shows the log file (logs/launcher.log) of the logs folder selected in the system's file manager; false when it could
+// not (Show logs then opens the folder). launcher/main.cpp supplies it.
 using ShowLogsFn = bool (*)(const std::string& logsFolder);
-// Copies the newest log of the logs folder into the player's Downloads folder (launcher/main.cpp supplies it).
+// Saves the recent runs of the logs folder's log file (the launcher's and the game's) as one file in the player's Downloads
+// folder (launcher/main.cpp supplies it).
 using ExportLogsFn = LogsExport (*)(const std::string& logsFolder);
 
 // What the player chose to start.
@@ -84,6 +123,7 @@ struct LaunchChoice {
     bool gold = false;        // with the Gold bonus rides
     bool skipIntro = false;   // without the logo and intro films (Settings)
     bool backToLauncher = false;   // the launcher opens again when the game quits (Settings)
+    std::string language;     // the Settings box's Language for the edition, as --language takes it; empty: its own
 };
 
 class LauncherUi {
@@ -101,9 +141,9 @@ public:
 
     // The window the file dialogs belong to (none in the test: Browse then says so).
     void SetWindow(SDL_Window* window) { window_ = window; }
-    // The folder of the launcher's log files (launcher/main.cpp): the About box's Show logs opens it. Empty: no button.
+    // The folder of the launcher's log file (launcher/main.cpp): the About box's Show logs opens it. Empty: no button.
     void SetLogsFolder(const std::string& folder) { logsFolder_ = folder; }
-    // What the About box's Show logs button calls first (null: it opens the folder).
+    // What the Show logs buttons call first, to select the log file (null: they open the folder).
     void SetShowLogs(ShowLogsFn showLogs) { showLogs_ = showLogs; }
     // What the About box's Export logs button calls (with a logs folder). Null: no such button.
     void SetExportLogs(ExportLogsFn exportLogs) { exportLogs_ = exportLogs; }
@@ -151,13 +191,36 @@ public:
     // The all-confirmed home's Gold Edition switch of a tile (0 US, 1 European) in the last frame, in points (empty when
     // not shown).
     Rect ReadyGoldRect(int index) const { return readyShown_ ? readyGold_[index] : Rect{}; }
-    // The Settings box's Interface size switch, its last row, where the last frame drew it (scrolled with the box), in
-    // points (empty when the box is closed).
+    // The Settings box's Interface size switch, the last row above the Graphics section, where the last frame drew it
+    // (scrolled with the box), in points (empty when the box is closed).
     Rect InterfaceSizeRect() const { return settingsOpen_ ? interfaceSizeRect_ : Rect{}; }
+    // The Graphics section's switch of SamOptions()[index] in the last frame, in points (empty when the box is closed),
+    // and the choice it shows: 0 Default (the detail level's own), else 1 + the index of its choice.
+    Rect SamOptionRect(size_t index) const { return settingsOpen_ ? samRects_[index] : Rect{}; }
+    int SamOptionChoice(size_t index) const { return samChoices_[index]; }
     // The Settings box's "Check for updates" switch in the last frame, in points (empty when the box is closed).
     Rect CheckUpdatesRect() const { return settingsOpen_ ? checkUpdatesRect_ : Rect{}; }
+    // The Settings box's Language field of an edition (0 US, 1 European) in the last frame, in points (empty when the box
+    // is closed), and the list's choices for it.
+    Rect LanguageRect(int index) const { return settingsOpen_ ? languageRects_[index] : Rect{}; }
+    std::vector<LanguageChoice> LanguageChoicesFor(int index) const;
+    // Opens an edition's Language list (0 US, 1 European; -1 closes it), as if its field was clicked.
+    void ShowLanguageList(int index);
+    // A row of the open Language list in the last frame, in points (empty when no list is shown or no such row).
+    Rect LanguageListRow(int row) const {
+        return languageOpen_ >= 0 && row >= 0 && row < static_cast<int>(languageRows_.size())
+                   ? languageRows_[static_cast<size_t>(row)] : Rect{};
+    }
     // The update banner in the last frame, in points (empty when not shown).
     Rect UpdateBannerRect() const { return updateBannerRect_; }
+    // The Settings box's Stereo panning switch where the last frame drew it, in points (empty when the box is closed).
+    Rect SoundPanRect() const { return settingsOpen_ ? soundPanRect_ : Rect{}; }
+    // The Settings box's Renderer switch where the last frame drew it, in points (empty when the box is closed or has no
+    // such row, kRendererRow), and the choice it shows: 0 OpenGL, 1 Vulkan.
+    Rect RendererRect() const { return settingsOpen_ ? rendererRect_ : Rect{}; }
+    int RendererChoice() const { return renderer_; }
+    // For the tests: the Renderer row shown or not, whatever the system (the launcher's own is kRendererRow).
+    void ShowRendererRow(bool shown) { rendererRow_ = shown; }
     // Whether the last frame scrolled the Settings box, with its clip and its bar (false when the box is closed).
     bool SettingsScrolls() const { return settingsOpen_ && settingsScrolls_; }
     // Where the last frame drew the launcher's version ("v" and the version, the footer's bottom right corner), in
@@ -193,6 +256,9 @@ private:
     // Flips an edition's Gold Edition switch (0 US, 1 European) and keeps it in launcher.ini (GoldKey).
     void SetGold(int index, bool on);
     TileView TileFor(int index) const;
+    // Reads the data folder's languages again (ImportBackend::Languages() reads the folder; not every frame): at the
+    // start, after an import, a check or a remove, and when Settings opens.
+    void RefreshLanguages();
 
     void DrawBackdrop(const Rect& window);
     float DrawHeader(const Rect& window, bool buttons);
@@ -221,10 +287,16 @@ private:
     bool backToLauncher_ = false;   // the Settings box's "Back to the launcher after playing", as launcher.ini keeps it
     bool pcSoundPicks_ = true;      // the Settings box's "Varied sounds", as launcher.ini keeps it (on when absent)
     bool fullScreen_ = true;        // the Settings box's "Full screen", as launcher.ini keeps it (on when absent)
+    bool rendererRow_ = kRendererRow;   // whether the Settings box has the Renderer row
+    int renderer_ = 0;              // the Settings box's "Renderer": 0 OpenGL (also when absent), 1 Vulkan
+    bool soundPan_ = false;         // the Settings box's "Stereo panning", as launcher.ini keeps it
     bool smoothZoom_ = false;       // the Settings box's "Smooth wheel zoom", as launcher.ini keeps it
     int interfaceSize_ = 0;         // the Settings box's "Interface size": 0 100%, 1 85%, 2 70%
     std::vector<int> samChoices_;   // the Graphics section: for each of SamOptions(), 0 the detail level's own, else 1 + its choice
     bool checkUpdates_ = true;      // the Settings box's "Check for updates", as launcher.ini keeps it (on when absent)
+    std::vector<assets::LanguageStatus> languages_;   // the data folder's languages (RefreshLanguages)
+    int languageOpen_ = -1;         // the edition whose Language list is open (0 US, 1 European), -1 none
+    std::string language_[2];       // the Language an edition (0 US, 1 European), as launcher.ini keeps it (LanguageKey)
     Updater* updater_ = nullptr;
 
     // A drag over the window.
@@ -280,6 +352,11 @@ private:
     std::string settingsMessage_;
     Rect interfaceSizeRect_;   // last frame's (InterfaceSizeRect)
     Rect checkUpdatesRect_;    // last frame's (CheckUpdatesRect)
+    Rect languageRects_[2];    // last frame's (LanguageRect)
+    std::vector<Rect> languageRows_;   // last frame's open list (LanguageListRow)
+    std::vector<Rect> samRects_;   // last frame's (SamOptionRect), one for each of SamOptions()
+    Rect soundPanRect_;        // last frame's (SoundPanRect)
+    Rect rendererRect_;        // last frame's (RendererRect)
     bool settingsScrolls_ = false;   // last frame's (SettingsScrolls)
 
     std::string notice_;

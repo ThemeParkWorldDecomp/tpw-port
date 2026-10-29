@@ -254,6 +254,16 @@ void SetStartupPump(StartupPump pump) { TheStartup().pump = pump; }
 
 void SetGameWindowShownHook(GameWindowShownHook hook) { TheStartup().shownHook = hook; }
 
+namespace {
+GameWindowMadeHook gMadeHook = nullptr;
+}  // namespace
+
+void SetGameWindowMadeHook(GameWindowMadeHook hook) { gMadeHook = hook; }
+
+void OnGameWindowMade(SDL_Window* window) {
+    if (gMadeHook != nullptr) gMadeHook(window);
+}
+
 void OnGameWindowShown() {
     Startup& s = TheStartup();
     if (!s.begun || s.shown) return;

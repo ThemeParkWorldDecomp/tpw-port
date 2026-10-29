@@ -9,6 +9,7 @@
 #include <SDL3/SDL.h>
 #include <zlib.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -250,6 +251,12 @@ public:
         return true;
     }
     std::map<std::string, std::string> settings;   // launcher.ini's settings, as SaveSetting kept them
+    std::vector<assets::LanguageStatus> Languages() const override {
+        ++languageReads;
+        return languages;
+    }
+    std::vector<assets::LanguageStatus> languages;   // the data folder's languages, as the verifier would list them
+    mutable int languageReads = 0;
 
 private:
     std::vector<uint8_t> present_;
@@ -335,7 +342,7 @@ LogsExport FakeExportLogs(const std::string& logsFolder) {
     gExportFolder = logsFolder;
     LogsExport result;
     result.ok = gExportOk;
-    result.message = gExportOk ? "Saved to Downloads: STP-TPW Launcher log 2026-10-25 10-12.txt" : "The Downloads folder was not found.";
+    result.message = gExportOk ? "Saved to Downloads: STP-TPW Launcher v0.2.0-dev logs 2026-10-25 10-12.txt" : "The Downloads folder was not found.";
     result.folder = gExportOk ? "/Users/player/Downloads" : "";
     return result;
 }
@@ -391,6 +398,7 @@ void FillEverything(FakeBackend& b) {
     b.FillAll(assets::kEditionEur);
     b.FillAll(assets::kEditionGold);
 }
+
 
 std::vector<std::string> g_written;
 
@@ -521,6 +529,51 @@ void Render(const std::string& dir, const Shot& shot, int scale) {
 void PartialUsEur(FakeBackend& b) {
     b.FillAll(assets::kEditionUs);
     b.Fill(assets::kEditionEur, [](size_t, const ManifestRecord& r) { return r.source == assets::kSourcePcCd; });
+}
+
+// A language as Importer::Languages() lists it: complete, or `speechMissing` of its 20 speech files short, or `textMissing`
+// of its text files; `baseDateFonts` with or without the base edition's date fonts there.
+assets::LanguageStatus Language(const std::string& name, size_t speechMissing = 0, size_t textMissing = 0,
+                                bool baseDateFonts = false, bool dateFontsPresent = true) {
+    assets::LanguageStatus l;
+    l.name = name;
+    l.text = 61;
+    l.textPresent = l.text - textMissing;
+    l.filter = l.filterPresent = 1;
+    l.meshes = l.meshesPresent = 3;
+    l.speech = 20;
+    l.speechPresent = l.speech - speechMissing;
+    l.baseDateFonts = baseDateFonts;
+    l.baseDateFontsPresent = dateFontsPresent;
+    l.oldTables = baseDateFonts;
+    bool complete = speechMissing == 0 && textMissing == 0 && (!baseDateFonts || dateFontsPresent);
+    l.state = complete ? assets::LanguageStatus::State::Available : assets::LanguageStatus::State::Partial;
+    return l;
+}
+
+// The languages of the five-language European disc (English, French, German, Danish, Swedish), as its import leaves them.
+void FiveLanguages(FakeBackend& b) {
+    PartialUsEur(b);
+    b.languages = {Language("English"), Language("French"), Language("German"), Language("Danish"), Language("Swedish")};
+}
+
+// A data folder with languages from several discs, some of them short of a file.
+std::vector<assets::LanguageStatus> MixedLanguages() {
+    return {
+        Language("English"), Language("American"), Language("French"), Language("German", 3),
+        Language("Danish", 0, 2),                     // text short: not offered
+        Language("Spanish", 0, 0, true, false),       // needs the base edition's date fonts, not there: not offered
+        Language("Italian", 0, 0, true, true), Language("Dutch", 20), Language("Korean"),
+        Language("TraditionalChinese"), assets::LanguageStatus{},
+    };
+}
+
+// Both editions with the mixed languages; the European game is kept in French, the US one in Japanese, which is gone.
+void MixedLanguagesKept(FakeBackend& b) {
+    FillEverything(b);
+    b.languages = MixedLanguages();
+    b.settings[kLanguageEurKey] = "French";
+    b.settings[kLanguageUsKey] = "Japanese";
 }
 
 // The About box's "Made with" rows: every one has a version and a licence, and the versions are the libraries' own
@@ -803,6 +856,56 @@ std::vector<Shot> Shots() {
                      Screen::Home, {}});
     shots.push_back({"21-settings-smallest", metric::kMinWidth, metric::kMinHeight, PartialUsEur,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) { ui.ShowSettings(true); },
+                     Screen::Home, {}});
+
+    // The Language section (launcher_ui.h LanguageKey) with the European edition's list open, on the five-language disc's
+    // data: scrolled until the rows are in view, the list below its field.
+    shots.push_back({"28-settings-language-open", metric::kStartWidth, metric::kStartHeight, FiveLanguages,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         ui.ShowSettings(true);
+                         frames(1);
+                         ui.HandleEvent(MotionEvent(90, metric::kStartHeight * 0.5f));
+                         for (int notch = 0; notch < 40 && ui.LanguageRect(1).y > metric::kStartHeight * 0.3f; ++notch) {
+                             ui.HandleEvent(WheelEvent(-1));
+                             frames(1);
+                         }
+                         ui.ShowLanguageList(1);
+                         frames(1);
+                         const Rect row = ui.LanguageListRow(1);
+                         ui.HandleEvent(MotionEvent(row.CentreX(), row.CentreY()));   // the pointer over Francais
+                     },
+                     Screen::Home, {}});
+    // The same with the languages of several discs, French kept: the partial ones say what is in English.
+    shots.push_back({"29-settings-language-many", metric::kStartWidth, metric::kStartHeight, MixedLanguagesKept,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         ui.ShowSettings(true);
+                         frames(1);
+                         ui.HandleEvent(MotionEvent(90, metric::kStartHeight * 0.5f));
+                         for (int notch = 0; notch < 40 && ui.LanguageRect(1).y > metric::kStartHeight * 0.2f; ++notch) {
+                             ui.HandleEvent(WheelEvent(-1));
+                             frames(1);
+                         }
+                         ui.ShowLanguageList(1);
+                         frames(1);
+                         const Rect row = ui.LanguageListRow(5);
+                         ui.HandleEvent(MotionEvent(row.CentreX(), row.CentreY()));   // the pointer over Nederlands
+                     },
+                     Screen::Home, {}});
+    // The US list in the smallest window, its kept Japanese gone from the data folder.
+    shots.push_back({"30-settings-language-us-smallest", metric::kMinWidth, metric::kMinHeight, MixedLanguagesKept,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         ui.ShowSettings(true);
+                         frames(1);
+                         ui.HandleEvent(MotionEvent(90, metric::kMinHeight * 0.5f));
+                         for (int notch = 0; notch < 40 && ui.LanguageRect(0).y > metric::kMinHeight * 0.2f; ++notch) {
+                             ui.HandleEvent(WheelEvent(-1));
+                             frames(1);
+                         }
+                         ui.ShowLanguageList(0);
+                         frames(1);
+                         const Rect row = ui.LanguageListRow(6);
+                         ui.HandleEvent(MotionEvent(row.CentreX(), row.CentreY()));   // the pointer over Korean
+                     },
                      Screen::Home, {}});
 
     // The update banner under the title (updater.h), in the smallest window: on the home with the drop field (whose
@@ -1196,7 +1299,7 @@ void CheckSettingsScroll(SDL_Renderer* renderer) {
     frames(1);
     const Rect start = ui.InterfaceSizeRect();
     Check(start.w > 0 && start.Bottom() > height - metric::kMargin,
-          "settings: in the smallest window the last row starts below the box");
+          "settings: in the smallest window the Interface size row starts below the box");
     Check(ui.SettingsScrolls(), "settings: in the smallest window the box scrolls");
 
     ui.HandleEvent(MotionEvent(10, height * 0.5f));   // beside the box
@@ -1252,7 +1355,290 @@ void CheckSettingsScroll(SDL_Renderer* renderer) {
         Check(tall.Bottom() < height - metric::kMargin && ui.InterfaceSizeRect().y == tall.y,
               "settings: in a tall window the box fits and the wheel moves nothing");
         Check(!ui.SettingsScrolls(), "settings: in a tall window the box does not scroll, so no bar is drawn");
+        const Rect lastSam = ui.SamOptionRect(SamOptions().size() - 1), updates = ui.CheckUpdatesRect();
+        Check(lastSam.w > 0 && lastSam.Bottom() < updates.y && updates.Bottom() < height - metric::kMargin,
+              "settings: in a tall window the Graphics section's last row and Check for updates are in the box");
     }
+}
+
+// The Settings box's Language rows (launcher_ui.h LanguageKey, LanguageChoices): a row an edition, only the languages the
+// data folder has whole (or with some speech short, said so), the edition's own by default, the choice kept in
+// launcher.ini and read back, and Play handing it on.
+void CheckLanguages(SDL_Renderer* renderer) {
+    using State = assets::LanguageStatus::State;
+    const std::vector<assets::LanguageStatus> folder = MixedLanguages();
+    {
+        std::vector<std::string> eur, us;
+        for (const LanguageChoice& c : LanguageChoices(assets::kEditionEur, folder)) eur.push_back(c.name + "=" + c.shown);
+        for (const LanguageChoice& c : LanguageChoices(assets::kEditionUs, folder)) us.push_back(c.name);
+        std::string got;
+        for (const std::string& e : eur) got += e + ";";
+        CheckEq(got,
+                "English=English;American=American English;French=Fran\xC3\xA7" "ais;German=Deutsch (some speech in English);"
+                "Italian=Italiano;Dutch=Nederlands (speech in English);Korean=Korean;"
+                "TraditionalChinese=Traditional Chinese;",
+                "language: the European list, its own first, only what the data folder has");
+        Check(us.size() == eur.size() && us[0] == "American" && us[1] == "English",
+              "language: the US list, American (its own) first, then English");
+        Check(folder.back().state == State::Absent, "language: an absent language is not offered");
+        const std::vector<LanguageChoice> none = LanguageChoices(assets::kEditionEur, {});
+        Check(none.size() == 1 && none[0].name == "English", "language: no language packs, only the edition's own");
+        const std::vector<LanguageChoice> list = LanguageChoices(assets::kEditionEur, folder);
+        Check(LanguageChoiceIndex(list, "") == 0 && LanguageChoiceIndex(list, "English") == 0 &&
+                  LanguageChoiceIndex(list, "Spanish") == 0 && LanguageChoiceIndex(list, "Polish") == 0,
+              "language: absent, the own name and a language not offered are the edition's own");
+        Check(LanguageChoiceIndex(list, "Korean") == 6, "language: a kept language is found in the list");
+        CheckEq(LanguageKey(assets::kEditionUs), "language_us", "language: the US key");
+        CheckEq(LanguageKey(assets::kEditionEur), "language_eur", "language: the European key");
+    }
+
+    FakeBackend b;
+    FillEverything(b);
+    b.languages = folder;
+    float width = 1100, height = 1600;   // the whole box in view, nothing scrolls
+    auto frames = [&](LauncherUi& ui, int n) {
+        for (int i = 0; i < n; ++i) ui.Frame(kDt, width, height, 1);
+    };
+    auto click = [&](LauncherUi& ui, const Rect& r) {
+        ui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+        frames(ui, 1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+        frames(ui, 1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+        frames(ui, 1);
+    };
+    {
+        LauncherUi ui(renderer, b);
+        frames(ui, 1);
+        LaunchChoice choice;
+        click(ui, ui.ReadyPlayRect(1));
+        Check(ui.TakePlay(choice) && choice.language.empty(), "language: by default Play hands on no language");
+
+        const int reads = b.languageReads;
+        frames(ui, 5);
+        Check(b.languageReads == reads, "language: the data folder's languages are not read every frame");
+        ui.ShowSettings(true);
+        frames(ui, 1);
+        Check(b.languageReads == reads + 1, "language: opening Settings reads the languages again");
+        Check(ui.LanguageRect(0).w > 0 && ui.LanguageRect(1).w > 0, "language: a Language row an edition");
+        Check(ui.LanguageRect(0).Bottom() < ui.LanguageRect(1).y, "language: the US row above the European one");
+        Check(ui.LanguageListRow(0).w == 0, "language: no list before a click");
+
+        click(ui, ui.LanguageRect(1));
+        frames(ui, 1);
+        const size_t offered = ui.LanguageChoicesFor(1).size();
+        Check(offered == 8 && ui.LanguageListRow(static_cast<int>(offered) - 1).w > 0 &&
+                  ui.LanguageListRow(static_cast<int>(offered)).w == 0,
+              "language: the European list shows a row a choice");
+        Check(ui.LanguageListRow(0).y > ui.LanguageRect(1).Bottom(), "language: the list opens below its field");
+        // a press outside the list closes it and changes nothing
+        click(ui, {20, 20, 10, 10});
+        Check(ui.LanguageListRow(0).w == 0 && b.settings.count("language_eur") == 0,
+              "language: a click outside the list closes it, nothing kept");
+        Check(ui.LanguageRect(1).w > 0, "language: the click outside the list leaves Settings open");
+        // Escape closes the list first, then the box
+        ui.ShowLanguageList(1);
+        frames(ui, 2);
+        SDL_Event escape{};
+        escape.type = SDL_EVENT_KEY_DOWN;
+        escape.key.key = SDLK_ESCAPE;
+        ui.HandleEvent(escape);
+        frames(ui, 1);
+        Check(ui.LanguageListRow(0).w == 0 && ui.LanguageRect(1).w > 0, "language: Escape closes the list, not the box");
+
+        click(ui, ui.LanguageRect(1));
+        frames(ui, 1);
+        click(ui, ui.LanguageListRow(2));   // Francais
+        CheckEq(b.Setting("language_eur"), "French", "language: the European choice is kept as language_eur");
+        Check(b.settings.count("language_us") == 0, "language: the US key is untouched");
+        Check(ui.LanguageListRow(0).w == 0, "language: a choice closes the list");
+        // the US row: Korean
+        click(ui, ui.LanguageRect(0));
+        frames(ui, 1);
+        click(ui, ui.LanguageListRow(6));
+        CheckEq(b.Setting("language_us"), "Korean", "language: the US choice is kept as language_us");
+        ui.ShowSettings(false);
+        frames(ui, 1);
+
+        click(ui, ui.ReadyPlayRect(1));
+        Check(ui.TakePlay(choice) && choice.language == "French", "language: the European Play hands on French");
+        click(ui, ui.ReadyPlayRect(0));
+        Check(ui.TakePlay(choice) && choice.language == "Korean", "language: the US Play hands on Korean");
+    }
+    {   // launcher.ini read back by a new window: the kept choices
+        LauncherUi ui(renderer, b);
+        frames(ui, 1);
+        LaunchChoice choice;
+        click(ui, ui.ReadyPlayRect(1));
+        Check(ui.TakePlay(choice) && choice.language == "French", "language: launcher.ini's choice read back");
+        // the own language chosen: kept by its name, and Play hands on nothing
+        ui.ShowSettings(true);
+        frames(ui, 1);
+        click(ui, ui.LanguageRect(1));
+        frames(ui, 1);
+        click(ui, ui.LanguageListRow(0));
+        CheckEq(b.Setting("language_eur"), "English", "language: the edition's own is kept by its name");
+        ui.ShowSettings(false);
+        frames(ui, 1);
+        click(ui, ui.ReadyPlayRect(1));
+        Check(ui.TakePlay(choice) && choice.language.empty(), "language: the edition's own, Play hands on no language");
+    }
+    {   // Korean no longer in the data folder: the US edition's own, the key kept for when it comes back
+        b.languages.erase(std::remove_if(b.languages.begin(), b.languages.end(),
+                                         [](const assets::LanguageStatus& l) { return l.name == "Korean"; }),
+                          b.languages.end());
+        LauncherUi ui(renderer, b);
+        frames(ui, 1);
+        LaunchChoice choice;
+        click(ui, ui.ReadyPlayRect(0));
+        Check(ui.TakePlay(choice) && choice.language.empty(), "language: a kept language now gone falls back to the own");
+        CheckEq(b.Setting("language_us"), "Korean", "language: the gone language's key is kept");
+    }
+}
+
+// The Settings box's Stereo panning switch (tpw-port PR #19): off when launcher.ini has no key (the original's centred sounds),
+// a click keeps "1", a second click "0", and a launcher.ini with "1" shows it on.
+void CheckSoundPanSwitch(SDL_Renderer* renderer) {
+    FakeBackend b;
+    LauncherUi ui(renderer, b);
+    const float width = 1100, height = 2400;   // tall enough for the whole box
+    auto frames = [&](int n) {
+        for (int i = 0; i < n; ++i) ui.Frame(kDt, width, height, 1);
+    };
+    auto click = [&] {
+        const Rect r = ui.SoundPanRect();
+        const float x = r.CentreX(), y = r.CentreY();
+        ui.HandleEvent(MotionEvent(x, y));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, x, y));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, x, y));
+        frames(1);
+    };
+    ui.ShowSettings(true);
+    frames(1);
+    Check(ui.SoundPanRect().w > 0, "sound panning: the switch is in the Settings box");
+    CheckEq(b.Setting(kSoundPanKey), "", "sound panning: nothing is kept until the player chooses");
+    click();
+    CheckEq(b.Setting(kSoundPanKey), "1", "sound panning: a click turns it on");
+    click();
+    CheckEq(b.Setting(kSoundPanKey), "0", "sound panning: a second click turns it off");
+    b.settings[kSoundPanKey] = "1";
+    LauncherUi again(renderer, b);
+    again.ShowSettings(true);
+    again.Frame(kDt, width, height, 1);
+    const Rect r = again.SoundPanRect();
+    again.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+    again.Frame(kDt, width, height, 1);
+    again.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+    again.Frame(kDt, width, height, 1);
+    again.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+    again.Frame(kDt, width, height, 1);
+    CheckEq(b.Setting(kSoundPanKey), "0", "sound panning: a launcher.ini with 1 shows it on, so one click turns it off");
+}
+
+// The Settings box's Renderer row, for the Vulkan renderer of tpw-port PR #83 by adds39939: on Linux only (kRendererRow;
+// the test shows it on every system), OpenGL when launcher.ini has no key (the default, the original's API), nothing
+// kept until the player chooses, a click on Vulkan keeps "vulkan", one on OpenGL "opengl", and a launcher.ini with
+// "vulkan" shows Vulkan.
+void CheckRendererRow(SDL_Renderer* renderer) {
+    FakeBackend b;
+    const float width = 1100, height = 2400;   // tall enough for the whole box
+    {
+        LauncherUi plain(renderer, b);
+        plain.ShowSettings(true);
+        plain.Frame(kDt, width, height, 1);
+        Check((plain.RendererRect().w > 0) == kRendererRow, "renderer: the row is in the Settings box on Linux only");
+    }
+    LauncherUi ui(renderer, b);
+    ui.ShowRendererRow(true);
+    auto frames = [&](int n) {
+        for (int i = 0; i < n; ++i) ui.Frame(kDt, width, height, 1);
+    };
+    auto click = [&](int segment) {   // 0 the OpenGL half, 1 the Vulkan half
+        const Rect r = ui.RendererRect();
+        const float x = r.x + r.w * (segment ? 0.75f : 0.25f), y = r.CentreY();
+        ui.HandleEvent(MotionEvent(x, y));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, x, y));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, x, y));
+        frames(1);
+    };
+    ui.ShowSettings(true);
+    frames(1);
+    Check(ui.RendererRect().w > 0, "renderer: the row is in the Settings box when shown");
+    Check(ui.RendererChoice() == 0, "renderer: OpenGL by default");
+    Check(ui.RendererRect().Bottom() <= ui.InterfaceSizeRect().y, "renderer: the row sits above Interface size");
+    CheckEq(b.Setting(kRendererKey), "", "renderer: nothing is kept until the player chooses");
+    click(1);
+    CheckEq(b.Setting(kRendererKey), "vulkan", "renderer: a click on Vulkan keeps vulkan");
+    click(0);
+    CheckEq(b.Setting(kRendererKey), "opengl", "renderer: a click on OpenGL keeps opengl");
+    ui.ShowSettings(false);
+    frames(1);
+    Check(ui.RendererRect().w == 0, "renderer: no switch while the box is closed");
+    b.settings[kRendererKey] = "vulkan";
+    LauncherUi again(renderer, b);
+    again.ShowRendererRow(true);
+    again.ShowSettings(true);
+    again.Frame(kDt, width, height, 1);
+    Check(again.RendererChoice() == 1, "renderer: a launcher.ini with vulkan shows Vulkan");
+}
+
+// The Graphics section's Visitor looks row (tpw-port PR #31 by samueleagle91): the original's NUMKIDS, slot 24 of the
+// options table, with the files' four values shown as the looks the game loads for them. Default until changed, nothing
+// written to launcher.ini until then; in the smallest window it scrolls into the box, a click on its last choice keeps
+// "3", and a new window shows that choice again.
+void CheckVisitorLooks(SDL_Renderer* renderer) {
+    size_t index = SamOptions().size();
+    for (size_t i = 0; i < SamOptions().size(); ++i)
+        if (std::string(SamOptions()[i].key) == "sam_num_kids") index = i;
+    Check(index < SamOptions().size(), "visitor looks: a Graphics row for sam_num_kids");
+    if (index == SamOptions().size()) return;
+    const SamOption& option = SamOptions()[index];
+    Check(option.slot == 24, "visitor looks: slot 24 of the options table (NUMKIDS)");
+    CheckEq(option.title, "Visitor looks", "visitor looks: the row's title");
+    Check(option.shown == std::vector<std::string>{"2", "4", "6", "8"}, "visitor looks: shown as 2, 4, 6 and 8");
+    Check(option.values == std::vector<int>{0, 1, 2, 3}, "visitor looks: the files' values 0 to 3");
+    Check(SamChoice(option, "") < 0 && SamChoice(option, "default") < 0 && SamChoice(option, "4") < 0 &&
+              SamChoice(option, "3") == 3,
+          "visitor looks: absent, default or not a value keeps the detail level's own");
+
+    FakeBackend b;
+    const float width = metric::kMinWidth, height = metric::kMinHeight;
+    {
+        LauncherUi ui(renderer, b);
+        auto frames = [&](int n) {
+            for (int i = 0; i < n; ++i) ui.Frame(kDt, width, height, 1);
+        };
+        ui.ShowSettings(true);
+        frames(1);
+        Check(ui.SamOptionChoice(index) == 0, "visitor looks: Default by default");
+        const auto inBox = [&](const Rect& r) { return r.y > metric::kMargin && r.Bottom() <= height - metric::kMargin; };
+        ui.HandleEvent(MotionEvent(width * 0.5f, height * 0.5f));
+        for (int notch = 0; notch < 60 && !inBox(ui.SamOptionRect(index)); ++notch) {
+            ui.HandleEvent(WheelEvent(-1));
+            frames(1);
+        }
+        const Rect row = ui.SamOptionRect(index);
+        Check(row.w > 0 && inBox(row), "visitor looks: the row scrolls into the box");
+        CheckEq(b.Setting(option.key), "", "visitor looks: nothing written until changed");
+        // a click on the last of its five choices (Default, 2, 4, 6, 8)
+        const float x = row.Right() - row.w / 10, y = row.CentreY();
+        ui.HandleEvent(MotionEvent(x, y));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, x, y));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, x, y));
+        frames(1);
+        CheckEq(b.Setting(option.key), "3", "visitor looks: a click on 8 keeps the files' 3");
+        Check(ui.SamOptionChoice(index) == 4, "visitor looks: the row shows 8");
+    }
+    LauncherUi again(renderer, b);
+    again.ShowSettings(true);
+    again.Frame(kDt, width, height, 1);
+    Check(again.SamOptionChoice(index) == 4, "visitor looks: a new window shows the kept choice");
 }
 
 bool Overlaps(const Rect& a, const Rect& b) {
@@ -1336,7 +1722,7 @@ void CheckVersionAndLogs(SDL_Renderer* renderer) {
         eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
         eui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
         eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
-        Check(gShowCalls == 1 && gShowFolder == "/Users/player/logs", "About: a click on Show logs reveals the newest log once");
+        Check(gShowCalls == 1 && gShowFolder == "/Users/player/logs", "About: a click on Show logs reveals the log file once");
     }
     gExportCalls = 0;
     gExportOk = false;
@@ -1532,6 +1918,10 @@ int main(int argc, char** argv) {
         CheckReady(renderer);
         CheckScroll(renderer);
         CheckSettingsScroll(renderer);
+        CheckLanguages(renderer);
+        CheckVisitorLooks(renderer);
+        CheckSoundPanSwitch(renderer);
+        CheckRendererRow(renderer);
         CheckVersionAndLogs(renderer);
         CheckTitleVersion(renderer);
         CheckUpdateBanner(renderer);

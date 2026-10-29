@@ -37,18 +37,19 @@ if(NOT TPW_GAME_PROGRAM AND NOT DEFINED ENV{TPW_GAME_PROGRAM})
 endif()
 set(TPW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 # The Linux build (the TPW_LINUX parts of this file): the platform layer's host code is in platform/host_linux.cpp and
-# platform/linux, and the game is drawn by the port's own Vulkan renderer (platform/vulkan), with the system's OpenGL as
-# its fallback: every OpenGL call the game makes is the platform layer's own (platform/gl_entry.cpp), and SDL opens the
-# Vulkan loader and the OpenGL driver at run time. Nothing of Vulkan or OpenGL is linked, so the build needs neither
+# platform/linux, and the game is drawn by the system's OpenGL or, when the player chooses it, by the port's own Vulkan
+# renderer (platform/vulkan): every OpenGL call the game makes is the platform layer's own (platform/gl_entry.cpp), and
+# SDL opens the OpenGL driver and the Vulkan loader at run time. Nothing of Vulkan or OpenGL is linked, so the build needs neither
 # development package.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   set(TPW_LINUX ON)
   # GCC on Ubuntu (CI's Linux runner) defines _FORTIFY_SOURCE=2 by itself when optimising; GCC elsewhere (Arch,
   # MinGW) does not. It turns memset, memcpy, strcpy and the rest into checks against the destination's declared size,
   # which abort the program when exceeded. The translation reaches the Mac's memory through declarations narrower than
-  # the storage behind them: BumperRide.cpp clears the 0x3c-byte bump world that lies over gColList, declared as the
-  # 0x20-byte tabCOLLIST and given 0x40 bytes by platform/game_data.cpp, so a check failed where the Mac's code is right
-  # and the game aborted while a theme loaded (with 585 checked calls in the launcher, that one was only the first).
+  # the storage behind them, so a check can fail where the Mac's code is right. The first one found aborted the game
+  # while a theme loaded (BumperRide.cpp clears the 0x3c-byte bump world over gColList, whose tabCOLLIST was declared
+  # 0x20 bytes; BMP_InsideArea.h now has the Mac's size), but the launcher has 585 checked calls, and until a park has
+  # been played on Linux with the checks on, they stay off.
   # -U_FORTIFY_SOURCE is what Ubuntu's own compiler spec looks for to leave the definition out.
   add_compile_options(-U_FORTIFY_SOURCE)
 endif()
@@ -199,11 +200,11 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     target_link_libraries(tpw_platform PUBLIC shell32 ole32)
   elseif(TPW_LINUX)
     # The signs' text is drawn with stb_truetype (platform/gdi_text_stb.cpp, as on Windows) in place of CoreText. The Mac's
-    # thread quality-of-service header is platform/linux/pthread/qos.h, over platform/host_linux.cpp. The game is drawn by
-    # the port's Vulkan renderer (platform/vulkan/, with the vendored Vulkan headers of third_party/vulkan; the loader is
-    # opened at run time through SDL). Every OpenGL call the game makes is the platform layer's own
-    # (platform/gl_entry.cpp): it goes to the Vulkan renderer, or to the system's OpenGL, which SDL opens at run time, when
-    # the player asks for it or Vulkan cannot draw; gluBuild2DMipmaps is built there too. So no Vulkan, OpenGL or GLU
+    # thread quality-of-service header is platform/linux/pthread/qos.h, over platform/host_linux.cpp. Every OpenGL call
+    # the game makes is the platform layer's own (platform/gl_entry.cpp): it goes to the system's OpenGL, which SDL opens
+    # at run time, or, when the player chooses it and it can draw, to the port's Vulkan renderer (platform/vulkan/, with
+    # the vendored Vulkan headers of third_party/vulkan; the loader is opened at run time through SDL);
+    # gluBuild2DMipmaps is built there too. So no Vulkan, OpenGL or GLU
     # library is linked, and the only libraries of the system in the launcher are the C and C++ runtimes and SDL's (dl,
     # pthread).
     get_target_property(platform_sources tpw_platform SOURCES)
@@ -235,7 +236,8 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   endif()
 
   add_library(tpw_launcher_objects OBJECT launcher/main.cpp launcher/app_bundle.cpp launcher/app_icon.cpp launcher/app_icon_standin.cpp launcher/asset_packs.cpp
-              launcher/game_app.cpp launcher/game_app_mac.cpp launcher/pending_manual.cpp launcher/static_init.cpp launcher/startup.cpp)
+              launcher/game_app.cpp launcher/game_app_mac.cpp launcher/game_app_win.cpp launcher/installed_icon.cpp launcher/pending_manual.cpp
+              launcher/static_init.cpp launcher/startup.cpp)
   target_include_directories(tpw_launcher_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
   if(APPLE)
     # The game's own application (launcher/game_app.h) is opened through NSWorkspace, whose completion handler is a block.
@@ -317,8 +319,8 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     endif()
   endif()
   if(WIN32)
-    # A Windows app, not a console one: started from Explorer it opens no console window, and its log goes to
-    # launcher.log beside launcher.ini (launcher/main.cpp). Its symbols are exported, so that the game's
+    # A Windows app, not a console one: started from Explorer it opens no console window, and what it prints goes into
+    # the log file, logs/launcher.log (launcher/main.cpp, platform/host_win.h). Its symbols are exported, so that the game's
     # dlsym(RTLD_DEFAULT, ...) of its own functions finds them (platform/win/dlfcn.h).
     set_target_properties(tpw_launcher PROPERTIES WIN32_EXECUTABLE ON)
     target_link_options(tpw_launcher PRIVATE -Wl,--export-all-symbols)
@@ -395,7 +397,8 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
       message(STATUS "tpw: platform tests not made (no libclang found; TPW_LIBCLANG names one)")
     endif()
   endif()
-  # The launcher's log file (platform/log_file.cpp): its header, its name and the ten-file rotation, in a temporary folder.
+  # The launcher's log file (platform/log_file.cpp): one file that each run adds to, its run headers, the cut to its newest
+  # 5 MB, the old files folded in, and Export logs (platform/log_export.cpp), in a temporary folder.
   add_executable(tpw_log_tests platform/tests/log_tests.cpp)
   target_include_directories(tpw_log_tests PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
   target_link_libraries(tpw_log_tests PRIVATE tpw_platform)
@@ -420,6 +423,16 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   add_executable(tpw_host_filmbox ${TPW_DECOMP_DIR}/tests/host_filmbox.cpp)
   target_include_directories(tpw_host_filmbox PRIVATE ${TPW_INCLUDE_DIR})
   add_test(NAME filmbox COMMAND tpw_host_filmbox)
+  # An older build's language files read by the later program (include/platform/old_text_tables.h): its UITEXT and
+  # CHAT_COMMANDS made the later build's, its fonts found by file name. No game, no files.
+  add_executable(tpw_host_old_text_tables ${TPW_DECOMP_DIR}/tests/host_old_text_tables.cpp)
+  target_include_directories(tpw_host_old_text_tables PRIVATE ${TPW_INCLUDE_DIR})
+  add_test(NAME old_text_tables COMMAND tpw_host_old_text_tables)
+  # A sprite of the particle sprite file read as the texture a particle is drawn with (include/tb_particle.h, include/tb_starfield.h):
+  # the record's words line up on the host, so a textured particle has its width. No game, no files.
+  add_executable(tpw_host_particle_texture ${TPW_DECOMP_DIR}/tests/host_particle_texture.cpp)
+  target_include_directories(tpw_host_particle_texture PRIVATE ${TPW_INCLUDE_DIR} ${TPW_DECOMP_DIR}/platform)
+  add_test(NAME particle_texture COMMAND tpw_host_particle_texture)
 
   # The launcher's own window (launcher/ui/): widgets drawn with SDL_Renderer, text with stb_truetype
   # (third_party/stb/), in the fonts of third_party/fonts/, which are compiled in as byte arrays written here at
@@ -464,7 +477,7 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   # release. The Windows version resource and the macOS Info.plist take the numbers only (TPW_LAUNCHER_VERSION_NUMBER).
   file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/launcher/VERSION.txt TPW_LAUNCHER_VERSION LIMIT_COUNT 1)
   if(NOT TPW_LAUNCHER_VERSION MATCHES "^([0-9]+\\.[0-9]+\\.[0-9]+)(-dev)?$")
-    message(FATAL_ERROR "launcher/VERSION.txt: \"${TPW_LAUNCHER_VERSION}\" is not a version like 0.1.0 or 0.1.1-dev")
+    message(FATAL_ERROR "launcher/VERSION.txt: \"${TPW_LAUNCHER_VERSION}\" is not a version like 0.1.0 or 0.2.0-dev")
   endif()
   set(TPW_LAUNCHER_VERSION_NUMBER "${CMAKE_MATCH_1}")
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/launcher/VERSION.txt)
@@ -563,6 +576,15 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   target_include_directories(tpw_game_app_tests PRIVATE launcher)
   target_link_libraries(tpw_game_app_tests PRIVATE tpw_assets)
   add_test(NAME game_app COMMAND tpw_game_app_tests)
+  # The launcher's icon where the installer put it (launcher/installed_icon.h): which application in Applications is the
+  # installer's for this launcher, the Start menu shortcut's icon file, and the icon written again only when it changed.
+  add_executable(tpw_installed_icon_tests launcher/tests/installed_icon_tests.cpp launcher/installed_icon.cpp launcher/game_app.cpp)
+  target_include_directories(tpw_installed_icon_tests PRIVATE launcher)
+  target_link_libraries(tpw_installed_icon_tests PRIVATE tpw_assets)
+  if(WIN32)
+    target_link_libraries(tpw_installed_icon_tests PRIVATE shell32 ole32)   # TellExplorer
+  endif()
+  add_test(NAME installed_icon COMMAND tpw_installed_icon_tests)
   # The run-time table loader (platform/game_tables.cpp) against the configure-time tables, where the build has them (the
   # differential tests' or TPW_TABLES_AT_CONFIGURE's): every table it reads from the CD's 2.0.1 program and from the 2.04b3
   # patch's, by the program's SHA-1 and by the content search, must equal the generated arrays byte for byte. The scorers
