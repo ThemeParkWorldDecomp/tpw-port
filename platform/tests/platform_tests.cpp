@@ -26,6 +26,7 @@
 #include "dialogs.h"
 #include "email.h"
 #include "gold_rides.h"
+#include "language_pack.h"
 #include "packs.h"
 #include "TbAudioSystem.h"
 #include "platform.h"
@@ -340,6 +341,109 @@ static void TestGoldRides(const fs::path& scratch) {
     CHECK(tpw::UseGoldRides(config.gameDir) == 0);
     config.gameDir = gameDir;
     config.userDir = userDir;
+}
+
+// The chosen language laid over the game folder (language_pack.h): data:Language: lists its folder first, so the game
+// takes it as its language, its text, speech and pictures are found before the packs' and the game folder's, and nothing
+// else in its folder is seen. Off, the game folder alone, as before.
+static void TestLanguagePack(const fs::path& scratch) {
+    CHECK(tpw::LanguageName("french") == "French");
+    CHECK(tpw::LanguageName("TRADITIONALCHINESE") == "TraditionalChinese");
+    CHECK(tpw::LanguageName("American") == "American");
+    CHECK(tpw::LanguageName("Klingon").empty() && tpw::LanguageName("").empty());
+
+    tpw::Config& config = tpw::config();
+    const fs::path gameDir = config.gameDir;
+    const fs::path userDir = config.userDir;
+    const std::vector<fs::path> packDirs = tpw::PackDirs();
+    config.gameDir = scratch / "game";
+    config.userDir = scratch / "user";
+    const fs::path pack = scratch / "pack";
+    tpw::PackDirs() = {pack};
+    const fs::path root = scratch / "assets";
+    const fs::path french = root / "lang" / "french";   // the folder in any case
+    const fs::path speech = fs::path("data") / "global" / "speech";
+    const fs::path space = fs::path("data") / "levels" / "space";
+    Touch(config.gameDir / "data" / "Language" / "English" / "ResIdx.dat", "english index");
+    Touch(config.gameDir / "data" / "Language" / "English" / "uitext.str", "english text");
+    Touch(config.gameDir / speech / "speechHD.SDT", "english speech");
+    Touch(config.gameDir / speech / "cat_speechBANK.map", "english bank");
+    Touch(config.gameDir / speech / "extra.map", "english extra");
+    Touch(config.gameDir / space / "speech" / "speechHD.SDT", "english space speech");
+    Touch(config.gameDir / space / "global.sam", "game settings");
+    Touch(config.gameDir / "data" / "global" / "sound" / "sfx.sdt", "game sound");
+    Touch(config.gameDir / "data" / "Init" / "640" / "legal.tga", "game legal");
+    Touch(french / "data" / "Language" / "French" / "ResIdx.dat", "french index");
+    Touch(french / "data" / "Language" / "French" / "uitext.str", "french text");
+    Touch(french / "data" / "Language" / "English" / "uitext.str", "not the language's");   // outside what it covers
+    Touch(french / "data" / "global" / "Speech" / "speechHD.SDT", "french speech, longer");   // the disc's Speech
+    Touch(french / "data" / "global" / "Speech" / "cat_speechBANK.map", "french bank");
+    Touch(french / "data" / "global" / "sound" / "sfx.sdt", "not the language's");
+    Touch(french / space / "speech" / "speechHD.SDT", "french space speech");
+    Touch(french / space / "global.sam", "not the language's");
+    Touch(french / "data" / "Init" / "640" / "Splash_French.tga", "french splash");
+    Touch(french / "data" / "Init" / "640" / "Welcome_French.tga", "french welcome");
+    Touch(config.userDir / "data" / "Init" / "640" / "Welcome_French.tga", "user welcome");
+    Touch(pack / speech / "speechHD.SDT", "pack speech");
+    Touch(pack / "data" / "Init" / "640" / "legal.tga", "pack legal");
+
+    CHECK(!tpw::UseLanguagePack(root, "Klingon") && tpw::LanguagePackName().empty());
+    CHECK(!tpw::UseLanguagePack(root, "German"));   // no folder
+    CHECK(!tpw::UseLanguagePack(fs::path(), "French"));
+    CHECK(tpw::UseLanguagePack(root, "FRENCH"));
+    CHECK(tpw::LanguagePackName() == "French" && Same(tpw::LanguagePackFolder(), french));
+
+    // Listing order: the language's folder first in data:Language:, ahead of the edition's English (as FS_Registry.cpp's
+    // FindFirstFile sees it too), and in a speech folder its files ahead of the pack's and the game folder's.
+    auto names = [](const std::vector<tpw::DirEntry>& entries) {
+        std::string text;
+        for (const tpw::DirEntry& entry : entries) text += entry.name + (entry.isDirectory ? "/ " : " ");
+        return text;
+    };
+    CHECK(names(tpw::ListGameFolder("data:Language")) == "French/ English/ ");
+    NS_MacDoze::_WIN32_FIND_DATAA found{};
+    NS_MacDoze::InternalHandle* search = NS_MacDoze::FindFirstFile("TPW:Theme Park Data:data:language:*", &found);
+    CHECK(search != reinterpret_cast<NS_MacDoze::InternalHandle*>(-1));
+    CHECK(std::string(found.cFileName) == "French");
+    NS_MacDoze::FindClose(search);
+    const auto voices = tpw::ListGameFolder("data:global:speech");
+    CHECK(names(voices) == "cat_speechBANK.map speechHD.SDT extra.map ");
+    CHECK(voices[1].size == std::strlen("french speech, longer"));
+    CHECK(names(tpw::ListGameFolder("data:Language:French")) == "ResIdx.dat uitext.str ");
+    CHECK(names(tpw::ListGameFolder("data:Language:English")) == "ResIdx.dat uitext.str ");
+    CHECK(tpw::ListGameFolder("data:Language:English")[1].size == std::strlen("english text"));
+    CHECK(names(tpw::ListGameFolder("data:levels:space:speech")) == "speechHD.SDT ");
+    CHECK(names(tpw::ListGameFolder("data:levels:space")) == "global.sam speech/ ");
+    CHECK(names(tpw::ListGameFolder("data:global")) == "sound/ speech/ ");
+    CHECK(names(tpw::ListGameFolder("data:Init:640")) == "Welcome_French.tga Splash_French.tga legal.tga ");
+
+    // Paths: the user folder first, then the language, then the packs and the game folder; outside the folders it
+    // covers the language's files are not seen.
+    CHECK(Same(tpw::FindHostPath("data:Language:French:ResIdx.dat"), french / "data/Language/French/ResIdx.dat"));
+    CHECK(Same(tpw::FindHostPath("TPW:Theme Park Data:data\\language\\french\\UITEXT.str"),
+               french / "data/Language/French/uitext.str"));
+    CHECK(Same(tpw::FindHostPath("data:Language:French"), french / "data/Language/French"));
+    CHECK(Same(tpw::FindHostPath("data:Language:English:uitext.str"), config.gameDir / "data/Language/English/uitext.str"));
+    CHECK(Same(tpw::FindHostPath("data:global:speech:speechHD.SDT"), french / "data/global/Speech/speechHD.SDT"));
+    CHECK(Same(tpw::FindHostPath("data:global:speech:extra.map"), config.gameDir / speech / "extra.map"));
+    CHECK(Same(tpw::FindHostPath("data:levels:space:speech:speechHD.SDT"), french / space / "speech/speechHD.SDT"));
+    CHECK(Same(tpw::FindHostPath("data:levels:space:global.sam"), config.gameDir / space / "global.sam"));
+    CHECK(Same(tpw::FindHostPath("data:global:sound:sfx.sdt"), config.gameDir / "data/global/sound/sfx.sdt"));
+    CHECK(Same(tpw::FindHostPath("data:Init:640:Splash_French.tga"), french / "data/Init/640/Splash_French.tga"));
+    CHECK(Same(tpw::FindHostPath("data:Init:640:Welcome_French.tga"), config.userDir / "data/Init/640/Welcome_French.tga"));
+    CHECK(Same(tpw::FindHostPath("data:Init:640:legal.tga"), pack / "data/Init/640/legal.tga"));
+
+    // Off: the game folder alone, as before.
+    CHECK(!tpw::UseLanguagePack(root, ""));
+    CHECK(tpw::LanguagePackName().empty() && tpw::LanguagePackFolder().empty());
+    CHECK(names(tpw::ListGameFolder("data:Language")) == "English/ ");
+    CHECK(tpw::FindHostPath("data:Language:French:ResIdx.dat").empty());
+    CHECK(Same(tpw::FindHostPath("data:global:speech:speechHD.SDT"), pack / speech / "speechHD.SDT"));
+    CHECK(names(tpw::ListGameFolder("data:global:speech")) == "speechHD.SDT cat_speechBANK.map extra.map ");
+    CHECK(names(tpw::ListGameFolder("data:Init:640")) == "Welcome_French.tga legal.tga ");
+    config.gameDir = gameDir;
+    config.userDir = userDir;
+    tpw::PackDirs() = packDirs;
 }
 
 // The std::ifstream shims of SwearFilter::LoadWordList (platform/msl_ifstream.cpp): a word file as
@@ -941,6 +1045,129 @@ static void TestScriptedClick() {
     CHECK(after.log.size() == 2 && after.log[0] == "moved 5,6");
     CHECK(!tpw::ScriptedPointer(x, y, down));
     SDL_QuitSubSystem(SDL_INIT_EVENTS);
+}
+
+// Player names in a Hebrew, Japanese, Korean or Chinese game (code_page.cpp): the shim converts the game's narrow text in that
+// language's code page, the name comes back the same, and its folder on the host has the name in UTF-8 (UTF-16 on Windows). Every
+// other language (code page 0) keeps Latin-1 and today's bytes and folder names.
+static void TestCodePages(const fs::path& scratch) {
+    tpw::Config& config = tpw::config();
+    const fs::path oldGame = config.gameDir, oldUser = config.userDir;
+    config.gameDir = scratch / "game";
+    config.userDir = scratch / "user";
+    fs::create_directories(config.gameDir);
+    fs::create_directories(config.userDir);
+
+    CHECK(tpw::CodePageOfLanguage(0x40d) == 1255 && tpw::CodePageOfLanguage(0x11) == 932 && tpw::CodePageOfLanguage(0x412) == 949);
+    CHECK(tpw::CodePageOfLanguage(0x404) == 950 && tpw::CodePageOfLanguage(0x804) == 936);
+    for (uint32_t latin : {0x409u, 0x809u, 0x40cu, 0x407u, 0x410u, 0x40au, 0x413u, 0x406u, 0x41du, 0x415u, 0x41eu, 0u})
+        CHECK(tpw::CodePageOfLanguage(latin) == 0);
+    CHECK(tpw::GameCodePage() == 0);
+
+    struct Name {
+        uint32_t codePage;
+        std::u16string text;
+        std::string bytes;
+    };
+    const Name names[] = {
+        {1255, u"שםTess", "\xF9\xED" "Tess"},                            // "שםTess"
+        {1255, u"דני", "\xE3\xF0\xE9"},                               // "דני"
+        {932, u"ソニー太郎", "\x83\x5C\x83\x6A\x81\x5B\x91\xBE\x98\x59"},   // "ソニー太郎": ソ's second byte is '\'
+        {949, u"김민준", "\xB1\xE8\xB9\xCE\xC1\xD8"},                   // "김민준"
+        {950, u"許功蓋", "\xB3\x5C\xA5\x5C\xBB\x5C"},                   // "許功蓋": every second byte is '\'
+        {936, u"王小明", "\xCD\xF5\xD0\xA1\xC3\xF7"},                   // "王小明"
+    };
+    for (const Name& name : names) {
+        std::string bytes;
+        std::u16string text;
+        CHECK(tpw::EncodeCodePage(name.codePage, name.text, bytes) && bytes == name.bytes);
+        CHECK(tpw::DecodeCodePage(name.codePage, name.bytes, text) && text == name.text);
+
+        // Through the shim, as UniStringToString and StringToUniString call it.
+        tpw::SetGameCodePage(name.codePage);
+        char narrow[32];
+        char16_t wide[32];
+        int32_t defaulted = 7;
+        const auto size = static_cast<int32_t>(name.bytes.size()) + 1;
+        CHECK(NS_MacDoze::WideCharToMultiByte(0, 0, name.text.c_str(), -1, nullptr, 0, nullptr, nullptr) == size);
+        CHECK(NS_MacDoze::WideCharToMultiByte(0, 0, name.text.c_str(), -1, narrow, sizeof narrow, nullptr, &defaulted) == size);
+        CHECK(defaulted == 0 && std::string(narrow) == name.bytes);
+        CHECK(NS_MacDoze::WideCharToMultiByte(0, 0, name.text.c_str(), -1, narrow, size - 1, nullptr, nullptr) == 0);
+        const auto length = static_cast<int32_t>(name.text.size()) + 1;
+        CHECK(NS_MacDoze::MultiByteToWideChar(0, 0, name.bytes.c_str(), -1, nullptr, 0) == length);
+        CHECK(NS_MacDoze::MultiByteToWideChar(0, 0, name.bytes.c_str(), -1, wide, 32) == length && std::u16string(wide) == name.text);
+        CHECK(NS_MacDoze::MultiByteToWideChar(0, 0, name.bytes.c_str(), -1, wide, length - 1) == 0);
+        CHECK(NS_MacDoze::IsDBCSLeadByte(static_cast<uint8_t>(name.bytes[0])) == (name.codePage == 1255 ? 0 : 1));
+        CHECK(NS_MacDoze::IsDBCSLeadByte('T') == 0);
+
+        // A trail byte that is '\' does not split the path.
+        CHECK(Join(tpw::SplitGamePath("save:users:1" + name.bytes)) == "/save/users/1" + name.bytes);
+
+        // The player's folder: made under its host name, listed and found again by the game's bytes.
+        const std::string game = "save:users:1" + name.bytes;
+        const fs::path made = tpw::HostPathForWriting(game);
+        fs::create_directories(made);
+        CHECK(fs::is_directory(config.userDir / "save" / "users" / tpw::HostNameOf("1" + name.bytes)));
+        CHECK(tpw::GameNameOf(made.filename()) == "1" + name.bytes);
+#ifndef _WIN32
+        std::string utf8;
+        for (const char16_t c : u"1" + name.text) {   // the folder's name on the disk is the name in UTF-8
+            if (c < 0x80) utf8 += static_cast<char>(c);
+            else if (c < 0x800) utf8 += {static_cast<char>(0xC0 | c >> 6), static_cast<char>(0x80 | (c & 0x3F))};
+            else utf8 += {static_cast<char>(0xE0 | c >> 12), static_cast<char>(0x80 | (c >> 6 & 0x3F)), static_cast<char>(0x80 | (c & 0x3F))};
+        }
+        CHECK(fs::is_directory(config.userDir / "save" / "users" / utf8));
+#endif
+        bool listed = false;
+        for (const tpw::DirEntry& entry : tpw::ListGameFolder("save:users"))
+            if (entry.name == "1" + name.bytes && entry.isDirectory) listed = true;
+        CHECK(listed);
+        CHECK(Same(tpw::FindHostPath(game), config.userDir / "save" / "users" / tpw::HostNameOf("1" + name.bytes)));
+        fs::remove_all(config.userDir / "save");
+        tpw::SetGameCodePage(0);
+    }
+
+    // A character the code page lacks becomes the default character, as on Windows; bytes that are not a character become '?'.
+    tpw::SetGameCodePage(1255);
+    char narrow[16];
+    int32_t defaulted = 0;
+    CHECK(NS_MacDoze::WideCharToMultiByte(0, 0, u"aソb", -1, narrow, sizeof narrow, nullptr, &defaulted) == 4);
+    CHECK(defaulted == 1 && std::string(narrow) == "a?b");
+    tpw::SetGameCodePage(932);
+    char16_t wide[16];
+    CHECK(NS_MacDoze::MultiByteToWideChar(0, 0, "a\x83", -1, wide, 16) == 3 && std::u16string(wide) == u"a?");   // a lead byte at the end
+    tpw::SetGameCodePage(0);
+
+    // Latin languages: today's bytes, and today's folder names (the raw bytes), with nothing new in the way.
+    CHECK(tpw::GameCodePage() == 0);
+    const std::pair<std::u16string, std::string> latin[] = {
+        {u"Tess", "Tess"}, {u"José", "Jos\xE9"}, {u"Jürgen", "J\xFCrgen"}, {u"ש", "?"}, {u"ソ", "?"}};
+    for (const auto& [text, bytes] : latin) {
+        char out[16];
+        int32_t used = 0;
+        CHECK(NS_MacDoze::WideCharToMultiByte(0, 0, text.c_str(), -1, out, sizeof out, nullptr, &used) ==
+                  static_cast<int32_t>(text.size()) + 1 &&
+              std::string(out) == bytes);
+        CHECK(tpw::HostNameOf("1" + bytes) == fs::path("1" + bytes));
+
+    }
+    CHECK(NS_MacDoze::MultiByteToWideChar(0, 0, "Jos\xE9", -1, wide, 16) == 5 && std::u16string(wide) == u"José");
+    CHECK(NS_MacDoze::IsDBCSLeadByte(0x83) == 0 && NS_MacDoze::IsDBCSLeadByte(0xE9) == 0);
+    CHECK(Join(tpw::SplitGamePath("save:users:1\x83\\x")) == "/save/users/1\x83/x");   // a '\' after a high byte still splits
+    const fs::path tess = tpw::HostPathForWriting("save:users:1Tess");
+    fs::create_directories(tess);
+    CHECK(fs::is_directory(config.userDir / "save" / "users" / "1Tess"));
+    CHECK(tpw::ListGameFolder("save:users").size() == 1 && tpw::ListGameFolder("save:users")[0].name == "1Tess");
+
+    // A Latin player's folder made before the language was Hebrew is still found, listed and named the same.
+    tpw::SetGameCodePage(1255);
+    CHECK(Same(tpw::FindHostPath("save:users:1tess"), config.userDir / "save" / "users" / "1Tess"));
+    CHECK(tpw::ListGameFolder("save:users").size() == 1 && tpw::ListGameFolder("save:users")[0].name == "1Tess");
+    tpw::SetGameCodePage(0);
+
+    fs::remove_all(config.userDir / "save");
+    config.gameDir = oldGame;
+    config.userDir = oldUser;
 }
 
 static void TestStrings() {
@@ -2548,8 +2775,28 @@ static void TestSound(const fs::path& scratch) {
         CHECK(static_cast<int32_t>(module->SetChannelInfo(0, AsPipe(&mono), *info)) == 0);
     }
 
-    // ---- Position and velocity (flags 1 and 0x800000): one command, read only for a 3D channel whose sample flags have bit
-    // 0x20. The Mac clears the velocity flag before it tests it for the location, so a location always zeroes the velocity.
+    // ---- Position and velocity (flags 1 and 0x800000): the Mac's test is a bitwise and of the channel's 3D byte (0 or 1) with the
+    // sample flag 0x20, which never passes: both flags are consumed and nothing is read (the port's default, and the only way
+    // without TPW_PORT_FIX).
+    {
+        const TbSoundPosition position(1.0f, 2.0f, 3.0f);
+        const TbSoundPosition velocity(7.0f, 8.0f, 9.0f);
+        Zeroed<TbSoundSampleInfo> info;
+        info->mPosition = &position;
+        info->mVelocity = &velocity;
+        info->mField0C = 0x20;
+        info->mFlags = 0x800000 | 1;
+        CHECK(!tpw::gPortSoundPan);
+        CHECK(static_cast<int32_t>(module->SetChannelInfo(0, AsPipe(&mono), *info)) == 0);
+        CHECK(info->mFlags == 0);
+        CHECK(module->ChannelAt(0)->Location()[0] == 0.0f && module->ChannelAt(0)->Location()[2] == 0.0f);
+        CHECK(module->ChannelAt(0)->Velocity()[0] == 0.0f && module->ChannelAt(0)->Velocity()[2] == 0.0f);
+    }
+#ifdef TPW_PORT_FIX
+    // With the launcher's Stereo panning on (TPW_PORT_FIX pan) the test is a logical and: the position and velocity are read
+    // for a 3D channel whose sample flags have bit 0x20. The Mac's order still clears the velocity flag before it tests it for the
+    // location, so a location always zeroes the velocity.
+    tpw::gPortSoundPan = true;
     {
         const TbSoundPosition position(1.0f, 2.0f, 3.0f);
         const TbSoundPosition velocity(7.0f, 8.0f, 9.0f);
@@ -2589,6 +2836,181 @@ static void TestSound(const fs::path& scratch) {
         CHECK(static_cast<int32_t>(module->SetChannelInfo(0, AsPipe(&mono), *info)) == 0);
         CHECK(info->mFlags == 0);
         CHECK(static_cast<int32_t>(module->SetChannelInfo(9, AsPipe(&mono), *info)) == -1);
+    }
+    tpw::gPortSoundPan = false;
+#endif
+
+#ifdef TPW_PORT_FIX
+    // ---- Placing (the stream's pan), with the launcher's Stereo panning on: a 3D channel's sound with a place is panned from
+    // the listener, whose right is top x front, at its own level however far it is (the game drops the sounds too far to hear
+    // before they reach a channel), with the near speaker at 1 and the far one falling from 1 (centre) to 0.3 (side), never louder than the original. A sound with no place, or on
+    // a 2D channel, plays at 1 and 1, and so does a new sample until a position comes. A listener that turns pans the placed
+    // sounds again. With the setting off (the default) a placed 3D sound plays at 1 and 1, as the Mac's did.
+    {
+        CHECK(static_cast<int32_t>(module->SetListenerPosition(TbSoundPosition(0.0f, 0.0f, 0.0f))) == 0);
+        CHECK(static_cast<int32_t>(module->SetListenerDirection(TbSoundPosition(0.0f, 0.0f, 1.0f), TbSoundPosition(0.0f, 1.0f, 0.0f))) == 0);
+        float left = 0.0f;
+        float right = 0.0f;
+        {
+            CHECK(!tpw::gPortSoundPan);   // off unless the launcher turns it on
+            Zeroed<TbSoundSampleInfo> off;
+            off->mField0C = 0x20;
+            const TbSoundPosition onTheRight(100.0f, 0.0f, 0.0f);
+            off->mPosition = &onTheRight;
+            off->mFlags = 1;
+            CHECK(static_cast<int32_t>(module->SetChannelInfo(0, AsPipe(&mono), *off)) == 0);
+            device.Pan(0, &left, &right);
+            CHECK(left == 1.0f && right == 1.0f);
+        }
+        tpw::gPortSoundPan = true;
+        struct Case {
+            float x, y, z;
+            float left, right;
+        };
+        const Case cases[] = {
+            {0.0f, 0.0f, 100.0f, 1.0f, 1.0f},          // straight ahead and near: the centre, 1 and 1 exactly
+            {100.0f, 0.0f, 0.0f, 0.3f, 1.0f},          // on the right: the far speaker at its floor
+            {-100.0f, 0.0f, 0.0f, 1.0f, 0.3f},         // on the left
+            {100.0f, 0.0f, 100.0f, 0.5050f, 1.0f},     // ahead and to the right
+            {0.0f, 0.0f, 800.0f, 1.0f, 1.0f},          // ahead and far: no fade
+            {0.0f, -400.0f, 0.0f, 1.0f, 1.0f},         // straight below: the centre
+        };
+        Zeroed<TbSoundSampleInfo> info;
+        info->mField0C = 0x20;
+        for (const Case& c : cases) {
+            const TbSoundPosition position(c.x, c.y, c.z);
+            info->mPosition = &position;
+            info->mFlags = 1;
+            CHECK(static_cast<int32_t>(module->SetChannelInfo(0, AsPipe(&mono), *info)) == 0);
+            device.Pan(0, &left, &right);
+            CHECK(std::fabs(left - c.left) < 0.001f && std::fabs(right - c.right) < 0.001f);
+        }
+        // The centre is exactly 1 and 1.
+        {
+            const TbSoundPosition centre(0.0f, 0.0f, 100.0f);
+            info->mPosition = &centre;
+            info->mFlags = 1;
+            CHECK(static_cast<int32_t>(module->SetChannelInfo(0, AsPipe(&mono), *info)) == 0);
+            device.Pan(0, &left, &right);
+            CHECK(left == 1.0f && right == 1.0f);
+        }
+        // All round the listener: the near speaker at 1 (never louder than the sample), the far one between 0.3 and 1, the
+        // right speaker never falling and the left never rising as the sound moves right.
+        {
+            float lastRight = 0.0f;
+            float lastLeft = 2.0f;
+            for (int degrees = -90; degrees <= 90; degrees += 5) {
+                const float radians = static_cast<float>(degrees) * 0.017453292f;
+                const TbSoundPosition position(100.0f * std::sin(radians), 0.0f, 100.0f * std::cos(radians));
+                info->mPosition = &position;
+                info->mFlags = 1;
+                CHECK(static_cast<int32_t>(module->SetChannelInfo(0, AsPipe(&mono), *info)) == 0);
+                device.Pan(0, &left, &right);
+                CHECK(left <= 1.0f && right <= 1.0f);
+                CHECK(left >= 0.2999f && right >= 0.2999f);
+                CHECK(left == 1.0f || right == 1.0f);
+                CHECK(right >= lastRight && left <= lastLeft);
+                lastRight = right;
+                lastLeft = left;
+            }
+        }
+        // The listener turns to face +x: its right is -z, so a sound ahead of it before (+z) is now on its left.
+        const TbSoundPosition ahead(0.0f, 0.0f, 100.0f);
+        info->mPosition = &ahead;
+        info->mFlags = 1;
+        CHECK(static_cast<int32_t>(module->SetChannelInfo(0, AsPipe(&mono), *info)) == 0);
+        CHECK(static_cast<int32_t>(module->SetListenerDirection(TbSoundPosition(1.0f, 0.0f, 0.0f), TbSoundPosition(0.0f, 1.0f, 0.0f))) == 0);
+        device.Pan(0, &left, &right);
+        CHECK(left == 1.0f && std::fabs(right - 0.3f) < 0.001f);
+        CHECK(static_cast<int32_t>(module->SetListenerPosition(TbSoundPosition(0.0f, 0.0f, -700.0f))) == 0);   // 800 away
+        device.Pan(0, &left, &right);
+        CHECK(left == 1.0f && std::fabs(right - 0.3f) < 0.001f);   // still on the left, at its own level
+        // No place: sample flags without 0x20.
+        info->mField0C = 0;
+        info->mFlags = 1;
+        CHECK(static_cast<int32_t>(module->SetChannelInfo(0, AsPipe(&mono), *info)) == 0);
+        device.Pan(0, &left, &right);
+        CHECK(left == 1.0f && right == 1.0f);
+        // A 2D channel (1) is never panned.
+        info->mField0C = 0x20;
+        info->mFlags = 1;
+        CHECK(static_cast<int32_t>(module->SetChannelInfo(1, AsPipe(&stereo), *info)) == 0);
+        device.Pan(1, &left, &right);
+        CHECK(left == 1.0f && right == 1.0f);
+        // A new sample starts at 1 and 1.
+        info->mFlags = 1;
+        CHECK(static_cast<int32_t>(module->SetChannelInfo(0, AsPipe(&mono), *info)) == 0);
+        device.Pan(0, &left, &right);
+        CHECK(right < 1.0f);   // panned to the left
+        CHECK(static_cast<int32_t>(StartSample(*module, 0, mono)) == 0);
+        device.Pan(0, &left, &right);
+        CHECK(left == 1.0f && right == 1.0f);
+        CHECK(static_cast<int32_t>(module->SetListenerPosition(TbSoundPosition(0.0f, 0.0f, 0.0f))) == 0);
+        CHECK(static_cast<int32_t>(module->SetListenerDirection(TbSoundPosition(0.0f, 0.0f, 1.0f), TbSoundPosition(0.0f, 1.0f, 0.0f))) == 0);
+
+        // The stream of a sample set while the setting is on holds 16-bit stereo, and its counts are the sample's own bytes.
+        CHECK(static_cast<int32_t>(module->StreamData(AsPipe(&mono))) == 0);
+        CHECK(device.Queued(0) == 0x1200);
+        CHECK(device.Feed(0, 0x1201) == 2);
+        CHECK(device.Queued(0) == 3 * 0x1200);
+        CHECK(static_cast<int32_t>(StartSample(*module, 1, stereo)) == 0);
+        CHECK(static_cast<int32_t>(module->StreamData(AsPipe(&stereo))) == 0);
+        CHECK(device.Queued(1) == 0x2400);
+        CHECK(module->StopAll().mValue == 0);
+        mono.calls = 0;
+        stereo.calls = 0;
+        tpw::gPortSoundPan = false;
+    }
+#else
+    // ---- Placing, the Mac's way: the 3D test never passes, so a 3D sound on the right still plays at 1 and 1.
+    {
+        CHECK(static_cast<int32_t>(module->SetListenerPosition(TbSoundPosition(0.0f, 0.0f, 0.0f))) == 0);
+        CHECK(static_cast<int32_t>(module->SetListenerDirection(TbSoundPosition(0.0f, 0.0f, 1.0f), TbSoundPosition(0.0f, 1.0f, 0.0f))) == 0);
+        Zeroed<TbSoundSampleInfo> info;
+        info->mField0C = 0x20;
+        const TbSoundPosition position(100.0f, 0.0f, 0.0f);
+        info->mPosition = &position;
+        info->mFlags = 1;
+        CHECK(static_cast<int32_t>(module->SetChannelInfo(0, AsPipe(&mono), *info)) == 0);
+        float left = 0.0f;
+        float right = 0.0f;
+        device.Pan(0, &left, &right);
+        CHECK(left == 1.0f && right == 1.0f);
+    }
+#endif
+
+    // ---- SoundToStereo: the chunks go into the streams as 16-bit stereo, the gains moving in a line from the last chunk's to
+    // the new ones and reaching them on the last frame; a mono sample plays on both sides, 8 bits are widened as SDL does.
+    {
+        const int16_t mono16[4] = {1000, -1000, 2000, 32767};
+        const float from[2] = {1.0f, 0.0f};
+        const float to[2] = {0.0f, 1.0f};
+        std::vector<int16_t> out;
+        tpw::SoundSource source;
+        source.rate = 22050;
+        source.bits = 16;
+        source.channels = 1;
+        tpw::SoundToStereo(mono16, sizeof mono16, source, from, to, out);
+        CHECK(out.size() == 8);
+        CHECK(out[0] == 750 && out[1] == 250);
+        CHECK(out[2] == -500 && out[3] == -500);
+        CHECK(out[4] == 500 && out[5] == 1500);
+        CHECK(out[6] == 0 && out[7] == 32767);
+        const uint8_t stereo8[4] = {0x80, 0xff, 0x00, 0x81};
+        const float level[2] = {1.0f, 1.0f};
+        source.bits = 8;
+        source.channels = 2;
+        tpw::SoundToStereo(stereo8, sizeof stereo8, source, level, level, out);
+        CHECK(out.size() == 4);
+        CHECK(out[0] == 0 && out[1] == 0x7f00 && out[2] == -0x8000 && out[3] == 0x100);
+        // 32 bits go to 16 as SDL converts them (a float by 2^-31, back by 2^15, to the nearest and clamped), not cut: halves
+        // go to the even one.
+        const int32_t wide[6] = {0x12345678, -0x12345678, 0x00018000, 0x00028000, 0x7fffffff, INT32_MIN};
+        source.bits = 32;
+        source.channels = 1;
+        tpw::SoundToStereo(wide, sizeof wide, source, level, level, out);
+        CHECK(out.size() == 12);
+        CHECK(out[0] == 4660 && out[2] == -4660 && out[4] == 2 && out[6] == 2 && out[8] == 32767 && out[10] == -32768);
     }
 
     // ---- StreamData pulls exactly one chunk at once and queues it; the stream is bound.
@@ -2824,6 +3246,9 @@ static void TestSound(const fs::path& scratch) {
     std::error_code gone;
     fs::remove(capture, gone);
     fs::remove(capture.string() + ".log", gone);
+    fs::remove(capture.string() + ".stereo", gone);
+    fs::remove(capture.string() + ".stereo.log", gone);
+    tpw::gPortSoundPan = true;   // the .stereo files exist only with the pan
     SetEnv("TPW_SOUND_CAPTURE", capture.string().c_str());
     systemInfo->mBuffersToUse = 2;
     CHECK(static_cast<int32_t>(module->Init(*systemInfo)) == 0);
@@ -2872,7 +3297,41 @@ static void TestSound(const fs::path& scratch) {
         CHECK(lines[0] == "stream 0 rate 22050 bits 16 channels 1 bytes 4608");
         CHECK(lines[1] == "stream 1 rate 11025 bits 8 channels 1 bytes 4608");
         CHECK(lines[3] == lines[0]);
+        // "<file>.stereo": the same chunks as they went into the streams, 16-bit stereo at 1 and 1 (nothing is placed).
+        std::ifstream stereoFile(capture.string() + ".stereo", std::ios::binary);
+        std::vector<char> stereo((std::istreambuf_iterator<char>(stereoFile)), std::istreambuf_iterator<char>());
+        CHECK(stereo.size() == 3 * (0x1200 / 2) * 4 + 0x1200 * 4);
+        int16_t pair[2];
+        std::memcpy(pair, stereo.data() + 4 * 5, 4);
+        CHECK(pair[0] == PatternSample(0, 5) && pair[1] == PatternSample(0, 5));
+        std::ifstream stereoLog(capture.string() + ".stereo.log");
+        lines.clear();
+        while (std::getline(stereoLog, line)) lines.push_back(line);
+        CHECK(lines.size() == 4);
+        CHECK(lines.size() == 4 && lines[0].rfind("stream 0 rate 22050 frames 2304 ms ", 0) == 0);
+        CHECK(lines.size() == 4 && lines[0].find(" from 1.0000 1.0000 to 1.0000 1.0000") != std::string::npos);
+        CHECK(lines.size() == 4 && lines[1].rfind("stream 1 rate 11025 frames 4608 ms ", 0) == 0);
     }
+    // The same capture with the setting off: only the raw chunks and their log, and the streams take the sample as it is.
+    tpw::gPortSoundPan = false;
+    fs::remove(capture, gone);
+    fs::remove(capture.string() + ".log", gone);
+    fs::remove(capture.string() + ".stereo", gone);
+    fs::remove(capture.string() + ".stereo.log", gone);
+    SetEnv("TPW_SOUND_CAPTURE", capture.string().c_str());
+    CHECK(static_cast<int32_t>(module->Init(*systemInfo)) == 0);
+    module->Device()->SetDevicePaused(true);
+    {
+        SetUpPipe(mono, 0, 22050, 16, false);
+        CHECK(static_cast<int32_t>(StartSample(*module, 0, mono)) == 0);
+        CHECK(static_cast<int32_t>(module->StreamData(AsPipe(&mono))) == 0);
+        CHECK(module->Device()->Queued(0) == 0x1200);
+        CHECK(module->StopAll().mValue == 0);
+    }
+    module->Close();
+    UnsetEnv("TPW_SOUND_CAPTURE");
+    CHECK(fs::exists(capture) && fs::file_size(capture) == 0x1200);
+    CHECK(!fs::exists(capture.string() + ".stereo") && !fs::exists(capture.string() + ".stereo.log"));
 
     // ---- Deleting the module: the base frees the speaker block, an open module is closed first.
     SetUpPipe(mono, 0, 22050, 16, false);
@@ -2918,6 +3377,7 @@ int main() {
     TestPaths(scratch);
     TestPacks(scratch / "packs");
     TestGoldRides(scratch / "gold");
+    TestLanguagePack(scratch / "language");
     TestEdition(scratch / "edition");
     TestSwearStreams();
     TestMslRuntime();
@@ -2932,6 +3392,7 @@ int main() {
     TestKeyboard();
     TestScriptedClick();
     TestStrings();
+    TestCodePages(scratch / "codepages");
     TestArena();
     TestGdi();
     TestResourceFork();

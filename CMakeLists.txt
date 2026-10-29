@@ -188,7 +188,8 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   endif()
 
   add_library(tpw_launcher_objects OBJECT launcher/main.cpp launcher/app_bundle.cpp launcher/app_icon.cpp launcher/app_icon_standin.cpp launcher/asset_packs.cpp
-              launcher/game_app.cpp launcher/game_app_mac.cpp launcher/pending_manual.cpp launcher/static_init.cpp launcher/startup.cpp)
+              launcher/game_app.cpp launcher/game_app_mac.cpp launcher/game_app_win.cpp launcher/installed_icon.cpp launcher/pending_manual.cpp
+              launcher/static_init.cpp launcher/startup.cpp)
   target_include_directories(tpw_launcher_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
   if(APPLE)
     # The game's own application (launcher/game_app.h) is opened through NSWorkspace, whose completion handler is a block.
@@ -308,6 +309,16 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   add_executable(tpw_host_filmbox ${TPW_DECOMP_DIR}/tests/host_filmbox.cpp)
   target_include_directories(tpw_host_filmbox PRIVATE ${TPW_INCLUDE_DIR})
   add_test(NAME filmbox COMMAND tpw_host_filmbox)
+  # An older build's language files read by the later program (include/platform/old_text_tables.h): its UITEXT and
+  # CHAT_COMMANDS made the later build's, its fonts found by file name. No game, no files.
+  add_executable(tpw_host_old_text_tables ${TPW_DECOMP_DIR}/tests/host_old_text_tables.cpp)
+  target_include_directories(tpw_host_old_text_tables PRIVATE ${TPW_INCLUDE_DIR})
+  add_test(NAME old_text_tables COMMAND tpw_host_old_text_tables)
+  # A sprite of the particle sprite file read as the texture a particle is drawn with (include/tb_particle.h, include/tb_starfield.h):
+  # the record's words line up on the host, so a textured particle has its width. No game, no files.
+  add_executable(tpw_host_particle_texture ${TPW_DECOMP_DIR}/tests/host_particle_texture.cpp)
+  target_include_directories(tpw_host_particle_texture PRIVATE ${TPW_INCLUDE_DIR} ${TPW_DECOMP_DIR}/platform)
+  add_test(NAME particle_texture COMMAND tpw_host_particle_texture)
 
   # The launcher's own window (launcher/ui/): widgets drawn with SDL_Renderer, text with stb_truetype
   # (third_party/stb/), in the fonts of third_party/fonts/, which are compiled in as byte arrays written here at
@@ -451,6 +462,15 @@ if(TPW_BUILD_LAUNCHER AND OpenGL_FOUND AND Python3_FOUND)
   target_include_directories(tpw_game_app_tests PRIVATE launcher)
   target_link_libraries(tpw_game_app_tests PRIVATE tpw_assets)
   add_test(NAME game_app COMMAND tpw_game_app_tests)
+  # The launcher's icon where the installer put it (launcher/installed_icon.h): which application in Applications is the
+  # installer's for this launcher, the Start menu shortcut's icon file, and the icon written again only when it changed.
+  add_executable(tpw_installed_icon_tests launcher/tests/installed_icon_tests.cpp launcher/installed_icon.cpp launcher/game_app.cpp)
+  target_include_directories(tpw_installed_icon_tests PRIVATE launcher)
+  target_link_libraries(tpw_installed_icon_tests PRIVATE tpw_assets)
+  if(WIN32)
+    target_link_libraries(tpw_installed_icon_tests PRIVATE shell32 ole32)   # TellExplorer
+  endif()
+  add_test(NAME installed_icon COMMAND tpw_installed_icon_tests)
   # The run-time table loader (platform/game_tables.cpp) against the configure-time tables, where the build has them (the
   # differential tests' or TPW_TABLES_AT_CONFIGURE's): every table it reads from the CD's 2.0.1 program and from the 2.04b3
   # patch's, by the program's SHA-1 and by the content search, must equal the generated arrays byte for byte. The scorers

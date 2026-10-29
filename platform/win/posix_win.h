@@ -9,6 +9,8 @@
 #include <stdio.h>
 #include <sys/stat.h>
 
+#include <string>
+
 // The stdio stream lock, under the C runtime's names.
 inline void flockfile(FILE* file) { _lock_file(file); }
 inline void funlockfile(FILE* file) { _unlock_file(file); }
@@ -18,3 +20,11 @@ extern "C" int posix_memalign(void** block, size_t alignment, size_t size);
 
 // stat of a std::filesystem::path, whose c_str() is UTF-16 on Windows.
 inline int stat(const wchar_t* path, struct stat* info) { return wstat(path, info); }
+
+// Windows' conversions of code page `codePage` (platform/code_page.cpp): false when a byte or a character has no
+// counterpart.
+bool tpw_win_decode(unsigned codePage, const std::string& bytes, std::u16string& text);
+bool tpw_win_encode(unsigned codePage, const std::u16string& text, std::string& bytes);
+// A host path in the ANSI code page, for the C runtime's narrow fopen (platform/file_handles.cpp): as it is when the code
+// page has its letters, else with the short (8.3) name of its folder. False when neither can be written in it.
+bool tpw_win_narrow_path(const wchar_t* path, std::string& narrow);

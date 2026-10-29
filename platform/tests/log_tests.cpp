@@ -225,7 +225,7 @@ int main() {
         Check(!tpw::RevealFile(root / "no such file.log"), "RevealFile: a missing file is not shown");
 #endif
 
-        // The name: no colon, the minutes, then " (2)" for a second copy.
+        // The name: the product, the version, no colon, the minutes, then " (2)" for a second copy.
         std::tm tmWhen{};
         tmWhen.tm_year = 126;
         tmWhen.tm_mon = 9;
@@ -234,77 +234,237 @@ int main() {
         tmWhen.tm_min = 12;
         tmWhen.tm_isdst = -1;
         const std::time_t when = std::mktime(&tmWhen);
-        Check(tpw::ExportedLogName(when, 1) == "STP-TPW Launcher log 2026-10-25 10-12.txt",
-              "exported name: " + tpw::ExportedLogName(when, 1));
-        Check(tpw::ExportedLogName(when, 2) == "STP-TPW Launcher log 2026-10-25 10-12 (2).txt", "exported name, copy 2");
+        Check(tpw::ExportedLogName("0.1.1-dev", when, 1) == "STP-TPW Launcher v0.1.1-dev logs 2026-10-25 10-12.txt",
+              "exported name: " + tpw::ExportedLogName("0.1.1-dev", when, 1));
+        Check(tpw::ExportedLogName("0.1.1", when, 2) == "STP-TPW Launcher v0.1.1 logs 2026-10-25 10-12 (2).txt", "exported name, copy 2");
+        Check(tpw::ExportedLogName("", when, 1) == "STP-TPW Launcher logs 2026-10-25 10-12.txt", "exported name without a version");
 
-        // A logs folder with three runs: the newest by name is the one copied, with its bytes (binary-safe: a CR, a NUL and
-        // a high byte) and the original left where it is.
+        // NewestLog (Show logs): by modification time first, then (same time) by name; non-log files and folders never
+        // count, however new.
         const fs::path logs = root / fs::u8path("export logs \xC3\xA9") / "logs";
         const fs::path out = root / fs::u8path("Downloads \xC3\xA9 x");
         fs::create_directories(logs);
         fs::create_directories(out);
         Check(tpw::NewestLog(logs).empty() && tpw::NewestLog(root / "no such folder").empty(), "NewestLog: none");
-        const std::string oldBytes = "older run\n", newBytes = std::string("newest run\r\n\0\xFF end\n", 19);
-        std::ofstream(logs / "launcher-20261024-090000.log", std::ios::binary) << oldBytes;
+        std::ofstream(logs / "launcher-20261024-090000.log", std::ios::binary) << "older run\n";
         std::ofstream(logs / "launcher-20261025-101100.log", std::ios::binary) << "second\n";
-        std::ofstream(logs / "launcher-20261025-101100-2.log", std::ios::binary).write(newBytes.data(), newBytes.size());
+        std::ofstream(logs / "launcher-20261025-101100-2.log", std::ios::binary) << "third\n";
         std::ofstream(logs / "notes.txt") << "not a log\n";
         std::ofstream(logs / "launcher-99999999-999999.txt") << "not a log either\n";
-        // By modification time first, then (same time) by name; non-log files and folders never count, however new.
         const auto now = fs::file_time_type::clock::now();
-        const auto stamp = [&](const char* name, int minutesAgo) {
-            fs::last_write_time(logs / name, now - std::chrono::minutes(minutesAgo));
+        const auto stamp = [&](const fs::path& file, int minutesAgo) {
+            fs::last_write_time(file, now - std::chrono::minutes(minutesAgo));
         };
         fs::create_directories(logs / "launcher-20270101-000000.log");   // a folder with a log's name
-        stamp("launcher-20261024-090000.log", 30);
-        stamp("launcher-20261025-101100.log", 5);
-        stamp("launcher-20261025-101100-2.log", 20);
-        stamp("notes.txt", 0);
-        stamp("launcher-99999999-999999.txt", 0);
+        stamp(logs / "launcher-20261024-090000.log", 30);
+        stamp(logs / "launcher-20261025-101100.log", 5);
+        stamp(logs / "launcher-20261025-101100-2.log", 20);
+        stamp(logs / "notes.txt", 0);
+        stamp(logs / "launcher-99999999-999999.txt", 0);
         Check(tpw::NewestLog(logs) == logs / "launcher-20261025-101100.log", "NewestLog: the latest modification time wins over the name");
-        stamp("launcher-20261024-090000.log", 1);
+        stamp(logs / "launcher-20261024-090000.log", 1);
         Check(tpw::NewestLog(logs) == logs / "launcher-20261024-090000.log", "NewestLog: an older name with a newer time wins");
         for (const char* name : {"launcher-20261024-090000.log", "launcher-20261025-101100.log", "launcher-20261025-101100-2.log"})
-            fs::last_write_time(logs / name, now - std::chrono::minutes(10));
+            stamp(logs / name, 10);
         Check(tpw::NewestLog(logs) == logs / "launcher-20261025-101100-2.log", "NewestLog: the same time goes by name, -2 after the plain one");
         Check(tpw::NewestLog(logs / "notes.txt").empty(), "NewestLog: a file is not a logs folder");
 
-        const tpw::LogExportResult first = tpw::ExportLog(logs, out, when);
-        Check(first.ok && first.message == "Saved to Downloads: STP-TPW Launcher log 2026-10-25 10-12.txt",
+        // LogsToExport: the three newest whatever their age, the others of the last 24 hours, and launcher.log and game.log
+        // beside the logs folder when they hold something; newest first.
+        const fs::path pick = root / "pick" / "logs";
+        fs::create_directories(pick);
+        const auto put = [&](const fs::path& file, const std::string& text, int minutesAgo) {
+            std::ofstream(file, std::ios::binary) << text;
+            stamp(file, minutesAgo);
+        };
+        put(pick / "launcher-20261020-080000.log", "a\n", 60 * 24 * 7);   // a week old
+        put(pick / "launcher-20261021-080000.log", "b\n", 60 * 24 * 6);
+        put(pick / "launcher-20261022-080000.log", "c\n", 60 * 24 * 5);
+        put(pick / "launcher-20261023-080000.log", "d\n", 60 * 24 * 4);
+        put(pick / "notes.txt", "not a log\n", 0);
+        fs::create_directories(pick / "launcher-20270101-000000.log");
+        const auto names = [](const std::vector<fs::path>& paths) {
+            std::string text;
+            for (const fs::path& path : paths) text += (text.empty() ? "" : " ") + path.filename().string();
+            return text;
+        };
+        Check(names(tpw::LogsToExport(pick, now)) ==
+                  "launcher-20261023-080000.log launcher-20261022-080000.log launcher-20261021-080000.log",
+              "LogsToExport: the three newest, however old: " + names(tpw::LogsToExport(pick, now)));
+        for (int i = 10; i < 22; ++i) put(pick / ("launcher-20261027-" + std::to_string(i) + "0000.log"), "e\n", 60 * (30 - i));
+        const std::vector<fs::path> recent = tpw::LogsToExport(pick, now);
+        Check(recent.size() == tpw::kLogFilesKept && recent.front().filename() == "launcher-20261027-210000.log" &&
+                  recent.back().filename() == "launcher-20261027-120000.log",
+              "LogsToExport: every log of the last 24 hours, never more than the folder keeps: " + names(recent));
+        Check(names(tpw::LogsToExport(pick, now + std::chrono::hours(24 * 30))) ==
+                  "launcher-20261027-210000.log launcher-20261027-200000.log launcher-20261027-190000.log",
+              "LogsToExport: a month later, the three newest still");
+        put(pick.parent_path() / "game.log", "the game's stderr\n", 60 * 9 + 30);   // between the 20:00 and 21:00 runs
+        put(pick.parent_path() / "launcher.log", "", 0);   // empty: left out
+        const std::vector<fs::path> withCaptures = tpw::LogsToExport(pick, now);
+        Check(withCaptures.size() == tpw::kLogFilesKept + 1 && withCaptures[1] == pick.parent_path() / "game.log",
+              "LogsToExport: game.log beside the logs folder, in its place by time; an empty launcher.log left out: " +
+                  names(withCaptures));
+        Check(tpw::LogsToExport(root / "no such folder" / "logs", now).empty(), "LogsToExport: no folder, nothing");
+
+        // ExportLogs, on what a Mac leaves after the game crashed and the player reopened the launcher: the launcher's
+        // run that pressed Play, the game's own run that crashed, and the new launcher run; on Windows, game.log too.
+        // Every byte is kept (a CR, a NUL and a high byte), the originals stay as they were.
+        const fs::path mac = root / "mac" / "logs";
+        fs::create_directories(mac);
+        const std::string header = "STP/TPW Launcher v0.1.1-dev (build: abc1234)\ndate: 2026-10-25T10:05:00-03:00 (ADT)\n"
+                                   "os: macOS 15.1\nhardware: Mac16,5, arm64\n";
+        const std::string pressed = header + "args: tpw_launcher\nlog: ~/logs/launcher-20261025-100500.log\n"
+            "play: Sim Theme Park, the US edition (us), from the launcher window's Play, handed to ~/b/Sim Theme Park.app\n"
+            "exit: code 0\n";
+        const std::string crashed = header + "args: \"~/b/Sim Theme Park.app/Contents/MacOS/Sim Theme Park\" --play us --from-launcher ~/b\n"
+            "log: ~/logs/launcher-20261025-100502.log\nplay: Sim Theme Park, the US edition (us), as the game's own application\n" +
+            std::string("binary \r\n\0\xFF end\n", 15) + "launcher: crashed (signal 11)\nexit: crashed (signal 11)\n";
+        const std::string reopened = header + "args: tpw_launcher\nlog: ~/logs/launcher-20261025-101100.log\nwindow: shown\n";
+        put(mac / "launcher-20261025-100500.log", pressed, 7);
+        put(mac / "launcher-20261025-100502.log", crashed, 6);
+        put(mac / "launcher-20261025-101100.log", reopened, 1);
+        put(mac.parent_path() / "game.log", "Assertion failed: x\n", 6);
+        tpw::ExportProgram program;
+        program.version = "0.1.1-dev";
+        program.firstLine = "STP/TPW Launcher v0.1.1-dev (build: abc1234)";
+        const tpw::LogExportResult first = tpw::ExportLogs(mac, out, when, program);
+        Check(first.ok && first.message == "Saved to Downloads: STP-TPW Launcher v0.1.1-dev logs 2026-10-25 10-12.txt",
               "export: saved, with the message: " + first.message);
-        Check(first.file == out / "STP-TPW Launcher log 2026-10-25 10-12.txt" && first.folder == out, "export: where it went");
+        Check(first.file == out / "STP-TPW Launcher v0.1.1-dev logs 2026-10-25 10-12.txt" && first.folder == out, "export: where it went");
         const auto slurp = [](const fs::path& file) {
             std::ifstream in(file, std::ios::binary);
             return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
         };
-        Check(slurp(first.file) == newBytes && newBytes.size() == 19, "export: the copied bytes equal the source");
-        Check(slurp(logs / "launcher-20261025-101100-2.log") == newBytes && fs::exists(logs / "launcher-20261024-090000.log"),
-              "export: the original is left as it was");
+        const std::string text = slurp(first.file);
+        Check(StartsWith(text, "STP/TPW Launcher v0.1.1-dev (build: abc1234): logs exported 2026-10-25 10:12:00\n"),
+              "export: the first line names the launcher and the time: " + text.substr(0, 100));
+        Check(text.find("This file holds 4 logs, newest first:\n"
+                        "1. launcher-20261025-101100.log: the launcher; started 2026-10-25T10:05:00-03:00 (ADT); no exit line") !=
+                  std::string::npos,
+              "export: the list starts with the newest run");
+        Check(text.find("2. launcher-20261025-100502.log: the game (Sim Theme Park), in its own process; started "
+                        "2026-10-25T10:05:00-03:00 (ADT); exit: crashed (signal 11)\n") != std::string::npos,
+              "export: the game's crashed run, named as the game's");
+        Check(text.find("3. game.log: what the game printed (Windows: game.log, the latest game run); last written ") != std::string::npos,
+              "export: game.log, named");
+        Check(text.find("4. launcher-20261025-100500.log: the launcher (its Play started the game's own process, whose log is "
+                        "another file); started 2026-10-25T10:05:00-03:00 (ADT); exit: code 0\n") != std::string::npos,
+              "export: the run that pressed Play");
+        const size_t crashAt = text.find("==================== 2 of 4: launcher-20261025-100502.log ====");
+        Check(crashAt != std::string::npos && text.find("program: the game (Sim Theme Park), in its own process\n", crashAt) != std::string::npos &&
+                  text.find("ended: exit: crashed (signal 11)\n", crashAt) != std::string::npos && text.find(crashed, crashAt) != std::string::npos,
+              "export: the crashed run's section holds its header and every byte of the log");
+        Check(text.find(pressed) != std::string::npos && text.find(reopened) != std::string::npos &&
+                  text.find("Assertion failed: x\n") != std::string::npos && text.find("[...") == std::string::npos,
+              "export: every log whole, nothing left out");
+        Check(text.find("=== 1 of 4") < text.find("=== 2 of 4") && text.find("=== 2 of 4") < text.find("=== 3 of 4") &&
+                  text.find("=== 3 of 4") < text.find("=== 4 of 4"),
+              "export: the sections in the list's order");
+        Check(slurp(mac / "launcher-20261025-100502.log") == crashed && fs::exists(mac / "launcher-20261025-100500.log") &&
+                  slurp(mac.parent_path() / "game.log") == "Assertion failed: x\n",
+              "export: the originals are left as they were");
 
         // The name is taken: " (2)", " (3)"; the earlier copies are not touched.
         std::ofstream(first.file, std::ios::binary) << "someone edited this\n";
-        const tpw::LogExportResult second = tpw::ExportLog(logs, out, when);
-        Check(second.ok && second.file == out / "STP-TPW Launcher log 2026-10-25 10-12 (2).txt", "export: a taken name gets (2)");
-        const tpw::LogExportResult third = tpw::ExportLog(logs, out, when);
-        Check(third.ok && third.file == out / "STP-TPW Launcher log 2026-10-25 10-12 (3).txt", "export: and then (3)");
-        Check(slurp(first.file) == "someone edited this\n" && slurp(second.file) == newBytes, "export: nothing was overwritten");
+        const tpw::LogExportResult second = tpw::ExportLogs(mac, out, when, program);
+        Check(second.ok && second.file == out / "STP-TPW Launcher v0.1.1-dev logs 2026-10-25 10-12 (2).txt", "export: a taken name gets (2)");
+        const tpw::LogExportResult third = tpw::ExportLogs(mac, out, when, program);
+        Check(third.ok && third.file == out / "STP-TPW Launcher v0.1.1-dev logs 2026-10-25 10-12 (3).txt", "export: and then (3)");
+        Check(slurp(first.file) == "someone edited this\n" && slurp(second.file) == text, "export: nothing was overwritten");
         size_t filesBefore = Names(out).size();
         Check(filesBefore == 3, "export: three files in Downloads");
 
+        // The game in the launcher's process (Windows before the game had its own, or --play): named so.
+        const fs::path one = root / "one" / "logs";
+        fs::create_directories(one);
+        put(one / "launcher-20261025-100500.log", header + "args: tpw_launcher\nlog: x\n"
+            "play: Theme Park World, the European edition (eur), from the launcher window's Play; game folder x\nexit: code 0\n", 2);
+        put(one / "launcher-20261025-100600.log", header + "args: tpw_launcher --play eur\nlog: y\nexit: abort\n", 1);
+        const tpw::LogExportResult inProcess = tpw::ExportLogs(one, out, when + 60, program);
+        const std::string inProcessText = slurp(inProcess.file);
+        Check(inProcess.ok && inProcessText.find("1. launcher-20261025-100600.log: the launcher, playing Theme Park World; started ") != std::string::npos &&
+                  inProcessText.find("; exit: abort\n") != std::string::npos &&
+                  inProcessText.find("2. launcher-20261025-100500.log: the launcher, then Theme Park World in the same process; ") != std::string::npos,
+              "export: the game in the launcher's own process");
+        fs::remove(inProcess.file);
+
+        // A log far over the limit (a run that printed a line a frame): its header lines and its end, never more than 8 MB.
+        const fs::path big = root / "big" / "logs";
+        fs::create_directories(big);
+        {
+            std::ofstream file(big / "launcher-20261025-100000.log", std::ios::binary);
+            file << header << "args: tpw_launcher\nlog: z\n";
+            const std::string line(99, 'x');
+            for (int i = 0; i < 90000; ++i) file << line << '\n';
+            file << "the last line\nexit: crashed (signal 6)\n";
+        }
+        stamp(big / "launcher-20261025-100000.log", 3);
+        put(big / "launcher-20261025-090000.log", header + "args: tpw_launcher\nlog: w\nan older run\n", 60);
+        const tpw::LogExportResult large = tpw::ExportLogs(big, out, when + 120, program);
+        const std::string largeText = slurp(large.file);
+        Check(large.ok && largeText.size() <= tpw::kExportLimitBytes && largeText.size() > tpw::kExportLimitBytes - 2000,
+              "export: a big log fills the file to just under 8 MB: " + std::to_string(largeText.size()));
+        Check(largeText.find("args: tpw_launcher\nlog: z\n[... ") != std::string::npos &&
+                  largeText.find(" bytes of this log's earlier lines are left out, to keep this file under 8 MB ...]\nxxx") != std::string::npos &&
+                  largeText.find("the last line\nexit: crashed (signal 6)\n") != std::string::npos,
+              "export: the big log keeps its header lines and its end, and says what was left out");
+        Check(largeText.find("1. launcher-20261025-100000.log: the launcher; started 2026-10-25T10:05:00-03:00 (ADT); exit: crashed "
+                             "(signal 6); its beginning is left out (the 8 MB limit)\n") != std::string::npos &&
+                  largeText.find("2. launcher-20261025-090000.log: the launcher; started 2026-10-25T10:05:00-03:00 (ADT); no exit line "
+                                 "(it was stopped, or ended before it could write one); left out (the 8 MB limit)\n") != std::string::npos &&
+                  largeText.find("an older run") == std::string::npos,
+              "export: the list says what was cut; the older run is left out");
+        fs::remove(large.file);
+
+        // ExportText's limit: the oldest logs go whole, then the oldest kept log's beginning (its header lines stay); the
+        // newest are whole, and the text is never longer than the limit.
+        {
+            std::vector<tpw::ExportedLog> pieces(3);
+            for (size_t i = 0; i < pieces.size(); ++i) {
+                pieces[i].name = "launcher-2026102" + std::to_string(5 - i) + "-100000.log";
+                pieces[i].program = "the launcher";
+                pieces[i].ended = "exit: code 0";
+                pieces[i].head = "header of " + std::to_string(i) + "\n";
+                for (int k = 0; k < 200; ++k) pieces[i].body += "line " + std::to_string(k) + " of log " + std::to_string(i) + "\n";
+            }
+            const std::string whole = tpw::ExportText("first", "now", pieces, 100000);
+            Check(whole.find("line 0 of log 2\n") != std::string::npos && whole.find("[...") == std::string::npos,
+                  "ExportText: under the limit, all of it");
+            const size_t limit = whole.size() - pieces[2].body.size() - 300;
+            const std::string cut = tpw::ExportText("first", "now", pieces, limit);
+            Check(cut.size() <= limit, "ExportText: never over the limit: " + std::to_string(cut.size()) + " of " + std::to_string(limit));
+            Check(cut.find("line 0 of log 0\n") != std::string::npos && cut.find("line 199 of log 1\n") != std::string::npos,
+                  "ExportText: the newest logs' ends are kept");
+            Check(cut.find("line 0 of log 2\n") == std::string::npos && cut.find("header of 2") == std::string::npos &&
+                      cut.find("3. launcher-20261023-100000.log: the launcher; exit: code 0; left out (the " + std::to_string(limit) +
+                               " bytes limit)\n") != std::string::npos,
+                  "ExportText: the oldest log is left out, and the list says so");
+            Check(cut.find("2. launcher-20261024-100000.log: the launcher; exit: code 0; its beginning is left out") != std::string::npos &&
+                      cut.find("header of 1\n[... ") != std::string::npos && cut.find("line 0 of log 1\n") == std::string::npos &&
+                      cut.find(" bytes of this log's earlier lines are left out, to keep this file under " + std::to_string(limit) +
+                               " bytes ...]\nline ") != std::string::npos,
+                  "ExportText: the next oldest keeps its header lines and its end, from a line's start");
+            const std::string tiny = tpw::ExportText("first", "now", pieces, 100);
+            Check(tiny.find("left out (the 100 bytes limit)") != std::string::npos && tiny.find("====") == std::string::npos,
+                  "ExportText: a limit too small for any log lists them all as left out");
+        }
+
         // Failures write nothing and say why.
-        const tpw::LogExportResult noLogs = tpw::ExportLog(root / "no such folder", out, when);
+        const tpw::LogExportResult noLogs = tpw::ExportLogs(root / "no such folder", out, when, program);
         Check(!noLogs.ok && noLogs.message == "There is no launcher log to export." && noLogs.file.empty() && Names(out).size() == filesBefore,
               "export: a missing logs folder: " + noLogs.message);
-        fs::create_directories(root / "empty logs");
-        Check(!tpw::ExportLog(root / "empty logs", out, when).ok && Names(out).size() == filesBefore, "export: a logs folder without logs");
-        const tpw::LogExportResult noDownloads = tpw::ExportLog(logs, root / "no such Downloads", when);
+        fs::create_directories(root / "empty" / "logs");
+        put(root / "empty" / "game.log", "a game.log alone is not enough\n", 0);
+        Check(!tpw::ExportLogs(root / "empty" / "logs", out, when, program).ok && Names(out).size() == filesBefore,
+              "export: a logs folder without launcher logs");
+        const tpw::LogExportResult noDownloads = tpw::ExportLogs(mac, root / "no such Downloads", when, program);
         Check(!noDownloads.ok && noDownloads.message == "The Downloads folder was not found." &&
                   !fs::exists(root / "no such Downloads"),
               "export: a missing Downloads folder is not made: " + noDownloads.message);
-        Check(!tpw::ExportLog(logs, fs::path(), when).ok, "export: no Downloads folder at all");
+        Check(!tpw::ExportLogs(mac, fs::path(), when, program).ok, "export: no Downloads folder at all");
         Touch(root / "downloads-is-a-file");
-        Check(!tpw::ExportLog(logs, root / "downloads-is-a-file", when).ok && fs::is_regular_file(root / "downloads-is-a-file"),
+        Check(!tpw::ExportLogs(mac, root / "downloads-is-a-file", when, program).ok && fs::is_regular_file(root / "downloads-is-a-file"),
               "export: Downloads that is a file");
 #ifndef _WIN32
         // A Downloads folder that cannot be written (not for root, which ignores the mode).
@@ -312,7 +472,7 @@ int main() {
         fs::create_directories(locked);
         fs::permissions(locked, fs::perms::owner_read | fs::perms::owner_exec, fs::perm_options::replace);
         if (geteuid() != 0) {
-            const tpw::LogExportResult denied = tpw::ExportLog(logs, locked, when);
+            const tpw::LogExportResult denied = tpw::ExportLogs(mac, locked, when, program);
             Check(!denied.ok && StartsWith(denied.message, "Could not save to the Downloads folder: ") && Names(locked).empty(),
                   "export: an unwritable Downloads folder: " + denied.message);
         }

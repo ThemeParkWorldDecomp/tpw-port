@@ -61,6 +61,14 @@ void Merge(ImportReport& into, const ImportReport& r) {
     into.errors.insert(into.errors.end(), r.errors.begin(), r.errors.end());
 }
 
+// What Play hands the game for an edition's Language (LaunchChoice::language): the kept one while the data folder still
+// offers it, else nothing, the edition's own.
+std::string PlayLanguage(Edition edition, const std::vector<assets::LanguageStatus>& languages, const std::string& kept) {
+    const std::vector<LanguageChoice> choices = LanguageChoices(edition, languages);
+    const int i = LanguageChoiceIndex(choices, kept);
+    return i > 0 ? choices[static_cast<size_t>(i)].name : std::string();
+}
+
 // A cloud: overlapping circles on a flat base, in one opaque colour so the overlaps do not show.
 void Cloud(Canvas& canvas, float cx, float cy, float s, Rgba c) {
     canvas.FillRound({cx - 46 * s, cy - 2 * s, 92 * s, 24 * s}, 12 * s, c);
@@ -112,13 +120,17 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     std::string last = backend_.LastChoice();
     playIndex_ = last == "us" ? 0 : 1;
     for (int i = 0; i < 2; ++i) gold_[i] = backend_.Setting(GoldKey(kEditions[i])) != "0";   // on unless switched off
+    for (int i = 0; i < 2; ++i) language_[i] = backend_.Setting(LanguageKey(kEditions[i]));
+    RefreshLanguages();
     skipIntro_ = backend_.Setting(kSkipIntroKey) == "1";
     backToLauncher_ = backend_.Setting(kBackToLauncherKey) == "1";
     smoothZoom_ = backend_.Setting(kSmoothZoomKey) == "1";   // tpw-port PR #20 by samueleagle91
     for (const SamOption& option : SamOptions()) samChoices_.push_back(SamChoice(option, backend_.Setting(option.key)) + 1);
+    samRects_.resize(SamOptions().size());
     pcSoundPicks_ = backend_.Setting(kPcSoundPicksKey) != "0";
     fullScreen_ = backend_.Setting(kFullScreenKey) != "0";
     checkUpdates_ = backend_.Setting(kCheckUpdatesKey) != "0";   // on by default (updater.h says why)
+    soundPan_ = backend_.Setting(kSoundPanKey) == "1";   // tpw-port PR #19 by samueleagle91
     {   // tpw-port PR #24 by samueleagle91
         const std::string size = backend_.Setting(kInterfaceSizeKey);
         interfaceSize_ = size == "85" ? 1 : size == "70" ? 2 : 0;
@@ -216,7 +228,8 @@ void LauncherUi::HandleEvent(const SDL_Event& e) {
             break;
         case SDL_EVENT_KEY_DOWN:
             if (e.key.key == SDLK_ESCAPE) {
-                if (armedRemove_ >= 0) armedRemove_ = -1;
+                if (languageOpen_ >= 0) languageOpen_ = -1;
+                else if (armedRemove_ >= 0) armedRemove_ = -1;
                 else if (aboutOpen_) aboutOpen_ = false;
                 else if (settingsOpen_) settingsOpen_ = false;
                 else if (screen_ == Screen::Result || screen_ == Screen::Play) screen_ = Screen::Home;
@@ -322,6 +335,7 @@ void LauncherUi::FinishImport(const ImportReport& report) {
     }
     queued_.clear();
     RefreshStatus();
+    RefreshLanguages();
     for (int i = 0; i < 3; ++i) round_.status[i] = status_[i];
     result_ = DescribeResult(round_, before_);
     roundStarted_ = false;
@@ -330,6 +344,14 @@ void LauncherUi::FinishImport(const ImportReport& report) {
 
 void LauncherUi::RefreshStatus() {
     for (int i = 0; i < 3; ++i) status_[i] = backend_.Status(kEditions[i]);
+}
+
+void LauncherUi::RefreshLanguages() {
+    languages_ = backend_.Languages();
+}
+
+std::vector<LanguageChoice> LauncherUi::LanguageChoicesFor(int index) const {
+    return LanguageChoices(kEditions[index], languages_);
 }
 
 bool LauncherUi::AnyPlayable() const {
@@ -359,6 +381,7 @@ void LauncherUi::PollVerify() {
                            " no longer matched and were removed. Drag the disc in again to replace them.";
     verifyIndex_ = -1;
     RefreshStatus();
+    RefreshLanguages();
 }
 
 // ---- test hooks
@@ -375,6 +398,13 @@ void LauncherUi::ShowAbout(bool open) {
 void LauncherUi::ShowSettings(bool open) {
     settingsOpen_ = open;
     armedRemove_ = -1;
+    languageOpen_ = -1;
+    if (open) RefreshLanguages();
+}
+
+void LauncherUi::ShowLanguageList(int index) {
+    settingsOpen_ = settingsOpen_ || index >= 0;
+    languageOpen_ = index;
 }
 
 void LauncherUi::ArmRemove(Edition edition) {
@@ -496,6 +526,7 @@ float LauncherUi::DrawHeader(const Rect& w, bool buttons) {
         if (ui_.Button("settings", {x, y, sw, h}, "Settings", ButtonKind::Quiet)) {
             settingsOpen_ = true;
             armedRemove_ = -1;
+            RefreshLanguages();
         }
         // The header's Play only where it clears the title and its version (the tiles have their own Play buttons).
         float pw = ui_.ButtonWidth("Play") + 20;
@@ -682,6 +713,7 @@ void LauncherUi::DrawReady(const Rect& w) {
     if (ui_.Button("game-data", {row.x, row.y, gw, rowH}, "Game data", ButtonKind::Quiet)) {
         settingsOpen_ = true;
         armedRemove_ = -1;
+        RefreshLanguages();
     }
     if (dragging_) {
         float tx = row.x + gw + 16;
@@ -735,6 +767,7 @@ void LauncherUi::DrawReady(const Rect& w) {
             choice_.gold = goldOn;
             choice_.skipIntro = skipIntro_;
             choice_.backToLauncher = backToLauncher_;
+            choice_.language = PlayLanguage(kEditions[i], languages_, language_[i]);
             playChosen_ = true;
             std::string err;
             backend_.SetLastChoice(assets::EditionName(choice_.edition), err);
@@ -910,6 +943,7 @@ void LauncherUi::DrawPlay(const Rect& w) {
         choice_.gold = goldOn;
         choice_.skipIntro = skipIntro_;
         choice_.backToLauncher = backToLauncher_;
+        choice_.language = PlayLanguage(kEditions[playIndex_], languages_, language_[playIndex_]);
         playChosen_ = true;
         std::string err;
         backend_.SetLastChoice(assets::EditionName(choice_.edition), err);
@@ -922,7 +956,10 @@ void LauncherUi::DrawPlay(const Rect& w) {
 // The Graphics section's options: the original's GraphicalOptions that change what the port shows, with the choices the
 // options files' comments list. Texture quality's Min and Low look alike here (both half-size textures), as do Medium and
 // High, so it offers Low and High; any visitor shadow but Off is High in the game (EngineStartup_SetOptions), so that one
-// offers Off and On.
+// offers Off and On. Visitor looks is the files' GameOptions NUMKIDS, which the detail level sets like the others and
+// which only picks how many of the visitors' sprites load: its choices are the files' 0 to 3, shown as the looks the
+// game loads for each (COptions::GetNumKidSprites: 2, 4, 6 or all 8 of them; at 0 the mechanics get one look of their
+// two), not as the files' comment's 4, 6, 8 and Max. From tpw-port PR #31 by samueleagle91.
 const std::vector<SamOption>& SamOptions() {
     static const std::vector<SamOption> kOptions = {
         {"sam_view_distance", 17, "View distance", "How far first person sees", {"Short", "Med", "Long", "Max"},
@@ -934,6 +971,8 @@ const std::vector<SamOption>& SamOptions() {
         {"sam_texture_quality", 1, "Texture quality", "Low draws the textures at half size", {"Low", "High"}, {1, 3}},
         {"sam_lighting", 18, "Lighting", "Light and shade across the park", {"Off", "On"}, {0, 1}},
         {"sam_sprite_shadow", 10, "Visitor shadows", "The shadows the visitors cast", {"Off", "On"}, {0, 3}},
+        {"sam_num_kids", 24, "Visitor looks", "How many kinds of visitor the park shows", {"2", "4", "6", "8"},
+         {0, 1, 2, 3}},
     };
     return kOptions;
 }
@@ -944,6 +983,45 @@ int SamChoice(const SamOption& option, const std::string& value) {
     return -1;
 }
 
+std::string LanguageShownName(const std::string& name) {
+    static const std::pair<const char*, const char*> kShown[] = {
+        {"English", "English"}, {"American", "American English"}, {"French", "Fran\xC3\xA7" "ais"},
+        {"German", "Deutsch"}, {"Danish", "Dansk"}, {"Swedish", "Svenska"}, {"Spanish", "Espa\xC3\xB1" "ol"},
+        {"Italian", "Italiano"}, {"Dutch", "Nederlands"}, {"Polish", "Polski"},
+        // The fonts hold Latin-1 and a little punctuation (text.cpp), no CJK or Hebrew: these five keep their English
+        // names.
+        {"Japanese", "Japanese"}, {"Korean", "Korean"}, {"TraditionalChinese", "Traditional Chinese"},
+        {"SimplifiedChinese", "Simplified Chinese"}, {"Hebrew", "Hebrew"},
+    };
+    for (const auto& shown : kShown)
+        if (name == shown.first) return shown.second;
+    return name;
+}
+
+std::vector<LanguageChoice> LanguageChoices(Edition edition, const std::vector<assets::LanguageStatus>& languages) {
+    const std::string own = OwnLanguage(edition);
+    std::vector<LanguageChoice> out = {{own, LanguageShownName(own)}};
+    for (const assets::LanguageStatus& l : languages) {
+        if (l.name == own || l.state == assets::LanguageStatus::State::Absent) continue;
+        // Its text, swear filter and meshes all there, and the base edition's date fonts when it takes those; its speech
+        // may be short, the edition's own recordings then take the missing ones' places (platform/language_pack.h).
+        bool usable = l.textPresent == l.text && l.filterPresent == l.filter && l.meshesPresent == l.meshes &&
+                      (!l.baseDateFonts || l.baseDateFontsPresent);
+        if (!usable) continue;
+        std::string shown = LanguageShownName(l.name);
+        if (l.speechPresent == 0 && l.speech > 0) shown += " (speech in English)";
+        else if (l.speechPresent < l.speech) shown += " (some speech in English)";
+        out.push_back({l.name, shown});
+    }
+    return out;
+}
+
+int LanguageChoiceIndex(const std::vector<LanguageChoice>& choices, const std::string& value) {
+    for (size_t i = 0; i < choices.size(); ++i)
+        if (choices[i].name == value) return static_cast<int>(i);
+    return 0;
+}
+
 void LauncherUi::DrawSettings(const Rect& w) {
     canvas_.FillRound(w, 0, colour::kDim);
     const float rowH = 50;
@@ -952,10 +1030,16 @@ void LauncherUi::DrawSettings(const Rect& w) {
     // Everything below the title, as drawn below.
     float bodyH = 2 * (text_.LineHeight(style::kBodyBold) + 4) + 40 + text_.LineHeight(style::kSmall) + 14 + 3 * rowH +
                   4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + 6 * rowH +
+                  text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + static_cast<float>(SamOptions().size()) * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + rowH;
     float ph = std::min(w.h - 2 * metric::kMargin, titleH + bodyH + 40);
     Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
+    // An open Language list (drawn last, over the box) takes the pointer: the box below it draws but does not react,
+    // and a press outside the list closes it. One opened in this frame shows from the next.
+    const int listOpen = languageOpen_;
+    const bool interactive = ui_.Interactive();
+    if (listOpen >= 0) ui_.SetInteractive(false);
     ui_.Panel(panel, colour::kPaper, colour::kCream);
     Rect in = panel.Inset(20);
     float y = in.y;
@@ -1025,6 +1109,7 @@ void LauncherUi::DrawSettings(const Rect& w) {
                     settingsMessage_ = "Cannot remove it: " + err;
                 armedRemove_ = -1;
                 RefreshStatus();
+                RefreshLanguages();
             }
             const char* ask = "Remove its files?";
             text_.Draw(style::kSmallBold, x - 12 - text_.Width(style::kSmallBold, ask),
@@ -1138,6 +1223,23 @@ void LauncherUi::DrawSettings(const Rect& w) {
     {
         Rect row{in.x, y, in.w, rowH - 6};
         canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, "Stereo panning", colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, "Park sounds are placed left and right with the camera", row.w - 12 - 56 - 24,
+                             false),
+                   colour::kInkSoft);
+        soundPanRect_ = {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32};
+        if (ui_.Toggle("sound-pan", soundPanRect_, soundPan_)) {
+            std::string err;
+            if (!backend_.SaveSetting(kSoundPanKey, soundPan_ ? "1" : "0", err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
+        }
+        y += rowH;
+    }
+    {
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
         const float segW = 210;
         float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
         text_.Draw(style::kBodyBold, row.x + 12, ty, "Interface size", colour::kInk);
@@ -1153,6 +1255,32 @@ void LauncherUi::DrawSettings(const Rect& w) {
             if (!backend_.SaveSetting(kInterfaceSizeKey, kValues[interfaceSize_], err))
                 settingsMessage_ = "Cannot keep the setting: " + err;
         }
+        y += rowH;
+    }
+
+    // The game's language for each edition (LanguageKey): its own, or one of the data folder's (LanguageChoices).
+    text_.Draw(style::kBodyBold, in.x, y, "Language", colour::kInk);
+    y += text_.LineHeight(style::kBodyBold) + 4;
+    for (int i = 0; i < 2; ++i) {
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, i % 2 ? colour::kCream : colour::kYellowSoft.WithAlpha(120));
+        const std::vector<LanguageChoice> choices = LanguageChoicesFor(i);
+        int choice = LanguageChoiceIndex(choices, language_[i]);
+        const float fieldW = 260;
+        std::string line = i == 0 ? "The US edition's text and the advisor's voice"
+                                  : "The European edition's text and the advisor's voice";
+        if (choice == 0 && !language_[i].empty() && language_[i] != choices[0].name)
+            line = LanguageShownName(language_[i]) + " is gone from the data folder";
+        else if (choices.size() == 1)
+            line = "Drag in a disc in another language to choose it here";
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, i == 0 ? "Sim Theme Park" : "Theme Park World", colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, line, row.w - 12 - fieldW - 24, false), colour::kInkSoft);
+        languageRects_[i] = {row.Right() - 12 - fieldW, row.CentreY() - 18, fieldW, 36};
+        if (ui_.Dropdown(std::string("language-") + assets::EditionName(kEditions[i]), languageRects_[i],
+                         choices[static_cast<size_t>(choice)].shown, listOpen == i))
+            languageOpen_ = i;
         y += rowH;
     }
 
@@ -1172,8 +1300,8 @@ void LauncherUi::DrawSettings(const Rect& w) {
         text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
                    text_.Fit(style::kSmall, option.line, row.w - 12 - segW - 24, false), colour::kInkSoft);
         int& choice = samChoices_[i];
-        if (ui_.Segmented(option.key, {row.Right() - 12 - segW, row.CentreY() - 18, segW, 36}, labels,
-                          std::vector<bool>(labels.size(), true), choice)) {
+        samRects_[i] = {row.Right() - 12 - segW, row.CentreY() - 18, segW, 36};
+        if (ui_.Segmented(option.key, samRects_[i], labels, std::vector<bool>(labels.size(), true), choice)) {
             std::string err;
             const std::string value = choice == 0 ? "default" : std::to_string(option.values[static_cast<size_t>(choice - 1)]);
             if (!backend_.SaveSetting(option.key, value, err)) settingsMessage_ = "Cannot keep the setting: " + err;
@@ -1215,6 +1343,26 @@ void LauncherUi::DrawSettings(const Rect& w) {
         ui_.ScrollBar({in.Right() + std::round((margin - barW) * 0.5f), bodyTop, barW, shown}, shown, bodyH, offset,
                       colour::kYellowSoft);
     }
+
+    if (listOpen >= 0 && languageOpen_ == listOpen) {
+        ui_.SetInteractive(interactive);
+        const std::vector<LanguageChoice> choices = LanguageChoicesFor(listOpen);
+        std::vector<std::string> shownNames;
+        for (const LanguageChoice& c : choices) shownNames.push_back(c.shown);
+        int choice = LanguageChoiceIndex(choices, language_[listOpen]);
+        bool close = false;
+        if (ui_.DropList(std::string("language-list-") + assets::EditionName(kEditions[listOpen]), languageRects_[listOpen],
+                         w.Inset(8), shownNames, choice, close, &languageRows_)) {
+            // The own language is kept by its name too: the key says what the player chose.
+            language_[listOpen] = choices[static_cast<size_t>(choice)].name;
+            std::string err;
+            if (!backend_.SaveSetting(LanguageKey(kEditions[listOpen]), language_[listOpen], err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
+        }
+        if (close) languageOpen_ = -1;
+    } else {
+        languageRows_.clear();
+    }
 }
 
 void LauncherUi::DrawAbout(const Rect& w) {
@@ -1254,7 +1402,8 @@ void LauncherUi::DrawAbout(const Rect& w) {
             ShowNotice(std::string("Could not open the logs folder: ") + SDL_GetError(), true);
         float tx = in.x + lw + 12;
         if (exportLogs_ != nullptr) {
-            // Export logs: the newest log into the Downloads folder, to attach to a bug report without a hunt for hidden folders.
+            // Export logs: the newest runs' logs as one file in the Downloads folder, to attach to a bug report without a hunt
+            // for hidden folders.
             const char* exportLabel = "Export logs";
             float ew = ui_.ButtonWidth(exportLabel);
             exportLogsRect_ = {tx, y, ew, kLogsRowH};
@@ -1322,6 +1471,7 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
     input_.wheel = 0;
 
     bool overlay = aboutOpen_ || settingsOpen_;
+    if (!settingsOpen_) languageOpen_ = -1;
     ui_.SetInteractive(!overlay && !dragging_);
     tilesShown_ = false;
     readyShown_ = false;

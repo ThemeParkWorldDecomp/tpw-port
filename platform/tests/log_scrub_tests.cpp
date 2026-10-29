@@ -280,12 +280,19 @@ int main() {
             std::ofstream old(logs / "launcher-20261025-101100.log", std::ios::binary);
             old << "data folder: " << home << "/x\nuser: sam on Sams-Test-Computer\nos: macOS 15.1\n";
         }
-        const tpw::LogExportResult first = tpw::ExportLog(logs, downloads, 1793000000);
+        {   // and a game.log beside the logs folder (Windows), written before the scrub too
+            std::ofstream game(root / "game.log", std::ios::binary);
+            game << "game folder: " << home << "/games\n";
+        }
+        const tpw::LogExportResult first = tpw::ExportLogs(logs, downloads, 1793000000, tpw::ExportProgram{});
         Check(first.ok, "export: saved: " + first.message);
-        Check(Slurp(first.file) == "data folder: ~/x\nuser: <user> on <computer>\nos: macOS 15.1\n",
-              "export: scrubbed again: [" + Slurp(first.file) + "]");
+        const std::string exported = Slurp(first.file);
+        Check(exported.find("\ndata folder: ~/x\nuser: <user> on <computer>\nos: macOS 15.1\n") != std::string::npos &&
+                  exported.find("\ngame folder: ~/games\n") != std::string::npos && exported.find("sam") == std::string::npos &&
+                  exported.find("Sams") == std::string::npos && exported.find(home) == std::string::npos,
+              "export: every log scrubbed again: [" + exported + "]");
         Check(Slurp(logs / "launcher-20261025-101100.log").find("sam") != std::string::npos, "export: the original is not changed");
-        const tpw::LogExportResult second = tpw::ExportLog(logs, downloads, 1793000000, &mac);
+        const tpw::LogExportResult second = tpw::ExportLogs(logs, downloads, 1793000000, tpw::ExportProgram{}, &mac);
         Check(second.ok && Slurp(second.file).find("user: sam on Sams-Test-Computer") != std::string::npos,
               "export: an identity can be given (this one does not know the test's names)");
 

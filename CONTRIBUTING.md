@@ -49,6 +49,41 @@ Players set it in the launcher or a game menu, never by editing a .sam file.
 - Naming order: Sim Theme Park (the US edition) is always named before Theme Park World (the European one) wherever
   the two appear together: screens, options, texts, logs, docs. The launcher's tiles follow it, US on the left.
 
+## Before a pull request
+
+The game's files are the retail discs' (the US Mac CD, the European PC CD and the Gold bonus CD), and you need your own
+copy of them in the launcher's data folder to test a change. This repository never holds them, a link to them, or the
+place a copy came from, and a pull request never shows where yours are.
+
+A pull request that changes the game or the launcher (anything the game or the launcher runs: overrides/, platform/,
+launcher/, the build, the installers) is made only after both of these, on your own computer:
+
+1. The verifier shows 100% for US, European and Gold. It is the launcher's own check of the data folder, and the playtest
+   runs it first: US 770/770, European 862/862 and Gold 36/36 required files. With less, the playtest refuses to play.
+2. The playtest runs on all three editions and every one passes: `sh devtools/playtest.sh` on a Mac,
+   `powershell -ExecutionPolicy Bypass -File devtools\playtest.ps1` on Windows. It plays each edition through the first
+   park (Gold from the launcher window's Play) and prints one result line each.
+
+The pull request shows the verifier's line and the three result lines (the template has the place), and nothing else about
+the data. The playtest finds the data folder in the environment variable `TPW_PLAYTEST_DATA`, or on the first line of the
+file `.playtest-data` in the root of your clone (git ignores it). That location is a local setting: never commit it, never
+put it in a pull request, an issue or a commit message. With neither set the playtest says it skipped and tested nothing;
+a skipped run is not a pass, so a pull request cannot cite it.
+
+Exempt: a pull request that only changes documents, CI or other files the game and the launcher never run (this file, the
+changelog, the issue and pull request templates, workflows). It says "docs or CI only" where the template asks for the
+playtest. The launcher is never exempt. CI builds every pull request as usual and never sees the game's files.
+
+Linux: the port does not run on Linux yet, so there is no playtest there. A pull request made on Linux writes "Linux, no
+playtest" where the template asks for the playtest lines, and a maintainer runs the playtest on a Mac before it is merged.
+Everything else here still applies: no game files and no data location in the pull request.
+
+CI also refuses a pull request that adds a link to the game's files: a download or item link of an archive site, a web
+address ending in a disc image, a magnet or torrent link, a file host's share link, or a file named like a disc image.
+It refuses what names a particular download too: an MD5, a long hash beside the word disc, image, zip, download or item, a
+Redump id, the name of a game-download site, an item's title, or the address of the archive site itself
+(`devtools/check_no_game_data.py` lists the patterns). Say "the discs" and "the game's files", and name no source.
+
 ## Playable offline
 
 The game is played offline, and the port keeps it that way:
@@ -72,6 +107,48 @@ CI checks this on every push and pull request (.github/workflows/build.yml):
 - On the Macs, the tests run a second time with the network blocked (sandbox-exec), and `tpw_launcher --check-updates`
   must come back at once with no answer and exit 0. There is no Linux build here, and Windows has no simple way to block
   one program's network, so the Windows jobs do not repeat the tests offline.
+
+## The game's own process
+
+The launcher and the game are two processes, and everywhere the system shows running programs (the dock or taskbar,
+the app switcher, the task manager) the one running is named and drawn as itself: the launcher as "STP/TPW Launcher"
+with the launcher's icon, the game the launcher started as "Sim Theme Park" or "Theme Park World" with the game's icon
+(the icon.png of the player's imported disc, or the stand-in until then). Code for another system does the same:
+
+- The launcher window's Play starts the game as a process of its own, from a program named after the game beside the
+  launcher's, with the launcher's arguments and `--play us|eur --from-launcher DIR` (launcher/game_app.h). The launcher
+  keeps its Starting screen up until the game's window is shown, then exits. Only when the game's program cannot be
+  made or started does the game play in the launcher's process, and the log says why.
+- The game's window has the game's name as its title and the game's icon.
+- When the game quits with "Back to the launcher after playing" on, the launcher starts again as a process of its own.
+- The game's program started by itself (pinned, double-clicked) starts the launcher instead.
+- The log says what was done: the launcher's `play: ... handed to ...` and `game app: ...` lines, and the game's own
+  lines on how it named itself.
+- `tpw_launcher --game-app-test us|eur` runs this hand-over with a bare window in place of the game, for CI, which has no
+  discs.
+
+How each system does it:
+
+- macOS: "Sim Theme Park.app" or "Theme Park World.app" beside "STP:TPW Launcher.app" (which the Finder shows as
+  STP/TPW Launcher), made by the launcher with the game's name, an identifier of its own, the game's icon and the
+  launcher's program hard-linked inside, and opened through NSWorkspace. The Dock, Cmd-Tab, Force Quit and Activity
+  Monitor name it.
+- Windows: "Sim Theme Park.exe" or "Theme Park World.exe" beside tpw_launcher.exe, a copy of tpw_launcher.exe the
+  launcher writes when Play is pressed, whose version resource (FileDescription, ProductName, OriginalFilename) names the
+  game and whose icon is the game's. It is not a hard link: the Task Manager names a process by its program's version
+  resource, which a hard link shares with tpw_launcher.exe, and the build cannot hold the game's icon, which comes from
+  the player's disc. It is written again only when tpw_launcher.exe or the icon changes. The game's process sets an
+  AppUserModelID of its own (org.tpw-port.launcher.stp or .tpw) and puts it on its window, so the taskbar gives the game
+  a button of its own with its name and icon; pinned, that button starts the game's program, which starts the launcher.
+  The launcher keeps the ID Windows gives it from tpw_launcher.exe's path, the same as the Start menu shortcut
+  install.ps1 makes. The Task Manager's Processes tab shows "Sim Theme Park" and its Details tab "Sim Theme Park.exe".
+  Started from Explorer, the game's process logs to game.log beside launcher.log.
+- Linux (no build yet): the process named after the game (a program file named after it, as on Windows, so ps and the
+  system monitor show it); the window's WM_CLASS, and on Wayland its app_id, the game's own (SDL_HINT_APP_ID, set before
+  SDL's video starts), matching the StartupWMClass of a .desktop file the install script writes for the game (on Wayland
+  the .desktop file's name is the app_id), with the game's name and icon, so the dock and the app switcher keep it apart
+  from the launcher; _NET_WM_NAME the game's name (SDL's window title) and _NET_WM_ICON the game's icon
+  (SDL_SetWindowIcon).
 
 ## Versions and releases
 

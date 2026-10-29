@@ -9,6 +9,8 @@
 #include <ctime>
 #include <filesystem>
 #include <memory>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "theme.h"
@@ -186,7 +188,7 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
         return WindowOutcome::Failed;
     }
     SDL_SetWindowMinimumSize(window, metric::kMinWidth, metric::kMinHeight);
-    if (placement.windowIcon != nullptr) placement.windowIcon(window, backend.DataFolder().c_str());
+    if (placement.windowIcon != nullptr) placement.windowIcon(window, backend.DataFolder().c_str(), false);
     if (placement.display != 0)
         SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED_DISPLAY(placement.display),
                               SDL_WINDOWPOS_CENTERED_DISPLAY(placement.display));
@@ -233,6 +235,7 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
         FrameDumper& dumper = *dumperOwned;
         int drawn = 0;
         bool importing = backend.Running();
+        std::string iconFolder = backend.DataFolder();   // the data folder whose icon the window has
         while (running) {
             PushClicks(window, placement, drawn + 1);
             // Rest while nothing moves; wake for events (file dialogs push one when they close).
@@ -252,10 +255,14 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
             SDL_GetWindowSize(window, &w, &h);
             float density = SDL_GetWindowPixelDensity(window);
             ui.Frame(std::min(dt, 0.1f), static_cast<float>(w), static_cast<float>(h), density > 0 ? density : 1);
-            // An import that ended may have written the game's icon (icon.png): the Dock or taskbar icon follows at once.
+            // An import that ended may have written the game's icon (icon.png), and another data folder has its own: the
+            // Dock or taskbar icon follows at once.
             const bool nowImporting = backend.Running();
-            if (importing && !nowImporting && placement.windowIcon != nullptr) placement.windowIcon(window, backend.DataFolder().c_str());
+            std::string folderNow = backend.DataFolder();
+            if (((importing && !nowImporting) || folderNow != iconFolder) && placement.windowIcon != nullptr)
+                placement.windowIcon(window, folderNow.c_str(), true);
             importing = nowImporting;
+            iconFolder = std::move(folderNow);
             dumper.NextFrame();
             dumper.Dump(renderer);
             const bool play = ui.TakePlay(choice);

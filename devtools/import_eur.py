@@ -9,12 +9,12 @@ import_originals.py writes (which also runs this import when the ISO is among th
 ROOT/game-eur, with --mac "ROOT/extracted/disc-hfs/Theme Park Data": ROOT/extracted is read-only there, and devtools/tpw
 looks in ROOT/game-eur/tpw-eur first, then ROOT/extracted/tpw-eur.
 
-The original is the UK/European PC CD, an ISO 9660 image with Joliet names, found by its size and MD5. Either of the
-two pressings of EUR_ISOS below will do, as the raw dump of the Redump project (2352-byte sectors: 66484
-ThemeParkWorld.img, 9465 TPWORLD.bin) or as one of the two earlier cooked ISO images (2048-byte sectors). They differ
-only in the copy protection's files, which are not read, so all four write the same folder. The older first pressing
-(Redump 66100, TPWORLD.mdf) holds version 1.0 data and is refused. The game code is the same for both editions and
-only the data differs, so the folder is the PC disc's Data/ tree with the edition's own Language/English, splash, legal
+The original is the UK/European PC CD, an ISO 9660 image with Joliet names, found by its content (looks_like_eur), never
+by its name, size or a hash of the file. The image may be raw (2352-byte sectors) or cooked (2048-byte sectors). The 2000
+and 2001 pressings differ only in the copy protection's files, which are not read, so they write the same folder. The
+older first pressing holds version 1.0 data, which is not the data the port reads: the SHA-256 list at the end of this
+script finds the difference, and the import stops with the list of files that differ. The game code is the same for both
+editions and only the data differs, so the folder is the PC disc's Data/ tree with the edition's own Language/English, splash, legal
 and welcome art, speech (the British advisor) and logos, and the US Mac data only where the PC disc cannot supply a file
 the Mac code reads:
 
@@ -48,25 +48,6 @@ import struct
 import sys
 import tempfile
 
-# (key, MD5, size, description, required), in import_originals.py's ORIGINALS form; the raw dumps first, then the
-# cleaner ISO (the 2001 one is a 2008 rebuild with an added Crack folder)
-EUR_ISOS = [
-    ("eur", "cd1cc4c33c1bd10673b855edd4b9e0f2", 781710720,
-     "Theme Park World, the European PC CD, Redump 66484, ThemeParkWorld.img (optional, for tpw --eur)", False),
-    ("eur", "3c6590e438b3134e9208b407cc970d33", 779278752,
-     "Theme Park World, the European PC CD, Redump 9465, TPWORLD.bin (optional, for tpw --eur)", False),
-    ("eur", "df7d864394ad46860984be60f2a3e448", 659881984,
-     "Theme Park World, the UK/European PC CD of November 2000 (optional, an ISO image; for tpw --eur)", False),
-    ("eur", "50ffee97f9abc37e751f36d7239caea4", 661501952,
-     "Theme Park World, the UK/European PC CD of June 2001 (optional, an ISO image; for tpw --eur)", False),
-]
-
-# Images that look like the European CD but are not accepted: (MD5, size, why)
-REFUSED = [
-    ("f2978f6131b5db9e8720512824d26a98", 712674816,
-     "Redump 66100, the 1999 first pressing (TPWORLD.mdf): version 1.0 data, not the data the port reads"),
-]
-
 EDITION = "tpw-eur"
 GAME_FOLDER = "Theme Park Data"
 MAC_DEFAULT = os.path.join("disc-hfs", "Theme Park Data")
@@ -90,14 +71,6 @@ def portable(name):
 
 def sha256_of(path):
     h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def md5_of(path):
-    h = hashlib.md5()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
@@ -209,6 +182,24 @@ class Iso:
                     raise EurImportError("the image ends inside %s" % dest)
 
 
+def looks_like_eur(path):
+    """Whether PATH is an ISO 9660 image (raw or cooked, with Joliet names) shaped like the European PC CD: a Data folder
+    and the installer's two English folders. Only the volume's directories are read, so it is quick; the SHA-256 list
+    decides whether the files in it are the right ones."""
+    try:
+        iso = Iso(path)
+    except (EurImportError, OSError, struct.error, IndexError, UnicodeDecodeError):
+        return False
+    try:
+        data = iso.find("Data")
+        return (data is not None and bool(data[2]) and iso.find("English/Meshes/English") is not None
+                and iso.find("English/Filter/English") is not None)
+    except (EurImportError, OSError, struct.error, IndexError, UnicodeDecodeError):
+        return False
+    finally:
+        iso.close()
+
+
 # ---- building the tree
 
 def _folded(top):
@@ -282,13 +273,9 @@ def _write_tree(iso, mac_data, data):
 
 def build_eur(iso_path, extracted_dir, mac_game_dir=None, replace=False):
     """Write extracted_dir/tpw-eur/Theme Park Data from the UK PC ISO and the US Mac game folder; return its path."""
-    size = os.path.getsize(iso_path)
-    for md5, s, why in REFUSED:
-        if s == size and md5_of(iso_path) == md5:
-            raise EurImportError("%s is %s" % (iso_path, why))
-    if not any(s == size and md5_of(iso_path) == md5 for _, md5, s, _, _ in EUR_ISOS):
-        raise EurImportError("%s is not the European PC CD (%s)"
-                             % (iso_path, " or ".join("size %d, MD5 %s" % (s, md5) for _, md5, s, _, _ in EUR_ISOS)))
+    if not looks_like_eur(iso_path):
+        raise EurImportError("%s is not the European PC CD (an ISO 9660 image with a Data folder and the installer's "
+                             "English/Meshes/English and English/Filter/English folders)" % iso_path)
     mac_game_dir = mac_game_dir or os.path.join(extracted_dir, MAC_DEFAULT)
     mac_data = os.path.join(mac_game_dir, "data")
     if not os.path.isdir(mac_data):
@@ -306,7 +293,8 @@ def build_eur(iso_path, extracted_dir, mac_game_dir=None, replace=False):
             iso.close()
         bad = check(stage)
         if bad:
-            raise EurImportError("%d files differ from the list: %s" % (len(bad), ", ".join(bad[:10])))
+            raise EurImportError("%d files differ from the list (an image of another pressing, such as the first one, "
+                                 "holds other data and is not read): %s" % (len(bad), ", ".join(bad[:10])))
         if os.path.exists(final):
             shutil.rmtree(final)
         os.makedirs(os.path.dirname(final), exist_ok=True)
@@ -347,8 +335,7 @@ def _expected():
 
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--iso", help="the European PC CD image: Redump 66484 (ThemeParkWorld.img) or 9465 (TPWORLD.bin), "
-                    "or one of the two earlier ISOs")
+    ap.add_argument("--iso", help="the European PC CD image (raw or cooked ISO 9660)")
     ap.add_argument("--to", metavar="DIR", help="the folder to write tpw-eur into: WORK/extracted in a fresh setup, "
                     "ROOT/game-eur in the monorepo")
     ap.add_argument("--mac", metavar="DIR", help="the US Mac game folder (default DIR/disc-hfs/Theme Park Data)")

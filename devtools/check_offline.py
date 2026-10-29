@@ -45,10 +45,11 @@ EXEMPT_PREFIXES = ("launcher/net/",)
 # The original game's online layer: the TPW Online world, its e-mail and its FTP client, translated as the original had
 # them, the port's stand-in for the Winsock calls they make (platform/winsock.cpp, over the host's sockets) and the unit
 # tests of that code. They stay as they are: the translation keeps the original's code whole, and none of it runs
-# unless the player picks the online world in the game's lobby, which the port does not offer (gPortOnlineWorldGone
-# keeps the lobby's globe on the islands; the servers are long gone). Should it run anyway, a failure shows the game's
-# own message and nothing else changes. The check still reads these files, so that the list holds them and no more: a
-# new file that reaches the sockets is a finding. Paths as listed (see normalized()).
+# unless the player picks the online world in the game's lobby (the globe), where it stops at the login: that goes
+# through the Mac's online library, which the port answers with "not connected" at once (platform/online_library.cpp:
+# no name lookup, no socket; the servers are long gone), so the game shows its own cannot-connect message and nothing
+# past the login runs. The check still reads these files, so that the list holds them and no more: a new file that
+# reaches the sockets is a finding. Paths as listed (see normalized()).
 ORIGINAL_ONLINE = {
     "platform/winsock.cpp", "include/FS_Online.h", "include/email.h",
     "src/game/online/Connection.cpp", "src/game/online/EmailMessage.cpp", "src/game/online/FS_Online.cpp",

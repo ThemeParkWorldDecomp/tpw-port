@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.1.1 (not released yet)
+
+### Bug Fixes
+
+#### Launcher
+
+- Fixed a bug where some .mdf disc images were read as empty when adding game data.
+- Fixed the app icon staying as the placeholder after adding your game. It now changes to the game's icon right away, on Mac and Windows. (Thanks slappyhead, Fladfisk and @samueleagle91)
+- Fixed an error on Windows when rebuilding or updating the launcher in the same folder. (Thanks @samueleagle91)
+- Mac: fixed a second Dock icon that kept bouncing when the launcher was opened from Applications, Launchpad, Spotlight or the Dock.
+- Mac: fixed "Keep in Dock" so the kept icon is the one that opens the launcher.
+- Export logs now includes the game's log and the last few runs, so the log of a crash is no longer left out.
+
+#### Game
+
+- Fixed a dark line along the edge of every ground tile when Ground blending is off. (Thanks @samueleagle91)
+- Fixed wrong heights, and a possible crash, when coaster track was stacked on a pylon. (Thanks @samueleagle91)
+- Fixed a crash when pressing Backspace while building a coaster. (Thanks BMCTV, pulpmetal and @samueleagle91)
+- Fixed the park map sliding the park out of view when it opened on a wide screen. (Thanks Addable13, Pixus and @samueleagle91)
+- Fixed the park map being drawn small on large screens, where the red litter marks could cover the whole map (for example at a game size of 3840 x 2160). The map now fills its frame as it does at 1024 x 768. (Thanks Addable13)
+- Fixed staff freezing while they clean, repair, entertain or catch people, visitors stuttering as they walk, and lost balloons staying on the paths instead of popping. (Thanks @samueleagle91)
+- Fixed research not moving on to the next project when one finished. Parks saved with stuck research now move on when loaded. (Thanks @samueleagle91)
+- Fixed Instant Action games showing the research, loan, entry price and finance controls after you switch player, and Full Simulation games hiding them. (Thanks @samueleagle91)
+- Fixed go-karts dropping from the sky or sinking on some go-kart tracks and on the jump, tunnel and teleport upgrades, and a crash with go-karts on Wonder Land's bee jump. (Thanks pulpmetal and @samueleagle91)
+- Fixed most particle effects not showing, such as the gold star over a sideshow when a visitor wins, the sparkles that fill a ride while it is being built (it showed as a black hole), smoke and splashes. (Thanks a pretty cool guy, Pixus and pulpmetal)
+- Windows: fixed parks with certain characters in their name (such as ? or *) failing to save. (Thanks @samueleagle91)
+- Fixed player names in Hebrew, Japanese, Korean or Chinese coming back as question marks after you quit and start the game again. Wrapped lines of Hebrew text are also no longer drawn one space out of place.
+
+### New Features
+
+#### Launcher
+
+- Play in other languages: the launcher now keeps every language on your discs (English, American, French, German, Danish, Swedish, Spanish, Italian, Dutch, Polish, Japanese, Korean, and Simplified and Traditional Chinese), and Settings has a new Language option for each game that sets the game's text and the advisor's voice.
+- Hebrew: the launcher also takes the Hebrew release of the game (its zip or its installed game folder), and Hebrew can be chosen in the Language option. (Thanks Itay)
+- A new --verify option rechecks your game data and lists which languages are available.
+- Windows: while you play, the taskbar and Alt+Tab show Sim Theme Park or Theme Park World with the game's icon.
+- New Visitor looks option in Settings, from the original game's own options: choose how many kinds of visitor walk around your park (2, 4, 6 or 8). Default keeps the game's choice for your detail level. (Thanks @samueleagle91)
+- New Stereo panning option in Settings, off by default: sounds in the park play louder in the speaker on their side of the camera. (Thanks @samueleagle91)
+
+#### Game
+
+- The globe button in the lobby works again. It shows the online world's globe and login screen. The online service closed long ago, so logging in shows the game's own "cannot connect" message.
+
 ## 0.1.0 (2026-10-27)
 
 ### Bug Fixes

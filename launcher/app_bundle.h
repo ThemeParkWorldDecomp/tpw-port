@@ -10,7 +10,21 @@
 // (that run, or the .app opened from the Finder or kept in the Dock) it runs as it is. The game itself plays from a
 // bundle of its own beside it, "Sim Theme Park.app" or "Theme Park World.app", made the same way by the window's Play
 // (launcher/game_app.h); one of those opened without --play (double-clicked in the Finder) runs the launcher from the
-// launcher's own bundle, as the bare program does.
+// launcher's own bundle, as the bare program does. On Windows the launcher is tpw_launcher.exe as it is (the taskbar and
+// the Task Manager name it after its version resource, "STP/TPW Launcher"), and the game's program beside it, "Sim Theme
+// Park.exe" or "Theme Park World.exe", started without --play hands over to it the same way (port_CONTRIBUTING.md,
+// "The game's own process").
+//
+// The installer's application, "STP:TPW Launcher.app" in /Applications (or ~/Applications; install.sh, THE
+// APPLICATION), has as its program a symbolic link to build/tpw_launcher. Opened from the Finder, Launchpad, Spotlight
+// or the Dock, macOS starts the bare program through that link as that application: the Dock's tile is the one in
+// Applications (its place, its icon, "Keep in Dock"), and the process checks in as it, so the tile stops bouncing and
+// the window comes to the front. That run must not go on from the bundle beside the program: an execv into another
+// application would be a second one with the same identifier, a second tile (the first bouncing on), which is what the
+// installer's shell-script program did until 0.1.1. So the bare program asks macOS which application it was opened as
+// (NSRunningApplication's bundleURL) and, when that is an application whose program is a link to it (AppRunsProgram),
+// runs on as it is, in that application's name. It tells the game it starts (game_app.h) through TPW_LAUNCHER_APP, so
+// that "Back to the launcher after playing" opens that application again rather than the bundle in build/.
 #pragma once
 #include <string>
 #include <vector>
@@ -18,9 +32,12 @@
 namespace tpw::launcher {
 
 // macOS, outside a bundle, for a run that opens a window: makes or refreshes the bundle beside the program and runs the
-// program from it; returns only when it could not (`note` says why; the run goes on as it is). Inside a bundle already,
-// for a run with none of a window's work (--version, --help, --check-updates, --import), or not on macOS, returns at
-// once with `note` empty. On success the run that follows logs the note it left in TPW_APP_BUNDLE_NOTE (TakeBundleNote).
+// program from it; returns only when it could not (`note` says why; the run goes on as it is), or when macOS opened the
+// program as the installer's application (above; `note` says so). Inside a bundle already, for a run with none of a
+// window's work (--version, --help, --check-updates, --import, --verify), or not on macOS, returns at once with `note`
+// empty. On success the run that follows logs the note it left in TPW_APP_BUNDLE_NOTE (TakeBundleNote).
+// On Windows, from the game's program without --play, starts tpw_launcher.exe with this run's arguments and exits
+// (game_app.h HandOverToLauncher); returns only when it could not.
 bool RunFromAppBundle(int argc, char** argv, std::string& note);
 // The note RunFromAppBundle's execv left for the run that followed, once; empty when there was none.
 std::string TakeBundleNote();
@@ -31,6 +48,13 @@ std::string ProgramFolder();
 
 #if defined(__APPLE__)
 inline constexpr const char* kLauncherBundleName = "STP:TPW Launcher.app";   // the Finder shows "STP/TPW Launcher.app"
+// The environment variable that holds the application the launcher runs as when that is the installer's (above): set
+// by RunFromAppBundle for such a run, and taken out for every other launcher run, so that only a game this run
+// started inherits it.
+inline constexpr const char* kLauncherAppVariable = "TPW_LAUNCHER_APP";
+
+// The installer's application this launcher runs as (TPW_LAUNCHER_APP), or empty.
+std::string LauncherApp();
 
 // The program's own path, with links resolved; empty when unknown.
 std::string ExecutablePath();

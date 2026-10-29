@@ -228,6 +228,8 @@ void DrainLog() {
     if (gLogPipe != nullptr) PumpLog(*gLogPipe, true);
 }
 
+bool LoggingToFile() { return gLogPipe != nullptr; }
+
 bool LogToFile(const std::string& path) {
     std::wstring wide(static_cast<size_t>(MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0)), L'\0');
     if (wide.empty() || MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, wide.data(), static_cast<int>(wide.size())) == 0)

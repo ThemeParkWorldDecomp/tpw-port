@@ -1,6 +1,6 @@
 // widgets.h: the launcher screen's widgets, immediate mode: each frame the screen code calls them in drawing order and
-// they draw themselves and report clicks. About eight kinds: panel, button, tile, progress bar, log list, toggle,
-// segmented switch and the drop field, plus badges, a notice and what scrolling needs (an offset the wheel moves, a
+// they draw themselves and report clicks. About nine kinds: panel, button, tile, progress bar, log list, toggle,
+// segmented switch, drop-down and the drop field, plus badges, a notice and what scrolling needs (an offset the wheel moves, a
 // clip and a bar). Hover and press move through damped springs, which gives buttons and tiles their bouncy hover.
 // Everything is in points (draw.h).
 #pragma once
@@ -87,6 +87,15 @@ public:
     // Side by side choices; returns true when the selection changed.
     bool Segmented(const std::string& id, const Rect& r, const std::vector<std::string>& options,
                    const std::vector<bool>& enabled, int& selected);
+    // A drop-down's field: the chosen option's `label` and a chevron, which turns over while `open`. Returns true when it
+    // was clicked (the screen code opens or closes its list, DropList).
+    bool Dropdown(const std::string& id, const Rect& r, std::string_view label, bool open, bool enabled = true);
+    // A drop-down's open list, for the field `field`: a row an option, `selected` ticked, below the field or above it
+    // when there is more room there, kept inside `bounds`. Drawn over everything else, last. Returns true when a row was
+    // chosen (`selected` is its index); `close` is set when the list is done: a row was chosen, or the button went down
+    // outside it, or the wheel moved. `rows`, when given, gets where each row was drawn.
+    bool DropList(const std::string& id, const Rect& field, const Rect& bounds, const std::vector<std::string>& options,
+                  int& selected, bool& close, std::vector<Rect>* rows = nullptr);
     // The big dashed field the player drops discs on, its icon's top at `iconTop`; `dropHover` while a drag is over it.
     void DropField(const std::string& id, const Rect& r, bool dropHover, float iconTop, bool icon = true);
     void DrawBadge(Badge badge, float cx, float cy, float radius, float fraction);

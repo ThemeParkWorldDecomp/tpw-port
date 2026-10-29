@@ -12,6 +12,8 @@
 #include <cstdio>
 // TPW_PORT_FIX smallres CText::SetRez | Mac: no UI header | Port: UI_Base.h for gUIUnitWidth, gUIRealScreenHeight and UI_PillarboxWidth | Why: the font group on a wide screen below; contributed by samueleagle91 (tpw-port PR #29)
 #include "UI_Base.h"
+// TPW_PORT_FIX oldtables CText::Init | Mac: the tables and fonts by the ids the 2.04b3 program knows, as the language's files give them | Port: a language of the older build (include/platform/old_text_tables.h, platform/old_text_tables.cpp) gets the UITEXT string and the CHAT_COMMANDS strings the later build added, and the fonts its ResIdx.dat lacks (the four DATE fonts), from the edition's own language, English or American; the files stay as the disc has them | Why: Spanish, Dutch, Italian and Polish came only on discs made for an earlier program (the Chinese discs' tables too): with them every UITEXT string from 207 on was the one before it (the park's date showed "$", the entry price "-$"), and the game stopped loading the fonts
+#include "platform/old_text_tables.h"
 
 // Text.cpp: CText methods at 0x1015be6c..0x1015ea58 and __sinit_Text_cpp at 0x1015ea80.
 // CSkyObjects and CSaveLoadHeader::Serialise belong to other files and are left out.
@@ -108,6 +110,11 @@ int32_t CText::Init() {
             return 0;
         }
     }
+    // oldtables (at the top of the file): an older build's UITEXT and CHAT_COMMANDS made the later build's, with the
+    // strings it added from the edition's own language, and with its ResIdx.dat, the fonts by that language's.
+    for (uint32_t i = 0; i < 21; ++i)
+        OldTextTable(mResources, &mResourcePointers[i + 2], kTables[i].id, kTables[i].table);
+    const bool oldIndex = OldTextIndex(mResources);
     int32_t group;
     const int32_t override = gResolutionBalance.mValues[1].mInteger;
     if (override > 0) group = override == 1 ? 0 : override == 2 ? 1 : override == 3 ? 2 : 3;
@@ -117,12 +124,16 @@ int32_t CText::Init() {
     }
     // The original also has a separate load and failure path for each font.
     for (int32_t i = 0; i < 13; ++i) {
+        // oldtables: with an index of the older build, each font by the name the edition's own language's index gives
+        // it.
+        if (oldIndex && OldTextFont(mResources, &mFonts[group * 13 + i].mFont, kFonts[group][i])) continue;
         if (!mResources.GetResource(&mFonts[group * 13 + i].mFont, kFonts[group][i]).Succeeded()) {
             LoadError("Font");
             TRACE(" Error: Unable to load font\n");
             return 0;
         }
     }
+    OldTextDone();   // oldtables: the edition's own language closed; what was taken from it keeps its references
     mRenderParams.UseAlphaWriteMode(); // the result is ignored
     mInitialised = 1;
     return 1;

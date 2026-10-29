@@ -49,11 +49,20 @@ The Settings box has these rows:
 - Smooth wheel zoom: off by default, which keeps the original's step zoom. On, the wheel eases the zoom toward the pointer.
 - Varied sounds: on by default, as the PC release plays them: a sound changes between its recordings, volumes and
   pitches. Off is the Mac's way, where each sound plays the same recording all through a launch.
+- Stereo panning: off by default, which plays every sound in the middle, as the original did. On, a sound placed in the
+  park is heard louder in the speaker on its side of the camera, and a little in the other (never in one ear only).
 - Interface size: 100% by default, the original. 85% or 70% shrink the panels so the park shows more, with the panels
   still at the edges of the screen.
-- Graphics: seven options of the original's options files (low.sam, med.sam, high.sam), each Default by default, which
+- Language: one for Sim Theme Park and one for Theme Park World, each the edition's own language by default (American
+  English for Sim Theme Park, English for Theme Park World). The list offers only the languages the data folder holds
+  whole, the ones you imported from your discs; one with some of its speech missing says so, and the edition's own
+  recordings fill in. The choice sets the game's text and the advisor's voice. Japanese, Korean, both Chinese and
+  Hebrew are listed by their English names, as the launcher's fonts cannot draw their own. If a chosen language leaves the data
+  folder, the game plays in the edition's own and the row says so.
+- Graphics: eight options of the original's options files (low.sam, med.sam, high.sam), each Default by default, which
   keeps the value of the game's own graphics quality: view distance (Short, Medium, Long, Max), sky layers (1, 2, 4),
-  cloud shadows, ground blending (Off, 16, 32, 64), texture quality (Low, High), lighting and visitor shadows (Off, On).
+  cloud shadows, ground blending (Off, 16, 32, 64), texture quality (Low, High), lighting and visitor shadows (Off, On),
+  and visitor looks (2, 4, 6, 8: how many kinds of visitor walk around the park).
 - Check for updates: on by default (the one launcher setting that is; see Updates below). Off, the launcher never asks.
 - Check again: rehashes every file.
 
@@ -82,8 +91,8 @@ The game itself never needs the internet: everything plays offline.
   Arm PC needs Windows 11), and about 2.5 GB of free space.
 - Your own copy of the game:
   - The US Mac CD gives Sim Theme Park.
-  - The Mac CD plus the European PC CD give Theme Park World too. Only the 2000 pressings of the PC CD work (Redump
-    66484 and 9465), and the 1999 pressing (Redump 66100) is refused.
+  - The Mac CD plus the European PC CD give Theme Park World too. Only the later pressings of the PC CD work (2000
+    and after); the 1999 first pressing holds version 1.0 data and is refused.
   - The PC Gold bonus CD adds its Gold bonus rides to either edition: 18 new rides and newer copies of 17 others, laid
     over the game's files when you play (the Gold Edition switch on each play tile turns them off). A park saved
     with a Gold ride built needs the switch on: with it off, the game refuses the park as the original does when a
@@ -92,7 +101,7 @@ The game itself never needs the internet: everything plays offline.
 
 Your checked game files and your saves live in `~/Library/Application Support/STP-TPW Launcher` on a Mac and in
 `%APPDATA%\STP-TPW Launcher` on Windows. `make clean` and `build.cmd clean` never touch that folder. Each run's log goes to its logs folder
-(launcher-YYYYMMDD-HHMMSS.log, the 10 most recent runs kept; the About box's Show logs button opens it with the newest log selected, and its Export logs button saves the newest to your Downloads folder), and
+(launcher-YYYYMMDD-HHMMSS.log, the 10 most recent runs kept; the About box's Show logs button opens it with the newest log selected, and its Export logs button saves the last few runs' logs, the game's included, as one file in your Downloads folder), and
 `tpw_launcher --version` prints the launcher's version. On Windows the launcher has no console: what it prints goes to
 launcher.log in that folder too, unless its output is redirected (`build\tpw_launcher.exe 2> log.txt`).
 
@@ -154,7 +163,7 @@ on the Mac, bugs included. This repository adds what it takes to play:
   "Playable offline").
 - platform/: the Mac Toolbox, Sound Sprockets, QuickTime and the game's Windows-style shims, done on SDL3, OpenGL and
   CoreText (on Windows, stb_truetype in place of CoreText).
-- overrides/: the port's fixes, 211 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
+- overrides/: the port's fixes, 230 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
   the port does and why. Each file there is built in place of the tpw-decomp file of the same path. Headers are read
   from a copy of tpw-decomp's headers in the build folder with the overridden ones laid over it.
 - mods/: the [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) submodule, for optional changes to how the game plays. It holds no mods yet
@@ -213,16 +222,16 @@ the same folder. A clone of a local folder needs `git -c protocol.file.allow=alw
 
 ### Game data from the command line
 
-The launcher's window is the easy way. devtools/import_originals.py does the same from the command line. It finds the
-originals by their MD5 (any file names), unpacks them and checks every file it writes against the SHA-256 list it
+The launcher's window is the easy way. devtools/import_originals.py does the same from the command line. It finds your
+discs by what is in them (any file names), unpacks them and checks every file it writes against the SHA-256 list it
 carries:
 
-| Original | MD5 |
-| --- | --- |
-| From the US Mac CD (SimThemePark Mac US CD v2.0.1): the zip holding the CD image "Theme Park.toast"; all the US edition needs | f03abce3f375bc72d863cc527749e645 |
-| From the demo and bonus item (ThemeParkWorld Mac Demo and Bonus Stuff): the Bonus Stuff zip; optional, its fonts serve only the platform tests | 1adeba0b0cf5edcc623d44181a321f28 |
-| From the UK PC CD item (ThemeParkWorld PC UK-European CD Bullfrog EA): Redump 66484, ThemeParkWorld.img; optional, for the European (Theme Park World) edition, with the Mac CD zip (devtools/import_eur.py writes extracted/tpw-eur) | cd1cc4c33c1bd10673b855edd4b9e0f2 |
-| From the same item: Redump 9465, TPWORLD.bin; optional, the other European image (either one will do; the two older ISO images, df7d864394ad46860984be60f2a3e448 and 50ffee97f9abc37e751f36d7239caea4, are still accepted) | 3c6590e438b3134e9208b407cc970d33 |
+- The US Mac CD image: a zip holding the disc image ("Theme Park.toast"). All the US edition needs.
+- The European PC CD image (an ISO 9660 image, raw or cooked). Optional, for the European (Theme Park World) edition,
+  with the Mac CD above (devtools/import_eur.py writes extracted/tpw-eur).
+- The Theme Park World Bonus Stuff zip. Optional: its fonts serve only the platform tests.
+
+`--find` only says which of these are in the folder and writes nothing.
 
 It needs Python 3.8 or later. Put the originals in one folder, then from WORK, the folder holding tpw-port:
 
