@@ -11,100 +11,26 @@ To install, follow these instructions. To update, run the same command again or 
 
       curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh
 
-  It needs Apple's command line developer tools. If they are missing, it says so and how to get them, and changes
-  nothing. The launcher goes in `~/Applications/STP-TPW-Launcher/build/tpw_launcher`.
+  The launcher goes in `~/Applications/STP-TPW-Launcher/build/tpw_launcher`.
 - Windows 10 (version 1803 or newer) or 11, 64-bit, in PowerShell:
 
       irm https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.ps1 | iex
 
-  Nothing to install first: a Git on the PATH is used, and a PC without one gets a portable Git (MinGit) fetched into
-  the launcher's own folder, checked against its SHA-256; no winget, no setup program, no Path entry for it. The
-  launcher goes in `%LOCALAPPDATA%\STP-TPW-Launcher\build\tpw_launcher.exe`.
-- Linux (64-bit, x86-64 or AArch64), in a terminal:
+  The launcher goes in `%LOCALAPPDATA%\STP-TPW-Launcher\build\tpw_launcher.exe`.
+- Linux (64-bit x86-64, from 0.2.0), in a terminal:
 
       curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh
 
-  It builds the launcher from its source, as on a Mac. The packages the build needs (a compiler, CMake, Git, Python 3
-  and the development packages SDL builds against, the ones [Building on Linux](#building-on-linux) lists) are
-  installed with your distribution's apt-get, dnf or pacman, and sudo asks for your password once; on another
-  distribution it lists them and changes nothing. The launcher goes in
-  `~/.local/share/STP-TPW-Launcher/build/tpw_launcher`, beside its data folder `~/.local/share/STP-TPW Launcher`.
-
-  To install the release's [Flatpak](https://flatpak.org/setup/) instead (nothing is compiled; any distribution with
-  Flatpak and curl), add `--flatpak`:
-
-      curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh -s -- --flatpak
-
-  It installs `io.github.ThemeParkWorldDecomp.Launcher` for your user, with the freedesktop runtime from Flathub, and
-  its own `themepark` command in `~/.local/bin`. The Flatpak keeps its games, saves and settings in
-  `~/.var/app/io.github.ThemeParkWorldDecomp.Launcher/data/STP-TPW Launcher`.
+  The launcher goes in `~/.local/share/STP-TPW-Launcher/build/tpw_launcher`. For the Flatpak instead, end the command
+  with `sh -s -- --flatpak`.
 
 ### Play after install
 
-Type this in a Terminal (Mac), PowerShell (Windows) or terminal (Linux) window, in any folder:
-
-    themepark
-
-On a Mac it works in every new Terminal window (the first install opens the launcher for you), and the installer
-also puts **STP/TPW Launcher** in your Applications folder, with the game's icon, so you can open it from Launchpad,
-Spotlight or the Dock too. On Windows it works straight away, in the window you installed from too, and the installer
-puts **STP/TPW Launcher** in the Start menu, with the game's icon, so you can open it from there or find it with Search.
-On Linux it works in every new terminal window (the first install opens the launcher for you), and the installer puts
-**STP/TPW Launcher** in your applications menu, with the launcher's icon. `themepark --version` shows the installed
-version. In the Flatpak install `themepark` runs the Flatpak (`flatpak run io.github.ThemeParkWorldDecomp.Launcher`),
-`themepark update` fetches the newest release's installer and runs it with `--flatpak`, and the launcher's options go
-through as on the others (`themepark --windowed`).
-
-### Building on Linux
-
-The one-line installer above does all of this for you. By hand: on a 64-bit Linux (x86-64 or AArch64) with a C++17
-compiler (GCC 13 or clang 18, or newer), CMake 3.20 or newer, Ninja, Python 3 and the development packages SDL needs for
-the window, the keyboard and the sound. On Debian and Ubuntu:
-
-    sudo apt install build-essential cmake ninja-build python3 git \
-        libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxkbcommon-dev \
-        libwayland-dev wayland-protocols libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
-        libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev libudev-dev libibus-1.0-dev
-
-On Fedora (libstdc++-static holds the C++ library the launcher links in):
-
-    sudo dnf install gcc gcc-c++ libstdc++-static make cmake ninja-build python3 git \
-        libX11-devel libXext-devel libXrandr-devel libXcursor-devel libXi-devel libXfixes-devel libXScrnSaver-devel \
-        libxkbcommon-devel wayland-devel wayland-protocols-devel libdecor-devel mesa-libEGL-devel mesa-libGL-devel \
-        libdrm-devel mesa-libgbm-devel alsa-lib-devel pulseaudio-libs-devel pipewire-devel dbus-devel systemd-devel \
-        ibus-devel
-
-On Arch (with the system up to date first, `sudo pacman -Syu`):
-
-    sudo pacman -S --needed gcc make cmake ninja python git pkgconf libx11 libxext libxrandr libxcursor libxi \
-        libxfixes libxss libxkbcommon wayland wayland-protocols libdecor libglvnd mesa libdrm alsa-lib libpulse \
-        libpipewire dbus systemd-libs libibus
-
-Then:
-
-    git clone --branch stable --recurse-submodules https://github.com/ThemeParkWorldDecomp/tpw-port.git
-    cd tpw-port
-    cmake -S . -B build -G Ninja
-    cmake --build build --target tpw_launcher
-    build/tpw_launcher
-
-The first build takes a few minutes. The launcher is one program, build/tpw_launcher, that needs nothing beside it and
-links only the system's C and C++ runtimes: SDL opens the window system (Wayland or X11), the sound system (PipeWire,
-PulseAudio or ALSA) and the graphics driver (Vulkan's loader, or the system's OpenGL) at run time, so the launcher built
-on one distribution runs on another with a glibc as new (the C++ runtime is linked in; `-DTPW_STATIC_RUNTIME=OFF` uses
-the system's instead, as a package would). To update, run `git pull`, `git submodule update --init --recursive` and the
-two cmake lines again. The Makefile works on Linux as on a Mac: `make` builds build/tpw_launcher, `make run` starts it,
-`make test` builds everything and runs the tests, and `make clean` deletes build/. `sh devtools/flatpak.sh` builds the
-launcher as the Flatpak bundle the release hands out (it needs Flatpak, and uses flatpak-builder or the
-org.flatpak.Builder flatpak and the freedesktop SDK from Flathub). Alt+Enter switches between full screen and a window
-while playing.
-
-The game is drawn by the port's own Vulkan renderer (platform/vulkan/), on any Vulkan 1.0 driver. Without a Vulkan
-driver that can draw to the window it is drawn with the system's OpenGL instead, and the log says so. The same happens
-when the only Vulkan driver draws in software (Mesa's lavapipe, SwiftShader) and the system's OpenGL is a graphics
-card's: the game is not drawn on the processor while the card could draw it. `--renderer opengl` (or `renderer=opengl`
-in launcher.ini) asks for OpenGL; `--renderer vulkan` (or `renderer=vulkan`) asks for Vulkan, which then draws with a
-software driver too.
+Open a new window (PowerShell or Terminal) and type `themepark`. The installer also opens the launcher for you when it
+finishes. It also adds **STP/TPW Launcher**, with its icon, to Applications on a Mac, to the Start menu and Search on
+Windows, and to the applications menu on Linux. `themepark --version` shows the installed version. In the Flatpak
+install, `themepark` runs the Flatpak, `themepark update` updates it from the newest release, and the launcher's options
+pass through as usual (`themepark --windowed`).
 
 ### Playing
 
@@ -279,7 +205,7 @@ and the build:
   (libvulkan.so.1) is opened at run time through SDL, with the API's headers vendored (third_party/vulkan), so no Vulkan
   package is needed to build.
 - Without a Vulkan device that can draw to the window, or when its only one draws in software and the system's OpenGL
-  is a graphics card's (Building on Linux above; `--renderer` chooses), the same calls go to the system's OpenGL, which
+  is a graphics card's (Building on Linux below; `--renderer` chooses), the same calls go to the system's OpenGL, which
   SDL opens at run time and whose entry points are taken once a context exists. Nothing of OpenGL is linked either, and
   GLU's one call, gluBuild2DMipmaps, is built there with GLU's own box filter, the one the Vulkan renderer's mip chains
   use too (platform/gfx.h, HalfSizeRGBA).
@@ -324,7 +250,7 @@ a trimmed FFmpeg are built from source with the port (third_party/).
     cmake -S . -B build
     cmake --build build -j8 --target tpw_launcher
 
-On Linux the same four lines build it (see Building on Linux above for the packages SDL needs). On Windows, with your
+On Linux the same four lines build it (see Building on Linux below for the packages SDL needs). On Windows, with your
 own toolchain (llvm-mingw extracted to C:\llvm-mingw, CMake, Ninja and Python 3 on the PATH), the same in PowerShell:
 
     git -c core.autocrlf=false clone --recurse-submodules https://github.com/ThemeParkWorldDecomp/tpw-port.git
@@ -341,6 +267,57 @@ extracted/ folder beside tpw-port, below).
 
 The submodule's URL is relative (../tpw-decomp), so it resolves to tpw-decomp beside tpw-port, on the same server or in
 the same folder. A clone of a local folder needs `git -c protocol.file.allow=always submodule update --init`.
+
+### Building on Linux
+
+The one-line installer above does all of this for you. By hand: on a 64-bit Linux (x86-64 or AArch64) with a C++17
+compiler (GCC 13 or clang 18, or newer), CMake 3.20 or newer, Ninja, Python 3 and the development packages SDL needs for
+the window, the keyboard and the sound. On Debian and Ubuntu:
+
+    sudo apt install build-essential cmake ninja-build python3 git \
+        libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxkbcommon-dev \
+        libwayland-dev wayland-protocols libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
+        libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev libudev-dev libibus-1.0-dev
+
+On Fedora (libstdc++-static holds the C++ library the launcher links in):
+
+    sudo dnf install gcc gcc-c++ libstdc++-static make cmake ninja-build python3 git \
+        libX11-devel libXext-devel libXrandr-devel libXcursor-devel libXi-devel libXfixes-devel libXScrnSaver-devel \
+        libxkbcommon-devel wayland-devel wayland-protocols-devel libdecor-devel mesa-libEGL-devel mesa-libGL-devel \
+        libdrm-devel mesa-libgbm-devel alsa-lib-devel pulseaudio-libs-devel pipewire-devel dbus-devel systemd-devel \
+        ibus-devel
+
+On Arch (with the system up to date first, `sudo pacman -Syu`):
+
+    sudo pacman -S --needed gcc make cmake ninja python git pkgconf libx11 libxext libxrandr libxcursor libxi \
+        libxfixes libxss libxkbcommon wayland wayland-protocols libdecor libglvnd mesa libdrm alsa-lib libpulse \
+        libpipewire dbus systemd-libs libibus
+
+Then:
+
+    git clone --branch stable --recurse-submodules https://github.com/ThemeParkWorldDecomp/tpw-port.git
+    cd tpw-port
+    cmake -S . -B build -G Ninja
+    cmake --build build --target tpw_launcher
+    build/tpw_launcher
+
+The first build takes a few minutes. The launcher is one program, build/tpw_launcher, that needs nothing beside it and
+links only the system's C and C++ runtimes: SDL opens the window system (Wayland or X11), the sound system (PipeWire,
+PulseAudio or ALSA) and the graphics driver (Vulkan's loader, or the system's OpenGL) at run time, so the launcher built
+on one distribution runs on another with a glibc as new (the C++ runtime is linked in; `-DTPW_STATIC_RUNTIME=OFF` uses
+the system's instead, as a package would). To update, run `git pull`, `git submodule update --init --recursive` and the
+two cmake lines again. The Makefile works on Linux as on a Mac: `make` builds build/tpw_launcher, `make run` starts it,
+`make test` builds everything and runs the tests, and `make clean` deletes build/. `sh devtools/flatpak.sh` builds the
+launcher as the Flatpak bundle the release hands out (it needs Flatpak, and uses flatpak-builder or the
+org.flatpak.Builder flatpak and the freedesktop SDK from Flathub). Alt+Enter switches between full screen and a window
+while playing.
+
+The game is drawn by the port's own Vulkan renderer (platform/vulkan/), on any Vulkan 1.0 driver. Without a Vulkan
+driver that can draw to the window it is drawn with the system's OpenGL instead, and the log says so. The same happens
+when the only Vulkan driver draws in software (Mesa's lavapipe, SwiftShader) and the system's OpenGL is a graphics
+card's: the game is not drawn on the processor while the card could draw it. `--renderer opengl` (or `renderer=opengl`
+in launcher.ini) asks for OpenGL; `--renderer vulkan` (or `renderer=vulkan`) asks for Vulkan, which then draws with a
+software driver too.
 
 ### Game data from the command line
 
