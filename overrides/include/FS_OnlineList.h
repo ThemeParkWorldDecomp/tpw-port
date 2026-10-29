@@ -166,6 +166,10 @@ public:
 };
 
 // Unit v5215 (src/game/online/FS_OnlineList.cpp): the city instances, 0x10178414 and 0x10173f98.
+// TPW_PORT_FIX linux CFSOnlineSystemList::~CFSOnlineSystemList | Mac: (none) | Port: the park, city and theme lists' destructor specializations (src/game/online/FS_Online.cpp, FS_OnlineList.cpp) are declared here, as the server and ride lists' are above | Why: each file defines its specialization after the class it derives from has instantiated the destructor, which GCC (the Linux build's compiler) refuses without a declaration first, and clang accepts
+template<> CFSOnlineSystemList<TbPtrList<CFSOnlinePark>, ccParkList>::~CFSOnlineSystemList();
+template<> CFSOnlineSystemList<TbPtrList<CFSOnlineCity>, ccCityList>::~CFSOnlineSystemList();
+template<> CFSOnlineSystemList<TbPtrList<CFSOnlineTheme>, ccThemeList>::~CFSOnlineSystemList();
 template<> void CFSOnlineSystemList<TbPtrList<CFSOnlineCity>, ccCityList>::LoggedInGetList();
 template<> void CFSOnlineSystemList<TbPtrList<CFSOnlineCity>, ccCityList>::CompleteGetList(int32_t error);
 // The Mac calls the list's callback (a function pointer word at 0x1c, its context at 0x20: 32-bit words in the host layout) through

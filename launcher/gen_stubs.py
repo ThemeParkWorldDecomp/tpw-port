@@ -37,6 +37,8 @@ import sys
 DARWIN = sys.platform == "darwin"
 # The WINDOWS parts of this file: Windows port contributed by samueleagle91 (tpw-port PR #1).
 WINDOWS = sys.platform == "win32"
+# Linux (ELF) spells a symbol as COFF does, without Mach-O's underscore: the same thunks serve it (the Linux port).
+LINUX = sys.platform.startswith("linux")
 # Scopes whose functions belong to the platform layer rather than to the game.
 PLATFORM_SCOPES = ("NS_MacDoze::", "SamsUtilities::", "IDirectDraw", "IdxDirectDraw::", "IDirect3D")
 SPECIAL_PREFIXES = ("vtable for ", "typeinfo for ", "typeinfo name for ", "VTT for ", "guard variable for ",
@@ -48,18 +50,22 @@ def run(cmd, text_in=None):
 
 
 def symbols(nm, files):
-    """(undefined, defined) external symbol names, as the object files spell them."""
-    undefined, defined = set(), set()
+    """(undefined, weak, defined) external symbol names, as the object files spell them. The weak ones are the undefined
+    references the linker lets stay so (a declaration with __attribute__((weak)), nm's w or v): nothing defining one, it
+    gets the address zero instead of an error."""
+    undefined, weak, defined = set(), set(), set()
     for f in files:
         for line in run([nm, "-g", f]).splitlines():
             parts = line.split()
             if len(parts) == 2 and parts[0] == "U":
                 undefined.add(parts[1])
+            elif len(parts) == 2 and parts[0] in ("w", "v"):
+                weak.add(parts[1])
             elif len(parts) == 3 and parts[1] not in "Uu":
                 defined.add(parts[2])
                 if WINDOWS and parts[2].startswith("__imp_"):
                     defined.add(parts[2][6:])   # an import library's data: the linker auto-imports the plain name
-    return undefined, defined
+    return undefined, weak, defined
 
 
 def c_name(symbol):
@@ -116,15 +122,17 @@ def main():
     ap.add_argument("inputs", nargs="+")
     args = ap.parse_args()
 
-    undefined, defined = symbols(args.nm, args.inputs)
+    undefined, weak, defined = symbols(args.nm, args.inputs)
     labels = []
-    if WINDOWS:
+    if WINDOWS or LINUX:
         # An asm label in the Mach-O spelling (__asm__("__ZN..."), on a declaration, weak or not) names a C++ symbol
-        # with one underscore more than COFF gives it. Each gets a thunk to COFF's name (label_thunks), which is stood in
-        # for in turn when nothing defines it.
-        labels = sorted(s for s in undefined | defined if s.startswith("__Z"))
+        # with one underscore more than COFF and ELF give it. Each gets a thunk to that name (label_thunks), which is
+        # stood in for in turn when nothing defines it. A weak declaration's label counts too: without its thunk the
+        # linker resolves it to zero, and the first call of it crashes (the static initialiser of
+        # ui_cityLobbyController.cpp, whose string constructor and destructor are reached through weak labels).
+        labels = sorted(s for s in undefined | weak | defined if s.startswith("__Z"))
         undefined = (undefined - set(labels)) | {s[1:] for s in labels}
-    defined |= symbols(args.nm, args.provides)[1]
+    defined |= symbols(args.nm, args.provides)[2]
     needed = sorted(undefined - defined)
     system = SystemLibraries(args.syslib)
     names = [c_name(s) for s in needed]
@@ -345,10 +353,18 @@ def trampolines(functions):
 
 
 def label_thunks(labels):
-    """Windows: a jump under each asm label in the Mach-O spelling to the symbol it means, under COFF's name."""
-    lines = ["__asm__(", '    ".text\\n"']
+    """Windows and Linux: a jump under each asm label in the Mach-O spelling to the symbol it means, under COFF's or
+    ELF's name (x86-64's jmp, AArch64's b). The compiler's preprocessor picks the mnemonic, not this script's host:
+    the Windows on ARM job builds with an x86-64 toolchain under emulation, where the host says arm64."""
+    lines = [
+        "#if defined(__aarch64__) || defined(_M_ARM64)",
+        '#define TPW_THUNK_JUMP "b"',
+        "#else",
+        '#define TPW_THUNK_JUMP "jmp"',
+        "#endif",
+        "__asm__(", '    ".text\\n"']
     for label in labels:
-        lines += [f'    ".globl {label}\\n"', f'    "{label}:\\n"', f'    "    jmp {label[1:]}\\n"']
+        lines += [f'    ".globl {label}\\n"', f'    "{label}:\\n"', f'    "    " TPW_THUNK_JUMP " {label[1:]}\\n"']
     lines.append(");")
     return lines
 
