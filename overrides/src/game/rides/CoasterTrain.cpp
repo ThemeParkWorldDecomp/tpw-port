@@ -389,7 +389,23 @@ void InterpolateCoasterSpline(tag_sCoasterInstance* instance, float position, s3
     tag_sBezierControl* c = sample->mPieceB;
     tag_sBezierControl* b = a->mNext;
     tag_sBezierControl* d = c->mNext;
+    // TPW_PORT_FIX splineend InterpolateCoasterSpline | Mac: the lists are walked to the first control at or past the place, past the last control too, where the next control is a NULL's (its mF08 read from address 8) | Port: the walk stays on the lists: a sample that starts at the last control is walked from the sample before, and a place past the last control is held at it (t 1) | Why: LinearSampleTrack sets mLength from the last control's place and may then move that control 0.001 back, so a place between the two walked off the lists; Mac OS reads address 8 and goes on, the port crashed: the European edition's Shocker (Space Zone) ends its track so, and placing one, or loading a park with one, crashed every time
+    while ((b == nullptr || d == nullptr) && sample != instance->mSamples) {
+        --sample;
+        a = reinterpret_cast<tag_sBezierControl*>(sample->mPiece);
+        c = sample->mPieceB;
+        b = a->mNext;
+        d = c->mNext;
+    }
+    if (b == nullptr || d == nullptr) {   // a track of one control: its point
+        InterpolateCoasterSpline(instance->mSamples, reinterpret_cast<sCoasterTrackParams*>(&instance->mBlock3C), a, a, c, c, 0.0f, point, orient);
+        return;
+    }
     while (b->mF08 < position) {
+        if (b->mNext == nullptr || d->mNext == nullptr) {   // past the last control: held at it
+            position = b->mF08;
+            break;
+        }
         a = b;
         c = d;
         b = b->mNext;
