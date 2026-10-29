@@ -148,11 +148,22 @@ std::string WindowTitle(const std::string& edition, const unsigned char* title) 
     return std::string(reinterpret_cast<const char*>(title + 1), title[0]);
 }
 
+// The window's origin, relative to the display it is on. The game takes a full-screen window's origin for the screen's
+// (0, 0): the logo film is placed at the global (0, MovieTop) and the box converted to local (src/game/GameSys.cpp,
+// Movie.cpp), which holds on a Mac's one screen and not on a desktop whose main display is not at the desktop's top left
+// (the film then lay mostly off the screen, by the display's offset). Every local/global conversion of the platform uses
+// this origin (events, ScreenToClient, GetWindowRect, the cursor), so they stay consistent with each other.
 void WindowOrigin(int32_t& x, int32_t& y) {
     x = y = 0;
     if (gWindowMade) {
         int wx = 0, wy = 0;
         SDL_GetWindowPosition(gWindow.sdl, &wx, &wy);
+        SDL_Rect bounds;
+        const SDL_DisplayID display = SDL_GetDisplayForWindow(gWindow.sdl);
+        if (display != 0 && SDL_GetDisplayBounds(display, &bounds)) {
+            wx -= bounds.x;
+            wy -= bounds.y;
+        }
         x = wx;
         y = wy;
     }
@@ -590,6 +601,20 @@ void SystemTask() {
 }
 
 // ---- macdoze: Win32 window calls ---------------------------------------------------------
+// A position the game gives, back in the desktop's coordinates, where SDL places windows. The game's positions are
+// relative to the window's display, as WindowOrigin and GetWindowRect answer them, and the engine hands GetWindowRect's
+// corner back to MoveWindow as a windowed game starts (src/engine/DirectDraw.cpp): the display's origin is added back
+// so the window stays where it is instead of moving by its display's offset. It is read before the window's size
+// changes, from the display the position was counted from.
+static void DisplayToDesktop(int32_t& x, int32_t& y) {
+    SDL_Rect bounds;
+    const SDL_DisplayID display = SDL_GetDisplayForWindow(gWindow.sdl);
+    if (display != 0 && SDL_GetDisplayBounds(display, &bounds)) {
+        x += bounds.x;
+        y += bounds.y;
+    }
+}
+
 namespace NS_MacDoze {
 
 int32_t ShowWindow(GrafPort* window, int32_t command) {
@@ -628,8 +653,9 @@ int32_t GetClientRect(GrafPort* window, SamsUtilities::URectangle::LongRect* rec
 // the engine's "grow the window until the client area is the display size" sum works out.
 int32_t GetWindowRect(GrafPort* window, SamsUtilities::URectangle::LongRect* rect) {
     if (window != &gWindow || !gWindowMade) return 0;
-    int x = 0, y = 0, w = 0, h = 0;
-    SDL_GetWindowPosition(gWindow.sdl, &x, &y);
+    int32_t x = 0, y = 0;
+    int w = 0, h = 0;
+    tpw::WindowOrigin(x, y);   // (the same origin as every other conversion: relative to the window's display)
     tpw::GameSize(w, h);
     *rect = {x, y, x + w, y + h};
     return 1;
@@ -643,6 +669,7 @@ int32_t MoveWindow(GrafPort* window, int32_t x, int32_t y, int32_t width, int32_
         tpw::SetGameSize(width, height);
         return 1;
     }
+    DisplayToDesktop(x, y);
     SDL_SetWindowSize(gWindow.sdl, width, height);
     SDL_SetWindowPosition(gWindow.sdl, x, y);
     SDL_SyncWindow(gWindow.sdl);
@@ -657,6 +684,7 @@ int32_t MoveWindow(GrafPort* window, int32_t x, int32_t y, int32_t width, int32_
 int32_t SetWindowPos(GrafPort* window, GrafPort* after, int32_t x, int32_t y, int32_t width, int32_t height,
                      uint32_t flags) {
     if (window != &gWindow || !gWindowMade) return 0;
+    DisplayToDesktop(x, y);
     if ((flags & 1) == 0) {
         if (gFit.wanted) {
             tpw::SetGameSize(width, height);
