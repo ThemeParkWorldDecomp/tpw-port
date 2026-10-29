@@ -28,3 +28,6 @@ bool tpw_win_encode(unsigned codePage, const std::u16string& text, std::string& 
 // A host path in the ANSI code page, for the C runtime's narrow fopen (platform/file_handles.cpp): as it is when the code
 // page has its letters, else with the short (8.3) name of its folder. False when neither can be written in it.
 bool tpw_win_narrow_path(const wchar_t* path, std::string& narrow);
+// A file or folder name in the ANSI code page, a letter it lacks as '?' (as Windows' own narrow file calls give it): the
+// conversion std::filesystem::path::string() makes, but one that never throws (platform/code_page.cpp).
+std::string tpw_win_ansi_name(const wchar_t* name);

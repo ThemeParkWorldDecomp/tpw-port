@@ -74,11 +74,14 @@ static void Touch(const fs::path& path, const char* text = "x") {
 }
 
 // Two host paths that name the same entry. On a file system that ignores case a lookup
-// may answer in the caller's spelling instead of the disk's, so paths are compared folded.
+// may answer in the caller's spelling instead of the disk's, so paths are compared folded
+// (ASCII letters only, in the host's own characters: string() throws on Windows for a
+// Hebrew or Japanese name the ANSI code page lacks).
 static bool Same(const fs::path& a, const fs::path& b) {
     auto fold = [](const fs::path& path) {
-        std::string text = path.lexically_normal().string();
-        for (char& c : text) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        auto text = path.lexically_normal().native();
+        for (auto& c : text)
+            if (c >= 'A' && c <= 'Z') c = static_cast<fs::path::value_type>(c - 'A' + 'a');
         return text;
     };
     return !a.empty() && fold(a) == fold(b);
@@ -1412,6 +1415,13 @@ static void TestCodePages(const fs::path& scratch) {
             if (entry.name == "1" + name.bytes && entry.isDirectory) listed = true;
         CHECK(listed);
         CHECK(Same(tpw::FindHostPath(game), config.userDir / "save" / "users" / tpw::HostNameOf("1" + name.bytes)));
+
+        // The language back to a Latin one: the folder is still listed (under a name its code page may not spell) and
+        // another player's lookup walks past it; neither throws.
+        tpw::SetGameCodePage(0);
+        const auto latinListing = tpw::ListGameFolder("save:users");
+        CHECK(latinListing.size() == 1 && latinListing[0].isDirectory);
+        CHECK(tpw::FindHostPath("save:users:1Nobody").empty());
         fs::remove_all(config.userDir / "save");
         tpw::SetGameCodePage(0);
     }

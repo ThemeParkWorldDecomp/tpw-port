@@ -319,8 +319,21 @@ std::filesystem::path HostNameOf(const std::string& gameName) {
 #endif
 }
 
+namespace {
+// The host's own narrowing of a name, for a name the game's code page does not spell. path::string() throws on Windows for
+// a letter the ANSI code page lacks (a Japanese player's folder once the language is a Latin one again), and the listing
+// the game asked for went down with it: there the letter becomes '?', as the PC game's own listings (FindFirstFileA) gave it.
+std::string HostNarrowName(const std::filesystem::path& hostName) {
+#ifdef _WIN32
+    return tpw_win_ansi_name(hostName.c_str());
+#else
+    return hostName.string();
+#endif
+}
+}  // namespace
+
 std::string GameNameOf(const std::filesystem::path& hostName) {
-    if (gCodePage == 0) return hostName.string();
+    if (gCodePage == 0) return HostNarrowName(hostName);
     std::u16string text;
 #ifdef _WIN32
     const std::wstring& native = hostName.native();
@@ -334,7 +347,7 @@ std::string GameNameOf(const std::filesystem::path& hostName) {
 #endif
     Compose(text);
     std::string bytes;
-    return EncodeCodePage(gCodePage, text, bytes) ? bytes : hostName.string();
+    return EncodeCodePage(gCodePage, text, bytes) ? bytes : HostNarrowName(hostName);
 }
 
 }  // namespace tpw
