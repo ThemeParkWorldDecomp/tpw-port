@@ -1,0 +1,56 @@
+# The Linux launcher as a Flatpak (devtools/flatpak.sh builds the bundle; CI's linux job makes the one on the Releases
+# page the same way). The freedesktop runtime brings the C and C++ runtimes, Mesa and the Vulkan loader; the graphics
+# driver of the machine comes through the runtime's GL extensions (the NVIDIA one is fetched to match the driver), and
+# SDL opens the window system (Wayland, or X11 through XWayland), the sound system and the driver at run time, as on any
+# other Linux. The launcher reads and writes its own data folder (the game's files, saves and settings) under the
+# application's own data folder, ~/.var/app/io.github.ThemeParkWorldDecomp.Launcher/data/STP-TPW Launcher, and reads the
+# rest of the home folder and the mounted drives so that a disc, a disc image or a zip can be dropped on it or named to
+# --import from wherever it is.
+app-id: io.github.ThemeParkWorldDecomp.Launcher
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+command: tpw_launcher
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=dri
+  - --share=network   # the once-a-day question to GitHub whether a newer version is out (Settings, Check for updates)
+  - --filesystem=home:ro
+  - --filesystem=xdg-download   # Export logs (the About box) writes the newest log there, for a bug report
+  - --filesystem=/media:ro
+  - --filesystem=/run/media:ro
+  - --filesystem=/mnt:ro
+modules:
+  - name: tpw-launcher
+    buildsystem: simple
+    # The SDK's default flags (its /etc/flatpak-builder/defaults.json) add -Wp,-D_FORTIFY_SOURCE=3 and
+    # -D_GLIBCXX_ASSERTIONS after the compiler's own options, where CMakeLists.txt's -U_FORTIFY_SOURCE cannot undo them,
+    # and the fortified memset aborted while a park loaded (BumperRide.cpp clears the bump world over gColList, see
+    # CMakeLists.txt). The flags here replace the defaults: the same optimisation and debug info, without the two checks.
+    build-options:
+      cflags-override: true
+      cxxflags-override: true
+      cflags: -O2 -pipe -g -fexceptions -fasynchronous-unwind-tables -fstack-clash-protection -fcf-protection
+      cxxflags: -O2 -pipe -g -fexceptions -fasynchronous-unwind-tables -fstack-clash-protection -fcf-protection
+    build-commands:
+      # The README's Linux build, with the runtime's C++ library (the static one is for a launcher that must run
+      # outside its own distribution; here the runtime is the same on every machine).
+      - cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DTPW_STATIC_RUNTIME=OFF
+      - cmake --build build --target tpw_launcher
+      - install -Dm755 build/tpw_launcher /app/bin/tpw_launcher
+      - install -Dm644 flatpak/io.github.ThemeParkWorldDecomp.Launcher.desktop /app/share/applications/io.github.ThemeParkWorldDecomp.Launcher.desktop
+      - install -Dm644 flatpak/io.github.ThemeParkWorldDecomp.Launcher.metainfo.xml /app/share/metainfo/io.github.ThemeParkWorldDecomp.Launcher.metainfo.xml
+      # The icon is the launcher's own, drawn without a window (the stand-in until a game is imported, as on Windows and Macs).
+      - mkdir -p /app/share/icons/hicolor/256x256/apps icon-data
+      - HOME=$PWD /app/bin/tpw_launcher --data "$PWD/icon-data" --write-icon /app/share/icons/hicolor/256x256/apps/io.github.ThemeParkWorldDecomp.Launcher.png
+    sources:
+      - type: dir
+        path: ..
+        skip:
+          - build
+          - build-next
+          - build-prev
+          - .flatpak-builder

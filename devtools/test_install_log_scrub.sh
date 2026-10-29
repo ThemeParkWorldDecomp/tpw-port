@@ -1,6 +1,6 @@
 #!/bin/sh
 # Tests the log scrubber of install.sh (what goes into last-build.log): made-up names only. Run: sh devtools/test_install_log_scrub.sh
-# Needs a Mac or another system with a POSIX awk. Exit 0 when every check passes.
+# Needs a Mac, a Linux or another system with a POSIX awk. Exit 0 when every check passes.
 here=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d "${TMPDIR:-/tmp}/tpw-scrub-test.XXXXXX") || exit 1
 trap 'rm -rf "$work"' EXIT
@@ -68,6 +68,34 @@ expect "debugging info stays" "$got" "-DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 clang 1
 once=$(scrub $H alex studio-mac-4f7q "$H/a /Volumes/X/b /var/folders/aa/bb/c studio-mac-4f7q user=alex /Users/sam/z")
 twice=$(scrub $H alex studio-mac-4f7q "$once")
 expect "scrubbing again" "$twice" "$once"
+
+# Linux: the home is /home/NAME (or /root), removable drives are under /run/media/NAME or /media/NAME, /tmp names no one.
+L=/home/alex
+got=$(scrub $L alex thinkpad-x1 "c++ -I$L/.local/share/STP-TPW-Launcher/source/platform -c a.cpp")
+expect "Linux home folder" "$got" "c++ -I~/.local/share/STP-TPW-Launcher/source/platform -c a.cpp"
+
+got=$(scrub $L alex thinkpad-x1 "-- Build files have been written to: \"$L/.local/share/x y/build-next\"")
+expect "Linux home quoted, with a space after it" "$got" '-- Build files have been written to: "~/.local/share/x y/build-next"'
+
+got=$(scrub $L alex thinkpad-x1 "/home/sam/a, (/home/Sam/b) and -I/home/sam/c /srv/home/sam/d /home/shared/e")
+# shellcheck disable=SC2088  # the ~ is the text
+expect "another account's home where a path begins, as log_scrub.h has it" "$got" "~/a, (~/b) and -I/home/sam/c /srv/home/sam/d /home/shared/e"
+
+got=$(scrub /root root build-box "cmake -S /root/.local/share/STP-TPW-Launcher/source -B /root/x /rootfs/y")
+expect "root's home" "$got" "cmake -S ~/.local/share/STP-TPW-Launcher/source -B ~/x /rootfs/y"
+
+got=$(scrub $L alex thinkpad-x1 "x -o /run/media/alex/USBSTICK/tpw/a.o -o /media/alex/Data/b.o /mnt/media/a/b")
+expect "removable drives" "$got" "x -o /run/media/<user>/<volume>/tpw/a.o -o /media/<user>/<volume>/b.o /mnt/media/a/b"
+
+got=$(scrub $L alex thinkpad-x1 "TMPDIR=/tmp/tpw-icon.ab12CD and /tmp/user/1000 /var/tmp/x")
+expect "the temporary folder stays" "$got" "TMPDIR=/tmp/tpw-icon.ab12CD and /tmp/user/1000 /var/tmp/x"
+
+got=$(scrub $L alex thinkpad-x1 "Linux thinkpad-x1 6.8.0 x86_64, THINKPAD-X1.lan, user: alex, /usr/lib/x86_64-linux-gnu")
+expect "Linux computer and account names" "$got" "Linux <computer> 6.8.0 x86_64, <computer>.lan, user: <user>, /usr/lib/x86_64-linux-gnu"
+
+once=$(scrub $L alex thinkpad-x1 "$L/a /home/sam/b /run/media/alex/D/c /media/alex/E/f /root/g thinkpad-x1")
+twice=$(scrub $L alex thinkpad-x1 "$once")
+expect "scrubbing Linux paths again" "$twice" "$once"
 
 # A second line is appended, not written over the first.
 : >"$work/log"

@@ -5,7 +5,8 @@
 # build that makes a stand-in launcher in a moment (or hangs, or fails, when a case asks). Each case has an empty home
 # folder (profile folder on Windows) of its own; the runner's real one is never written to.
 #
-# The cases (.github/installer-ci/mac.sh and win.ps1 hold them, one function each): a fresh machine; an old clone made
+# The cases (.github/installer-ci/mac.sh, linux.sh and win.ps1 hold them, one function each; common.sh holds what the
+# Mac's and Linux's share): a fresh machine; an old clone made
 # the README's old way, with saves and settings, which must stay byte for byte as it was and be named; the line run
 # again with nothing new (nothing changes) and with a newer release (updates); the launcher's Update button
 # (--update --stage, then --swap-and-launch); a --dev install, then the plain line and --update, which move it to the
@@ -13,14 +14,20 @@
 # machine lacks (a plain message, nothing half-installed, exit not 0); a build that fails; an install stopped in the
 # middle (the one in use keeps working, the next run recovers). After each: themepark works in a new shell, the launcher
 # starts, saves and settings are untouched. The cases are split in groups so that each job stays well under 20 minutes.
+# On Linux the build's packages take the place of the tools a machine lacks (against stand-ins for apt-get and sudo),
+# and the Flatpak install has a case of its own; the linux-distros jobs run the package step for real, as root, in
+# Fedora and Arch containers (dnf's and pacman's lists of the packages), then a few cases there.
 #
 # The `real` jobs make one real build per runner (no stand-in): a local tag on a copy of this checkout, built by the
-# installer the way a player's machine builds it, with no build tools on the PATH. They need the checkout's submodules
-# with their relative addresses (tpw-port's .gitmodules), so they only run in tpw-port.
+# installer the way a player's machine builds it, with no build tools on the PATH (on Linux, with the packages the
+# installer installs itself; linux-real then runs the launcher's Update button's run against a newer tag, a second
+# build). They need the checkout's submodules with their relative addresses (tpw-port's .gitmodules), so they only run
+# in tpw-port or a fork that has tpw-decomp and tpw-mods beside it.
 #
 # The `public` jobs run only by hand (Run workflow, with "public" ticked): the README's one-liner, exactly as a player
 # types it, against the newest real release on GitHub (or main, with public args -Dev / --dev). They need a release to
-# exist.
+# exist. public-linux needs one whose install.sh builds on Linux: until the release after 0.1.0, the newest release's
+# install.sh is for macOS only and says so, so public-linux fails until then.
 name: installer-broad
 
 on:
@@ -36,7 +43,7 @@ on:
         type: boolean
         default: false
       public_args:
-        description: 'Options for the public one-liner (Mac: --dev; Windows: -Dev), or empty for the newest release'
+        description: 'Options for the public one-liner (Mac and Linux: --dev; Windows: -Dev), or empty for the newest release'
         type: string
         default: ''
 
@@ -152,6 +159,87 @@ jobs:
           & .\.github\installer-ci\win.ps1 real
           exit $LASTEXITCODE
 
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        cases:
+          - fresh shells legacy flatpak
+          - rerun updater dev tags
+          - refusals paths packages buildfail interrupt interrupt_first
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: zsh for the shells case, desktop-file-validate for the menu entry
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends zsh desktop-file-utils
+      - name: The driver parses and passes shellcheck
+        shell: bash
+        run: |
+          sh -n install.sh
+          for f in common.sh linux.sh mac.sh; do bash -n ".github/installer-ci/$f"; done
+          shellcheck -s sh install.sh
+          shellcheck -x -s bash -S warning .github/installer-ci/common.sh .github/installer-ci/linux.sh .github/installer-ci/mac.sh
+      - name: Cases ${{ matrix.cases }}
+        shell: bash
+        env:
+          TPW_CI_WORK: ${{ runner.temp }}/tpw-broad
+        run: bash .github/installer-ci/linux.sh ${{ matrix.cases }}
+
+  linux-real:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: One real build by the installer, from a local tag of this checkout, then the Update button's run
+        shell: bash
+        env:
+          TPW_CI_WORK: ${{ runner.temp }}/tpw-broad
+          TPW_CI_SOURCE: ${{ github.workspace }}
+          TPW_CI_VERSION: 0.0.99
+          TPW_CI_UPDATE: 1
+        run: bash .github/installer-ci/linux.sh real
+
+  # Fedora (dnf) and Arch (pacman): the container's root installs the build's packages through the installer itself
+  # (packages_real, and the real build); first only what a player's machine has before it runs the one line (git, curl,
+  # and ps, script and cmp for the driver). On Arch the package lists are refreshed with the system (pacman -Syu) first,
+  # as on a player's up-to-date machine: install.sh never refreshes them by itself (a partial upgrade).
+  linux-distros:
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['fedora:latest', 'archlinux:latest']
+    runs-on: ubuntu-24.04
+    container: ${{ matrix.image }}
+    timeout-minutes: 45
+    steps:
+      - name: What a player's machine has (git and curl), and ps, script and cmp for the driver
+        run: |
+          if command -v dnf >/dev/null 2>&1; then
+            dnf install -y git curl procps-ng util-linux-script diffutils
+          else
+            pacman -Syu --noconfirm --needed git curl procps-ng util-linux diffutils
+          fi
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: The package step for real, then cases
+        shell: bash
+        env:
+          TPW_CI_WORK: ${{ runner.temp }}/tpw-broad
+        run: bash .github/installer-ci/linux.sh packages_real fresh rerun updater dev flatpak
+      - name: One real build by the installer, from a local tag of this checkout
+        shell: bash
+        env:
+          TPW_CI_WORK: ${{ runner.temp }}/tpw-broad-real
+          TPW_CI_SOURCE: ${{ github.workspace }}
+          TPW_CI_VERSION: 0.0.99
+        run: bash .github/installer-ci/linux.sh real
+
   public-mac:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.public }}
     strategy:
@@ -192,3 +280,16 @@ jobs:
           $ErrorActionPreference = 'Continue'
           & .\.github\installer-ci\win.ps1 public
           exit $LASTEXITCODE
+
+  public-linux:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.public }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: The README one-liner against the newest real release
+        shell: bash
+        env:
+          TPW_CI_WORK: ${{ runner.temp }}/tpw-broad
+          PUBLIC_ARGS: ${{ inputs.public_args }}
+        run: bash .github/installer-ci/linux.sh public

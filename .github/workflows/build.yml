@@ -1,6 +1,7 @@
 # Builds the port on every push and pull request: on Windows with build.cmd, the same command a tester runs (every tool
 # fetched into build\tools\, nothing preinstalled used), on an Apple Silicon Mac with make, and on Ubuntu with the
-# README's Linux steps; then runs the tests each build has. The launcher each job builds is kept as the run's artifact.
+# README's Linux steps; then runs the tests each build has. The launcher each job builds is kept as the run's artifact
+# (on Linux also the Flatpak bundle the linux job makes with devtools/flatpak.sh, the file a release hands out).
 #
 # GitHub has no Windows 10 or 11 desktop images. The nearest are its server images: windows-2022 (build 20348, the
 # Windows 10 era's server release) and windows-2025 (build 26100, the same build as Windows 11 24H2; windows-latest).
@@ -203,10 +204,11 @@ jobs:
   # development packages), the shaders checked against their sources, its tests and the renderer test under a virtual
   # screen with Mesa's software Vulkan and OpenGL, then the tests and the update check again with the network blocked
   # (unshare -n: no interface but the loopback). libclang-18-dev is for the platform tests' slicer, mesa-vulkan-drivers
-  # and libvulkan1 for the renderer test (lavapipe and the loader), glslang-tools for the shader check.
+  # and libvulkan1 for the renderer test (lavapipe and the loader), glslang-tools for the shader check. Then the launcher
+  # as the Flatpak bundle, installed, started and installed again by install.sh --flatpak.
   linux:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
@@ -265,6 +267,40 @@ jobs:
         with:
           name: tpw_launcher-linux-x86_64
           path: build/tpw_launcher
+          if-no-files-found: error
+      # The release's Linux download: the launcher as a Flatpak bundle (flatpak/, devtools/flatpak.sh), built against the
+      # freedesktop SDK from Flathub, so that the one file installs on any distribution with Flatpak (install.sh
+      # --flatpak installs it). The runtime and the SDK are cached between runs, under a key that changes with the
+      # manifest, so a manifest that asks for another runtime (or a change to it) fetches it afresh.
+      - name: Cache the Flatpak runtime
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/flatpak
+          key: flatpak-user-${{ runner.os }}-${{ hashFiles('flatpak/io.github.ThemeParkWorldDecomp.Launcher.yml') }}
+      - name: Install Flatpak and flatpak-builder
+        run: |
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder elfutils   # (eu-strip, for flatpak-builder's finish)
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+      - name: Build the Flatpak bundle
+        run: sh devtools/flatpak.sh
+      - name: Install the bundle and start the launcher (--version)
+        run: |
+          flatpak install --user -y --noninteractive --bundle build/*.flatpak
+          flatpak run io.github.ThemeParkWorldDecomp.Launcher --version | tee version.txt
+          grep -F " v$(head -n 1 launcher/VERSION.txt | tr -d '\r')" version.txt
+      # install.sh --flatpak, with the bundle just built in place of the release's download (TPW_INSTALL_BUNDLE) and a
+      # home of its own for the themepark command (TPW_INSTALL_HOME): the command must then run the launcher.
+      - name: install.sh --flatpak installs it and makes the themepark command
+        run: |
+          home=$RUNNER_TEMP/home; mkdir -p "$home"
+          TPW_INSTALL_BUNDLE=$(ls build/*.flatpak) TPW_INSTALL_HOME=$home sh install.sh --flatpak --plain --no-launch | tee install.log
+          tail -n 1 install.log | grep -E "^RESULT ok "
+          "$home/.local/bin/themepark" --version | grep -F " v$(head -n 1 launcher/VERSION.txt | tr -d '\r')"
+      - name: Keep the Flatpak bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: tpw_launcher-linux-x86_64-flatpak
+          path: build/*.flatpak
           if-no-files-found: error
       - name: Keep the build logs
         if: failure()

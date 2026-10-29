@@ -1,14 +1,15 @@
 #!/bin/sh
 # shellcheck disable=SC2317  # the exit after main (last line) is a guard: main always exits by itself
-# Installs or updates the STP/TPW Launcher (tpw-port) on a Mac. It downloads the source and compiles it here.
+# Installs or updates the STP/TPW Launcher (tpw-port) on a Mac or on Linux. It downloads the source and compiles it
+# here.
 #
 #   curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh
 #   curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh -s -- --dev
 #
 # Options (install.ps1 takes the same ones as -Dev, -Dir and so on): see usage below.
 #
-# The folder it makes (DIR, by default $HOME/Applications/STP-TPW-Launcher, which no clone of the repository uses and
-# whose name has no spaces, which make dislikes):
+# The folder it makes (DIR, by default $HOME/Applications/STP-TPW-Launcher on a Mac and ~/.local/share/STP-TPW-Launcher
+# on Linux, which no clone of the repository uses and whose names have no spaces, which make dislikes):
 #   source/          the git clone, with its submodules. It belongs to this script: do not edit it.
 #   build/           the launcher in use (build/tpw_launcher)
 #   build-next/      a new build being made, or made and waiting to be switched in
@@ -21,7 +22,7 @@
 #                    or computer name in it
 #   .tpw-installer   marks the folder as this script's, so that it never writes into a folder that is somebody else's
 # Game files and saves are not in DIR (they are in the launcher's data folder, ~/Library/Application Support/
-# STP-TPW Launcher), and this script never touches them.
+# STP-TPW Launcher on a Mac, ~/.local/share/STP-TPW Launcher on Linux), and this script never touches them.
 #
 # ONE LINE FOR EVERYONE. The same line installs, and run again it updates. Without --dev it always follows the newest
 # release, also on an install made with --dev, which it switches back and says so (the maintainer, 2026-10-25: a player is on main
@@ -41,7 +42,9 @@
 #
 # WHY IT BUILDS FROM SOURCE. A program downloaded from the internet is blocked by macOS (Gatekeeper) and Windows
 # (SmartScreen) unless its maker signed it with a paid certificate. A program the computer compiled itself is not marked
-# as downloaded, so there is nothing to block and nothing to sign. The price is a few minutes of compiling.
+# as downloaded, so there is nothing to block and nothing to sign. The price is a few minutes of compiling. On Linux the
+# same build is made against the distribution's own libraries and updates the same way; the release's Flatpak is the
+# other way to install there (--flatpak, see "Linux: the Flatpak install" further down).
 #
 # WHY NOTHING IS SWITCHED UNTIL THE END (stage, then swap). The launcher in use is DIR/build. A new version is built in
 # another folder, DIR/build-next, and is switched in only after it built and answered --version with the right version.
@@ -70,6 +73,11 @@
 # themepark command this script did not make is never shadowed: the line is then not written and the player is told
 # the full path instead.
 #
+# On Linux the line goes in ~/.profile, which login shells and the desktop session read, and in the files the player's
+# shell reads in a new terminal window, which on Linux is not a login shell: ~/.bashrc for bash (and bash's login file
+# when it is not ~/.profile), ~/.zshrc and ~/.zprofile for zsh. There the line puts DIR/bin on the PATH only when it is
+# not on it already, since a shell can read two of those files (Ubuntu's ~/.profile reads ~/.bashrc).
+#
 # THE APPLICATION. Players also open the game from an icon (the maintainer, 2026-10-25): every install, update and swap puts the
 # application "STP/TPW Launcher" in /Applications (on disk "STP:TPW Launcher.app": a colon in a file's name is what the
 # Finder shows as a slash), so Launchpad, Spotlight, the Finder and the Dock all have it. /Applications belongs to the
@@ -88,6 +96,15 @@
 # by this script on this Mac, never downloaded, so Gatekeeper has nothing to say about it. To remove it, drag it to the
 # Trash (it comes back at the next install or update).
 #
+# THE MENU ENTRY (Linux). The same place on Linux is the applications menu: every install, update and swap writes the
+# desktop entry ~/.local/share/applications/stp-tpw-launcher.desktop ($XDG_DATA_HOME/applications when that is set),
+# which starts DIR/build/tpw_launcher in DIR as the themepark command does, and the launcher's icon beside it in the
+# icon theme's folder for its size (~/.local/share/icons/hicolor/256x256/apps/stp-tpw-launcher.png for the stand-in,
+# 64x64 for the game's own; write_entry below). Its name is not the Flatpak's (io.github.ThemeParkWorldDecomp.Launcher),
+# so the two installs never hide each other's entry, and its TryExec hides it from the menu when the install folder is
+# gone. It is only ever replaced when it is this script's (ENTRY_MARK in it), and the only file deleted outside DIR is
+# this script's own icon in another size's folder, which a menu would otherwise pick over the new one.
+#
 # The launcher itself writes two more bundles, inside DIR/build and nowhere else (launcher/game_app.h): at each Play of
 # its window the game starts as an application of its own, "Sim Theme Park.app" (the US game) or "Theme Park
 # World.app" (the European game), beside the launcher's own "STP:TPW Launcher.app" there, so that the Dock, Cmd-Tab,
@@ -97,7 +114,7 @@
 # check and the switch's wait see a game running from one, as they see the launcher (the same program under another
 # path).
 #
-# SAFETY. No sudo, nothing written outside DIR but that one marked line, the application STP/TPW Launcher in
+# SAFETY. No sudo on a Mac, nothing written outside DIR but that one marked line, the application STP/TPW Launcher in
 # /Applications (or ~/Applications) and, when missing, the folder DIR is in (the default's ~/Applications); the launcher
 # is started at the end, from DIR/build. The only folders deleted are DIR/build-next and DIR/build-prev (with the
 # application bundles the launcher kept inside: its own STP:TPW Launcher.app and the games' Sim Theme Park.app and
@@ -105,12 +122,31 @@
 # scratch folder of the application's icon (mktemp's). Nothing is installed on the Mac: Apple's Command Line Tools
 # must be there already, and the build fetches a CMake into its own folder when needed.
 #
+# LINUX. The same flow, with Linux's checks in place of the Mac's (check_linux): a 64-bit x86 or Arm processor, the
+# distribution (named from /etc/os-release), the free space, and the packages the build needs, which are the one thing
+# installed outside the player's own folders. They are the build workflow's Linux list without its test-only packages,
+# plus the Vulkan loader the launcher opens at run time, under each package manager's names (apt-get, dnf or pacman:
+# PKGS_APT, PKGS_DNF and PKGS_PACMAN below). The ones missing are installed with the package manager in one go: as they
+# are when this runs as root, else through sudo, which asks the player's password once, on the terminal (sudo reads it
+# from /dev/tty, so `curl | sh` can ask). When nothing can ask (the launcher's Update button, whose output is a pipe; no
+# terminal; no sudo), the script prints the exact command to run and stops before anything is made. pacman installs with
+# -S --needed and never refreshes the package lists by itself, since installing against newer lists than the system was
+# updated to (a partial upgrade) can break an Arch system: when the lists are out of date the player is told to update
+# the system first. On a distribution with none of the three package managers the list is printed and the install stops
+# (TPW_INSTALL_PACKAGES=skip in front of sh goes on, once they are installed). The rest is the Mac's: the same folders
+# in DIR (~/.local/share/STP-TPW-Launcher, beside the launcher's data folder ~/.local/share/STP-TPW Launcher, as on
+# Windows the install and data folders differ by the dash), the same options, the same output, the themepark command and
+# the launcher's Update button; THE MENU ENTRY stands for THE APPLICATION.
+#
 # Test hooks (for the maintainers' tests, not for players): TPW_INSTALL_REPO replaces the repository URL,
-# TPW_INSTALL_HOME the folder that holds .zprofile and .bash_profile, TPW_INSTALL_APPS the folder the application goes
-# in (in place of /Applications and the fallback), and TPW_INSTALL_STUB=1 puts a stand-in launcher in
+# TPW_INSTALL_HOME the folder that holds .zprofile and .bash_profile (on Linux .profile, .bashrc and the others),
+# TPW_INSTALL_APPS the folder the application goes in (in place of /Applications and the fallback; on Linux the folder
+# of the menu entry, with the icon in the icons folder beside it), and TPW_INSTALL_STUB=1 puts a stand-in launcher in
 # place of the download and the build (the installer's CI tests the themepark command with it), of version
 # TPW_INSTALL_STUB_VERSION when set (a newer one stands in for a new release). TPW_INSTALL_SCRUB=FILE runs only the log
-# scrubber (devtools/test_install_log_scrub.sh), TPW_INSTALL_HOSTNAME stands in for this Mac's name there.
+# scrubber (devtools/test_install_log_scrub.sh), TPW_INSTALL_HOSTNAME stands in for this computer's name there.
+# TPW_INSTALL_PACKAGES=skip leaves out Linux's package step (the stand-in and the installer CI's fake builds need none;
+# TPW_INSTALL_STUB=1 leaves it out too).
 #
 # Everything is inside functions and the last line calls main. That matters for `curl ... | sh`: the shell reads this
 # file while it runs, so a half-downloaded file runs nothing, and a program that reads standard input cannot eat the
@@ -119,6 +155,10 @@
 # while the script is still running.
 
 usage() {
+    if [ "$OS" = linux ]; then
+        linux_usage
+        return 0
+    fi
     cat <<'EOF'
 Installs or updates the STP/TPW Launcher, compiled on this Mac from its source.
 
@@ -139,6 +179,36 @@ Options:
 
 After installing, open STP/TPW Launcher from your Applications folder (Launchpad, Spotlight or the Finder), or open
 a new Terminal window and type themepark, from any folder, to play.
+Run the same line again, or type themepark update, to update. Both follow the newest release unless --dev is added
+each time; so does the launcher's Update button, which never adds --dev.
+EOF
+}
+
+linux_usage() {
+    cat <<'EOF'
+Installs or updates the STP/TPW Launcher, compiled on this computer from its source.
+
+  curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh
+  curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh -s -- --dev
+  curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh -s -- --flatpak
+
+Options:
+  --dev                 follow main (the next version, still being made) instead of the newest release
+  --stable              follow the newest release (the default; switches an install made with --dev back)
+  --dir PATH            the install folder (default: ~/.local/share/STP-TPW-Launcher)
+  --update              update an existing install without asking anything (to the newest release unless --dev)
+  --stage               with --update: build the new version into DIR/build-next and stop there
+  --swap-and-launch     switch DIR/build-next in as DIR/build (the old one is kept as DIR/build-prev), then start it
+  --wait-pid PID        with --swap-and-launch: first wait for that process (the running launcher) to exit
+  --no-launch           do not start the launcher at the end
+  --plain               one line per step and the build's whole output, no colour, no redrawing (what a file gets)
+  --flatpak             install the newest release's Flatpak instead of building (with --update, --no-launch, --plain)
+  --help                this text
+
+The build needs a compiler, CMake, Git, Python 3 and the development packages SDL builds against. The ones missing
+are installed with your distribution's package manager (apt-get, dnf or pacman), and sudo asks for your password once.
+After installing, open STP/TPW Launcher from your applications menu, or open a new terminal window and type themepark,
+from any folder, to play.
 Run the same line again, or type themepark update, to update. Both follow the newest release unless --dev is added
 each time; so does the launcher's Update button, which never adds --dev.
 EOF
@@ -700,6 +770,7 @@ ui_wait() {
 ui_notes() {
     [ -n "$UI_NOTES" ] || return 0
     printf '\n'
+    # shellcheck disable=SC2030  # the paragraph is gathered and printed (ui_note_flush) inside this one pipeline
     printf '%s\n' "$UI_NOTES" | {
         _para=""
         _gap=0
@@ -716,7 +787,9 @@ ui_notes() {
     }
 }
 
-# ui_note_flush COLOUR [raw]: the paragraph gathered so far, if any, wrapped (or as it is when raw).
+# ui_note_flush COLOUR [raw]: the paragraph gathered so far, if any, wrapped (or as it is when raw). It runs inside
+# ui_notes's pipeline, where the paragraph is.
+# shellcheck disable=SC2031
 ui_note_flush() {
     [ -n "$_para" ] || return 0
     [ "$_gap" = 0 ] || printf '\n'
@@ -770,6 +843,20 @@ ui_close() {
         ui_draw
     fi
     printf '%s[?25h' "$ESC"
+}
+
+# A pause in the view for something that writes on the terminal itself (sudo's password question, on Linux): the block
+# as it is now, the cursor back, and the next frame drawn afresh below what was written. ui_resume hides the cursor
+# again.
+ui_break() {
+    ui_draw
+    printf '%s[?25h\n' "$ESC"
+    UI_LINES=0
+}
+
+ui_resume() {
+    printf '\n%s[?25l' "$ESC"
+    ui_draw
 }
 
 # What went wrong: the running row turns red with the first sentence of the reason, then the notes, then the log's
@@ -877,6 +964,12 @@ unsafe_path() {
         /usr | /bin | /sbin | /etc | /var | /tmp | /opt | /private | /System | /Library | /Applications | /Users | /Volumes | /cores | /dev | /home)
             return 0 ;;
     esac
+    if [ "$OS" = linux ]; then
+        case "$1" in
+            /root | /boot | /lib | /lib32 | /lib64 | /libx32 | /proc | /sys | /run | /srv | /mnt | /media | /snap)
+                return 0 ;;
+        esac
+    fi
     return 1
 }
 
@@ -917,9 +1010,13 @@ write_channel() {
 # ---- 1. this computer
 
 check_computer() {
+    if [ "$OS" = linux ]; then
+        check_linux
+        return 0
+    fi
     if [ "$(uname -s)" != Darwin ]; then
-        say "This installer is for macOS. On Windows, use install.ps1 (see the README)."
-        die "This installer is for macOS only."
+        say "This installer is for macOS and Linux. On Windows, use install.ps1 (see the README)."
+        die "This installer is for macOS and Linux only."
     fi
     case "$(uname -m)" in
         arm64 | x86_64) ;;
@@ -957,9 +1054,12 @@ check_computer() {
         die "Missing: $missing. Run xcode-select --install, wait for it to finish, then run this again."
     fi
     info "Command Line Tools: $(xcode-select -p)"
+    check_space
+}
 
-    # The source is about 150 MB and a build folder about 150 MB (more with a fetched CMake), and an update keeps three
-    # build folders for a while (build, build-next, build-prev).
+# The source is about 150 MB and a build folder about 150 MB (more with a fetched CMake), and an update keeps three
+# build folders for a while (build, build-next, build-prev).
+check_space() {
     probe="$DIR"
     while [ ! -d "$probe" ] && [ "$probe" != / ]; do probe=$(dirname "$probe"); done
     free_kb=$(df -Pk "$probe" 2>/dev/null | awk 'NR == 2 { print $4 }')
@@ -969,6 +1069,235 @@ check_computer() {
         say "Nothing was changed."
         die "Not enough free space on the disk (about 1 GB is needed)."
     fi
+}
+
+# ---- 1. this computer, on Linux (LINUX above)
+
+# The build's packages under each package manager's names: the build workflow's linux job's list without its test-only
+# packages (xvfb, mesa-vulkan-drivers, glslang-tools, libclang-18-dev), and the Vulkan loader, which the launcher opens
+# at run time. Fedora's GCC keeps the static C++ library, which the launcher links in, in a package of its own. Arch
+# does not split headers from libraries: its names are the packages that hold the headers (libglvnd the GL ones,
+# libibus and libpipewire theirs), and pacman -T reads them as dependencies, so a package that provides one counts.
+PKGS_APT="build-essential cmake ninja-build python3 git libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev
+libxfixes-dev libxss-dev libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev libegl1-mesa-dev
+libgl1-mesa-dev libdrm-dev libgbm-dev libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev libudev-dev
+libibus-1.0-dev libvulkan1"
+PKGS_DNF="gcc gcc-c++ libstdc++-static make cmake ninja-build python3 git libX11-devel libXext-devel libXrandr-devel
+libXcursor-devel libXi-devel libXfixes-devel libXScrnSaver-devel libxkbcommon-devel wayland-devel
+wayland-protocols-devel libdecor-devel mesa-libEGL-devel mesa-libGL-devel libdrm-devel mesa-libgbm-devel alsa-lib-devel
+pulseaudio-libs-devel pipewire-devel dbus-devel systemd-devel ibus-devel vulkan-loader"
+PKGS_PACMAN="gcc make cmake ninja python git pkgconf libx11 libxext libxrandr libxcursor libxi libxfixes libxss
+libxkbcommon wayland wayland-protocols libdecor libglvnd mesa libdrm alsa-lib libpulse libpipewire dbus systemd-libs
+libibus vulkan-icd-loader"
+
+check_linux() {
+    case "$(uname -m)" in
+        x86_64 | aarch64 | arm64) ;;
+        *) die "This needs a 64-bit Linux on an x86-64 or Arm (AArch64) processor; this one is $(uname -m)." ;;
+    esac
+    distro=$(sed -n 's/^PRETTY_NAME=//p' /etc/os-release 2>/dev/null | tr -d '"' | sed -n '1p')
+    [ -n "$distro" ] || distro="an unknown distribution"
+    info "Linux: $distro, $(uname -m)"
+    # The space first: a full disk is found before anything is installed.
+    check_space
+    if [ -n "${TPW_INSTALL_STUB:-}" ] || [ "${TPW_INSTALL_PACKAGES:-}" = skip ]; then
+        info "The build's packages: not looked for (TPW_INSTALL_PACKAGES=skip, or a test build)."
+        TOOLS_FOUND="the build's packages were not looked for"
+    else
+        linux_packages
+    fi
+    # What the script and the Makefile's first steps run (the compiler and CMake are the Makefile's to name).
+    missing=""
+    for tool in git make python3; do
+        command -v "$tool" >/dev/null 2>&1 || missing="${missing:+$missing, }$tool"
+    done
+    if [ -n "$missing" ]; then
+        UI_FAIL_TEXT="not installed: $missing"
+        say "Missing: $missing. Install your distribution's packages of them, then run this again."
+        say "Nothing was changed."
+        die "Missing: $missing. Install them, then run this again."
+    fi
+}
+
+# The package manager: PM (apt, dnf or pacman, or empty) and its list of the build's packages, PKGS.
+linux_package_manager() {
+    PM=""
+    PKGS=""
+    if command -v apt-get >/dev/null 2>&1 && command -v dpkg-query >/dev/null 2>&1; then
+        PM=apt
+        PKGS=$PKGS_APT
+    elif command -v dnf >/dev/null 2>&1 && command -v rpm >/dev/null 2>&1; then
+        PM=dnf
+        PKGS=$PKGS_DNF
+    elif command -v pacman >/dev/null 2>&1; then
+        PM=pacman
+        PKGS=$PKGS_PACMAN
+    fi
+    PKGS=$(printf '%s\n' "$PKGS" | tr '\n' ' ' | sed 's/  */ /g; s/ $//')
+}
+
+# The build's packages that are not installed, one line with a space between them (empty when none is missing).
+linux_missing_packages() {
+    case "$PM" in
+        apt)
+            # shellcheck disable=SC2086  # one name per word
+            dpkg-query -W -f='${Package} ${Status}\n' $PKGS 2>/dev/null </dev/null | awk -v want="$PKGS" '
+                $NF == "installed" { have[$1] = 1 }
+                END { n = split(want, w, " "); for (i = 1; i <= n; i++) if (!(w[i] in have)) printf "%s%s", (out++ ? " " : ""), w[i] }'
+            ;;
+        dnf)
+            _m=""
+            for _p in $PKGS; do
+                rpm -q "$_p" >/dev/null 2>&1 </dev/null || _m="${_m:+$_m }$_p"
+            done
+            printf '%s' "$_m"
+            ;;
+        pacman)
+            # shellcheck disable=SC2086  # one name per word
+            pacman -T $PKGS 2>/dev/null </dev/null | tr '\n' ' ' | sed 's/ $//'
+            ;;
+    esac
+}
+
+# The command that installs the packages $1 (as root: $2 is "sudo " or empty), as the player would type it.
+linux_install_line() {
+    case "$PM" in
+        apt) printf '%sapt-get update && %sapt-get install --no-install-recommends %s\n' "$2" "$2" "$1" ;;
+        dnf) printf '%sdnf install %s\n' "$2" "$1" ;;
+        pacman) printf '%spacman -S --needed %s\n' "$2" "$1" ;;
+    esac
+}
+
+# Runs the package manager as root on the packages $1, its output on the screen in plain mode (in the progress view, in
+# the scratch file PM_OUT). As root as it is, else through sudo, which linux_root_ready has made sure needs no password
+# now. Answers no question (it has been told what to install).
+linux_install_packages() {
+    _sudo=""
+    [ "$(id -u)" = 0 ] || _sudo="sudo -n"
+    case "$PM" in
+        apt)
+            # The package lists first. A list that cannot be read (a third-party source that is gone, say) makes
+            # apt-get update fail without harming the others, so the install is tried with the lists as they are.
+            # shellcheck disable=SC2086  # one name per word; _sudo is two words or none
+            $_sudo env DEBIAN_FRONTEND=noninteractive apt-get update </dev/null \
+                || echo "(apt-get update did not finish: installing from the package lists as they are)"
+            # shellcheck disable=SC2086
+            $_sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $1 </dev/null
+            ;;
+        dnf)
+            # shellcheck disable=SC2086
+            $_sudo dnf install -y $1 </dev/null
+            ;;
+        pacman)
+            # shellcheck disable=SC2086
+            $_sudo pacman -S --needed --noconfirm $1 </dev/null
+            ;;
+    esac
+}
+
+# shellcheck disable=SC2329  # called through wait_for
+linux_install_logged() {
+    linux_install_packages "$1" >"$PM_OUT" 2>&1
+}
+
+# Whether the package manager can run as root now: this is root, or sudo needs no password, or there is a terminal
+# for sudo to ask the password on, and it was given (asked here, once). Never asks when the output is not a terminal:
+# the launcher's Update button reads it through a pipe, and a question there would wait for an answer nobody can give.
+linux_root_ready() {
+    [ "$(id -u)" = 0 ] && return 0
+    command -v sudo >/dev/null 2>&1 || return 1
+    sudo -n true >/dev/null 2>&1 </dev/null && return 0
+    { [ -t 1 ] || [ -t 2 ]; } || return 1
+    (: </dev/tty) 2>/dev/null || return 1
+    if [ "$UI" = tty ]; then
+        ui_break
+        printf '  The build needs these packages, which are not installed: %s\n' "$1"
+        printf '  sudo asks for your password to install them with %s:\n' "$PM_NAME"
+    else
+        info "sudo asks for your password to install them with $PM_NAME."
+    fi
+    # shellcheck disable=SC2024  # sudo reads the password from the terminal, not this file
+    sudo -v </dev/tty
+    _rc=$?
+    [ "$UI" != tty ] || ui_resume
+    return "$_rc"
+}
+
+# The build's packages: those missing are installed (with one password), or the player is told the command and nothing
+# is changed.
+linux_packages() {
+    linux_package_manager
+    if [ -z "$PM" ]; then
+        UI_FAIL_TEXT="no apt-get, dnf or pacman to install the build's packages with"
+        say "This Linux has none of apt-get, dnf and pacman, so this script cannot install what the build needs."
+        say "It needs a C++ compiler (GCC 13 or newer), make, CMake 3.20 or newer, Git, Python 3, pkg-config and these"
+        say "libraries with their development files (the names are Debian's):"
+        say "  $(printf '%s\n' "$PKGS_APT" | tr '\n' ' ' | sed 's/^build-essential cmake ninja-build python3 git //')"
+        say "Once they are installed, run the line again with TPW_INSTALL_PACKAGES=skip in front of sh."
+        say "Nothing was changed."
+        die "This Linux has no apt-get, dnf or pacman. Install the build's packages yourself (see above), then run this again."
+    fi
+    case "$PM" in apt) PM_NAME=apt-get ;; *) PM_NAME=$PM ;; esac
+    missing=$(linux_missing_packages)
+    if [ -z "$missing" ]; then
+        info "The build's packages are installed ($PM_NAME)."
+        TOOLS_FOUND="the build's packages are installed"
+        return 0
+    fi
+    count=$(printf '%s\n' "$missing" | wc -w | tr -d ' ')
+    sudo_word="sudo "
+    [ "$(id -u)" != 0 ] || sudo_word=""
+    line=$(linux_install_line "$missing" "$sudo_word")
+    if ! linux_root_ready "$missing"; then
+        UI_FAIL_TEXT="$count packages the build needs are not installed"
+        say "The build needs these packages, which are not installed: $missing."
+        if [ "$(id -u)" != 0 ] && ! command -v sudo >/dev/null 2>&1; then
+            line=$(linux_install_line "$missing" "")
+            say "There is no sudo here to install them with. As root, run:"
+        else
+            say "To install them, run:"
+        fi
+        say "  $line"
+        say "then run this again. Nothing was changed."
+        die "Missing packages: $missing. Install them ($line), then run this again."
+    fi
+    info "The build needs these packages, which are not installed: $missing"
+    info "Installing them with $PM_NAME."
+    ui_active tools "installing $count packages with $PM_NAME"
+    if [ "$UI" = tty ]; then
+        PM_OUT=$(mktemp "${TMPDIR:-/tmp}/tpw-packages.XXXXXX") || die "Couldn't make a scratch file for the package manager's output."
+        wait_for linux_install_logged "$missing"
+        _rc=$?
+    else
+        linux_install_packages "$missing"
+        _rc=$?
+    fi
+    if [ "$_rc" != 0 ]; then
+        if [ "$UI" = tty ]; then
+            UI_FAIL_TEXT="$PM_NAME could not install them"
+            say "$PM_NAME could not install the packages. Its last lines:"
+            # not a pipe: the progress view keeps say's lines in a variable, which a pipe's subshell would lose
+            while IFS= read -r _l; do say "      $_l"; done <<EOF
+$(tail -n 15 "$PM_OUT")
+EOF
+            rm -f "$PM_OUT"
+        fi
+        if [ "$PM" = pacman ]; then
+            say "When pacman cannot find a package, the system's package lists are older than the mirror's: update the"
+            say "system first (sudo pacman -Syu), then run this again."
+        fi
+        say "The launcher was not built and nothing else was changed. To install the packages yourself:"
+        say "  $line"
+        die "Installing the build's packages with $PM_NAME failed. Nothing else was changed."
+    fi
+    [ "$UI" != tty ] || rm -f "$PM_OUT"
+    still=$(linux_missing_packages)
+    if [ -n "$still" ]; then
+        say "After $PM_NAME ran, these packages are still not installed: $still."
+        die "The packages $still are still missing after $PM_NAME ran. Nothing else was changed."
+    fi
+    info "Installed: $missing"
+    TOOLS_FOUND="installed $count packages the build needs with $PM_NAME"
 }
 
 # ---- 2. the downloads
@@ -1089,14 +1418,19 @@ make_logged() {
 # Reads the build's output on stdin: it goes unchanged to the screen, and a copy with nothing personal in it is
 # appended to the log $1 (the log is what a player is asked to send; the screen is theirs). The home folder becomes ~,
 # any /Users/NAME ~ or /Users/<user>, a volume's name <volume>, /var/folders/xx/yyyy <id>, the account name <user> (only
-# after user=, owner: and the like, so a name that is a common word is not changed elsewhere) and this Mac's name
-# <computer> (4 letters or more). Scrubbing again changes nothing. It mirrors platform/log_scrub.h.
+# after user=, owner: and the like, so a name that is a common word is not changed elsewhere) and this computer's name
+# <computer> (4 letters or more). Scrubbing again changes nothing. It mirrors platform/log_scrub.h. On Linux the home
+# is any /home/NAME where a path begins (~, as log_scrub.h has it) and /root when that is the home, and a removable
+# drive's folder, /run/media/NAME/LABEL or /media/NAME/LABEL, names the account and the drive as /Volumes/NAME names a
+# drive on a Mac, so it becomes /run/media/<user>/<volume> (a rule log_scrub.h does not have). /tmp needs none: the
+# temporary folder's name is not the account's there.
 scrub_tee() {
     TPW_S_LOG=$1 \
         TPW_S_HOMES="$(printf '%s\n%s\n' "$HOME" "$(cd "$HOME" 2>/dev/null && pwd -P)")" \
         TPW_S_USER="${USER:-$(id -un 2>/dev/null)}" \
-        TPW_S_HOST="${TPW_INSTALL_HOSTNAME:-$(hostname 2>/dev/null)}" \
+        TPW_S_HOST="${TPW_INSTALL_HOSTNAME:-$(hostname 2>/dev/null || uname -n 2>/dev/null)}" \
         TPW_S_VOLUMES="$(ls /Volumes 2>/dev/null)" \
+        TPW_S_MOUNTS="$(for m in /run/media/*/* /media/*/*; do [ -d "$m" ] && printf '%s\n' "$m"; done 2>/dev/null)" \
         LC_ALL=C awk '
 function isname(c) { return c ~ /[A-Za-z0-9_.-]/ || c >= "\200" }
 function isword(c) { return c ~ /[A-Za-z0-9_-]/ || c >= "\200" }
@@ -1134,6 +1468,40 @@ function generic(s,   out, name, pre, rep) {
     }
     return out s
 }
+# Where a path begins at s[i], as log_scrub.h has it: nothing name-like, no separator and no ~ just before.
+function pathstart(s, i,   pre) {
+    if (i == 1) return 1
+    pre = substr(s, i - 1, 1)
+    return !(isname(pre) || pre == "/" || pre == "\\" || pre == "~")
+}
+# /home/NAME of any account where a path begins (not /srv/home/x, not -I/home/x): ~, but for the shared accounts.
+function linuxhome(s,   out, name, low) {
+    out = ""
+    while (match(s, /\/home\/[^\/ \t"\047<>]+/)) {
+        name = substr(s, RSTART + 6, RLENGTH - 6)
+        low = tolower(name)
+        if (pathstart(s, RSTART) && low != "shared" && low != "public" && low != "default" && low != "all") {
+            out = out substr(s, 1, RSTART - 1) "~"
+        } else {
+            out = out substr(s, 1, RSTART + RLENGTH - 1)
+        }
+        s = substr(s, RSTART + RLENGTH)
+    }
+    return out s
+}
+# The folder of a removable drive, PREFIX/NAME/LABEL where a path begins (PREFIX /run/media or /media):
+# PREFIX/<user>/<volume>.
+function mount(s, prefix,   out, re, n) {
+    out = ""
+    n = length(prefix)
+    re = prefix "/[^/ \t\"\047<>]+/[^/ \t\"\047<>]+"
+    while (match(s, re)) {
+        if (pathstart(s, RSTART)) out = out substr(s, 1, RSTART - 1) prefix "/<user>/<volume>"
+        else out = out substr(s, 1, RSTART + RLENGTH - 1)
+        s = substr(s, RSTART + RLENGTH)
+    }
+    return out s
+}
 function account(s,   out, hay, i, n, before, after, key) {
     n = length(U)
     if (n == 0) return s
@@ -1163,7 +1531,11 @@ function every(s, re, rep,   out) {
 function scrub(s,   k) {
     for (k = 1; k <= NH; k++) s = lit(s, H[k], "~", 0, 0)
     for (k = 1; k <= NV; k++) s = lit(s, "/Volumes/" V[k], "/Volumes/<volume>", 0, 0)
+    for (k = 1; k <= NM; k++) s = lit(s, M[k], (substr(M[k], 1, 5) == "/run/" ? "/run" : "") "/media/<user>/<volume>", 0, 0)
     s = generic(s)
+    s = linuxhome(s)
+    s = mount(s, "/run/media")
+    s = mount(s, "/media")
     s = every(s, "/Volumes/[^/ \t\"\047<>]+", "/Volumes/<volume>")
     s = every(s, "/var/folders/[^/ \t\"\047<>]+/[^/ \t\"\047<>]+", "/var/folders/<id>")
     if (length(C) >= 4) s = lit(s, C, "<computer>", 1, length(C) >= 6)
@@ -1172,6 +1544,7 @@ function scrub(s,   k) {
 BEGIN {
     NH = split(ENVIRON["TPW_S_HOMES"], H, "\n")
     NV = split(ENVIRON["TPW_S_VOLUMES"], V, "\n")
+    NM = split(ENVIRON["TPW_S_MOUNTS"], M, "\n")
     for (k = 1; k <= NH; k++) if (length(H[k]) < 2 || H[k] == "/") H[k] = ""
     U = ENVIRON["TPW_S_USER"]
     C = ENVIRON["TPW_S_HOST"]
@@ -1196,8 +1569,8 @@ prepare_next() {
         : >"$LOG"
         LOG_STARTED=1
     fi
-    info "Getting the build's tools (CMake, if this Mac has none)"
-    ui_active "$UI_SRC" "getting the build's tools (CMake, if this Mac has none)"
+    info "$TOOLS_STEP"
+    ui_active "$UI_SRC" "$TOOLS_ROW"
     wait_for make_logged find-cmake
     if [ "$(cat "$RC")" != 0 ]; then
         if grep -q "Could not download CMake" "$LOG"; then
@@ -1338,7 +1711,7 @@ EOF
         say "If you only used it to play, it is no longer needed: this install replaces it, and you can delete that"
         say "folder. Your games, saves and settings are not in it."
     fi
-    say "They are in ~/Library/Application Support/STP-TPW Launcher, and this install uses them as they are."
+    say "They are in $DATA_TEXT, and this install uses them as they are."
 }
 
 launch() {
@@ -1380,8 +1753,8 @@ write_command_file() {
 #                         by running the installer that came with it (source/install.sh --update), then opens it
 #   themepark --version   prints the launcher's version in this window (--help: its options)
 # Anything else is passed on to the launcher, which is opened detached. The installer (install.sh) writes this file.
-# To remove the command, delete the install folder and the line in ~/.zprofile (and ~/.bash_profile) that ends with
-# the comment above.
+# To remove the command, delete the install folder and the line that ends with the comment above in ~/.zprofile (and
+# ~/.bash_profile) on a Mac, or in ~/.profile (and ~/.bashrc, ~/.zshrc, ~/.zprofile) on Linux.
 dir=$(cd "$(dirname "$0")/.." && pwd) || exit 1
 launcher="$dir/build/tpw_launcher"
 cd "$dir" || exit 1
@@ -1581,8 +1954,12 @@ write_app_plist() {
 EOF
 }
 
-# The step that writes the application: its row and its lines around write_app.
+# The step that writes the application: its row and its lines around write_app (on Linux, the menu entry: add_entry).
 add_app() {
+    if [ "$OS" = linux ]; then
+        add_entry
+        return 0
+    fi
     ui_active application "adding STP/TPW Launcher to Applications"
     if write_app; then
         info "STP/TPW Launcher is in $APP_DIR: open it from Launchpad, Spotlight or the Finder."
@@ -1596,16 +1973,131 @@ add_app() {
     fi
 }
 
-# Makes sure PROFILE has LINE once, as its only line with CMD_MARK: added at the end when there is none, put in place
-# of the first and the others dropped when they differ (an install in another folder takes the command over).
+# ---- the menu entry (Linux: THE MENU ENTRY above)
+
+ENTRY_NAME=stp-tpw-launcher
+ENTRY_MARK="# tpw-port installer: the STP/TPW Launcher menu entry"
+
+# The first four bytes of a PNG's header after its signature and chunk header: its width.
+png_width() {
+    od -An -tu1 -j16 -N4 "$1" 2>/dev/null | awk 'NF == 4 { print $1 * 16777216 + $2 * 65536 + $3 * 256 + $4 }'
+}
+
+# The launcher's icon (tpw_launcher --write-icon: the game's own once a game is imported, the stand-in before), in the
+# hicolor theme's folder of its size under the icons folder $1, as $ENTRY_NAME.png. A menu scales an icon by the size
+# its folder names, so an icon of another size than its folder's would show too small or too large. Returns 1 when
+# there is none (a stand-in launcher in a test).
+write_entry_icon() {
+    work=$(mktemp -d "${TMPDIR:-/tmp}/tpw-icon.XXXXXX") || return 1
+    png="$work/icon.png"
+    icon_ok=0
+    if "$DIR/build/tpw_launcher" --write-icon "$png" >/dev/null 2>&1 </dev/null && [ -s "$png" ]; then
+        size=$(png_width "$png")
+        case "$size" in
+            '' | *[!0-9]* | 0) ;;
+            *)
+                dest="$1/hicolor/${size}x${size}/apps"
+                if mkdir -p "$dest" && cp "$png" "$dest/$ENTRY_NAME.png.tmp" && mv -f "$dest/$ENTRY_NAME.png.tmp" "$dest/$ENTRY_NAME.png"; then
+                    icon_ok=1
+                    # this script's own icon of an earlier install in another size's folder (the stand-in is 256 pixels,
+                    # the game's 64) goes, or a menu would pick it for the sizes it is nearer
+                    for old in "$1"/hicolor/*/apps/"$ENTRY_NAME.png"; do
+                        [ "$old" = "$dest/$ENTRY_NAME.png" ] || rm -f "$old"
+                    done
+                    touch "$1/hicolor"   # a changed folder: the menus read the theme again
+                    if [ -f "$1/hicolor/icon-theme.cache" ] && command -v gtk-update-icon-cache >/dev/null 2>&1; then
+                        gtk-update-icon-cache -q -t -f "$1/hicolor" >/dev/null 2>&1 </dev/null
+                    fi
+                fi
+                ;;
+        esac
+    fi
+    case "$work" in */tpw-icon.??????) rm -rf "$work" ;; esac
+    [ "$icon_ok" = 1 ]
+}
+
+# The desktop entry: it starts DIR/build/tpw_launcher in DIR, as the themepark command does. DIR goes in the Exec line
+# between double quotes with each % doubled, the desktop entry's own quoting (the installer refuses ", $, ` and \ in
+# it); TryExec hides the entry once the launcher is gone; StartupWMClass is the launcher window's own name (SDL names a
+# window by its program), so that the dock and the window list show it under this entry. $2: the Icon line, or empty.
+write_entry_file() {
+    exec_dir=$(printf '%s\n' "$DIR" | sed 's/%/%%/g')
+    {
+        printf '%s\n' '[Desktop Entry]'
+        printf '%s\n' "$ENTRY_MARK"
+        printf '%s\n' "# Starts the STP/TPW Launcher installed in $DIR, as the themepark command does. The installer"
+        printf '%s\n' "# (install.sh) writes it again at every install and update."
+        printf '%s\n' 'Type=Application'
+        printf '%s\n' 'Name=STP/TPW Launcher'
+        printf '%s\n' 'Comment=Play Sim Theme Park and Theme Park World from your own discs'
+        printf 'Exec="%s/build/tpw_launcher"\n' "$exec_dir"
+        printf 'TryExec=%s/build/tpw_launcher\n' "$DIR"
+        printf 'Path=%s\n' "$DIR"
+        [ -z "$2" ] || printf '%s\n' "$2"
+        printf '%s\n' 'Categories=Game;'
+        printf '%s\n' 'Terminal=false'
+        printf '%s\n' 'StartupWMClass=tpw_launcher'
+    } >"$1"
+}
+
+# Writes the menu entry and its icon (again at every install, update and switch, when DIR/build has the launcher).
+# Says what it could not do and returns 1. APP_DIR is the folder the entry went in.
+write_entry() {
+    APP_DIR=""
+    apps=${TPW_INSTALL_APPS:-$(linux_share)/applications}
+    if ! mkdir -p "$apps" 2>/dev/null || [ ! -w "$apps" ]; then
+        say "$apps cannot be written to, so STP/TPW Launcher was not added to the applications menu."
+        return 1
+    fi
+    entry="$apps/$ENTRY_NAME.desktop"
+    if [ -e "$entry" ] && ! grep -qF "$ENTRY_MARK" "$entry" 2>/dev/null; then
+        say "$entry was not made by this installer, so it is left alone."
+        return 1
+    fi
+    if [ -e "$entry" ] && [ ! -f "$entry" ]; then
+        say "$entry is not a file, so it is left alone."
+        return 1
+    fi
+    icon_line=""
+    if write_entry_icon "${apps%/*}/icons"; then
+        icon_line="Icon=$ENTRY_NAME"
+    elif [ -f "$entry" ]; then
+        icon_line=$(grep '^Icon=' "$entry" | sed -n '1p')   # the icon of the last install stays
+    fi
+    if ! { write_entry_file "$entry.tmp" "$icon_line" && mv -f "$entry.tmp" "$entry"; }; then
+        rm -f "$entry.tmp"
+        say "Couldn't write $entry."
+        return 1
+    fi
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database "$apps" >/dev/null 2>&1 </dev/null
+    fi
+    APP_DIR=$apps
+}
+
+# The step that writes the menu entry: its row and its lines around write_entry.
+add_entry() {
+    ui_active application "adding STP/TPW Launcher to the applications menu"
+    if write_entry; then
+        info "STP/TPW Launcher is in the applications menu ($APP_DIR/$ENTRY_NAME.desktop)."
+        ui_done application "STP/TPW Launcher, in the applications menu"
+    else
+        ui_warn application "STP/TPW Launcher was not added to the menu (see below)"
+    fi
+}
+
+# Makes sure PROFILE has LINE once, as its only line with CMD_MARK (or the mark $3): added at the end when there is
+# none, put in place of the first and the others dropped when they differ (an install in another folder takes the
+# command over).
 put_line() {
     profile=$1
     line=$2
+    mark=${3:-$CMD_MARK}
     if [ -e "$profile" ] && [ ! -f "$profile" ]; then
         say "$profile is not a file, so it was not changed."
         return 1
     fi
-    if [ ! -f "$profile" ] || ! grep -qF "$CMD_MARK" "$profile"; then
+    if [ ! -f "$profile" ] || ! grep -qF "$mark" "$profile"; then
         # the line starts a line of its own even when the file does not end with a newline
         if [ -s "$profile" ] && [ -n "$(tail -c 1 "$profile")" ]; then
             printf '\n' >>"$profile" || return 1
@@ -1614,19 +2106,25 @@ put_line() {
         info "Added to $profile: $line"
         return 0
     fi
-    if [ "$(grep -cF "$CMD_MARK" "$profile")" = 1 ] && grep -qxF "$line" "$profile"; then
+    if [ "$(grep -cF "$mark" "$profile")" = 1 ] && grep -qxF "$line" "$profile"; then
         return 0
     fi
     # Rewritten in place (not replaced by another file), so that a ~/.zprofile that is a link stays one.
-    kept=$(TPW_MARK=$CMD_MARK TPW_LINE=$line awk '
+    kept=$(TPW_MARK=$mark TPW_LINE=$line awk '
         index($0, ENVIRON["TPW_MARK"]) { if (!done) print ENVIRON["TPW_LINE"]; done = 1; next }
         { print }' "$profile") || return 1
     printf '%s\n' "$kept" >"$profile" || return 1
     info "Changed in $profile: $line"
 }
 
-# The PATH line of THE THEMEPARK COMMAND for this DIR.
+# The PATH line of THE THEMEPARK COMMAND for this DIR. On Linux it adds DIR/bin only when it is not on the PATH already:
+# a shell there can read two of the files that hold it (~/.profile and ~/.bashrc, which Ubuntu's ~/.profile reads).
 path_line() {
+    if [ "$OS" = linux ]; then
+        # shellcheck disable=SC2016  # $PATH is for the profile to expand
+        printf 'case ":$PATH:" in *":%s/bin:"*) ;; *) export PATH="$PATH:%s/bin" ;; esac  %s\n' "$DIR" "$DIR" "$CMD_MARK"
+        return 0
+    fi
     # shellcheck disable=SC2016  # $PATH is for the profile to expand
     printf 'export PATH="$PATH:%s/bin"  %s\n' "$DIR" "$CMD_MARK"
 }
@@ -1646,7 +2144,7 @@ bash_login_file() {
 # True when a profile has this install's PATH line (an update says how to play from it).
 has_path_line() {
     home=${TPW_INSTALL_HOME:-$HOME}
-    for profile in "$home/.zprofile" "$(bash_login_file "$home")"; do
+    for profile in "$home/.zprofile" "$(bash_login_file "$home")" "$home/.profile" "$home/.bashrc" "$home/.zshrc"; do
         grep -qxF "$(path_line)" "$profile" 2>/dev/null && return 0
     done
     return 1
@@ -1661,12 +2159,17 @@ setup_path() {
             ;;
     esac
     other=$(command -v themepark 2>/dev/null)
-    if [ -n "$other" ] && [ "$other" != "$DIR/bin/themepark" ] && ! grep -qF "$CMD_MARK" "$other" 2>/dev/null; then
+    if [ -n "$other" ] && [ "$other" != "$DIR/bin/themepark" ] && ! grep -qF "$CMD_MARK" "$other" 2>/dev/null \
+        && ! grep -qF "$FLATPAK_MARK" "$other" 2>/dev/null; then
         say "There is already a themepark command ($other) that this installer did not make, so it is left alone."
         return 1
     fi
     line=$(path_line)
     home=${TPW_INSTALL_HOME:-$HOME}
+    if [ "$OS" = linux ]; then
+        setup_path_linux "$line" "$CMD_MARK"
+        return $?
+    fi
     # zsh (macOS's shell) always. bash's login file when bash is the player's shell, or ~/.bash_profile when it exists
     # anyway. ~/.bashrc is not one: a new Terminal window starts a login shell, which does not read it.
     put_line "$home/.zprofile" "$line" || return 1
@@ -1676,11 +2179,35 @@ setup_path() {
     esac
 }
 
+# Linux (THE THEMEPARK COMMAND): ~/.profile always, for login shells (sh's, and bash's when it has no login file of its
+# own) and the desktop session at the next login; then the files of the player's shell: bash's login file when it is
+# another (~/.bash_profile or ~/.bash_login) and ~/.bashrc, which is all a new terminal window's bash reads; zsh's
+# ~/.zprofile and ~/.zshrc; for another shell, ~/.bash_profile when it exists, as on a Mac.
+# The line is $1 and its mark $2 (the Flatpak install's command has a line of its own), in the home folder $home.
+setup_path_linux() {
+    put_line "$home/.profile" "$1" "$2" || return 1
+    case "${SHELL:-}" in
+        */bash)
+            login=$(bash_login_file "$home")
+            [ "$login" = "$home/.profile" ] || put_line "$login" "$1" "$2" || return 1
+            put_line "$home/.bashrc" "$1" "$2" || return 1
+            ;;
+        */zsh)
+            put_line "$home/.zprofile" "$1" "$2" || return 1
+            put_line "$home/.zshrc" "$1" "$2" || return 1
+            ;;
+        *) if [ -f "$home/.bash_profile" ]; then put_line "$home/.bash_profile" "$1" "$2" || return 1; fi ;;
+    esac
+}
+
 # The self-check: does themepark work in a new Terminal window? A login shell of the player's own shell, started the way
 # Terminal starts one (its profile read, a bare environment), is asked where themepark is. 20 seconds at most, in case a
-# profile waits for something.
+# profile waits for something. What it found is kept in NEW_SHELL_FOUND. (On Linux a new terminal window's shell is not
+# a login shell, but the files it reads have the same line: setup_path_linux.)
 new_shell_finds_command() {
+    NEW_SHELL_FOUND=""
     shell=${SHELL:-/bin/zsh}
+    [ "$OS" != linux ] || shell=${SHELL:-/bin/sh}
     [ -x "$shell" ] || return 1
     found="$DIR/.themepark-check"
     env -i HOME="${TPW_INSTALL_HOME:-$HOME}" USER="${USER:-}" LOGNAME="${LOGNAME:-}" SHELL="$shell" TERM=dumb \
@@ -1698,13 +2225,38 @@ new_shell_finds_command() {
     wait "$check_pid" 2>/dev/null
     grep -qxF "$DIR/bin/themepark" "$found" 2>/dev/null
     ok=$?
+    NEW_SHELL_FOUND=$(sed -n '1p' "$found" 2>/dev/null)
     rm -f "$found"
     return "$ok"
+}
+
+# When the self-check found another install's themepark first (the Flatpak install's, in ~/.local/bin, which comes
+# before DIR/bin on the PATH, or a source install in another folder), the player is told which.
+other_command() {
+    case "$NEW_SHELL_FOUND" in
+        "" | "$DIR/bin/themepark") return 0 ;;
+    esac
+    if grep -qF "$FLATPAK_MARK" "$NEW_SHELL_FOUND" 2>/dev/null; then
+        say "It finds the themepark command of the Flatpak install first ($NEW_SHELL_FOUND). To use this install's, delete"
+        say "that file (the Flatpak install keeps working: STP/TPW Launcher in the applications menu starts it), or type"
+        say "$DIR/bin/themepark."
+    else
+        say "It finds another themepark command first: $NEW_SHELL_FOUND."
+    fi
 }
 
 # The one line that puts DIR/bin on the PATH of the player's shell, for a player to run when the self-check failed.
 fix_line() {
     quoted=$(printf '%s\n' "$DIR/bin" | sed "s/'/'\\\\''/g")
+    if [ "$OS" = linux ]; then
+        case "${SHELL:-}" in
+            */fish) printf "fish_add_path '%s'\n" "$quoted" ;;
+            */bash) printf "echo 'export PATH=\"\$PATH:%s\"' >> ~/.bashrc\n" "$quoted" ;;
+            */zsh) printf "echo 'export PATH=\"\$PATH:%s\"' >> \"\${ZDOTDIR:-\$HOME}/.zshrc\"\n" "$quoted" ;;
+            *) printf "echo 'export PATH=\"\$PATH:%s\"' >> ~/.profile\n" "$quoted" ;;
+        esac
+        return 0
+    fi
     case "${SHELL:-}" in
         */fish) printf "fish_add_path '%s'\n" "$quoted" ;;
         */bash) printf "echo 'export PATH=\"\$PATH:%s\"' >> %s\n" "$quoted" "$(bash_login_file "$HOME" | sed "s|^$HOME|~|")" ;;
@@ -1806,7 +2358,7 @@ run_swap() {
         VERSION=$(info_get "$DIR/build/install-info.txt" version)
         ui_done swap "nothing was waiting in build-next"
     fi
-    step "Adding STP/TPW Launcher to Applications"
+    step "$APPS_STEP"
     add_app
     if [ "$LAUNCH" = 1 ]; then
         step "Starting the launcher"
@@ -1837,7 +2389,7 @@ run_install() {
         ui_active installed "version ${old_version:-unknown} found"
     else
         UI_FOOTER="All of this stays inside $(tilde "$DIR")."
-        ui_active tools "looking for the Xcode command line tools"
+        ui_active tools "$TOOLS_LOOKING"
         ui_pending "$UI_SRC" ""
         ui_pending build ""
         [ "$UPDATE" = 1 ] || ui_pending command "themepark"
@@ -1859,7 +2411,7 @@ run_install() {
 
     step "Checking this computer"
     check_computer
-    [ "$had_build" = 1 ] || ui_done tools "Xcode command line tools found"
+    [ "$had_build" = 1 ] || ui_done tools "$TOOLS_FOUND"
 
     step "Downloading the source and the build's tools"
     ui_active "$UI_SRC" "looking for the newest version"
@@ -1971,7 +2523,7 @@ run_install() {
     fi
     # THE THEMEPARK COMMAND: the file at every switch, the PATH line only on an install
     play="Start it with: $DIR/build/tpw_launcher"
-    every_window="From now on, type themepark in any new Terminal window to play. It works from any folder."
+    every_window="From now on, type themepark in any new $WINDOW to play. It works from any folder."
     command_row="themepark is not set up (see below)"
     [ "$UPDATE" = 1 ] || [ "$current" = 1 ] || ui_active command "adding the themepark command"
     if write_command; then
@@ -1982,11 +2534,12 @@ run_install() {
         elif setup_path; then
             if new_shell_finds_command; then
                 play=$every_window
-                command_row="themepark, in any new Terminal window"
+                command_row="themepark, in any new $WINDOW"
             else
                 # not a failure of the install: the launcher is in place, only the shortcut needs this
-                say "A new Terminal window does not find themepark yet (your shell is ${SHELL:-unknown})."
-                say "To fix it, run this line once, then open a new Terminal window:"
+                say "A new $WINDOW does not find themepark yet (your shell is ${SHELL:-unknown})."
+                other_command
+                say "To fix it, run this line once, then open a new $WINDOW:"
                 say "  $(fix_line)"
                 command_row="themepark, once the line below is run"
             fi
@@ -1994,13 +2547,13 @@ run_install() {
     fi
     if [ "$UPDATE" = 1 ] || [ "$current" = 1 ]; then
         :
-    elif [ "$command_row" = "themepark, in any new Terminal window" ]; then
+    elif [ "$command_row" = "themepark, in any new $WINDOW" ]; then
         ui_done command "$command_row"
     else
         ui_warn command "$command_row"
     fi
-    # THE APPLICATION: written again at every install, update and switch
-    step "Adding STP/TPW Launcher to Applications"
+    # THE APPLICATION (on Linux THE MENU ENTRY): written again at every install, update and switch
+    step "$APPS_STEP"
     add_app
     if [ "$LAUNCH" = 1 ]; then
         step "Starting the launcher"
@@ -2009,11 +2562,11 @@ run_install() {
     info "$play"
     [ "$UPDATE" = 1 ] || tell_old_copies
     closing=$play
-    [ "$play" != "$every_window" ] || closing="Type themepark in a new Terminal window to play."
+    [ "$play" != "$every_window" ] || closing="Type themepark in a new $WINDOW to play."
     if [ -n "$APP_DIR" ] && [ "$play" = "$every_window" ]; then
-        closing="Open STP/TPW Launcher from Applications, or type themepark in a new Terminal window, to play."
+        closing="Open STP/TPW Launcher from $APPS_IN, or type themepark in a new $WINDOW, to play."
     elif [ -n "$APP_DIR" ]; then
-        closing="Open STP/TPW Launcher from Applications to play. $play"
+        closing="Open STP/TPW Launcher from $APPS_IN to play. $play"
     fi
     if [ "$current" = 1 ]; then
         UI_CLOSING="Nothing to do. $closing"
@@ -2024,7 +2577,270 @@ run_install() {
     finish_ok "$VERSION"
 }
 
+# ---- Linux: the Flatpak install (--flatpak)
+#
+# The other way to install on Linux: the release's Flatpak (flatpak/, devtools/flatpak.sh), the one file
+# STP-TPW-Launcher-<version>-linux-<arch>.flatpak of each release. This asks GitHub for the newest release, downloads
+# that file, checks it against the release's SHA256SUMS.txt and `flatpak install --user`s it; an update is the same
+# install of the newer file, and nothing is compiled or kept, so there is no DIR: --dir, --dev, --stage and
+# --swap-and-launch are refused (the Flatpak follows the releases; a build of main is a bundle among the Actions page's
+# artifacts). Its themepark command goes in ~/.local/bin, a few lines of shell that `flatpak run` the launcher, and
+# `themepark update` there fetches this script from the newest release and runs it with --flatpak; that folder is put on
+# the PATH with a line of its own (FLATPAK_MARK), so that it and an install built from source never take each other's
+# line. The launcher in the sandbox cannot run this script, so its Update button says to type themepark update. The
+# game's files, saves and settings are the launcher's own, in the application's data folder
+# (~/.var/app/io.github.ThemeParkWorldDecomp.Launcher/data/STP-TPW Launcher); nothing here touches them. The output is
+# plain mode's lines (STEP n/N, RESULT ok VERSION, RESULT fail REASON), the same contract as above.
+#
+# Test hooks (the maintainers' tests): TPW_INSTALL_BUNDLE=FILE installs that bundle in place of the download,
+# TPW_INSTALL_RELEASE=URL asks that address in place of GitHub's releases/latest API, TPW_INSTALL_HOME the home folder
+# that holds .local/bin and the profiles, TPW_INSTALL_FLATPAK=COMMAND stands in for flatpak.
+
+FLATPAK_APP=io.github.ThemeParkWorldDecomp.Launcher
+FLATPAK_MARK="# tpw-port installer: the Flatpak's themepark command"
+
+flatpak_cmd() {
+    "${TPW_INSTALL_FLATPAK:-flatpak}" "$@"
+}
+
+# The repository's owner/name (TPW_INSTALL_REPO stands in for tests, as for the source install).
+flatpak_slug() {
+    slug=${REPO#https://github.com/}
+    slug=${slug%.git}
+    printf '%s\n' "${slug%/}"
+}
+
+# One field of a release's JSON, a line per value (GitHub writes each field on a line of its own).
+flatpak_json_field() {
+    sed -n "s/.*\"$1\":[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p"
+}
+
+# The newest release's bundle for this machine: "OK VERSION NAME URL SUMS-URL" on one line, or "ERR why" (it runs in a
+# subshell, so the answer is the only way out).
+flatpak_find_release() {
+    api=${TPW_INSTALL_RELEASE:-https://api.github.com/repos/$(flatpak_slug)/releases/latest}
+    answer=$(mktemp) || { echo "ERR A temporary file could not be made."; return 0; }
+    if ! code=$(curl -fsSL -H 'Accept: application/vnd.github+json' -o "$answer" -w '%{http_code}' "$api" 2>/dev/null); then
+        rm -f "$answer"
+        case "$code" in
+            404) echo "ERR There is no release yet ($api answered 404)." ;;
+            000 | "") echo "ERR GitHub did not answer at $api (no internet connection?)." ;;
+            *) echo "ERR GitHub answered $code at $api." ;;
+        esac
+        return 0
+    fi
+    json=$(cat "$answer")
+    rm -f "$answer"
+    tag=$(printf '%s\n' "$json" | flatpak_json_field tag_name | head -n 1)
+    [ -n "$tag" ] || { echo "ERR The answer from $api names no release."; return 0; }
+    version=${tag#v}
+    arch=$(flatpak_cmd --default-arch 2>/dev/null || uname -m)
+    name="STP-TPW-Launcher-$version-linux-$arch.flatpak"
+    urls=$(printf '%s\n' "$json" | flatpak_json_field browser_download_url)
+    url=$(printf '%s\n' "$urls" | grep -F "/$name" | head -n 1)
+    [ -n "$url" ] || { echo "ERR The release $tag has no Linux bundle for $arch ($name)."; return 0; }
+    sums=$(printf '%s\n' "$urls" | grep -F "/SHA256SUMS.txt" | head -n 1)
+    printf 'OK %s %s %s %s\n' "$version" "$name" "$url" "$sums"
+}
+
+# The installed launcher's version, from the launcher itself ("" when it is not installed).
+flatpak_installed_version() {
+    flatpak_cmd info --user "$FLATPAK_APP" >/dev/null 2>&1 || return 0
+    flatpak_cmd run "$FLATPAK_APP" --version 2>/dev/null | sed -n '1s/.* v//p'
+}
+
+# Writes ~/.local/bin/themepark (again at every install: it is this script's). A themepark command this script did not
+# make is never shadowed.
+flatpak_write_cmd() {
+    home=${TPW_INSTALL_HOME:-$HOME}
+    bin="$home/.local/bin"
+    cmd="$bin/themepark"
+    other=$(command -v themepark 2>/dev/null)
+    if [ -n "$other" ] && [ "$other" != "$cmd" ] && ! grep -qF "$CMD_MARK" "$other" 2>/dev/null \
+        && ! grep -qF "$FLATPAK_MARK" "$other" 2>/dev/null; then
+        say "There is already a themepark command ($other) that this installer did not make, so it is left alone."
+        return 1
+    fi
+    if [ -e "$cmd" ] && ! grep -qF "$FLATPAK_MARK" "$cmd" 2>/dev/null; then
+        say "$cmd was not made by this installer, so it is left alone."
+        return 1
+    fi
+    mkdir -p "$bin" || return 1
+    installer="https://github.com/$(flatpak_slug)/releases/latest/download/install.sh"
+    cat >"$cmd.new" <<EOF
+#!/bin/sh
+$FLATPAK_MARK
+#   themepark             opens the launcher and returns at once
+#   themepark update      updates to the newest release: the installer is fetched from it and run in this window
+#   themepark --version   prints the launcher's version in this window (--help: its options)
+# Anything else goes to the launcher, which then runs in this window until it quits.
+app=$FLATPAK_APP
+case "\${1:-}" in
+    update)
+        shift
+        curl -fsSL "$installer" | sh -s -- --flatpak --update "\$@"
+        ;;
+    "")
+        if command -v setsid >/dev/null 2>&1; then
+            setsid -f flatpak run "\$app" >/dev/null 2>&1
+        else
+            flatpak run "\$app" >/dev/null 2>&1 &
+        fi
+        ;;
+    *) exec flatpak run "\$app" "\$@" ;;
+esac
+EOF
+    # shellcheck disable=SC2015  # either failing is the failure
+    chmod +x "$cmd.new" && mv -f "$cmd.new" "$cmd" || return 1
+    info "Written: $cmd"
+}
+
+# The PATH line for ~/.local/bin (in front: a distribution that has it on the PATH puts it there too).
+flatpak_path_line() {
+    # shellcheck disable=SC2016  # $HOME and $PATH are for the profile to expand
+    printf 'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac  %s\n' "$FLATPAK_MARK"
+}
+
+flatpak_main() {
+    UI=plain
+    REPO=${TPW_INSTALL_REPO:-https://github.com/ThemeParkWorldDecomp/tpw-port.git}
+    UPDATE=0
+    LAUNCH=1
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --flatpak | --plain | --stable) ;;
+            --update) UPDATE=1 ;;
+            --no-launch) LAUNCH=0 ;;
+            --dev) die "The Flatpak follows the releases only (a build of main is a bundle among the Actions page's artifacts)." ;;
+            --dir | --dir=* | --stage | --swap-and-launch | --wait-pid | --wait-pid=*)
+                die "$1 is an option of the install built from source: the Flatpak has no install folder." ;;
+            -h | --help)
+                usage
+                exit 0
+                ;;
+            *) die "Unknown option $1 (--help lists them)." ;;
+        esac
+        shift
+    done
+    arm_traps
+    STEP_TOTAL=4
+    step "Checking what is needed"
+    command -v "${TPW_INSTALL_FLATPAK:-flatpak}" >/dev/null 2>&1 ||
+        die "Flatpak is not installed. Install your distribution's flatpak package (Debian and Ubuntu: sudo apt install flatpak; Fedora has it; Arch: sudo pacman -S flatpak), then run this line again."
+    command -v curl >/dev/null 2>&1 || die "curl is not installed. Install your distribution's curl package, then run this line again."
+    flatpak_cmd remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo ||
+        die "Flathub could not be added as a Flatpak remote (the runtime comes from it)."
+    before=$(flatpak_installed_version)
+
+    step "Finding the newest release"
+    tmp=""
+    if [ -n "${TPW_INSTALL_BUNDLE:-}" ]; then
+        bundle=$TPW_INSTALL_BUNDLE
+        version=""
+        [ -f "$bundle" ] || die "There is no bundle at $bundle."
+        info "Installing the bundle $bundle (TPW_INSTALL_BUNDLE)"
+    else
+        release=$(flatpak_find_release)
+        case "$release" in
+            OK\ *) ;;
+            ERR\ *) die "${release#ERR }" ;;
+            *) die "The newest release could not be found." ;;
+        esac
+        # shellcheck disable=SC2086  # the five fields
+        set -- $release
+        version=$2
+        name=$3
+        url=$4
+        sums=${5:-}
+        if [ -n "$before" ] && [ "$before" = "$version" ]; then
+            info "The newest release, $version, is installed already."
+        fi
+        info "The newest release is $version."
+        tmp=$(mktemp -d) || die "A temporary folder could not be made."
+        bundle="$tmp/$name"
+        info "Downloading $url"
+        curl -fL --progress-bar -o "$bundle" "$url" || die "The bundle could not be downloaded from $url."
+        if [ -n "$sums" ] && command -v sha256sum >/dev/null 2>&1; then
+            curl -fsSL -o "$tmp/SHA256SUMS.txt" "$sums" || die "The release's SHA256SUMS.txt could not be downloaded."
+            (cd "$tmp" && grep -F " $name" SHA256SUMS.txt | sha256sum -c --quiet) || die "The downloaded bundle does not match the release's SHA-256."
+            info "The bundle matches the release's SHA-256."
+        fi
+    fi
+
+    step "Installing the launcher${version:+ $version}"
+    # The same version installed again is not an error (running the install line twice is not): --reinstall for the
+    # Flatpaks that take it with a bundle (1.15 and newer), and the older ones' refusal is read as "installed already".
+    if ! out=$(flatpak_cmd install --user -y --noninteractive --reinstall --bundle "$bundle" 2>&1); then
+        printf '%s\n' "$out"
+        case "$out" in
+            *"already installed"*) info "That version is installed already." ;;
+            *) die "flatpak install failed (its lines above say why)." ;;
+        esac
+    else
+        printf '%s\n' "$out"
+    fi
+    [ -z "$tmp" ] || rm -rf "$tmp"
+    [ -n "$version" ] || version=$(flatpak_installed_version)
+    [ -n "$version" ] || version=unknown
+
+    step "Making the themepark command"
+    if flatpak_write_cmd; then
+        home=${TPW_INSTALL_HOME:-$HOME}
+        if [ "$UPDATE" = 1 ] || setup_path_linux "$(flatpak_path_line)" "$FLATPAK_MARK"; then
+            say "From now on, type themepark in any new terminal window to play. It works from any folder."
+        else
+            say "themepark is in ~/.local/bin, which your shell does not look in yet: add it to your PATH, or type ~/.local/bin/themepark."
+        fi
+    else
+        say "The launcher is installed: flatpak run $FLATPAK_APP starts it."
+    fi
+    say "STP/TPW Launcher $version is installed. It is also in your applications menu."
+    if [ "$LAUNCH" = 1 ]; then
+        if command -v setsid >/dev/null 2>&1; then
+            setsid -f "${TPW_INSTALL_FLATPAK:-flatpak}" run "$FLATPAK_APP" >/dev/null 2>&1
+        else
+            "${TPW_INSTALL_FLATPAK:-flatpak}" run "$FLATPAK_APP" >/dev/null 2>&1 &
+        fi
+    fi
+    finish_ok "$version"
+}
+
 # ---- main
+
+# The folder the shared data (and the menu entry) go in on Linux: $XDG_DATA_HOME when it is set (to a full path, as
+# the specification asks), else ~/.local/share, as SDL names the launcher's data folder.
+linux_share() {
+    case "${XDG_DATA_HOME:-}" in
+        /?*) printf '%s\n' "${XDG_DATA_HOME%/}" ;;
+        *) printf '%s\n' "$HOME/.local/share" ;;
+    esac
+}
+
+# The places and words that differ between a Mac and Linux.
+platform_words() {
+    if [ "$OS" = linux ]; then
+        DEFAULT_DIR="$(linux_share)/STP-TPW-Launcher"
+        DATA_TEXT="$(tilde "$(linux_share)")/STP-TPW Launcher"
+        WINDOW="terminal window"
+        APPS_STEP="Adding STP/TPW Launcher to the applications menu"
+        APPS_IN="the applications menu"
+        TOOLS_LOOKING="looking for the packages the build needs"
+        TOOLS_FOUND="the build's packages are installed"
+        TOOLS_STEP="Checking the build's tools (CMake)"
+        TOOLS_ROW="checking the build's tools (CMake)"
+    else
+        DEFAULT_DIR="$HOME/Applications/STP-TPW-Launcher"
+        # shellcheck disable=SC2088  # the ~ is for people to read
+        DATA_TEXT="~/Library/Application Support/STP-TPW Launcher"
+        WINDOW="Terminal window"
+        APPS_STEP="Adding STP/TPW Launcher to Applications"
+        APPS_IN="Applications"
+        TOOLS_LOOKING="looking for the Xcode command line tools"
+        TOOLS_FOUND="Xcode command line tools found"
+        TOOLS_STEP="Getting the build's tools (CMake, if this Mac has none)"
+        TOOLS_ROW="getting the build's tools (CMake, if this Mac has none)"
+    fi
+}
 
 main() {
     # Test hook: the text on standard input, scrubbed, is appended to the file TPW_INSTALL_SCRUB (and shown as it is).
@@ -2043,6 +2859,17 @@ main() {
     PLAIN=0
     GIT_TERMINAL_PROMPT=0   # a wrong address must fail, never wait for a password nobody sees
     export GIT_TERMINAL_PROMPT
+    # A Mac or Linux (any other system is refused by check_computer, in the Mac's words), and on Linux --flatpak, which
+    # is an install of its own (flatpak_main below).
+    OS=mac
+    [ "$(uname -s 2>/dev/null)" != Linux ] || OS=linux
+    platform_words
+    for arg in "$@"; do
+        [ "$arg" = --flatpak ] || continue
+        [ "$OS" = linux ] || die "--flatpak is for Linux. On a Mac the launcher is built from its source."
+        flatpak_main "$@"
+        return $?
+    done
     arm_traps
 
     while [ $# -gt 0 ]; do
@@ -2080,7 +2907,7 @@ main() {
     [ -z "$WAIT_PID" ] || [ "$SWAP" = 1 ] || die "--wait-pid goes with --swap-and-launch."
     case "$WAIT_PID" in *[!0-9]*) die "--wait-pid needs a process number." ;; esac
 
-    [ -n "$DIR" ] || DIR="$HOME/Applications/STP-TPW-Launcher"
+    [ -n "$DIR" ] || DIR=$DEFAULT_DIR
     # --dir . and --dir ./name mean the current folder and a folder in it; "$HOME/." is the home folder, which is refused
     while :; do
         case "$DIR" in ./?*) DIR=${DIR#./} ;; *) break ;; esac
@@ -2099,6 +2926,16 @@ main() {
     case "$DIR" in
         *[\"\$\`\\]*) die "Not using \"$DIR\" as the install folder: a double quote, \$, backtick or backslash in its name breaks the build. Choose another with --dir." ;;
     esac
+    # On Linux these too: CMake cannot configure a folder with ; # * ? [ ] or a comma in its name, and the shell lines of
+    # SDL's Wayland step (its protocol headers, which are not made on a Mac) hold the folder unquoted, where ' ( ) & or
+    # : breaks them. A Linux account's name, and so its home folder, has none of them.
+    if [ "$OS" = linux ]; then
+        for c in "'" "(" ")" "&" ":" ";" "#" "*" "?" "[" "]" ","; do
+            case "$DIR" in
+                *"$c"*) die "Not using \"$DIR\" as the install folder: on Linux a $c in its name breaks the build. Choose another with --dir." ;;
+            esac
+        done
+    fi
 
     SRC="$DIR/source"
     NEXT="$DIR/build-next"

@@ -20,12 +20,28 @@ To install, follow these instructions. To update, run the same command again or 
   Nothing to install first: a Git on the PATH is used, and a PC without one gets a portable Git (MinGit) fetched into
   the launcher's own folder, checked against its SHA-256; no winget, no setup program, no Path entry for it. The
   launcher goes in `%LOCALAPPDATA%\STP-TPW-Launcher\build\tpw_launcher.exe`.
-- Linux (64-bit, x86-64 or AArch64): build it from source, as [Building on Linux](#building-on-linux) below says. The
-  launcher is then `build/tpw_launcher` in the clone.
+- Linux (64-bit, x86-64 or AArch64), in a terminal:
+
+      curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh
+
+  It builds the launcher from its source, as on a Mac. The packages the build needs (a compiler, CMake, Git, Python 3
+  and the development packages SDL builds against, the ones [Building on Linux](#building-on-linux) lists) are
+  installed with your distribution's apt-get, dnf or pacman, and sudo asks for your password once; on another
+  distribution it lists them and changes nothing. The launcher goes in
+  `~/.local/share/STP-TPW-Launcher/build/tpw_launcher`, beside its data folder `~/.local/share/STP-TPW Launcher`.
+
+  To install the release's [Flatpak](https://flatpak.org/setup/) instead (nothing is compiled; any distribution with
+  Flatpak and curl), add `--flatpak`:
+
+      curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh -s -- --flatpak
+
+  It installs `io.github.ThemeParkWorldDecomp.Launcher` for your user, with the freedesktop runtime from Flathub, and
+  its own `themepark` command in `~/.local/bin`. The Flatpak keeps its games, saves and settings in
+  `~/.var/app/io.github.ThemeParkWorldDecomp.Launcher/data/STP-TPW Launcher`.
 
 ### Play after install
 
-Type this in a Terminal (Mac) or PowerShell (Windows) window, in any folder:
+Type this in a Terminal (Mac), PowerShell (Windows) or terminal (Linux) window, in any folder:
 
     themepark
 
@@ -33,19 +49,38 @@ On a Mac it works in every new Terminal window (the first install opens the laun
 also puts **STP/TPW Launcher** in your Applications folder, with the game's icon, so you can open it from Launchpad,
 Spotlight or the Dock too. On Windows it works straight away, in the window you installed from too, and the installer
 puts **STP/TPW Launcher** in the Start menu, with the game's icon, so you can open it from there or find it with Search.
-`themepark --version` shows the installed version.
+On Linux it works in every new terminal window (the first install opens the launcher for you), and the installer puts
+**STP/TPW Launcher** in your applications menu, with the launcher's icon. `themepark --version` shows the installed
+version. In the Flatpak install `themepark` runs the Flatpak (`flatpak run io.github.ThemeParkWorldDecomp.Launcher`),
+`themepark update` fetches the newest release's installer and runs it with `--flatpak`, and the launcher's options go
+through as on the others (`themepark --windowed`).
 
 ### Building on Linux
 
-On a 64-bit Linux (x86-64 or AArch64) with a C++17 compiler (GCC 13 or clang 18, or newer), CMake 3.20 or newer, Ninja,
-Python 3 and the development packages SDL needs for the window, the keyboard and the sound. On Debian and Ubuntu:
+The one-line installer above does all of this for you. By hand: on a 64-bit Linux (x86-64 or AArch64) with a C++17
+compiler (GCC 13 or clang 18, or newer), CMake 3.20 or newer, Ninja, Python 3 and the development packages SDL needs for
+the window, the keyboard and the sound. On Debian and Ubuntu:
 
     sudo apt install build-essential cmake ninja-build python3 git \
         libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxkbcommon-dev \
         libwayland-dev wayland-protocols libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
-        libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev libudev-dev
+        libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev libudev-dev libibus-1.0-dev
 
-(On Fedora the same packages are named with -devel: SDL's own documentation lists them for each distribution.) Then:
+On Fedora (libstdc++-static holds the C++ library the launcher links in):
+
+    sudo dnf install gcc gcc-c++ libstdc++-static make cmake ninja-build python3 git \
+        libX11-devel libXext-devel libXrandr-devel libXcursor-devel libXi-devel libXfixes-devel libXScrnSaver-devel \
+        libxkbcommon-devel wayland-devel wayland-protocols-devel libdecor-devel mesa-libEGL-devel mesa-libGL-devel \
+        libdrm-devel mesa-libgbm-devel alsa-lib-devel pulseaudio-libs-devel pipewire-devel dbus-devel systemd-devel \
+        ibus-devel
+
+On Arch (with the system up to date first, `sudo pacman -Syu`):
+
+    sudo pacman -S --needed gcc make cmake ninja python git pkgconf libx11 libxext libxrandr libxcursor libxi \
+        libxfixes libxss libxkbcommon wayland wayland-protocols libdecor libglvnd mesa libdrm alsa-lib libpulse \
+        libpipewire dbus systemd-libs libibus
+
+Then:
 
     git clone --branch stable --recurse-submodules https://github.com/ThemeParkWorldDecomp/tpw-port.git
     cd tpw-port
@@ -58,7 +93,11 @@ links only the system's C and C++ runtimes: SDL opens the window system (Wayland
 PulseAudio or ALSA) and the graphics driver (Vulkan's loader, or the system's OpenGL) at run time, so the launcher built
 on one distribution runs on another with a glibc as new (the C++ runtime is linked in; `-DTPW_STATIC_RUNTIME=OFF` uses
 the system's instead, as a package would). To update, run `git pull`, `git submodule update --init --recursive` and the
-two cmake lines again. Alt+Enter switches between full screen and a window while playing.
+two cmake lines again. The Makefile works on Linux as on a Mac: `make` builds build/tpw_launcher, `make run` starts it,
+`make test` builds everything and runs the tests, and `make clean` deletes build/. `sh devtools/flatpak.sh` builds the
+launcher as the Flatpak bundle the release hands out (it needs Flatpak, and uses flatpak-builder or the
+org.flatpak.Builder flatpak and the freedesktop SDK from Flathub). Alt+Enter switches between full screen and a window
+while playing.
 
 The game is drawn by the port's own Vulkan renderer (platform/vulkan/), on any Vulkan 1.0 driver. Without a Vulkan
 driver that can draw to the window it is drawn with the system's OpenGL instead, and the log says so. The same happens
@@ -69,7 +108,7 @@ software driver too.
 
 ### Playing
 
-`themepark` (on Linux, `build/tpw_launcher`) opens the launcher. Drop your game disc on its window: the Mac CD, the
+`themepark` (built by hand, `build/tpw_launcher`) opens the launcher. Drop your game disc on its window: the Mac CD, the
 PC CD, or a zip or disc image of either. The launcher checks every file and ticks off the editions it finds. Press Play:
 a progress bar shows while the game starts, and the launcher's window closes when the game's window appears. Once the
 US, European and Gold discs are all checked, the window shows just two tiles, Sim Theme Park and Theme Park World, each
@@ -103,7 +142,8 @@ sees only that someone asked.
   Update. Installed with the install script, Update builds the new release beside the one you run and says each step
   (a dev install too: Update always goes to the newest release); when it is ready, Restart to update closes the
   launcher and starts the new one. If anything goes wrong, nothing is changed and the banner says why, with Show logs.
-  Downloaded or built by hand, Update opens the release's page.
+  Downloaded or built by hand, Update opens the release's page. In the Flatpak (Linux) it says to type `themepark
+  update` in a terminal, since the launcher cannot update itself from inside its sandbox.
 - With no internet, or when GitHub does not answer, the launcher says nothing and asks again at the next start. Update
   is greyed out with "No internet connection" until a later start reaches GitHub.
 - To turn it off: Settings, Check for updates. `tpw_launcher --check-updates` asks once and prints the answer.
@@ -126,7 +166,8 @@ The game itself never needs the internet: everything plays offline.
 - No patches. The port is built from the last Mac patch (2.04b3) and reads only the game's data files.
 
 Your checked game files and your saves live in `~/Library/Application Support/STP-TPW Launcher` on a Mac, in
-`%APPDATA%\STP-TPW Launcher` on Windows and in `~/.local/share/STP-TPW Launcher` on Linux. `make clean` and
+`%APPDATA%\STP-TPW Launcher` on Windows and in `~/.local/share/STP-TPW Launcher` on Linux (in the Flatpak,
+`~/.var/app/io.github.ThemeParkWorldDecomp.Launcher/data/STP-TPW Launcher`). `make clean` and
 `build.cmd clean` never touch that folder. Each run's log goes to its logs folder
 (launcher-YYYYMMDD-HHMMSS.log, the 10 most recent runs kept; the About box's Show logs button opens it with the newest log selected, and its Export logs button saves the newest to your Downloads folder), and
 `tpw_launcher --version` prints the launcher's version. On Windows the launcher has no console: what it prints goes to
@@ -262,8 +303,15 @@ and the build:
   turns it off. The stand-in generator (launcher/gen_stubs.py) reads glibc's static part (libc_nonshared.a) and makes the
   same symbol-name thunks as on Windows (ELF spells a name as COFF does).
 - The launcher's data folder is `~/.local/share/STP-TPW Launcher` (SDL's per-user folder: `$XDG_DATA_HOME` when it is
-  set), and its Downloads folder for Export logs is `~/Downloads`. The Update button opens the release's page, as for
-  any launcher built by hand.
+  set), and its Downloads folder for Export logs is `~/Downloads`. Installed with the one line, the Update button
+  updates it as on a Mac; built by hand, it opens the release's page.
+- The one-line installer is install.sh, the Mac's, with Linux's checks in place of the Mac's: the distribution, the
+  processor, the free space and the build's packages, which it installs with apt-get, dnf or pacman through sudo (or
+  prints the exact command when nothing can ask for the password, as from the Update button). The themepark command's
+  line goes in `~/.profile` and in the file a terminal window's shell reads (`~/.bashrc`, or `~/.zshrc` and
+  `~/.zprofile`), and the menu entry is `~/.local/share/applications/stp-tpw-launcher.desktop`, with the launcher's
+  icon in `~/.local/share/icons/hicolor`. `--flatpak` installs the release's Flatpak instead (flatpak/,
+  devtools/flatpak.sh).
 
 ### Building by hand
 
@@ -394,12 +442,12 @@ Open an issue (the form asks for each of these) or post on Discord, and say:
    `tpw_launcher --version` prints it. A report without it cannot be checked, since each version is different code. A
    version ending in -dev (0.0.4-dev) is a build of main, not a release: give the build too, which the log's first line
    names (`build: ...`).
-2. Your system (macOS or Windows and its version, Apple Silicon, Intel or AMD).
+2. Your system (macOS or Windows and its version, or your Linux distribution, Apple Silicon, Intel, AMD or Arm).
 3. Your edition: US, European or Gold.
 4. The launcher's newest log, attached. Open the launcher's About box, click **Export logs**, then attach the file it
    saves in your Downloads folder ("STP-TPW Launcher log" and the date). The log's own folder is
-   `~/Library/Application Support/STP-TPW Launcher/logs` on a Mac and `%APPDATA%\STP-TPW Launcher\logs` on Windows
-   (the About box's Show logs button opens it).
+   `~/Library/Application Support/STP-TPW Launcher/logs` on a Mac, `%APPDATA%\STP-TPW Launcher\logs` on Windows and
+   `~/.local/share/STP-TPW Launcher/logs` on Linux (the About box's Show logs button opens it).
    The log holds no username, computer name or home folder (each shows as `~`, `<user>` or `<computer>`), so it is safe
    to share.
 5. What you clicked before it went wrong, and whether it happens again when you do the same.
@@ -435,16 +483,19 @@ was the first to get the port running on an Intel Mac, which showed what the Int
 
 Every push and pull request is built and tested by GitHub Actions (.github/workflows/build.yml): on Windows Server 2022
 and 2025 (the nearest GitHub has to the Windows 10 and 11 kernels; 2025 is the build of Windows 11 24H2), on Windows 11
-on Arm (under its x64 emulation) and on macOS (Apple Silicon and Intel). Each Windows build also starts the launcher
-once (--version), and each run keeps the launchers it built as artifacts.
+on Arm (under its x64 emulation), on macOS (Apple Silicon and Intel) and on Ubuntu 24.04, where the linux job also
+builds, installs and starts the Flatpak bundle. Each Windows build also starts the launcher once (--version), and each
+run keeps the launchers it built as artifacts. The one-line installers are tested on the same systems by
+.github/workflows/installer.yml (with a stand-in launcher) and installer-broad.yml (every kind of situation a player can
+be in, against a local fake release, one real build each, and on Linux the package step in Fedora and Arch too).
 .github/workflows/screenshots.yml (run by hand, or by a push to a ci-shots-* branch) installs the launcher for real on
 Windows 2022 and 2025, types `themepark` in a PowerShell window and keeps pictures of the screen before and after as
 artifacts, with the icon of the launcher's window, failing when the launcher's window did not come to the front.
 
 Pull requests go to main, which is always the next version (launcher/VERSION.txt says it with -dev, 0.0.4-dev for
 example). A release is cut from main: its version without -dev, then a tag (v0.0.4) on that commit, from which
-.github/workflows/release.yml builds, tests and publishes the Windows and Mac downloads together. A release is never
-changed or replaced afterwards, so a fix accepted after it ships in the next version.
+.github/workflows/release.yml builds, tests and publishes the Windows, Mac and Linux downloads together. A release is
+never changed or replaced afterwards, so a fix accepted after it ships in the next version.
 
 ## See also
 
