@@ -1,7 +1,7 @@
 # tpw-port
 
-An unofficial port of Sim Theme Park (AKA Theme Park World, 1999) for Macs (Apple Silicon and Intel) and 64-bit Windows.
-You need your own copy of the game. Nothing from the game is in here.
+An unofficial port of Sim Theme Park (AKA Theme Park World, 1999) for Macs (Apple Silicon and Intel), 64-bit Windows
+and Linux. You need your own copy of the game. Nothing from the game is in here.
 
 ## Quick start
 
@@ -20,6 +20,8 @@ To install, follow these instructions. To update, run the same command again or 
   Nothing to install first: a Git on the PATH is used, and a PC without one gets a portable Git (MinGit) fetched into
   the launcher's own folder, checked against its SHA-256; no winget, no setup program, no Path entry for it. The
   launcher goes in `%LOCALAPPDATA%\STP-TPW-Launcher\build\tpw_launcher.exe`.
+- Linux (64-bit, x86-64 or AArch64): build it from source, as [Building on Linux](#building-on-linux) below says. The
+  launcher is then `build/tpw_launcher` in the clone.
 
 ### Play after install
 
@@ -33,9 +35,34 @@ Spotlight or the Dock too. On Windows it works straight away, in the window you 
 puts **STP/TPW Launcher** in the Start menu, with the game's icon, so you can open it from there or find it with Search.
 `themepark --version` shows the installed version.
 
+### Building on Linux
+
+On a 64-bit Linux (x86-64 or AArch64) with a C++17 compiler (GCC 13 or clang 18, or newer), CMake 3.20 or newer, Ninja,
+Python 3 and the development packages SDL needs for the window, the keyboard and the sound. On Debian and Ubuntu:
+
+    sudo apt install build-essential cmake ninja-build python3 git \
+        libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxkbcommon-dev \
+        libwayland-dev wayland-protocols libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
+        libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev libudev-dev
+
+(On Fedora the same packages are named with -devel: SDL's own documentation lists them for each distribution.) Then:
+
+    git clone --branch stable --recurse-submodules https://github.com/ThemeParkWorldDecomp/tpw-port.git
+    cd tpw-port
+    cmake -S . -B build -G Ninja
+    cmake --build build --target tpw_launcher
+    build/tpw_launcher
+
+The first build takes a few minutes. The launcher is one program, build/tpw_launcher, that needs nothing beside it and
+links only the system's C and C++ runtimes: SDL opens the window system (Wayland or X11), the sound system (PipeWire,
+PulseAudio or ALSA) and the graphics driver (the system's OpenGL) at run time, so the launcher built on one distribution
+runs on another with a glibc as new (the C++ runtime is linked in; `-DTPW_STATIC_RUNTIME=OFF` uses the system's instead,
+as a package would). To update, run `git pull`, `git submodule update --init --recursive` and the two cmake lines again.
+Alt+Enter switches between full screen and a window while playing.
+
 ### Playing
 
-`themepark` opens the launcher. Drop your game disc on its window: the Mac CD, the
+`themepark` (on Linux, `build/tpw_launcher`) opens the launcher. Drop your game disc on its window: the Mac CD, the
 PC CD, or a zip or disc image of either. The launcher checks every file and ticks off the editions it finds. Press Play:
 a progress bar shows while the game starts, and the launcher's window closes when the game's window appears. Once the
 US, European and Gold discs are all checked, the window shows just two tiles, Sim Theme Park and Theme Park World, each
@@ -78,8 +105,8 @@ The game itself never needs the internet: everything plays offline.
 
 ## What you need
 
-- A Mac (Apple Silicon or Intel) with macOS 11 or newer, or a PC with 64-bit Windows 10 or 11 (Intel, AMD or Arm; an
-  Arm PC needs Windows 11), and about 2.5 GB of free space.
+- A Mac (Apple Silicon or Intel) with macOS 11 or newer, a PC with 64-bit Windows 10 or 11 (Intel, AMD or Arm; an
+  Arm PC needs Windows 11), or a 64-bit Linux (x86-64 or AArch64) with OpenGL, and about 2.5 GB of free space.
 - Your own copy of the game:
   - The US Mac CD gives Sim Theme Park.
   - The Mac CD plus the European PC CD give Theme Park World too. Only the 2000 pressings of the PC CD work (Redump
@@ -90,8 +117,9 @@ The game itself never needs the internet: everything plays offline.
     downloaded ride is missing, and opens the theme's park afresh.
 - No patches. The port is built from the last Mac patch (2.04b3) and reads only the game's data files.
 
-Your checked game files and your saves live in `~/Library/Application Support/STP-TPW Launcher` on a Mac and in
-`%APPDATA%\STP-TPW Launcher` on Windows. `make clean` and `build.cmd clean` never touch that folder. Each run's log goes to its logs folder
+Your checked game files and your saves live in `~/Library/Application Support/STP-TPW Launcher` on a Mac, in
+`%APPDATA%\STP-TPW Launcher` on Windows and in `~/.local/share/STP-TPW Launcher` on Linux. `make clean` and
+`build.cmd clean` never touch that folder. Each run's log goes to its logs folder
 (launcher-YYYYMMDD-HHMMSS.log, the 10 most recent runs kept; the About box's Show logs button opens it with the newest log selected, and its Export logs button saves the newest to your Downloads folder), and
 `tpw_launcher --version` prints the launcher's version. On Windows the launcher has no console: what it prints goes to
 launcher.log in that folder too, unless its output is redirected (`build\tpw_launcher.exe 2> log.txt`).
@@ -103,7 +131,8 @@ checked game files. A pack is a zip of files, each at its place in the game fold
 is the Bullfrog logo shown before the films. A zip made of a folder works too, as one folder around `data` is ignored.
 
 Put packs in the `packs` folder beside `saves` and `assets`: `~/Library/Application Support/STP-TPW Launcher/packs`
-on a Mac and `%APPDATA%\STP-TPW Launcher\packs` on Windows (the launcher makes it). When you press Play, the launcher
+on a Mac, `%APPDATA%\STP-TPW Launcher\packs` on Windows and `~/.local/share/STP-TPW Launcher/packs` on Linux (the
+launcher makes it). When you press Play, the launcher
 unpacks a new or changed zip into `packs/.unpacked`, and the game looks in a pack before its own files. Your saves
 still come first. To stop using a pack, remove its zip. Packs are used in name order: when two hold the same file, the
 later name's copy is used. `--packs DIR` names another folder, and it also works with `--game`.
@@ -153,8 +182,10 @@ on the Mac, bugs included. This repository adds what it takes to play:
   names nothing defines yet. launcher/net/ is the only code that uses the internet (the update check; CONTRIBUTING.md,
   "Playable offline").
 - platform/: the Mac Toolbox, Sound Sprockets, QuickTime and the game's Windows-style shims, done on SDL3, OpenGL and
-  CoreText (on Windows, stb_truetype in place of CoreText).
-- overrides/: the port's fixes, 228 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
+  CoreText (on Windows and Linux, stb_truetype in place of CoreText). platform/gfx.h is the graphics backend behind the
+  game's window, with OpenGL as its backend (platform/gl_backend.cpp, platform/offscreen.cpp); on Linux the game's
+  OpenGL calls are the platform layer's own (platform/gl_entry.cpp), handed to the system's OpenGL.
+- overrides/: the port's fixes, 229 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
   the port does and why. Each file there is built in place of the tpw-decomp file of the same path. Headers are read
   from a copy of tpw-decomp's headers in the build folder with the overridden ones laid over it.
 - mods/: the [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) submodule, for optional changes to how the game plays. It holds no mods yet
@@ -173,7 +204,7 @@ tests, `BUILD=<folder>` builds in another folder, and each step's output is kept
 launcher's DLL imports, and test builds check the test programs too: only Windows system libraries are allowed. The
 record is build\logs\imports.log. CI also copies the launcher away from its build tools and starts it with only
 Windows system folders on PATH. What it does differently is all in the platform layer and the build: the signs' text
-is drawn with stb_truetype (platform/gdi_text_win.cpp) from the game's fonts and the Windows fonts folder; the POSIX
+is drawn with stb_truetype (platform/gdi_text_stb.cpp) from the game's fonts and the Windows fonts folder; the POSIX
 calls MinGW lacks are in platform/win and platform/posix_win.cpp; a division the x86 traps (by zero, INT_MIN / -1) gets
 the answer the Mac's processor gives (platform/host_win.cpp); and the build makes its own copy of the one tpw-decomp file
 the game library builds sliced (devtools/slice_win.py), so it needs no libclang. tpw_platform_tests does: its sources
@@ -181,6 +212,35 @@ are cut by tpw-decomp's slicer, which runs on libclang, and llvm-mingw has none.
 -DTPW_LIBCLANG=<path>, such as bin\libclang.dll of an LLVM release (23.1.3 was used), and the slicer runs through
 devtools/slicer_win.py; without it the platform tests are left out. The overrides of units win and winnewline in
 [FIXES.md](FIXES.md) are the Windows build's.
+
+### The Linux build
+
+It was built and tested with GCC 13.3 and clang 18.1, CMake 3.28, Ninja 1.11 and Python 3.12 on Ubuntu 24.04 (x86-64),
+where CI builds it with GCC too and runs its tests under a virtual screen (.github/workflows/build.yml), and the
+launcher built there ran both editions, to the lobby and into a park, on Arch Linux (KDE Plasma on Wayland, NVIDIA's
+OpenGL driver). What it does differently is all in the platform layer and the build:
+
+- Every OpenGL 1.1 call the game and the platform layer make (include/platform/opengl.h) is the platform layer's own
+  (platform/gl_entry.cpp) and goes to the system's OpenGL, which SDL opens at run time and whose entry points are taken
+  once a context exists. Nothing of OpenGL is linked, so no OpenGL package is needed to build, and GLU's one call,
+  gluBuild2DMipmaps, is built there with GLU's own box filter (platform/gfx.h, HalfSizeRGBA).
+- The signs' text is drawn with stb_truetype (platform/gdi_text_stb.cpp, the Windows build's file) from the game's fonts
+  and the system's font folders, with Liberation Sans or DejaVu Sans standing in for Arial.
+- A division the x86 traps (by zero, INT_MIN / -1) gets the answer the Mac's processor gives (platform/host_linux.cpp,
+  a SIGFPE handler, as platform/host_win.cpp does with an exception handler); the preload thread's priority call of
+  the Mac's pthread library is platform/linux/pthread/qos.h over the same file.
+- The game library's one sliced file is made with devtools/slice_win.py, as on Windows, so playing needs no libclang.
+  tpw_platform_tests does: it is made when a libclang is found (the distribution's, such as Ubuntu's libclang-18-dev, or
+  the one -DTPW_LIBCLANG=<path> names), through devtools/slicer_linux.py; without one the platform tests are left out and
+  the configure step says so.
+- GCC refuses a few things clang takes: the rows of unit linux in [FIXES.md](FIXES.md) are those (a declaration here,
+  an include there; nothing the game does changes). Ubuntu's GCC checks memory calls against declared sizes by default
+  (_FORTIFY_SOURCE), which the translation's view of the Mac's memory fails where the Mac's code is right, so the build
+  turns it off. The stand-in generator (launcher/gen_stubs.py) reads glibc's static part (libc_nonshared.a) and makes the
+  same symbol-name thunks as on Windows (ELF spells a name as COFF does).
+- The launcher's data folder is `~/.local/share/STP-TPW Launcher` (SDL's per-user folder: `$XDG_DATA_HOME` when it is
+  set), and its Downloads folder for Export logs is `~/Downloads`. The Update button opens the release's page, as for
+  any launcher built by hand.
 
 ### Building by hand
 
@@ -193,8 +253,8 @@ a trimmed FFmpeg are built from source with the port (third_party/).
     cmake -S . -B build
     cmake --build build -j8 --target tpw_launcher
 
-On Windows, with your own toolchain (llvm-mingw extracted to C:\llvm-mingw, CMake, Ninja and Python 3 on the PATH), the
-same in PowerShell:
+On Linux the same four lines build it (see Building on Linux above for the packages SDL needs). On Windows, with your
+own toolchain (llvm-mingw extracted to C:\llvm-mingw, CMake, Ninja and Python 3 on the PATH), the same in PowerShell:
 
     git -c core.autocrlf=false clone --recurse-submodules https://github.com/ThemeParkWorldDecomp/tpw-port.git
     cd tpw-port
@@ -242,6 +302,10 @@ the CD (manuals, installers, extras), which nothing reads. A patch file given to
 From WORK, `tpw-port/build/tpw_launcher --game "extracted/disc-hfs/Theme Park Data"` plays from there.
 `tpw_launcher --play us` (or eur) starts an edition from the launcher's data folder without its window.
 `tpw_launcher --help` lists every option.
+
+On Linux the tests take `SDL_AUDIO_DRIVER=dummy` on a machine with no sound device (a CI runner), SDL's own stand-in for
+one, and the platform tests' text checks need a sans face among the system's fonts (Arial, Liberation Sans or DejaVu
+Sans). CI runs them under a virtual screen (`xvfb-run`).
 
 After Play the launcher's window stays open with a progress bar until the game's window appears, then it closes. While
 the window is open a thread reads ahead the game's tables and the first files of the edition last played, so that Play
@@ -326,7 +390,7 @@ The project is three repositories, and every change belongs in exactly one of th
 | Repository | What it holds | Pull requests |
 | --- | --- | --- |
 | [tpw-decomp](https://github.com/ThemeParkWorldDecomp/tpw-decomp) | The translation: the Mac program's own functions in C++, each behaving exactly as the Mac build does, bugs included, with the differential tests that check it. | None. A function that behaves differently from the Mac is reported as an issue on tpw-port. |
-| [tpw-port](https://github.com/ThemeParkWorldDecomp/tpw-port) | The original game on today's Macs and Windows PCs: the launcher, the platform layer, the builds, and the fixes that make it run as it did on the Mac. | Welcome, by its CONTRIBUTING.md. |
+| [tpw-port](https://github.com/ThemeParkWorldDecomp/tpw-port) | The original game on today's Macs, Windows PCs and Linux machines: the launcher, the platform layer, the builds, and the fixes that make it run as it did on the Mac. | Welcome, by its CONTRIBUTING.md. |
 | [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) | Optional changes to how the game plays, each one off until the player turns it on. tpw-port carries it as a submodule at mods/. | Welcome, by its CONTRIBUTING.md. |
 
 The test for where a change goes: does a park play the same with it on and with it off? If it does, the change belongs in
@@ -337,7 +401,7 @@ One exception: an option the original game already had in its .sam data files be
 changes how a park plays, as long as it offers only the values the original accepts and its default is the original's.
 Players set it in the launcher or a game menu, never by editing a .sam file.
 
-Pull requests are welcome here for anything that passes that test: fixes, other systems (Linux, for example), build
+Pull requests are welcome here for anything that passes that test: fixes, other systems (the BSDs, for example), build
 changes, tools. [CONTRIBUTING.md](CONTRIBUTING.md) has the rules, including the three a setting must meet. An accepted
 pull request is merged here and also made in the private working tree both tpw-decomp and tpw-port are exported from,
 so every later export keeps it.

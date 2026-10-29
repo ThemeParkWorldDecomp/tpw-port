@@ -1,12 +1,15 @@
-// Windows port contributed by samueleagle91 (tpw-port PR #1)
-// gdi_text_win.cpp: gdi_text.h on Windows, with stb_truetype (third_party/stb) where the Mac's gdi_text.cpp has CoreText,
-// which CMakeLists.txt leaves out of the Windows build. Fonts are found among the files AddFontResource registered, then
-// among the system's font files, and text is laid out without kerning or ligatures, as on the Mac.
+// Windows port contributed by samueleagle91 (tpw-port PR #1); the Linux parts (the system's font folders and the
+// fallback faces) are the Linux port's.
+// gdi_text_stb.cpp: gdi_text.h on Windows and Linux, with stb_truetype (third_party/stb) where the Mac's gdi_text.cpp has
+// CoreText, which CMakeLists.txt leaves out of those builds. Fonts are found among the files AddFontResource registered,
+// then among the system's font files, and text is laid out without kerning or ligatures, as on the Mac.
 //
-// What differs from the CoreText side: the system fonts are the Windows font folder read on the first miss; the fallback
-// for an unknown name is Arial (Helvetica's metric twin) or the first face found; and a pixel is ink when its glyph
-// coverage reaches one half, where CoreGraphics without antialiasing tests the pixel's centre.
-#ifdef _WIN32
+// What differs from the CoreText side: the system fonts are the system's font folders read on the first miss (the Windows
+// font folder; on Linux /usr/share/fonts, /usr/local/share/fonts and the player's own, as fontconfig lists them); the
+// fallback for an unknown name is Arial (Helvetica's metric twin), on Linux one of its metric twins (Liberation Sans,
+// Arimo) or DejaVu Sans, else the first face found; and a pixel is ink when its glyph coverage reaches one half, where
+// CoreGraphics without antialiasing tests the pixel's centre.
+#if defined(_WIN32) || defined(__linux__)
 #include "gdi_text.h"
 #include "resource_fork.h"
 
@@ -62,7 +65,10 @@ int Codepoint(char byte) {
 struct Face {
     std::string family, fullName, postScript;
     bool bold = false, italic = false;
-    std::shared_ptr<std::vector<uint8_t>> bytes;   // the sfnt (or collection) the face is in, shared by its faces
+    std::shared_ptr<std::vector<uint8_t>> bytes;   // the sfnt (or collection) the face is in, shared by its faces; a
+                                                   // system face has none until it is chosen (FaceBytes reads its file)
+    std::filesystem::path file;                    // the file, for a system face (as the folder listing named it, so
+                                                   // a Windows name outside the ANSI code page still opens)
     int offset = 0;                                // of the face's table directory in bytes
 };
 
@@ -180,26 +186,74 @@ bool LooksLikeSfnt(const std::vector<uint8_t>& bytes) {
     return magic == 0x00010000 || magic == ForkType("true") || magic == ForkType("OTTO") || magic == ForkType("ttcf");
 }
 
-// Windows' own fonts, read once, on the first name the game's files do not have.
+// The system's own font folders.
+std::vector<std::filesystem::path> SystemFontFolders() {
+    std::vector<std::filesystem::path> folders;
+#ifdef _WIN32
+    const char* windows = std::getenv("WINDIR");
+    folders.push_back(std::filesystem::path(windows != nullptr ? windows : "C:\\Windows") / "Fonts");
+#else
+    // The folders fontconfig's default configuration lists (fonts.conf): the system's, the distribution's extra ones
+    // (XDG_DATA_DIRS, /usr/local/share by default) and the player's own (XDG_DATA_HOME, ~/.local/share by default, and the
+    // older ~/.fonts).
+    folders.push_back("/usr/share/fonts");
+    folders.push_back("/usr/local/share/fonts");
+    if (const char* dirs = std::getenv("XDG_DATA_DIRS")) {
+        std::string list = dirs;
+        for (size_t start = 0; start <= list.size();) {
+            const size_t end = std::min(list.find(':', start), list.size());
+            if (end > start) folders.push_back(std::filesystem::path(list.substr(start, end - start)) / "fonts");
+            start = end + 1;
+        }
+    }
+    const char* home = std::getenv("HOME");
+    if (const char* data = std::getenv("XDG_DATA_HOME"); data != nullptr && data[0] != '\0')
+        folders.push_back(std::filesystem::path(data) / "fonts");
+    else if (home != nullptr)
+        folders.push_back(std::filesystem::path(home) / ".local" / "share" / "fonts");
+    if (home != nullptr) folders.push_back(std::filesystem::path(home) / ".fonts");
+#endif
+    return folders;
+}
+
+// The system's own fonts, their names read once, on the first name the game's files do not have. Only the names are
+// kept (a desktop's font folders run to hundreds of megabytes): a face's file is read again when the face is chosen.
 const std::vector<Face>& SystemFaces() {
     static auto* faces = [] {
         auto* found = new std::vector<Face>;
-        const char* windows = std::getenv("WINDIR");
-        const std::filesystem::path folders[] = {std::filesystem::path(windows != nullptr ? windows : "C:\\Windows") / "Fonts"};
-        for (const auto& folder : folders) {
+        for (const auto& folder : SystemFontFolders()) {
             std::error_code ec;
             for (auto it = std::filesystem::recursive_directory_iterator(folder, ec);
                  !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
-                const std::string ext = Lower(it->path().extension().string());
+                const std::string ext = Lower(it->path().extension().u8string());
                 if (ext != ".ttf" && ext != ".otf" && ext != ".ttc") continue;
                 auto bytes = std::make_shared<std::vector<uint8_t>>();
-                if (ReadFileBytes(it->path(), *bytes, 64u << 20) && LooksLikeSfnt(*bytes))
-                    AddFaces(*found, bytes, it->path().string(), "", false);
+                if (!ReadFileBytes(it->path(), *bytes, 64u << 20) || !LooksLikeSfnt(*bytes)) continue;
+                const size_t first = found->size();
+                AddFaces(*found, bytes, it->path().u8string(), "", false);
+                for (size_t i = first; i < found->size(); ++i) {
+                    (*found)[i].bytes.reset();
+                    (*found)[i].file = it->path();
+                }
             }
         }
         return found;
     }();
     return *faces;
+}
+
+// The bytes of a face: the ones it holds, or its file read now (shared by the fonts made of the same file while any
+// of them lives). Empty when the file cannot be read any more. Like the rest of this file and of gdi.cpp (the faces, the
+// files added, the handles), the cache is only reached from the game's thread: the ride signs' text is drawn there
+// (RideSign.cpp, through gdi.cpp's GetTextExtentPoint and TextOut), and nothing on another thread makes a font.
+std::shared_ptr<std::vector<uint8_t>> FaceBytes(const Face& face) {
+    if (face.bytes) return face.bytes;
+    static auto* open = new std::map<std::filesystem::path, std::weak_ptr<std::vector<uint8_t>>>;
+    if (auto held = (*open)[face.file].lock()) return held;
+    auto bytes = std::make_shared<std::vector<uint8_t>>();
+    if (!ReadFileBytes(face.file, *bytes, 64u << 20) || !LooksLikeSfnt(*bytes)) return nullptr;
+    (*open)[face.file] = bytes;
+    return bytes;
 }
 
 // The face of the name: an exact full or PostScript name first, then a family's regular face (its bold one when it
@@ -282,7 +336,11 @@ std::unique_ptr<Font> Font::Create(const Style& style) {
     const Face* face = FindFace(Faces(), wanted, bold, italic);
     if (face == nullptr) face = FindFace(SystemFaces(), wanted, bold, italic);
     if (face == nullptr) {
-        face = FindFace(SystemFaces(), "arial", bold, italic);
+        // Arial, Helvetica's metric twin; on Linux also Arial's own metric twins and then the usual sans face.
+        for (const char* name : {"arial", "liberation sans", "arimo", "dejavu sans", "noto sans"}) {
+            face = FindFace(SystemFaces(), name, bold, italic);
+            if (face != nullptr) break;
+        }
         if (face == nullptr && !SystemFaces().empty()) face = &SystemFaces().front();
         if (face == nullptr && !Faces().empty()) face = &Faces().front();
         LogOnce("face:" + wanted, "no font named \"" + style.face + "\", using " +
@@ -294,6 +352,11 @@ std::unique_ptr<Font> Font::Create(const Style& style) {
     std::unique_ptr<Font> font(new Font);
     Impl& impl = *font->mImpl;
     impl.face = *face;
+    impl.face.bytes = FaceBytes(*face);
+    if (!impl.face.bytes) {
+        LogOnce("file:" + face->file.u8string(), "the font file " + face->file.u8string() + " could not be read");
+        return nullptr;
+    }
     if (!stbtt_InitFont(&impl.info, impl.face.bytes->data(), impl.face.offset)) return nullptr;
     impl.scale = stbtt_ScaleForMappingEmToPixels(&impl.info, size);
     impl.underline = style.underline;

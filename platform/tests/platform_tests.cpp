@@ -39,6 +39,9 @@
 #include "TbIRLE4bitFont.h"
 #include "UI_Base.h"
 #include "fit.h"
+#ifdef __linux__
+#include "host_linux.h"
+#endif
 #include "handoff.h"
 #include "gdi_text.h"
 #include "resource_fork.h"
@@ -2894,6 +2897,54 @@ static void TestSound(const fs::path& scratch) {
     }
 }
 
+#if defined(__linux__) && defined(__x86_64__)
+// The Mac's answers to the divisions the x86 traps (platform/host_linux.cpp), with the divisor in a register and in memory.
+static void TestLinuxDivision() {
+    tpw::host_linux::DivideLikeTheMac();
+    // Each result goes through a volatile: the compiler may otherwise answer a comparison without dividing (an unsigned
+    // a / b == 0 is a < b to it).
+    volatile int32_t zero = 0, value = 1234, minusOne = -1, smallest = INT32_MIN, result = 0;
+    result = value / zero;
+    CHECK(result == 0);
+    result = value % zero;
+    CHECK(result == 1234);
+    result = smallest / minusOne;
+    CHECK(result == INT32_MIN);
+    result = smallest % minusOne;
+    CHECK(result == 0);
+    volatile uint32_t uzero = 0, uvalue = 77u, uresult = 1;
+    uresult = uvalue / uzero;
+    CHECK(uresult == 0u);
+    uresult = uvalue % uzero;
+    CHECK(uresult == 77u);
+    volatile int64_t lzero = 0, lvalue = 5, lresult = 1;
+    lresult = lvalue / lzero;
+    CHECK(lresult == 0);
+    lresult = lvalue % lzero;
+    CHECK(lresult == 5);
+    volatile int64_t lsmallest = INT64_MIN, lminusOne = -1;
+    lresult = lsmallest / lminusOne;
+    CHECK(lresult == INT64_MIN);
+    lresult = lsmallest % lminusOne;
+    CHECK(lresult == 0);
+    // The divisor in memory (a ModRM memory operand, which the handler decodes to read it).
+    int32_t divisor = 0;
+    int32_t quotient = 99, remainder = 0;
+    __asm__ volatile("cltd\n\tidivl %2" : "+a"(quotient), "=&d"(remainder) : "m"(divisor) : "cc");
+    CHECK(quotient == 0);
+    CHECK(remainder == 99);
+    int32_t divisors[4] = {7, 0, 7, 7};
+    volatile int index = 1;
+    quotient = -50;
+    __asm__ volatile("cltd\n\tidivl %2" : "+a"(quotient), "=&d"(remainder) : "m"(divisors[index]) : "cc");
+    CHECK(quotient == 0);
+    CHECK(remainder == -50);
+    // A division that does not trap is untouched.
+    CHECK(value / 7 == 176);
+    CHECK(value % 7 == 2);
+}
+#endif
+
 // The launcher's bar after Play (handoff.h): bytes read against the total, no number without a total, at most 99%
 // until the game's window is shown, full once it is.
 static void TestStartupFraction() {
@@ -2948,6 +2999,9 @@ int main() {
 #endif
     TestSound(scratch);
     TestStartupFraction();
+#if defined(__linux__) && defined(__x86_64__)
+    TestLinuxDivision();
+#endif
     std::error_code ec;
     fs::remove_all(scratch, ec);
     std::printf("platform tests: %d checks passed\n", gChecks);
