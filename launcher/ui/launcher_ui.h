@@ -38,6 +38,8 @@ inline constexpr const char* kPcSoundPicksKey = "pc_sound_picks";
 // always been; "0": it plays in a window with a title bar, as --windowed starts it). Alt+Enter in the game switches on
 // Windows, Cmd+Ctrl+F or the green button on a Mac.
 inline constexpr const char* kFullScreenKey = "fullscreen";
+// Linux: what draws the game, "vulkan" (the default) or "opengl" (launcher/main.cpp reads it; there is no row for it yet).
+inline constexpr const char* kRendererKey = "renderer";
 // launcher.ini's keys for the "Gold Edition" switch, one an edition: on the play tiles of the all-confirmed home and on the
 // Play screen's card. "0": that edition plays plain although the Gold bonus rides are installed; absent or "1": with them
 // (the maintainer, 2026-10-25: players who have the Gold data must be able to play without it).

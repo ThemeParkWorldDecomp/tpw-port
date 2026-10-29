@@ -49,6 +49,7 @@
 #include "gold_rides.h"
 #include "packs.h"
 #include "platform.h"
+#include "gfx.h"
 #include "handoff.h"
 #include "log_export.h"
 #ifdef _WIN32
@@ -309,6 +310,12 @@ void Usage(const char* program) {
                  "                 full-screen window on its screen, a Space of its own with the menu bar and the dock\n"
                  "                 hidden, as Cmd+Ctrl+F makes it; Cmd+Ctrl+F also leaves it; on Windows and Linux Alt+Enter\n"
                  "                 switches while playing). The Settings box's Full screen, off, does the same\n"
+                 "  --renderer R   Linux: what draws the game: vulkan (the default: the port's own Vulkan renderer) or\n"
+                 "                 opengl (the system's OpenGL); launcher.ini's renderer key says the same. Without a\n"
+                 "                 Vulkan device the game is drawn with OpenGL whatever was asked, and the log says so.\n"
+                 "                 By default, when Vulkan's only device draws in software (Mesa's lavapipe) and the\n"
+                 "                 system's OpenGL is hardware, OpenGL draws; with --renderer vulkan (or renderer=vulkan)\n"
+                 "                 the software Vulkan device draws\n"
                  "  --resolution WxH  the game's resolution, named by its 4:3 size: a Resolution.sam preset (512x384,\n"
                  "                    640x480, 800x600, 1024x768, 1280x1024, 1600x1200, 2048x1536) or a larger one of the\n"
                  "                    port's (2560x1920, 3200x2400, 4096x3072; default: 4096x3072). The game renders at it\n"
@@ -563,7 +570,7 @@ void NameAppMenu(const char* name) {
 void KeepSettings(const tpw::ui::ImporterBackend& backend, const std::string& prefPath) {
     for (const char* key : {tpw::ui::kSkipIntroKey, tpw::ui::kBackToLauncherKey, tpw::ui::kSmoothZoomKey,
                             tpw::ui::kInterfaceSizeKey, tpw::ui::kPcSoundPicksKey, tpw::ui::kFullScreenKey,
-                            tpw::ui::kCheckUpdatesKey,
+                            tpw::ui::kRendererKey, tpw::ui::kCheckUpdatesKey,
                             tpw::ui::kUpdateLastCheckKey, tpw::ui::kUpdateFoundKey}) {
         const std::string value = backend.Setting(key);
         std::string ignored;
@@ -580,7 +587,7 @@ void KeepSettings(const tpw::ui::ImporterBackend& backend, const std::string& pr
 // folder, the edition, the user folder and the program (each unless an option named it already) and returns -1 to
 // start the game; any other value is the launcher's exit code (0 when the window was closed).
 int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, std::filesystem::path& packs,
-                         const std::string& dataDir, const std::string& play) {
+                         const std::string& dataDir, const std::string& play, bool rendererGiven) {
     std::string prefPath = dataDir;
     if (prefPath.empty()) {
         char* pref = SDL_GetPrefPath("", tpw::ui::kDataFolderName);
@@ -736,6 +743,16 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
     if (backend.Setting(tpw::ui::kFullScreenKey) == "0") {
         config.debugOptions[1] = 0;
         tpw::Log("full screen off (the launcher's Settings): the game plays in a window");
+    }
+    // launcher.ini's renderer key (Linux: vulkan or opengl, as --renderer; --renderer wins when both are given).
+    if (!rendererGiven) {
+        const std::string renderer = backend.Setting(tpw::ui::kRendererKey);
+        if (renderer == "vulkan" || renderer == "opengl") {
+            tpw::gfx::Request(renderer == "vulkan" ? tpw::gfx::Api::Vulkan : tpw::gfx::Api::OpenGL);
+            tpw::Log("renderer: %s (launcher.ini)", renderer.c_str());
+        } else if (!renderer.empty()) {
+            tpw::Log("renderer: launcher.ini's renderer=%s is neither vulkan nor opengl; the default is kept", renderer.c_str());
+        }
     }
     // The Park rules box (tpw-port PR #23: more visitors per bus, a higher visitor limit) left the port, which changes
     // only how the game is shown and driven, never how a park plays; it is to become a tpw-mods mod. A launcher.ini that
@@ -987,6 +1004,7 @@ int LauncherMain(int argc, char** argv) {
     int aspectWide = kDefaultAspectWide;
     int aspectHigh = kDefaultAspectHigh;
     bool aspectGiven = false;   // --aspect; without it the screen's own shape (ScreenAspect)
+    bool rendererGiven = false;   // --renderer; without it launcher.ini's renderer key, else the build's default (gfx.h)
     if (const char* dir = std::getenv("TPW_GAME_DIR")) config.gameDir = dir;
     std::filesystem::path program;   // the application the data tables are read from (platform/game_tables.cpp)
     std::filesystem::path packs;     // --packs: the asset packs' folder (asset_packs.h)
@@ -1142,6 +1160,15 @@ int LauncherMain(int argc, char** argv) {
         else if (arg == "--display") config.display = value();
         else if (arg == "--background") config.background = true;
         else if (arg == "--no-fit") config.fit = false;
+        else if (arg == "--renderer") {
+            const std::string name = value();
+            if (name != "vulkan" && name != "opengl") {
+                tpw::LogRawF("launcher: --renderer wants vulkan or opengl: %s\n", name.c_str());
+                return 2;
+            }
+            rendererGiven = true;
+            tpw::gfx::Request(name == "vulkan" ? tpw::gfx::Api::Vulkan : tpw::gfx::Api::OpenGL);
+        }
         else if (arg == "--stub-abort") gAbortOnStub = true;
         else if (arg == "--stub-trace") gTraceStubs = true;
         else {
@@ -1163,7 +1190,7 @@ int LauncherMain(int argc, char** argv) {
     // --background run stays behind.
     if (!config.background) SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "0");
     if (config.gameDir.empty()) {
-        const int exitCode = ChooseFromDataFolder(config, program, packs, dataDir, play);
+        const int exitCode = ChooseFromDataFolder(config, program, packs, dataDir, play, rendererGiven);
         if (exitCode >= 0) {
             SDL_Quit();
             return exitCode;
@@ -1277,6 +1304,9 @@ int LauncherMain(int argc, char** argv) {
     tpw::LogFileF("game size: preset %d, aspect 4:3", resolution);
 #endif
 
+    tpw::LogFileF("renderer: %s asked for; %s in use%s", tpw::gfx::Name(tpw::gfx::Requested()),
+                  tpw::gfx::Name(tpw::gfx::Chosen()),
+                  tpw::gfx::Available(tpw::gfx::Api::Vulkan) ? "" : " (this build has OpenGL only)");
     const int result = RunGame(resolution);
     Report();
     gReopenLauncher = gBackToLauncher;

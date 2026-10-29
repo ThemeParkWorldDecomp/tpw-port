@@ -55,10 +55,17 @@ Python 3 and the development packages SDL needs for the window, the keyboard and
 
 The first build takes a few minutes. The launcher is one program, build/tpw_launcher, that needs nothing beside it and
 links only the system's C and C++ runtimes: SDL opens the window system (Wayland or X11), the sound system (PipeWire,
-PulseAudio or ALSA) and the graphics driver (the system's OpenGL) at run time, so the launcher built on one distribution
-runs on another with a glibc as new (the C++ runtime is linked in; `-DTPW_STATIC_RUNTIME=OFF` uses the system's instead,
-as a package would). To update, run `git pull`, `git submodule update --init --recursive` and the two cmake lines again.
-Alt+Enter switches between full screen and a window while playing.
+PulseAudio or ALSA) and the graphics driver (Vulkan's loader, or the system's OpenGL) at run time, so the launcher built
+on one distribution runs on another with a glibc as new (the C++ runtime is linked in; `-DTPW_STATIC_RUNTIME=OFF` uses
+the system's instead, as a package would). To update, run `git pull`, `git submodule update --init --recursive` and the
+two cmake lines again. Alt+Enter switches between full screen and a window while playing.
+
+The game is drawn by the port's own Vulkan renderer (platform/vulkan/), on any Vulkan 1.0 driver. Without a Vulkan
+driver that can draw to the window it is drawn with the system's OpenGL instead, and the log says so. The same happens
+when the only Vulkan driver draws in software (Mesa's lavapipe, SwiftShader) and the system's OpenGL is a graphics
+card's: the game is not drawn on the processor while the card could draw it. `--renderer opengl` (or `renderer=opengl`
+in launcher.ini) asks for OpenGL; `--renderer vulkan` (or `renderer=vulkan`) asks for Vulkan, which then draws with a
+software driver too.
 
 ### Playing
 
@@ -106,7 +113,8 @@ The game itself never needs the internet: everything plays offline.
 ## What you need
 
 - A Mac (Apple Silicon or Intel) with macOS 11 or newer, a PC with 64-bit Windows 10 or 11 (Intel, AMD or Arm; an
-  Arm PC needs Windows 11), or a 64-bit Linux (x86-64 or AArch64) with OpenGL, and about 2.5 GB of free space.
+  Arm PC needs Windows 11), or a 64-bit Linux (x86-64 or AArch64) with a Vulkan driver (or, failing that, OpenGL),
+  and about 2.5 GB of free space.
 - Your own copy of the game:
   - The US Mac CD gives Sim Theme Park.
   - The Mac CD plus the European PC CD give Theme Park World too. Only the 2000 pressings of the PC CD work (Redump
@@ -183,8 +191,9 @@ on the Mac, bugs included. This repository adds what it takes to play:
   "Playable offline").
 - platform/: the Mac Toolbox, Sound Sprockets, QuickTime and the game's Windows-style shims, done on SDL3, OpenGL and
   CoreText (on Windows and Linux, stb_truetype in place of CoreText). platform/gfx.h is the graphics backend behind the
-  game's window, with OpenGL as its backend (platform/gl_backend.cpp, platform/offscreen.cpp); on Linux the game's
-  OpenGL calls are the platform layer's own (platform/gl_entry.cpp), handed to the system's OpenGL.
+  game's window: OpenGL (platform/gl_backend.cpp, platform/offscreen.cpp), or on Linux the port's own Vulkan renderer
+  (platform/vulkan/), which draws the OpenGL 1.1 calls the game makes. On Linux those calls are the platform layer's own
+  (platform/gl_entry.cpp), handed to the Vulkan renderer or to the system's OpenGL.
 - overrides/: the port's fixes, 229 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
   the port does and why. Each file there is built in place of the tpw-decomp file of the same path. Headers are read
   from a copy of tpw-decomp's headers in the build folder with the overridden ones laid over it.
@@ -216,14 +225,28 @@ devtools/slicer_win.py; without it the platform tests are left out. The override
 ### The Linux build
 
 It was built and tested with GCC 13.3 and clang 18.1, CMake 3.28, Ninja 1.11 and Python 3.12 on Ubuntu 24.04 (x86-64),
-where CI builds it with GCC too and runs its tests under a virtual screen (.github/workflows/build.yml), and the
-launcher built there ran both editions, to the lobby and into a park, on Arch Linux (KDE Plasma on Wayland, NVIDIA's
-OpenGL driver). What it does differently is all in the platform layer and the build:
+where CI builds it with GCC too and runs its tests under a virtual screen with Mesa's software Vulkan and OpenGL
+(.github/workflows/build.yml), and the launcher built there ran both editions, to the lobby and into a park, on Arch
+Linux (KDE Plasma on Wayland, NVIDIA's Vulkan and OpenGL drivers). What it does differently is all in the platform layer
+and the build:
 
-- Every OpenGL 1.1 call the game and the platform layer make (include/platform/opengl.h) is the platform layer's own
-  (platform/gl_entry.cpp) and goes to the system's OpenGL, which SDL opens at run time and whose entry points are taken
-  once a context exists. Nothing of OpenGL is linked, so no OpenGL package is needed to build, and GLU's one call,
-  gluBuild2DMipmaps, is built there with GLU's own box filter (platform/gfx.h, HalfSizeRGBA).
+- The game is drawn by the port's own Vulkan renderer (platform/vulkan/): every OpenGL 1.1 call the game and the
+  platform layer make (include/platform/opengl.h) is the platform layer's own (platform/gl_entry.cpp) and goes to the
+  renderer, which draws the game's picture into an image of the game's resolution through one render pass, with one
+  pipeline per blending and depth state and the game's vertices as they come (the engine's own vertex layout is the
+  shaders' input), and presents it scaled into the window, as many times a frame as the vsync pacing asks. The loader
+  (libvulkan.so.1) is opened at run time through SDL, with the API's headers vendored (third_party/vulkan), so no Vulkan
+  package is needed to build.
+- Without a Vulkan device that can draw to the window, or when its only one draws in software and the system's OpenGL
+  is a graphics card's (Building on Linux above; `--renderer` chooses), the same calls go to the system's OpenGL, which
+  SDL opens at run time and whose entry points are taken once a context exists. Nothing of OpenGL is linked either, and
+  GLU's one call, gluBuild2DMipmaps, is built there with GLU's own box filter, the one the Vulkan renderer's mip chains
+  use too (platform/gfx.h, HalfSizeRGBA).
+- platform/tests/renderer_tests.cpp draws one frame as the game draws with each renderer and compares them pixel by
+  pixel (ctest "renderer"; in CI under a virtual screen with Mesa's software Vulkan and OpenGL, where they differ in no
+  pixel). The shaders (platform/vulkan/shaders/) are committed compiled, as C arrays beside their GLSL:
+  devtools/vulkan_shaders.sh compiles them with glslangValidator after a change, and CI checks that the arrays match
+  the sources.
 - The signs' text is drawn with stb_truetype (platform/gdi_text_stb.cpp, the Windows build's file) from the game's fonts
   and the system's font folders, with Liberation Sans or DejaVu Sans standing in for Arial.
 - A division the x86 traps (by zero, INT_MIN / -1) gets the answer the Mac's processor gives (platform/host_linux.cpp,
@@ -305,7 +328,8 @@ From WORK, `tpw-port/build/tpw_launcher --game "extracted/disc-hfs/Theme Park Da
 
 On Linux the tests take `SDL_AUDIO_DRIVER=dummy` on a machine with no sound device (a CI runner), SDL's own stand-in for
 one, and the platform tests' text checks need a sans face among the system's fonts (Arial, Liberation Sans or DejaVu
-Sans). CI runs them under a virtual screen (`xvfb-run`).
+Sans). The renderer test needs a screen and a Vulkan device (Mesa's lavapipe will do: mesa-vulkan-drivers on Debian
+and Ubuntu), and skips without them. CI runs the tests under a virtual screen (`xvfb-run`).
 
 After Play the launcher's window stays open with a progress bar until the game's window appears, then it closes. While
 the window is open a thread reads ahead the game's tables and the first files of the edition last played, so that Play

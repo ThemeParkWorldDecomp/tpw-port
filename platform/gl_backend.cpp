@@ -32,6 +32,9 @@ bool gFit = false;
 std::string gDescription;
 bool gProbed = false;
 int gLargest = 0;
+#ifdef TPW_HAVE_VULKAN
+std::string gProbeRenderer;   // the probe's GL_RENDERER: on Linux gfx.cpp weighs it against a software-only Vulkan
+#endif
 
 // A legacy (compatibility) context: the engine draws with OpenGL 1.1 calls.
 void SetAttributes() {
@@ -67,6 +70,10 @@ bool Probe(int& largest) {
     if (SDL_GLContext context = SDL_GL_CreateContext(probe)) {
         OnGLContextMade();
         gLargest = offscreen::LargestSize();
+#ifdef TPW_HAVE_VULKAN
+        const unsigned char* renderer = glGetString(kRenderer);
+        gProbeRenderer = renderer != nullptr ? reinterpret_cast<const char*>(renderer) : "";
+#endif
         SDL_GL_MakeCurrent(probe, nullptr);
         SDL_GL_DestroyContext(context);
         ok = true;
@@ -75,6 +82,10 @@ bool Probe(int& largest) {
     largest = gLargest;
     return ok;
 }
+
+#ifdef TPW_HAVE_VULKAN
+const char* ProbedRenderer() { return gProbeRenderer.c_str(); }
+#endif
 
 uint32_t WindowFlags() {
     SetAttributes();

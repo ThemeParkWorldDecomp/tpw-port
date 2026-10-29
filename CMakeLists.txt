@@ -37,8 +37,10 @@ if(NOT TPW_GAME_PROGRAM AND NOT DEFINED ENV{TPW_GAME_PROGRAM})
 endif()
 set(TPW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 # The Linux build (the TPW_LINUX parts of this file): the platform layer's host code is in platform/host_linux.cpp and
-# platform/linux, and every OpenGL call the game makes is the platform layer's own (platform/gl_entry.cpp), handed to the
-# system's OpenGL, which SDL opens at run time; nothing of OpenGL is linked, so the build needs no OpenGL package.
+# platform/linux, and the game is drawn by the port's own Vulkan renderer (platform/vulkan), with the system's OpenGL as
+# its fallback: every OpenGL call the game makes is the platform layer's own (platform/gl_entry.cpp), and SDL opens the
+# Vulkan loader and the OpenGL driver at run time. Nothing of Vulkan or OpenGL is linked, so the build needs neither
+# development package.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   set(TPW_LINUX ON)
   # GCC on Ubuntu (CI's Linux runner) defines _FORTIFY_SOURCE=2 by itself when optimising; GCC elsewhere (Arch,
@@ -197,14 +199,21 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     target_link_libraries(tpw_platform PUBLIC shell32 ole32)
   elseif(TPW_LINUX)
     # The signs' text is drawn with stb_truetype (platform/gdi_text_stb.cpp, as on Windows) in place of CoreText. The Mac's
-    # thread quality-of-service header is platform/linux/pthread/qos.h, over platform/host_linux.cpp. Every OpenGL call
-    # the game makes is the platform layer's own (platform/gl_entry.cpp), handed to the system's OpenGL, which SDL opens
-    # at run time; gluBuild2DMipmaps is built there too. So no OpenGL or GLU library is linked, and the only libraries of
-    # the system in the launcher are the C and C++ runtimes and SDL's (dl, pthread).
+    # thread quality-of-service header is platform/linux/pthread/qos.h, over platform/host_linux.cpp. The game is drawn by
+    # the port's Vulkan renderer (platform/vulkan/, with the vendored Vulkan headers of third_party/vulkan; the loader is
+    # opened at run time through SDL). Every OpenGL call the game makes is the platform layer's own
+    # (platform/gl_entry.cpp): it goes to the Vulkan renderer, or to the system's OpenGL, which SDL opens at run time, when
+    # the player asks for it or Vulkan cannot draw; gluBuild2DMipmaps is built there too. So no Vulkan, OpenGL or GLU
+    # library is linked, and the only libraries of the system in the launcher are the C and C++ runtimes and SDL's (dl,
+    # pthread).
     get_target_property(platform_sources tpw_platform SOURCES)
     list(REMOVE_ITEM platform_sources ${CMAKE_CURRENT_SOURCE_DIR}/platform/gdi_text.cpp)
     set_property(TARGET tpw_platform PROPERTY SOURCES ${platform_sources})
-    target_include_directories(tpw_platform PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
+    file(GLOB TPW_VULKAN_SOURCES CONFIGURE_DEPENDS platform/vulkan/*.cpp)
+    target_sources(tpw_platform PRIVATE ${TPW_VULKAN_SOURCES})
+    target_compile_definitions(tpw_platform PUBLIC TPW_HAVE_VULKAN=1)
+    target_include_directories(tpw_platform PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb
+                               ${CMAKE_CURRENT_SOURCE_DIR}/third_party/vulkan/include)
     target_include_directories(tpw_platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/platform/linux)
     find_package(Threads REQUIRED)
     target_link_libraries(tpw_platform PUBLIC ${CMAKE_DL_LIBS} Threads::Threads)
@@ -396,6 +405,16 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   target_include_directories(tpw_log_scrub_tests PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
   target_link_libraries(tpw_log_scrub_tests PRIVATE tpw_platform)
   add_test(NAME log_scrub COMMAND tpw_log_scrub_tests)
+
+  if(TPW_LINUX)
+    # The Vulkan renderer against the system's OpenGL, through the game's OpenGL calls (platform/tests/renderer_tests.cpp):
+    # needs a display and a Vulkan device (CI runs it under Xvfb with Mesa's software ones), skips (77) without them.
+    add_executable(tpw_renderer_tests platform/tests/renderer_tests.cpp)
+    target_include_directories(tpw_renderer_tests PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    target_link_libraries(tpw_renderer_tests PRIVATE tpw_platform)
+    add_test(NAME renderer COMMAND tpw_renderer_tests)
+    set_tests_properties(renderer PROPERTIES SKIP_RETURN_CODE 77)
+  endif()
 
   # Where the intro films are drawn (include/platform/filmbox.h): pure arithmetic, no game or window.
   add_executable(tpw_host_filmbox ${TPW_DECOMP_DIR}/tests/host_filmbox.cpp)

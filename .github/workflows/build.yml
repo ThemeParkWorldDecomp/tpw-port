@@ -200,8 +200,10 @@ jobs:
           if-no-files-found: ignore
 
   # Linux: the launcher built as the README's Linux steps build it (the distribution's GCC, CMake and Ninja, SDL's
-  # development packages), its tests under a virtual screen, then the tests and the update check again with the network
-  # blocked (unshare -n: no interface but the loopback). libclang-18-dev is for the platform tests' slicer.
+  # development packages), the shaders checked against their sources, its tests and the renderer test under a virtual
+  # screen with Mesa's software Vulkan and OpenGL, then the tests and the update check again with the network blocked
+  # (unshare -n: no interface but the loopback). libclang-18-dev is for the platform tests' slicer, mesa-vulkan-drivers
+  # and libvulkan1 for the renderer test (lavapipe and the loader), glslang-tools for the shader check.
   linux:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -216,7 +218,7 @@ jobs:
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxkbcommon-dev \
             libwayland-dev wayland-protocols libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
             libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev libudev-dev libibus-1.0-dev \
-            xvfb libclang-18-dev
+            xvfb mesa-vulkan-drivers libvulkan1 glslang-tools libclang-18-dev
       # Each step's output is kept in build/logs/ (the run's artifact when a step fails), and the error lines of a failed
       # build are also given as annotations, which the API lists for a machine that cannot fetch the runner's log.
       - name: Build the launcher
@@ -236,6 +238,8 @@ jobs:
           # Only the system's C and C++ runtimes: no OpenGL, Vulkan, X11 or audio library is linked (SDL opens them at run time).
           ldd build/tpw_launcher
           ! ldd build/tpw_launcher | grep -E 'libGL|libvulkan|libX11|libwayland|libasound|libpulse'
+      - name: The shaders' SPIR-V matches their sources
+        run: sh devtools/vulkan_shaders.sh --check
       - name: Build and run the tests
         env:
           SDL_AUDIO_DRIVER: dummy   # the runner has no sound device
