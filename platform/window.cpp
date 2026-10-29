@@ -1,7 +1,7 @@
-// window.cpp: the game's one window and its OpenGL context. The game makes the window with
-// the Mac Window Manager (NewCWindow), asks indirectx for an OpenGL "DirectDraw
-// implementation" on it (IdxMakeOpenGLImplementation, which owns the UOpenGL context), and
-// moves and sizes it with macdoze's Win32 window calls.
+// window.cpp: the game's one window and the graphics backend on it (platform/gfx.h: OpenGL). The game makes the window
+// with the Mac Window Manager (NewCWindow), asks indirectx for an OpenGL "DirectDraw implementation" on it
+// (IdxMakeOpenGLImplementation, which owns the UOpenGL context: here, the backend's device), and moves and sizes it
+// with macdoze's Win32 window calls.
 //
 // The window FITS THE SCREEN (platform/fit.h, unless --no-fit): the game draws at its own resolution into an
 // offscreen framebuffer (platform/offscreen.cpp), and every presented frame is scaled into the window, which is as large
@@ -32,24 +32,13 @@
 #include <vector>
 
 #include "fit.h"
+#include "gfx.h"
 #include "handoff.h"
-#include "offscreen.h"
 #include "platform.h"
 #include "platform/indirectx.h"
 #include "platform/macdoze.h"
 
-// The three OpenGL calls the frame dump needs (the game's own are in platform/opengl.h), and the one the log's
-// driver line needs.
-extern "C" {
-void glPixelStorei(unsigned int name, int value);
-void glReadBuffer(unsigned int mode);
-void glReadPixels(int x, int y, int width, int height, unsigned int format, unsigned int type, void* pixels);
-const unsigned char* glGetString(unsigned int name);
-}
-
 namespace {
-constexpr unsigned int kGlPackAlignment = 0x0D05, kGlBack = 0x0405, kGlRgb = 0x1907, kGlUnsignedByte = 0x1401;
-constexpr unsigned int kGlColorAttachment0 = 0x8CE0;   // GL_COLOR_ATTACHMENT0_EXT
 tpw::Window gWindow;
 bool gWindowMade = false;
 bool gVideoStarted = false;
@@ -116,9 +105,7 @@ void DumpFrame() {
     if (width <= 0 || height <= 0) return;
     const size_t pitch = static_cast<size_t>(width) * 3;
     std::vector<uint8_t> bottomUp(pitch * static_cast<size_t>(height)), topDown(bottomUp.size());
-    glPixelStorei(kGlPackAlignment, 1);
-    glReadBuffer(gFit.wanted ? kGlColorAttachment0 : kGlBack);   // (the present framebuffer is bound: see SwapBuffers)
-    glReadPixels(0, 0, width, height, kGlRgb, kGlUnsignedByte, bottomUp.data());
+    if (!tpw::gfx::ReadPresent(bottomUp.data(), width, height)) return;   // (the present picture: see SwapBuffers)
     if (bottomUp == last) return;
     last = bottomUp;
     if (seen++ % std::max(tpw::config().dumpEvery, 1) != 0) return;
@@ -185,24 +172,10 @@ void WindowSizes(int& pointsWide, int& pointsHigh, int& pixelsWide, int& pixelsH
 
 bool FitActive() { return gWindowMade && gFit.wanted; }
 
+// The backend is asked on a hidden window (gfx::Probe), before the game's window exists.
 int LargestGameSize() {
     if (!StartVideo()) return 0;
-    SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
-    SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
-    SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
-    SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_Window* probe = SDL_CreateWindow("", 1, 1, SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
-    if (probe == nullptr) return 0;
-    int largest = 0;
-    if (SDL_GLContext context = SDL_GL_CreateContext(probe)) {
-        largest = offscreen::LargestSize();
-        SDL_GL_MakeCurrent(probe, nullptr);
-        SDL_GL_DestroyContext(context);
-    }
-    SDL_DestroyWindow(probe);
-    return largest;
+    return gfx::Probe();
 }
 
 // The game's resolution, as the game sets it (SetDisplayMode, MoveWindow). Without the fit the window is resized to it,
@@ -212,13 +185,14 @@ void SetGameSize(int wide, int high) {
     if (!gFit.wanted) {
         SDL_SetWindowSize(gWindow.sdl, wide, high);
         SDL_SyncWindow(gWindow.sdl);
+        if (gfx::Created()) gfx::Fit(false, wide, high);   // (a backend that draws into a picture of its own follows the window)
         return;
     }
     if (wide == gFit.gameWide && high == gFit.gameHigh) return;
     gFit.gameWide = wide;
     gFit.gameHigh = high;
     SetPortRect(wide, high);
-    if (offscreen::Ready() && !offscreen::Create(wide, high)) {
+    if (gfx::Created() && !gfx::Resize(wide, high)) {
         DisableFit("could not make the framebuffer for the new resolution");
         return;
     }
@@ -312,7 +286,7 @@ static void MatchSwapIntervalToRefresh() {
     if (refresh == applied) return;
     applied = refresh;
     if (std::getenv("TPW_VSYNC_EVERY_REFRESH") != nullptr) {
-        SDL_GL_SetSwapInterval(1);
+        gfx::SetSwapInterval(1);
         tpw::Log("vsync: every refresh of %.2f Hz (TPW_VSYNC_EVERY_REFRESH, a test run)", static_cast<double>(refresh));
         return;
     }
@@ -321,41 +295,30 @@ static void MatchSwapIntervalToRefresh() {
         if (std::fabs(refresh / static_cast<float>(i) - 60.0f) < std::fabs(refresh / static_cast<float>(interval) - 60.0f))
             interval = i;
     }
-    if (!SDL_GL_SetSwapInterval(interval)) {
+    if (!gfx::SetSwapInterval(interval)) {
         tpw::Log("vsync: every %d refreshes of %.2f Hz refused (%s); every refresh", interval, static_cast<double>(refresh),
                  SDL_GetError());
         interval = 1;
-        SDL_GL_SetSwapInterval(1);
+        gfx::SetSwapInterval(1);
     }
     tpw::Log("vsync: every %d refresh%s of %.2f Hz", interval, interval == 1 ? "" : "es", static_cast<double>(refresh));
 }
 
-// The frame: with the fit, the game's framebuffer is copied (the cursor is drawn on the copy, so the game's own picture
-// never carries it, and the dump shows what the player sees), the copy is saved if frames are being dumped, then scaled
-// into the window; the game's framebuffer is bound again for its next frame.
+// The frame (gfx.h): the game's picture is copied (the cursor is drawn on the copy, so the game's own picture never
+// carries it, and the dump shows what the player sees), the copy is saved if frames are being dumped, then scaled into
+// the window's box (with the fit, the letterbox; without it the whole window); the game's picture is drawn into again
+// for its next frame.
 void SwapBuffers() {
-    if (!gWindowMade || gWindow.glContext == nullptr) return;
-    if (gFit.wanted && offscreen::Ready()) {
-        offscreen::CopyGameToPresent();
-        offscreen::BindPresent();
-        DrawCursorOverlay();
-        if (!config().dumpFramesDir.empty()) DumpFrame();
-        int pixelsWide = 0, pixelsHigh = 0;
-        SDL_GetWindowSizeInPixels(gWindow.sdl, &pixelsWide, &pixelsHigh);
-        const fit::PixelBox box = fit::RoundBox(fit::Letterbox(pixelsWide, pixelsHigh, gFit.gameWide, gFit.gameHigh));
-        offscreen::ScaleToWindow(box, pixelsWide, pixelsHigh);
-        // The swap presents nothing while a framebuffer object is bound (macOS, 2026-10-13); the game's is rebound after.
-        offscreen::BindDefault();
-        offscreen::DrainErrors("presenting a frame");
-        MatchSwapIntervalToRefresh();
-        SDL_GL_SwapWindow(gWindow.sdl);
-        offscreen::BindGame();
-        return;
-    }
+    if (!gWindowMade || !gfx::Created()) return;
+    gfx::BeginPresent();
     DrawCursorOverlay();
     if (!config().dumpFramesDir.empty()) DumpFrame();
+    int pixelsWide = 0, pixelsHigh = 0;
+    SDL_GetWindowSizeInPixels(gWindow.sdl, &pixelsWide, &pixelsHigh);
+    fit::PixelBox box{0, 0, pixelsWide, pixelsHigh};
+    if (gFit.wanted && gfx::FitReady()) box = fit::RoundBox(fit::Letterbox(pixelsWide, pixelsHigh, gFit.gameWide, gFit.gameHigh));
     MatchSwapIntervalToRefresh();
-    SDL_GL_SwapWindow(gWindow.sdl);
+    gfx::EndPresent(box, pixelsWide, pixelsHigh);
 }
 
 }  // namespace tpw
@@ -411,7 +374,6 @@ static void PlaceOnChosenDisplay(SDL_Window* window, SDL_DisplayID chosen) {
 // full screen first: without the fit the game draws into the window directly, at the window's size).
 static void DisableFit(const char* why) {
     tpw::Log("fit: %s; the window is the game's size", why);
-    tpw::offscreen::Destroy();
     if (gFit.fullScreen) {
         SDL_SetWindowFullscreen(gWindow.sdl, false);
         gFit.fullScreen = false;
@@ -421,6 +383,7 @@ static void DisableFit(const char* why) {
     if (gWindow.fullScreenBox) SDL_SetWindowBordered(gWindow.sdl, false);
     SDL_SetWindowSize(gWindow.sdl, gFit.gameWide, gFit.gameHigh);
     SDL_SyncWindow(gWindow.sdl);
+    if (tpw::gfx::Created()) tpw::gfx::Fit(false, gFit.gameWide, gFit.gameHigh);
 }
 
 // The pixels per point of a screen. SDL's "content scale" is 1 on the maintainer's Retina screens (2026-10-13: both the LG
@@ -502,14 +465,8 @@ GrafPort* NewCWindow(void*, const Rect* bounds, const unsigned char* title, bool
     const std::string edition = tpw::config().edition.empty() ? tpw::EditionOf(tpw::config().gameDir) : tpw::config().edition;
     const std::string name = tpw::WindowTitle(edition, title);
 
-    // A legacy (compatibility) context: the engine draws with OpenGL 1.1 calls.
-    SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
-    SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
-    SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
-    SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_WindowFlags flags = SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN;
+    // The window is made for the backend (OpenGL: a legacy context, as the engine draws with OpenGL 1.1 calls).
+    SDL_WindowFlags flags = tpw::gfx::WindowFlags() | SDL_WINDOW_HIDDEN;
     const SDL_DisplayID chosen = ChooseDisplay();
     gFit = FitState();
     gFit.wanted = tpw::config().fit;
@@ -800,37 +757,22 @@ class OpenGLImplementation : public IdxDirectDraw {
 public:
     SamsUtilities::UOpenGL* DisplayGetContext() override { return &SamsUtilities::gOpenGLContext; }
 };
-// The log's one line about the OpenGL driver, for a bug report from a computer we do not have: the driver's maker,
-// the graphics card and the OpenGL version the context came with. A "no video" report without it cannot say
-// whether the driver is the one at fault.
-void LogDriver() {
-    const auto string = [](unsigned int name) {
-        const auto* value = reinterpret_cast<const char*>(glGetString(name));
-        return value != nullptr ? value : "(none)";
-    };
-    tpw::Log("opengl: %s, %s, version %s", string(0x1F00 /*GL_VENDOR*/), string(0x1F01 /*GL_RENDERER*/),
-             string(0x1F02 /*GL_VERSION*/));
-}
 }  // namespace
 
 IdxDirectDraw* IdxDirectDraw::mImplementation = nullptr;
 
 IdxDirectDraw::~IdxDirectDraw() {}
 
-// Makes the OpenGL context on the window. NULL when it fails.
+// Makes the backend's device (the OpenGL context) on the window. NULL when it fails (the backend logs why).
 IdxDirectDraw* IdxMakeOpenGLImplementation(SamsUtilities::DeviceKind, GrafPort* window, void*) {
     if (window != &gWindow || !gWindowMade) return nullptr;
-    if (gWindow.glContext == nullptr) {
-        gWindow.glContext = SDL_GL_CreateContext(gWindow.sdl);
-        if (gWindow.glContext == nullptr) {
-            tpw::Log("SDL_GL_CreateContext failed: %s", SDL_GetError());
-            return nullptr;
-        }
-        SDL_GL_MakeCurrent(gWindow.sdl, static_cast<SDL_GLContext>(gWindow.glContext));
-        LogDriver();
-        SDL_GL_SetSwapInterval(1);
+    if (!tpw::gfx::Created()) {
+        int wide = gFit.gameWide, high = gFit.gameHigh;
+        if (!gFit.wanted) SDL_GetWindowSizeInPixels(gWindow.sdl, &wide, &high);
+        if (!tpw::gfx::Create(gWindow.sdl, gFit.wanted, wide, high)) return nullptr;
+        tpw::Log("renderer: %s", tpw::gfx::Description());
         // The game's picture goes into a framebuffer of its own size from here on (see SwapBuffers).
-        if (gFit.wanted && !tpw::offscreen::Create(gFit.gameWide, gFit.gameHigh)) DisableFit("no offscreen framebuffer");
+        if (gFit.wanted && !tpw::gfx::FitReady()) DisableFit("no offscreen framebuffer");
     }
     auto& context = SamsUtilities::gOpenGLContext;
     std::memset(static_cast<SamsUtilities::UOpenGL*>(&context), 0, sizeof(SamsUtilities::UOpenGL));
