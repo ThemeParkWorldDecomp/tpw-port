@@ -65,11 +65,27 @@
 #include "ui_tooltip.h"
 #include "WindowScripts.inc"
 #include "World.h"
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <new>
+
+namespace {
+
+// TPW_PORT_FIX mapsize MapPixels | Mac: the 2D map's picture is the zoom times its pixels, in screen pixels, while its sprites (litter, staff, guests, cameras) are a share of the screen's height (the engine's panel sprites, tb_ezsprite.cpp), so the two keep the sizes the map was drawn for only up to 1024 x 768; at 3840 x 2160 the picture fills a fifth of the screen's height and each litter glow covers 16 of its cells | Port: while gPortWideMap (UI_Base.h) is set, the picture, the sprites' places and the pointer's sums are also times the screen over 1024 x 768 (the smaller of across and down, at least 1, as gTbFontScale in UI_Base.cpp), and so is the pointer's pick distance; the sprites' size is left as it was, a share of the screen already | Why: on a large screen the map fills its frame as at 1024 x 768 and its glows keep their size on it; at 3840 x 2160 a dirty park's red litter glows covered the whole map (a player's report, 2026-10-28)
+float MapScreen() {
+    if (!gPortWideMap) return 1.0f;
+    const float across = static_cast<float>(static_cast<uint32_t>(gScreenWidth)) / 1024.0f;
+    const float down = static_cast<float>(static_cast<uint32_t>(gScreenHeight)) / 768.0f;
+    return std::max(1.0f, std::min(across, down));
+}
+
+// The map's screen pixels per pixel of its picture at zoom 1: the interface size times MapScreen.
+float MapPixels() { return gPortWideMap ? UI_InterfaceSize() * MapScreen() : 1.0f; }
+
+}  // namespace
 
 // Unit v5193: UpdateSatellite 0x1022b8d0 and UI2DMReturnScaleColour 0x1022bb44 (ui_worldLobbyController.cpp, ui_2dmap.cpp).
 
@@ -153,7 +169,7 @@ void CUI2DMap::CreateMapPanel() {
     UIMain_SetPanel(panel);
     // TPW_PORT_FIX mapword CUI2DMap::CreateMapPanel | Mac: the panel window's address is the word at the map's +4 | Port: the window's offset in the arena (windows are made there), the word MapCallback's tick turns back into the address (a Ptr32) | Why: a 64-bit build; an address's low 32 bits are its offset only when the arena starts on a 4 GB boundary, which it need not (on Windows it does not), so closing the park map with its tick crashed (SIGSEGV in UI_SendMessage); contributed by samueleagle91 (tpw-port PR #46)
     MacAt<uint32_t>(self, 4) = tpw::ArenaOffset(panel);
-    // TPW_PORT_FIX mapedge CUI2DMap::CreateMapPanel | Mac: the pointer the map's edge scroll reads (+0x10, +0x14) is whatever it last was, set only when the pointer moves over the map | Port: set to the pointer's place now (gUIPointerX, gUIPointerY) as the panel opens | Why: on a screen wider than 4:3 the control panel's map button lies outside the 4:3 map, so the map opened with no pointer of its own (0, 0, the top left corner), and its edge scroll slid the park out of the frame for as long as the pointer stayed still: an empty map
+    // TPW_PORT_FIX mapedge CUI2DMap::CreateMapPanel | Mac: the pointer the map's edge scroll reads (+0x10, +0x14) is whatever it last was, set only when the pointer moves over the map | Port: set to the pointer's place now (gUIPointerX, gUIPointerY) as the panel opens | Why: on a screen wider than 4:3 the control panel's map button lies outside the 4:3 map, so the map opened with no pointer of its own (0, 0, the top left corner), and its edge scroll slid the park out of the frame for as long as the pointer stayed still: an empty map; contributed by samueleagle91 (tpw-port PR #67)
     MacAt<int32_t>(self, 0x10) = gUIPointerX;
     MacAt<int32_t>(self, 0x14) = gUIPointerY;
     panel->CaptureKb(0);
@@ -432,11 +448,11 @@ const char16_t kEmptyText[] = u"";                                              
 
 template <class T> T& Field(CUI2DMap* map, size_t offset) { return *reinterpret_cast<T*>(reinterpret_cast<uint8_t*>(map) + offset); }
 
-// Host-only places (the Mac keeps 32-bit words at 4, 0x20060 and the flag at 0x20084, which a native pointer cannot share with the
-// list pointer at 0x20080): the hovered sprite, the drag flag and the map panel window.
+// Host-only places (the Mac keeps a 32-bit word at 0x20060 and the flag at 0x20084, which a native pointer cannot share with the
+// list pointer at 0x20080): the hovered sprite and the drag flag. The map panel window stays the Mac's word at 4, a Ptr32 (an arena
+// offset) as CreateMapPanel stores it.
 constexpr size_t kHoverOffset = 0x200a0;
 constexpr size_t kDragOffset = 0x200a8;
-constexpr size_t kPanelOffset = 0x200b0;
 CUI2DMapSprite*& HoverOf(CUI2DMap* map) { return Field<CUI2DMapSprite*>(map, kHoverOffset); }
 CUI2DMapSprite* SpriteOf(CUI2DMapSprite* p) { return p; }
 CUI2DMapSprite* WordOf(CUI2DMapSprite* p) { return p; }
@@ -482,8 +498,9 @@ int32_t CUI2DMap::MapAreaCallbackResult(InterfaceWindow* window, int32_t message
             const float spriteY = *reinterpret_cast<const float*>(reinterpret_cast<const uint8_t*>(sprite) + 0x10);
             const float dx = std::fabs(mouseX - spriteX);
             const float dy = std::fabs(mouseY - spriteY);
-            if (!(dx < 5.0f)) continue;
-            if (!(dy < 5.0f)) continue;
+            const float pick = 5.0f * MapPixels();
+            if (!(dx < pick)) continue;
+            if (!(dy < pick)) continue;
             const float distance = static_cast<float>(std::sqrt(static_cast<double>(ppc_fmadds(dx, dx, dy * dy))));
             if (distance < best) {
                 HoverOf(map) = sprite;
@@ -506,7 +523,7 @@ int32_t CUI2DMap::MapAreaCallbackResult(InterfaceWindow* window, int32_t message
         const float mapH = static_cast<float>(Field<int32_t>(map, 0x28));
         const float offsetX = ppc_fnmsubs(0.5f, screenW, mouseX);
         const float offsetY = ppc_fnmsubs(0.5f, screenH, mouseY);
-        const float zoom = Field<float>(map, 0x5c) * (gPortWideMap ? UI_InterfaceSize() : 1.0f);
+        const float zoom = Field<float>(map, 0x5c) * MapPixels();
         const float gridX = Field<float>(map, 0x54) + offsetX / (zoom * (480.0f / mapW));
         const float gridY = Field<float>(map, 0x58) + offsetY / (zoom * (425.0f / mapH));
         const int32_t cellX = ppc_fctiwz(static_cast<double>(gridX));
@@ -570,7 +587,7 @@ int32_t CUI2DMap::MapAreaCallbackResult(InterfaceWindow* window, int32_t message
             const float mapH = static_cast<float>(Field<int32_t>(map, 0x28));
             const float offsetX = ppc_fnmsubs(0.5f, screenW, mouseX);
             const float offsetY = ppc_fnmsubs(0.5f, screenH, mouseY);
-            const float size = gPortWideMap ? UI_InterfaceSize() : 1.0f;
+            const float size = MapPixels();
             Field<float>(map, 0x54) = Field<float>(map, 0x54) + offsetX / (Field<float>(map, 0x5c) * size * (480.0f / mapW));
             Field<float>(map, 0x58) = Field<float>(map, 0x58) + offsetY / (Field<float>(map, 0x5c) * size * (425.0f / mapH));
             void* target = nullptr;
@@ -602,7 +619,8 @@ int32_t CUI2DMap::MapAreaCallbackResult(InterfaceWindow* window, int32_t message
             float poiX = static_cast<float>(ix * 10);
             float poiY = static_cast<float>(iy * 10);
             SetCameraPOI(&poiX, &poiY, nullptr, nullptr, nullptr);
-            UI_SendMessage(Field<InterfaceWindow*>(map, kPanelOffset), 4, 0, 0);
+            // the panel window is a Ptr32 word (an arena offset) at 4, as in MapCallback
+            UI_SendMessage(reinterpret_cast<Ptr32<InterfaceWindow>*>(map->mBytes + 4)->get(), 4, 0, 0);
             if (target != nullptr) UIMain_GotoStatusPanelForThing(target);
             return 0;
         }
@@ -1082,7 +1100,7 @@ void CUI2DMap::UpdateMapZoom() {
     const float mapH = static_cast<float>(Field_2<int32_t>(this, 0x28));
     const float screenW = FromU32(static_cast<uint32_t>(gScreenWidth));
     const float screenH = FromU32(static_cast<uint32_t>(gScreenHeight));
-    const float zoom = Field_2<float>(this, 0x5c) * (gPortWideMap ? UI_InterfaceSize() : 1.0f);
+    const float zoom = Field_2<float>(this, 0x5c) * MapPixels();
     const float viewW = (gPortWideMap ? static_cast<float>(gUIRealScreenWidth) : screenW) / zoom;
     const float viewH = (gPortWideMap ? static_cast<float>(gUIRealScreenHeight) : screenH) / zoom;
     const float centreX = ppc_fmadds(Field_2<float>(this, 0x54), 480.0f / mapW, 15.0f);
@@ -1106,7 +1124,7 @@ void CUI2DMap::UpdateMapZoom() {
     gei_MapZoom.Use(static_cast<float>(ppc_fctiwz(static_cast<double>(x0))), static_cast<float>(ppc_fctiwz(static_cast<double>(y0))),
                     static_cast<float>(ppc_fctiwz(static_cast<double>(x1))), static_cast<float>(ppc_fctiwz(static_cast<double>(y1))));
 
-    const float zoom2 = Field_2<float>(this, 0x5c) * (gPortWideMap ? UI_InterfaceSize() : 1.0f);
+    const float zoom2 = Field_2<float>(this, 0x5c) * MapPixels();
     float left = ppc_fnmsubs(zoom2, centreX - x0, 0.5f * width);
     float top = ppc_fnmsubs(zoom2, centreY - y0, 0.5f * height);
     float right = ppc_fmadds(zoom2, x1 - centreX, 0.5f * width);
@@ -1368,7 +1386,7 @@ void CUI2DMap::UpdateSpritePosition(CUI2DMapSprite* sprite) {
     const float perX = 480.0f / mapW;   // f7
     const float perY = 425.0f / mapH;   // f8
     const float half = 0.5f;
-    const float zoom = At_2<float>(self, 0x5c) * (gPortWideMap ? UI_InterfaceSize() : 1.0f);
+    const float zoom = At_2<float>(self, 0x5c) * MapPixels();
 
     float t = At_2<float>(sp, 4) - At_2<float>(self, 0x54);
     t = zoom * t;
@@ -1399,7 +1417,8 @@ void CUI2DMap::UpdateSpritePosition(CUI2DMapSprite* sprite) {
     }
     sprite->SetPosition(position);
 
-    float scale = half * zoom;
+    // the sprites' size is a share of the screen already: the interface size only, not MapScreen
+    float scale = half * (At_2<float>(self, 0x5c) * (gPortWideMap ? UI_InterfaceSize() : 1.0f));
     scale = scale * At_2<float>(sp, 0x24);
     sprite->SetScale(scale);
 }

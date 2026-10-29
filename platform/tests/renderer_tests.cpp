@@ -1,11 +1,12 @@
 // renderer_tests.cpp: the port's Vulkan renderer (platform/vulkan/) against the system's OpenGL, through the OpenGL
 // calls the game makes (platform/gl_entry.cpp): a frame drawn as the game draws (indexed vertex arrays in the engine's
 // vertex layout, the depth test, the alpha test, blending, a texture page, glDrawPixels at a zoom, the cursor's ortho
-// quad in immediate mode), read back with glReadPixels and checked pixel by pixel against what OpenGL 1.1 says; then
-// the two renderers' pictures compared. Run by ctest ("renderer") on Linux; it needs a display (CI gives it Xvfb) and a
+// quad in immediate mode), read back with glReadPixels and checked pixel by pixel against what OpenGL 1.1 says; a film's
+// frame drawn as platform/film_frame.h draws it (a texture updated in place, scaled by the device); then the two
+// renderers' pictures compared. Run by ctest ("renderer") on Linux; it needs a display (CI gives it Xvfb) and a
 // Vulkan device (lavapipe, the Mesa software one, will do) and skips (exit 77) without them. It asks gfx.h for each
-// renderer (Request), so a software Vulkan device draws here even beside a hardware OpenGL, which the launcher's default
-// would choose instead.
+// renderer (Request), so a software Vulkan device draws here even beside a hardware OpenGL, as it does for a player who
+// chooses Vulkan.
 #include <SDL3/SDL.h>
 
 #include <algorithm>
@@ -17,6 +18,7 @@
 #include <string>
 #include <vector>
 
+#include "film_frame.h"
 #include "gfx.h"
 #include "gl_names.h"
 
@@ -296,8 +298,81 @@ void ExpectScene(const Picture& picture, const char* renderer) {
     Expect(picture, renderer, kWide / 2, 1, 128, 128, 128, "the mipmapped page's second level, the other pixel", 3);
 }
 
+// A film's frame (platform/film_frame.h): 4 x 4 texels, each colour a sum of its column and row, scaled 3 times into a
+// box at (kFilmX, kFilmTop) from the top left, so a texel's centre falls on a pixel's centre (pixel 3i + 1 of the box).
+constexpr int kFilmTexels = 4, kFilmScale = 3, kFilmX = 40, kFilmTop = 60;
+
+void FilmTexel(int frame, int column, int row, int rgb[3]) {
+    rgb[0] = frame == 0 ? 20 + 60 * column : 230 - 60 * column;
+    rgb[1] = 20 + 60 * row;
+    rgb[2] = frame == 0 ? 200 - 30 * (column + row) : 30 + 30 * (column + row);
+}
+
+// The film's pixel (x, top) from the box's top left in the picture.
+void ExpectFilm(const Picture& picture, const char* renderer, int x, int top, const int rgb[3], const char* what, int tolerance = 2) {
+    Expect(picture, renderer, kFilmX + x, kHigh - 1 - (kFilmTop + top), rgb[0], rgb[1], rgb[2], what, tolerance);
+}
+
+// Two frames of a film drawn as quicktime.cpp draws them, the second into the texture the first made (glTexSubImage2D),
+// and the picture after the second read back into `film`.
+void DrawFilm(const char* renderer, Picture& film) {
+    tpw::film::Texture texture;
+    const tpw::film::Box box{kFilmX, kFilmTop, kFilmTexels * kFilmScale, kFilmTexels * kFilmScale};
+    std::vector<uint8_t> rgb(kFilmTexels * kFilmTexels * 3);
+    for (int frame = 0; frame < 2; ++frame) {
+        for (int row = 0; row < kFilmTexels; ++row)
+            for (int column = 0; column < kFilmTexels; ++column) {
+                int texel[3];
+                FilmTexel(frame, column, row, texel);
+                for (int c = 0; c < 3; ++c) rgb[(row * kFilmTexels + column) * 3 + c] = static_cast<uint8_t>(texel[c]);
+            }
+        glGetError();
+        tpw::film::Draw(texture, rgb.data(), kFilmTexels, kFilmTexels, box, kWide, kHigh);
+        Check(glGetError() == GL_NO_ERROR, std::string(renderer) + ": no OpenGL error from a film's frame");
+        Check(texture.name != 0 && texture.width == kFilmTexels && texture.height == kFilmTexels,
+              std::string(renderer) + ": the film's texture is made at the film's size");
+    }
+    film.rgba.assign(static_cast<size_t>(kWide) * kHigh * 4, 0);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadBuffer(GL_BACK);
+    glReadPixels(0, 0, kWide, kHigh, GL_RGBA, GL_UNSIGNED_BYTE, film.rgba.data());
+    tpw::film::Release(texture);
+    Check(glGetError() == GL_NO_ERROR && texture.name == 0, std::string(renderer) + ": the film's texture given back");
+}
+
+void ExpectFilmFrame(const Picture& film, const char* renderer) {
+    const int black[3] = {0, 0, 0};
+    // Black round the box (the letterbox: the whole surface is cleared), the game's picture gone.
+    Expect(film, renderer, 0, 0, 0, 0, 0, "the film's letterbox (bottom left)");
+    Expect(film, renderer, kWide - 1, kHigh - 1, 0, 0, 0, "the film's letterbox (top right)");
+    ExpectFilm(film, renderer, -1, 4, black, "the film's letterbox, left of the box");
+    ExpectFilm(film, renderer, kFilmTexels * kFilmScale, 4, black, "the film's letterbox, right of the box");
+    ExpectFilm(film, renderer, 4, -1, black, "the film's letterbox, above the box");
+    ExpectFilm(film, renderer, 4, kFilmTexels * kFilmScale, black, "the film's letterbox, below the box");
+    // Each texel of the second frame at its centre: the texture was updated in place, rows from the top.
+    for (int row = 0; row < kFilmTexels; ++row)
+        for (int column = 0; column < kFilmTexels; ++column) {
+            int texel[3];
+            FilmTexel(1, column, row, texel);
+            char what[96];
+            std::snprintf(what, sizeof what, "the film's second frame, texel (%d, %d) at its centre", column, row);
+            ExpectFilm(film, renderer, kFilmScale * column + 1, kFilmScale * row + 1, texel, what);
+        }
+    // The box's first column, a third of a texel left of texel 0's centre: texel 0 alone (clamped to the edge, not
+    // blended with a black border).
+    int edge[3];
+    FilmTexel(1, 0, 1, edge);
+    ExpectFilm(film, renderer, 0, kFilmScale + 1, edge, "the film's left edge (clamped to the edge)");
+    // A third of the way from texel 0's centre to texel 1's: two thirds of one and a third of the other (bilinear).
+    int left[3], right[3], blend[3];
+    FilmTexel(1, 0, 1, left);
+    FilmTexel(1, 1, 1, right);
+    for (int c = 0; c < 3; ++c) blend[c] = (2 * left[c] + right[c] + 1) / 3;
+    ExpectFilm(film, renderer, 2, kFilmScale + 1, blend, "between two texels of the film (bilinear)", 3);
+}
+
 // Draws the scene with the backend `api` and reads it back; false (and why) when the backend is not there.
-bool Run(tpw::gfx::Api api, Picture& picture, Picture& presented, std::string& why) {
+bool Run(tpw::gfx::Api api, Picture& picture, Picture& presented, Picture& film, std::string& why) {
     tpw::gfx::Request(api);
     tpw::gfx::Probe();
     if (tpw::gfx::Chosen() != api) {
@@ -355,6 +430,10 @@ bool Run(tpw::gfx::Api api, Picture& picture, Picture& presented, std::string& w
     glReadPixels(0, 0, kWide, kHigh, GL_RGBA, GL_UNSIGNED_BYTE, again.rgba.data());
     Check(glGetError() == GL_NO_ERROR && again.rgba == picture.rgba,
           std::string(tpw::gfx::Name(api)) + ": the game's picture is kept across a resize and two more presents");
+    // A film's frames over it, then presented.
+    DrawFilm(tpw::gfx::Name(api), film);
+    tpw::gfx::BeginPresent();
+    tpw::gfx::EndPresent(box, pixelsWide, pixelsHigh);
     tpw::gfx::Destroy();
     SDL_DestroyWindow(window);
     return true;
@@ -392,10 +471,10 @@ int main() {
         std::printf("renderer tests: no video (%s): skipped\n", SDL_GetError());
         return 77;
     }
-    Picture vulkan, vulkanPresented, opengl, openglPresented;
+    Picture vulkan, vulkanPresented, vulkanFilm, opengl, openglPresented, openglFilm;
     std::string vulkanWhy, openglWhy;
-    const bool haveVulkan = Run(tpw::gfx::Api::Vulkan, vulkan, vulkanPresented, vulkanWhy);
-    const bool haveOpenGL = Run(tpw::gfx::Api::OpenGL, opengl, openglPresented, openglWhy);
+    const bool haveVulkan = Run(tpw::gfx::Api::Vulkan, vulkan, vulkanPresented, vulkanFilm, vulkanWhy);
+    const bool haveOpenGL = Run(tpw::gfx::Api::OpenGL, opengl, openglPresented, openglFilm, openglWhy);
     if (!haveVulkan) std::printf("renderer tests: %s\n", vulkanWhy.c_str());
     if (!haveOpenGL) std::printf("renderer tests: %s\n", openglWhy.c_str());
     if (!haveVulkan && !haveOpenGL) {
@@ -407,17 +486,22 @@ int main() {
         ExpectScene(vulkan, "Vulkan");
         Save(vulkan, "vulkan");
         Check(Differences(vulkan, vulkanPresented, 0) == 0, "Vulkan: the present picture is the game's");
+        ExpectFilmFrame(vulkanFilm, "Vulkan");
+        Save(vulkanFilm, "vulkan-film");
     }
     if (haveOpenGL) {
         ExpectScene(opengl, "OpenGL");
         Save(opengl, "opengl");
         Check(Differences(opengl, openglPresented, 0) == 0, "OpenGL: the present picture is the game's");
+        ExpectFilmFrame(openglFilm, "OpenGL");
+        Save(openglFilm, "opengl-film");
     }
     if (haveVulkan && haveOpenGL) {
         // The two renderers agree on all but the edges of the primitives, where rasterisation rules may differ by a pixel.
         const size_t different = Differences(vulkan, opengl, 8);
         std::printf("renderer tests: %zu of %d pixels differ between Vulkan and OpenGL\n", different, kWide * kHigh);
         Check(different < static_cast<size_t>(kWide * kHigh) / 200, "Vulkan and OpenGL draw the same picture (under 0.5% of pixels differ)");
+        Check(Differences(vulkanFilm, openglFilm, 3) == 0, "Vulkan and OpenGL draw the same film frame");
     }
     SDL_Quit();
     if (gFailures != 0) {

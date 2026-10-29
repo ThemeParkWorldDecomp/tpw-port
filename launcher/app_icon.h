@@ -15,14 +15,23 @@ namespace tpw::launcher {
 // Sets the icon for `dataFolder`'s icon.png, or the stand-in when there is none. On macOS the application's icon
 // (NSApp setApplicationIconImage:, through the Objective-C runtime as launcher/main.cpp names the menu), so the Dock,
 // Cmd-Tab and Force Quit show it; elsewhere the window's (SDL_SetWindowIcon, the taskbar's and the title bar's on
-// Windows). Logs what it did. Called when the launcher window is made and again when an import finishes (window.h
-// WindowPlacement::windowIcon).
+// Windows). Logs what it did. Called when the launcher window is made and again when an import finishes or the data
+// folder changes (window.h WindowPlacement::windowIcon).
 void ApplyAppIcon(const std::string& dataFolder, SDL_Window* window);
+
+// Writes the icon ApplyAppIcon would show into the installer's files for the install the launcher runs from
+// (launcher/installed_icon.h): on macOS the icon.icns of the application install.sh put in Applications (TPW_INSTALL_APPS
+// in a test), on Windows DIR\icon.ico, which install.ps1's Start menu shortcut shows; on macOS also the icon.icns of the
+// launcher's own bundle beside the program (app_bundle.h KeepBundleIcon), installed or not. Nothing for a launcher that
+// was not installed, or a file that already holds that icon. Logs what it wrote. Called when an import ends or the data folder
+// changes (window.h WindowPlacement::windowIcon) and after an --import, so that the Finder, Launchpad and the Start menu
+// show the game's icon as soon as there is one.
+void RefreshInstalledIcon(const std::string& dataFolder);
 
 // Writes the icon ApplyAppIcon would show (`dataFolder`'s icon.png, else the stand-in) as the file `path`: a multi-size
 // .ico when the name ends in .ico, a PNG otherwise. The launcher's --write-icon: install.sh makes the icon of the
 // application it puts in Applications from the PNG (THE APPLICATION); install.ps1 gives the .ico to the Start menu
-// shortcut (THE START MENU SHORTCUT). `what` says which icon it was; false with `err` when the file could not be written.
+// shortcut (THE START MENU SHORTCUT); RefreshInstalledIcon keeps both up to date between installs. `what` says which icon it was; false with `err` when the file could not be written.
 bool WriteAppIcon(const std::string& dataFolder, const std::string& path, std::string& what, std::string& err);
 
 // The icon ApplyAppIcon shows, as pixels: `dataFolder`'s icon.png (`own` true, `source` its Source text) or the

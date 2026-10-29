@@ -294,8 +294,8 @@ void LoadSaveListDtor(CFSLoadSave* self) { self->RemoveAll(); }
 
 // The publish path of the main menu (MainGameMenuConfirmPublish_OK, src/game/ui/ui_mainmenu.cpp): CFSOnlineSystem::ReturnUploadFilename
 // 0x10175608 builds the wide name in the caller's 0x40 byte temporary, UniStringToString 0x10005670 makes the narrow text whose address is
-// the path of the file to upload (the Mac fills the global gOnlineUploadFile itself, whose word at 0x08 is that address; the host's global is
-// only 16 bytes, so the text lives in a string of its own that the next call replaces), and 0x10238710 destroys the wide name.
+// the path of the file to upload (the Mac fills the global gOnlineUploadFile itself, whose word at 0x08 is that address; the host's string
+// keeps its text pointer at 0x10, not 0x08, so the text lives in a string of its own that the next call replaces), and 0x10238710 destroys the wide name.
 namespace mainmenu_callee {
 
 void ReturnUploadFilename(void* result, CFSOnlineSystem* system) {
@@ -313,5 +313,9 @@ void WideStringDtor(void* string, int16_t flag) {
     static_cast<TbDynamicStringTemplate<char16_t>*>(string)->~TbDynamicStringTemplate();
     if (flag > 0) IME::MslDelete(string);
 }
+
+// Slot 0x34 of the publish globe, CLBScreenComponentPublishGlobe::HandleOnlineBacktrack 0x100af094 (src/game/online/lobby_globe.cpp): the
+// lobby menu's item while the publish globe shows (MainLobbyMenuCB) and the end of an upload request (PostRequestUploadCallbackFunction).
+void PublishGlobeSlot34(void* screen) { static_cast<CLBScreenComponentOnlineGlobe*>(screen)->HandleOnlineBacktrack(); }
 
 }  // namespace mainmenu_callee

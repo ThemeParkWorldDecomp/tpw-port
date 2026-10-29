@@ -1452,6 +1452,44 @@ function Start-ShotWindow([string]$line = '') {
     return $p
 }
 
+# The part of the screen outside the main screen's working area (the taskbar) as FILE (PNG).
+function Save-TaskbarShot([string]$file) {
+    Add-ShotApi
+    try {
+        $screen = [System.Windows.Forms.Screen]::PrimaryScreen
+        $b = $screen.Bounds
+        $w = $screen.WorkingArea
+        $r = New-Object System.Drawing.Rectangle $b.Left, $w.Bottom, $b.Width, ($b.Bottom - $w.Bottom)
+        if ($r.Height -le 0) { $r = New-Object System.Drawing.Rectangle $b.Left, $b.Top, $b.Width, ($w.Top - $b.Top) }
+        if ($r.Height -le 0) { throw 'the working area is the whole screen (no taskbar found at the top or the bottom)' }
+        $bmp = New-Object System.Drawing.Bitmap $r.Width, $r.Height
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        $g.CopyFromScreen($r.Left, $r.Top, 0, 0, $bmp.Size)
+        $bmp.Save($file, [System.Drawing.Imaging.ImageFormat]::Png)
+        $g.Dispose()
+        $bmp.Dispose()
+        Note "$(Split-Path -Leaf $file): $($r.Width)x$($r.Height) pixels at $($r.Left),$($r.Top)"
+    } catch {
+        Note "$(Split-Path -Leaf $file): the capture failed: $_"
+    }
+}
+
+# The big icon WINDOW carries (WM_GETICON, ICON_BIG, as Alt+Tab and the taskbar ask it) as FILE (PNG); WHAT names it.
+function Save-WindowIcon([IntPtr]$window, [string]$file, [string]$what) {
+    try {
+        $hIcon = [IntPtr]::Zero
+        $one = New-Object IntPtr 1
+        # 0x7F is WM_GETICON, 1 is ICON_BIG, 2 is SMTO_ABORTIFHUNG
+        [void][TpwShots.Front]::SendMessageTimeout($window, 0x7F, $one, [IntPtr]::Zero, 2, 3000, [ref]$hIcon)
+        if ($hIcon -eq [IntPtr]::Zero) { throw 'the window carries no big icon (WM_GETICON gave nothing)' }
+        $icon = [System.Drawing.Icon]::FromHandle($hIcon)
+        $icon.ToBitmap().Save($file, [System.Drawing.Imaging.ImageFormat]::Png)
+        Note "the icon of ${what}: $($icon.Width)x$($icon.Height) pixels"
+    } catch {
+        Note "no icon from ${what}: $_"
+    }
+}
+
 function Get-OurLauncher([string]$exe) {
     return @(Get-Process -Name tpw_launcher -ErrorAction SilentlyContinue | Where-Object { try { $_.Path -ieq $exe } catch { $false } })
 }
@@ -1460,9 +1498,14 @@ function Get-OurLauncher([string]$exe) {
 # PowerShell window in front, then themepark typed in it as a player types it (SendKeys; when nothing starts that way,
 # a new window runs the line itself), then the launcher's window, which must have come to the front (the focus check:
 # the foreground window after the command must belong to the launcher of this install, else the case fails, after the
-# pictures are taken), then the launcher alone, the icon its window carries and the icon of tpw_launcher.exe. The
-# pictures, the focus check's lines and the launcher's log lines about its icon and its window go to TPW_CI_SHOTS
-# (default: the case's shots folder).
+# pictures are taken), then the launcher alone, the icon its window carries and the icon of tpw_launcher.exe. Then the
+# game's own process without a game (tpw_launcher --game-app-test us: "Sim Theme Park.exe" beside tpw_launcher.exe,
+# started as the window's Play starts it, with a bare window named after the game): the screen with the game's window
+# and the taskbar, the taskbar alone, the Task Manager, the icons of the game's window and of Sim Theme Park.exe, what
+# Windows says of the process (game-process.txt), and the launcher's window back after it ("Back to the launcher after
+# playing" on); the case fails when the game's process, its name or the launcher's return is not as it should be. The
+# pictures, the focus check's lines and the launcher's and the game's log lines go to TPW_CI_SHOTS (default: the case's
+# shots folder).
 # screenshots.yml keeps that folder as the run's artifact.
 function Invoke-Case_shots {
     $version = $env:TPW_CI_VERSION
@@ -1547,18 +1590,19 @@ function Invoke-Case_shots {
     Start-Sleep -Seconds 2
     Get-OurLauncher $exe | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 1
-    $logs = @(Get-ChildItem -LiteralPath $script:Data -Recurse -Filter '*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
-    if ($logs.Count -gt 0) {
-        $log = $logs[0].FullName
+    # (the one log file, logs\launcher.log: every run adds to it under its own "==== run N | ..." line)
+    $log = Join-Path $script:Data 'logs\launcher.log'
+    if (Test-Path -LiteralPath $log) {
         Copy-Item -LiteralPath $log -Destination (Join-Path $shots 'launcher.log')
         $lines = @(Get-Content -LiteralPath $log)
-        $picked = @($lines | Select-Object -First 1) + @($lines | Where-Object { $_ -match 'app icon:|app name|platform: (display|window|fit)|^launcher: ' })
+        $picked = @($lines | Where-Object { $_ -match '^==== run ' } | Select-Object -Last 1) + @($lines | Where-Object { $_ -match 'app icon:|app name|platform: (display|window|fit)|^launcher: ' })
         Set-Content -LiteralPath (Join-Path $shots 'launcher-log-lines.txt') -Value $picked -Encoding ASCII
         Note "the launcher's log, $($log):"
         $picked | ForEach-Object { Write-Host $_ }
     } else {
         Note 'the launcher wrote no log file'
     }
+    $gameProblems = @(Save-GameProcessShots $exe $shots)
     Add-Content -LiteralPath $focus -Value "typed in the window: $(if ($typed) { 'yes' } else { 'no (a new window ran the line itself)' })" -Encoding ASCII
     # the focus check: the foreground window's program is this install's launcher
     $frontExe = ($after -replace '^.* exe=', '') -replace ' title=.*$', ''
@@ -1570,6 +1614,137 @@ function Invoke-Case_shots {
         Get-Content -LiteralPath $focus | ForEach-Object { Write-Host $_ }
         Bad "the launcher's window did not come to the front after themepark: in front was $($after -replace '^name=', '')"
     }
+    if ($gameProblems.Count -gt 0) { Bad "the game's own process: $($gameProblems -join '; ')" }
+}
+
+# The game's own process (launcher/game_app.h; port_CONTRIBUTING.md, "The game's own process") for the pictures, with no
+# game: tpw_launcher --game-app-test us, started as Explorer starts a program (no console: the launcher and the game's
+# process both write what they print into the one log file, logs\launcher.log, each under its own run header line).
+# Returns what was not as it should be (empty when all was).
+function Save-GameProcessShots([string]$exe, [string]$shots) {
+    $problems = @()
+    $gameExe = Join-Path (Split-Path -Parent $exe) 'Sim Theme Park.exe'
+    $info = Join-Path $shots 'game-process.txt'
+    # "Back to the launcher after playing" on, as a player sets it in the Settings box
+    $ini = Join-Path $script:Data 'launcher.ini'
+    if (Test-Path -LiteralPath $ini) { Add-Content -LiteralPath $ini -Value 'back_to_launcher=1' -Encoding ASCII }
+    else { Set-Content -LiteralPath $ini -Value 'back_to_launcher=1' -Encoding ASCII }
+    # the runs the log file holds already, so only this test's are looked at
+    $launcherLog = Join-Path $script:Data 'logs\launcher.log'
+    $runsBefore = 0
+    if (Test-Path -LiteralPath $launcherLog) {
+        $runsBefore = @(Get-Content -LiteralPath $launcherLog | Where-Object { $_ -match '^==== run \d+ \|' }).Count
+    }
+    $t0 = Get-Date
+    $test = Start-Process -FilePath $exe -ArgumentList @('--game-app-test', 'us', '--frames', '900') -WorkingDirectory (Split-Path -Parent $exe) -PassThru
+    $game = $null
+    foreach ($i in 1..40) {
+        $game = @(Get-Process -Name 'Sim Theme Park' -ErrorAction SilentlyContinue | Where-Object { try { $_.Path -ieq $gameExe } catch { $false } } |
+                  Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero }) | Select-Object -First 1
+        if ($game) { break }
+        Start-Sleep -Milliseconds 500
+    }
+    if (-not $game) {
+        $problems += "no Sim Theme Park.exe process with a window within 20 s"
+        Note "the game's process did not show a window (the launcher's process: $(if ($test.HasExited) { "exited with $($test.ExitCode)" } else { 'still running' }))"
+    } else {
+        Note "the game's process is up $([int]((Get-Date) - $t0).TotalMilliseconds) ms after the launcher started"
+        try { [void][TpwShots.Front]::SetForegroundWindow($game.MainWindowHandle) } catch { }
+        Start-Sleep -Seconds 2
+        Save-Shot (Join-Path $shots '6-game-window-and-taskbar.png')
+        Save-TaskbarShot (Join-Path $shots '7-taskbar.png')
+        Save-WindowIcon $game.MainWindowHandle (Join-Path $shots '8-game-window-icon.png') "the game's window"
+        try {
+            $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($gameExe)
+            $icon.ToBitmap().Save((Join-Path $shots '9-game-exe-icon.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+            Note "the icon of Sim Theme Park.exe: $($icon.Width)x$($icon.Height) pixels"
+        } catch {
+            Note "no icon from Sim Theme Park.exe: $_"
+        }
+        $game.Refresh()
+        $version = $game.MainModule.FileVersionInfo
+        $launcherVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($exe)
+        $lines = @(
+            "process name (the Details tab): $($game.ProcessName).exe",
+            "description (the Processes tab): $($game.Description)",
+            "program: $($game.Path)",
+            "window title: $($game.MainWindowTitle)",
+            "version resource: FileDescription=$($version.FileDescription) ProductName=$($version.ProductName) OriginalFilename=$($version.OriginalFilename) FileVersion=$($version.FileVersion)",
+            "the launcher's: FileDescription=$($launcherVersion.FileDescription) OriginalFilename=$($launcherVersion.OriginalFilename) FileVersion=$($launcherVersion.FileVersion)",
+            "sizes: tpw_launcher.exe $((Get-Item -LiteralPath $exe).Length) bytes, Sim Theme Park.exe $((Get-Item -LiteralPath $gameExe).Length) bytes",
+            "launcher process: $(if ($test.HasExited) { "exited with $($test.ExitCode)" } else { 'still running' })")
+        Set-Content -LiteralPath $info -Value $lines -Encoding UTF8
+        $lines | ForEach-Object { Note $_ }
+        if ($game.Description -ne 'Sim Theme Park') { $problems += "the Processes tab would show `"$($game.Description)`", not Sim Theme Park" }
+        if ($game.MainWindowTitle -notmatch '^Sim Theme Park') { $problems += "the game's window is titled `"$($game.MainWindowTitle)`"" }
+        if ($version.OriginalFilename -ne 'Sim Theme Park.exe') { $problems += "OriginalFilename is `"$($version.OriginalFilename)`"" }
+        # the Task Manager as a player opens it (Ctrl+Shift+Esc), with the game running
+        try {
+            $tm = Start-Process -FilePath taskmgr.exe -PassThru
+            Start-Sleep -Seconds 5
+            Save-Shot (Join-Path $shots '10-task-manager.png')
+            Stop-Process -Id $tm.Id -Force -ErrorAction SilentlyContinue
+        } catch {
+            Note "no Task Manager: $_"
+        }
+    }
+    # the launcher's own process exits once the game's window is up; the game's ends after its passes, and the
+    # launcher's window opens again
+    [void]$test.WaitForExit(35000)
+    $back = $false
+    foreach ($i in 1..60) {
+        if (@(Get-OurLauncher $exe | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero }).Count -gt 0 -and
+            @(Get-Process -Name 'Sim Theme Park' -ErrorAction SilentlyContinue).Count -eq 0) { $back = $true; break }
+        Start-Sleep -Milliseconds 500
+    }
+    if ($back) {
+        Note "the launcher's window is back after the game, $([int]((Get-Date) - $t0).TotalSeconds) s after the start"
+        Start-Sleep -Seconds 2
+        Save-Shot (Join-Path $shots '11-back-to-the-launcher.png')
+        Add-Content -LiteralPath $info -Value 'back to the launcher: yes' -Encoding UTF8
+    } else {
+        $problems += "the launcher's window did not come back after the game"
+        Add-Content -LiteralPath $info -Value 'back to the launcher: no' -Encoding UTF8
+    }
+    if (-not $test.HasExited) { $problems += "the launcher's process that started the game was still running" }
+    elseif ($test.ExitCode -ne 0) { $problems += "the launcher's process that started the game exited with $($test.ExitCode)" }
+    Start-Sleep -Seconds 2
+    Get-OurLauncher $exe | Stop-Process -Force -ErrorAction SilentlyContinue
+    Get-Process -Name 'Sim Theme Park' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+    # the log: the runs this test added to the one log file (the launcher's that started the game, the game's, and the
+    # launcher's that opened again after it), with what each printed to standard error in its own run
+    $picked = @()
+    $runsAdded = 0
+    $gameRuns = 0
+    $legacy = @(Get-ChildItem -LiteralPath (Join-Path $script:Data 'logs') -Filter 'launcher-*.log' -ErrorAction SilentlyContinue) +
+              @(@('launcher.log', 'game.log') | ForEach-Object { Join-Path $script:Data $_ } | Where-Object { Test-Path -LiteralPath $_ })
+    if ($legacy.Count -gt 0) { $problems += "old log files beside the one log file: $(($legacy | ForEach-Object { "$_" }) -join ', ')" }
+    if (Test-Path -LiteralPath $launcherLog) {
+        Copy-Item -LiteralPath $launcherLog -Destination (Join-Path $shots 'test-launcher.log')
+        $run = 0
+        foreach ($line in @(Get-Content -LiteralPath $launcherLog)) {
+            if ($line -match '^==== run \d+ \|') {
+                $run++
+                if ($run -gt $runsBefore) {
+                    $runsAdded++
+                    if ($line -match 'the game''s own process') { $gameRuns++ }
+                    $picked += "== $line"
+                }
+                continue
+            }
+            if ($run -gt $runsBefore -and $line -match '^args: |game app|app id|taskbar|game program|app bundle|app icon|app name|opened again|^play: |^exit: ') { $picked += $line }
+        }
+    }
+    if ($runsAdded -eq 0) { $picked += "(no run in $launcherLog from this test)" }
+    elseif ($runsAdded -lt 3) { $problems += "the log file holds $runsAdded runs from this test, not 3 (the launcher's, the game's, the launcher's again)" }
+    if ($runsAdded -gt 0 -and $gameRuns -eq 0) { $problems += "no run header of the game's own process in the log file" }
+    Set-Content -LiteralPath (Join-Path $shots 'game-process-log-lines.txt') -Value $picked -Encoding UTF8
+    $picked | ForEach-Object { Write-Host $_ }
+    if (-not ($picked -match 'game app test: Sim Theme Park started as ')) { $problems += 'no "game app test: ... started as" line in the logs' }
+    if (-not ($picked -match 'app id: org\.tpw-port\.launcher\.stp')) { $problems += 'no "app id:" line in the logs' }
+    if (-not ($picked -match 'taskbar: the game''s window is Sim Theme Park''s')) { $problems += 'no "taskbar:" line in the logs' }
+    return $problems
 }
 
 # The one-liner a player runs, against the newest real release (or main with PUBLIC_ARGS=-Dev), in an empty profile
@@ -1590,7 +1765,12 @@ function Invoke-Case_public {
     [void](New-Item -ItemType Directory -Force -Path (Join-Path $clone '.git'), (Join-Path $clone 'launcher'))
     Write-Text (Join-Path $clone 'launcher\VERSION.txt') "0.0.2`n"
     $cloneBefore = Get-Snapshot $clone
-    $dataBefore = Get-Snapshot $script:Data
+    # What the player owns (saves, game data, packs) is snapshotted now, before the first run: the real launcher the line
+    # starts writes into the data folder (launcher.ini, logs\launcher.log, assets\.staging), so the whole
+    # folder is snapshotted later, once that launcher has been stopped, and only the player's own files are held to
+    # "unchanged since before the install".
+    $ownedDirs = @('saves', 'games', 'packs')
+    $ownedBefore = @($ownedDirs | ForEach-Object { Get-Snapshot (Join-Path $script:Data $_) }) -join "`n"
     $url = 'https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.ps1'
     $remote = Invoke-RestMethod -Uri $url
     if (-not "$remote".Contains('RESULT')) { Bad "the download of $url is not the installer" }
@@ -1608,12 +1788,16 @@ function Invoke-Case_public {
     if ($running.Count -gt 0) { Note 'the launcher is running'; $running | Stop-Process -Force -ErrorAction SilentlyContinue }
     else { Write-Host '::warning::[public] the launcher the line started was not running after 5 seconds' }
     Assert-NewWindowReal $script:Dir
+    # the launchers have ended (the one the line started, the one of themepark --version): from here the data folder is
+    # only the update's to change, and a rerun must leave it as it is
+    $dataBefore = Get-Snapshot $script:Data
     $again = @{ NoLaunch = $true } + $options
     $out = Invoke-Line $again "$remote"
     Assert-Ok $out $version
     Expect-Text $out 'Already up to date'
     Assert-Same 'the old clone' $cloneBefore (Get-Snapshot $clone)
     Assert-Same 'the data folder' $dataBefore (Get-Snapshot $script:Data)
+    Assert-Same 'the saves, game data and packs' $ownedBefore (@($ownedDirs | ForEach-Object { Get-Snapshot (Join-Path $script:Data $_) }) -join "`n")
 }
 
 # ---- main

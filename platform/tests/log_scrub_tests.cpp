@@ -220,7 +220,8 @@ int main() {
         Check(got == want, "chunks: the smallest buffer gives the same text");
     }
 
-    // The log file: every line is scrubbed on its way in, the header too; and Export logs scrubs once more.
+    // The log file: every line is scrubbed on its way in, the header too, and the old log files folded in at the first
+    // launch; and Export logs scrubs once more.
     {
         const fs::path root = fs::temp_directory_path() /
 #ifdef _WIN32
@@ -237,6 +238,17 @@ int main() {
         const tpw::ScrubIdentity test = tpw::MakeScrubIdentity(in);
         const tpw::ScrubIdentity* before = tpw::gScrubIdentity.exchange(&test);
         const std::string home = (root / "home" / "sam").string();
+
+        // The old files (written before the scrub): one launcher-*.log run and Windows' game.log beside the logs folder.
+        fs::create_directories(root / "logs");
+        {
+            std::ofstream old(root / "logs" / "launcher-20261025-101100.log", std::ios::binary);
+            old << "STP/TPW Launcher v0.1.0\nold run: " << home << "/old\nuser: sam on Sams-Test-Computer\n";
+        }
+        {
+            std::ofstream game(root / "game.log", std::ios::binary);
+            game << "game folder: " << home << "/games\n";
+        }
 
         std::string why;
         const char* argv[] = {"tpw_launcher", "--data", "HOMEARG"};
@@ -271,21 +283,29 @@ int main() {
         Check(content.find("os: ") != std::string::npos && content.find("hardware: ") != std::string::npos &&
                   content.find("STP/TPW Launcher v0.0.0 test") != std::string::npos,
               "log file: the useful header lines stay");
+        Check(content.find("\nold run: ~/old\nuser: <user> on <computer>\n") != std::string::npos &&
+                  content.find("\ngame folder: ~/games\n") != std::string::npos && !fs::exists(root / "game.log") &&
+                  !fs::exists(root / "logs" / "launcher-20261025-101100.log"),
+              "log file: the old files are folded in scrubbed, and removed");
 
-        // Export logs: an old log (written before the scrub) comes out clean; a clean one comes out as it was.
+        // Export logs: lines an older launcher wrote (before the scrub) come out clean; a clean file comes out as it was.
         const fs::path logs = root / "old logs", downloads = root / "Downloads";
         fs::create_directories(logs);
         fs::create_directories(downloads);
         {
-            std::ofstream old(logs / "launcher-20261025-101100.log", std::ios::binary);
+            std::ofstream old(logs / "launcher.log", std::ios::binary);
             old << "data folder: " << home << "/x\nuser: sam on Sams-Test-Computer\nos: macOS 15.1\n";
+            old << "==== run 2 | a game's run ====\ngame folder: " << home << "/games\n";
         }
-        const tpw::LogExportResult first = tpw::ExportLog(logs, downloads, 1793000000);
+        const tpw::LogExportResult first = tpw::ExportLogs(logs / "launcher.log", downloads, 1793000000, tpw::ExportProgram{});
         Check(first.ok, "export: saved: " + first.message);
-        Check(Slurp(first.file) == "data folder: ~/x\nuser: <user> on <computer>\nos: macOS 15.1\n",
-              "export: scrubbed again: [" + Slurp(first.file) + "]");
-        Check(Slurp(logs / "launcher-20261025-101100.log").find("sam") != std::string::npos, "export: the original is not changed");
-        const tpw::LogExportResult second = tpw::ExportLog(logs, downloads, 1793000000, &mac);
+        const std::string exported = Slurp(first.file);
+        Check(exported.find("\ndata folder: ~/x\nuser: <user> on <computer>\nos: macOS 15.1\n") != std::string::npos &&
+                  exported.find("\ngame folder: ~/games\n") != std::string::npos && exported.find("sam") == std::string::npos &&
+                  exported.find("Sams") == std::string::npos && exported.find(home) == std::string::npos,
+              "export: every run scrubbed again: [" + exported + "]");
+        Check(Slurp(logs / "launcher.log").find("sam") != std::string::npos, "export: the log file is not changed");
+        const tpw::LogExportResult second = tpw::ExportLogs(logs / "launcher.log", downloads, 1793000000, tpw::ExportProgram{}, &mac);
         Check(second.ok && Slurp(second.file).find("user: sam on Sams-Test-Computer") != std::string::npos,
               "export: an identity can be given (this one does not know the test's names)");
 

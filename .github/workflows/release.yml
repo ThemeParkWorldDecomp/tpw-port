@@ -1,7 +1,9 @@
-# Builds a release when its tag (vX.Y.Z) is pushed: the launcher for Windows x64, for Macs with Apple Silicon and
-# Intel processors and for Linux (a Flatpak bundle), all from the one tagged commit, with the tests run first; then
-# publishes them as the tag's GitHub Release. A release is never changed afterwards. A fix found later goes into the next version (CONTRIBUTING.md,
-# Releases), so every report that names a version names one build of the code, the same on every system.
+# Builds a release when its tag (vX.Y.Z) is pushed: the launcher for Windows x64 and for Macs with Apple Silicon and
+# Intel processors, all from the one tagged commit, with the tests run first, and on Linux the same sources built and
+# tested, with a Flatpak bundle when one builds (the flatpak job: its failure leaves the bundle out and never stops the
+# release); then publishes them as the tag's GitHub Release. A release is never changed afterwards. A fix found later
+# goes into the next version (CONTRIBUTING.md, Releases), so every report that names a version names one build of the
+# code, the same on every system.
 #
 # The release also carries the one-line installers, install.sh and install.ps1 (they build the launcher from source on
 # the player's computer, on a Mac, on Windows and on Linux; on Linux `install.sh --flatpak` installs the release's
@@ -143,9 +145,8 @@ jobs:
           path: STP-TPW-Launcher-*.tar.gz
           if-no-files-found: error
 
-  # Linux: the launcher as a Flatpak bundle (flatpak/, devtools/flatpak.sh), the sources tested first as the build
-  # workflow tests them (the shader check, and the renderer test on Mesa's software Vulkan). The runtime's cache key
-  # changes with the manifest, as in build.yml.
+  # Linux: the sources built and tested as the build workflow tests them (the shader check, and the renderer test on
+  # Mesa's software Vulkan). Required, as the other systems' builds are: the one-line installer builds these sources.
   linux:
     needs: check
     runs-on: ubuntu-24.04
@@ -161,7 +162,7 @@ jobs:
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxkbcommon-dev \
             libwayland-dev wayland-protocols libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
             libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev libudev-dev libibus-1.0-dev \
-            xvfb mesa-vulkan-drivers libvulkan1 glslang-tools libclang-18-dev flatpak flatpak-builder elfutils
+            xvfb mesa-vulkan-drivers libvulkan1 glslang-tools libclang-18-dev
       - name: The shaders' SPIR-V matches their sources
         run: sh devtools/vulkan_shaders.sh --check
       - name: Build the launcher and run the tests
@@ -171,11 +172,23 @@ jobs:
           cmake -S . -B build -G Ninja
           cmake --build build
           xvfb-run -a -s "-screen 0 1280x800x24" ctest --test-dir build --output-on-failure
-      - name: Cache the Flatpak runtime
-        uses: actions/cache@v4
+
+  # The Linux download: the launcher as a Flatpak bundle (flatpak/, devtools/flatpak.sh). Optional: when it fails the
+  # release is published without it (install.sh --flatpak then says the release has no Linux bundle), and the Linux
+  # build above stays required. The runtime and the SDK come from Flathub afresh: no cache is restored here, so nothing
+  # a build of main left in the cache goes into a release.
+  flatpak:
+    needs: [check, linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
         with:
-          path: ~/.local/share/flatpak
-          key: flatpak-user-${{ runner.os }}-${{ hashFiles('flatpak/io.github.ThemeParkWorldDecomp.Launcher.yml') }}
+          submodules: recursive
+      - name: Install Flatpak and flatpak-builder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder elfutils   # (eu-strip, for flatpak-builder's finish)
       - name: Build the Flatpak bundle
         run: |
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
@@ -191,9 +204,12 @@ jobs:
           path: build/STP-TPW-Launcher-*.flatpak
           if-no-files-found: error
 
+  # The flatpak job is the one that may fail: publish waits for it, then runs when everything else succeeded.
   publish:
-    needs: [check, windows, macos, linux]
-    if: github.event_name == 'push'
+    needs: [check, windows, macos, linux, flatpak]
+    if: >-
+      github.event_name == 'push' && !cancelled() && needs.check.result == 'success' &&
+      needs.windows.result == 'success' && needs.macos.result == 'success' && needs.linux.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -212,10 +228,22 @@ jobs:
           VERSION: ${{ needs.check.outputs.version }}
         run: |
           cd dist
+          flatpak=STP-TPW-Launcher-$VERSION-linux-x86_64.flatpak
+          if [ -f "$flatpak" ]; then
+            linux_flatpak="Or, as a Flatpak instead: the same line with \`sh -s -- --flatpak\` at its end."
+            linux_download="- Linux (x86-64, any distribution with Flatpak): $flatpak, then
+            \`flatpak install --user $flatpak\` (the freedesktop runtime comes from
+            Flathub) and \`flatpak run io.github.ThemeParkWorldDecomp.Launcher\`, or STP/TPW Launcher in your applications
+            menu. The one line with --flatpak does this for you, with the themepark command."
+          else
+            echo "::warning::the Flatpak bundle did not build, so this release has none (the flatpak job says why)"
+            linux_flatpak="(This release has no Flatpak bundle.)"
+            linux_download="- Linux: no ready-made launcher in this release; the one line above builds it."
+          fi
           sha256sum STP-TPW-Launcher-* install.sh install.ps1 > SHA256SUMS.txt
           { sed -n '/[^[:space:]]/,$p' changes.md; printf '\n## Downloads\n\n'; } > notes.md
           cat >> notes.md <<EOF
-          The STP/TPW Launcher $VERSION, built from the tag $GITHUB_REF_NAME. The Mac, Windows and Linux downloads are the same code.
+          The STP/TPW Launcher $VERSION, built from the tag $GITHUB_REF_NAME. All its downloads are the same code, on every system.
           You need your own copy of the game: the launcher imports it from your discs.
 
           The easiest way to install it (run the same line again to update) is one line, which downloads the source
@@ -225,7 +253,7 @@ jobs:
           - Windows (PowerShell): \`irm https://github.com/$GITHUB_REPOSITORY/releases/latest/download/install.ps1 | iex\`
           - Linux (a terminal): \`curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/latest/download/install.sh | sh\`
             (it installs the packages the build needs with your distribution's apt-get, dnf or pacman, and sudo asks
-            for your password once). Or, as a Flatpak instead: the same line with \`sh -s -- --flatpak\` at its end.
+            for your password once). $linux_flatpak
 
           If you play from a clone of this repository, run the same line too: it leaves the clone alone (and says when it
           can go), and your games, saves and settings stay as they are. The README's Quick start says what each line
@@ -236,15 +264,13 @@ jobs:
           - Mac with Apple Silicon: STP-TPW-Launcher-$VERSION-macos-arm64.tar.gz. With an Intel processor: the -macos-x64 one.
             Double-click it to unpack, then in Terminal run \`xattr -d com.apple.quarantine\` on the unpacked tpw_launcher
             (the launcher is not signed, so macOS blocks it otherwise) and start it.
-          - Linux (x86-64, any distribution with Flatpak): STP-TPW-Launcher-$VERSION-linux-x86_64.flatpak, then
-            \`flatpak install --user STP-TPW-Launcher-$VERSION-linux-x86_64.flatpak\` (the freedesktop runtime comes from
-            Flathub) and \`flatpak run io.github.ThemeParkWorldDecomp.Launcher\`, or STP/TPW Launcher in your applications
-            menu. The one line with --flatpak does this for you, with the themepark command.
+          $linux_download
           - To build it yourself: \`git clone --branch $GITHUB_REF_NAME --recurse-submodules https://github.com/$GITHUB_REPOSITORY.git\`,
             then the README's Quick start.
 
-          Reporting a problem: say that you run $VERSION (the About box and the log file's first line show it), your
-          system and your edition, attach the launcher's newest log and say what you clicked before it went wrong.
+          Reporting a problem: say that you run $VERSION (the About box and each run's first line in the log show it),
+          your system and your edition, attach the file the About box's Export logs saves and say what you clicked before
+          it went wrong.
           EOF
           gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --verify-tag --title "STP/TPW Launcher $VERSION" \
             --notes-file notes.md STP-TPW-Launcher-* install.sh install.ps1 SHA256SUMS.txt

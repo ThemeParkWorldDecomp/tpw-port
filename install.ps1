@@ -43,7 +43,7 @@
 #
 # THE CONTRACT. The launcher's updater runs this script and reads its output, so these never change:
 #   STEP n/N some plain words     one line as each step starts
-#   RESULT ok VERSION             the last line when it worked, and the exit code is 0 (VERSION: 0.1.0, 0.1.1-dev)
+#   RESULT ok VERSION             the last line when it worked, and the exit code is 0 (VERSION: 0.1.0, 0.2.0-dev)
 #   RESULT fail SOME REASON       the last line when it did not, and the exit code is not 0
 # Exactly one RESULT line is printed, last. Other lines are for people and may change. Options are only ever added.
 # Run through iex (no file) the script never calls exit, which would close the PowerShell window; it sets
@@ -91,16 +91,15 @@
 # have it. It points at DIR\build\tpw_launcher.exe, started in DIR\build, with the launcher's icon: first the launcher
 # writes DIR\icon.ico (--write-icon: the game's own icon once a game is imported, the launcher's stand-in before) and
 # the shortcut shows that file; when the launcher cannot write it (a stand-in launcher of a test build), the shortcut
-# shows the program's own icon. Like the Mac's application, the shortcut's icon is the one of the last install, update
-# or switch; the taskbar's while the launcher runs is always the current one. A fresh install before the first import
-# gets the stand-in; the next install or update, including the launcher's own updater, replaces it with the game's
-# icon. A shortcut of that name that points at some other program is left alone and the player is told. The shortcut
-# not being written never fails the run (the launcher is in place; the player is told). There is no uninstall path:
-# the player deletes the shortcut from the Start menu, and it comes back at the next install or update. The step is
-# "Adding STP/TPW Launcher to the Start menu", after the command and before the start; the progress view's row is
-# startmenu. There are no application bundles on Windows: the game plays in the launcher's own process, and nothing
-# answers the two bundles the Mac launcher writes inside its build folder (Sim Theme Park.app and Theme Park
-# World.app; install.sh, THE APPLICATION), so the running check and Remove-Own have nothing more to see.
+# shows the program's own icon. Between installs the launcher keeps DIR\icon.ico up to date itself (as the Mac's
+# application: launcher/installed_icon.h), so the shortcut shows the game's icon as soon as a game is imported, as the
+# taskbar does while the launcher runs. A shortcut of that name that points at some other program is left alone and
+# the player is told. The shortcut not being written never fails the run (the launcher is in place; the player is
+# told). There is no uninstall path: the player deletes the shortcut from the Start menu, and it comes back at the next
+# install or update. The step is "Adding STP/TPW Launcher to the Start menu", after the command and before the start;
+# the progress view's row is startmenu. There are no application bundles on Windows: the game plays in the launcher's
+# own process, and nothing answers the two bundles the Mac launcher writes inside its build folder (Sim Theme Park.app
+# and Theme Park World.app; install.sh, THE APPLICATION), so the running check and Remove-Own have nothing more to see.
 #
 # SAFETY. No administrator rights, nothing written outside DIR but that Path entry and the Start menu shortcut (one
 # file, STP-TPW Launcher.lnk, in the user's own Programs folder, THE START MENU SHORTCUT above; the launcher is started

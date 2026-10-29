@@ -81,6 +81,7 @@ int EditionIndex(assets::Edition edition) {
         case assets::kEditionUs: return 0;
         case assets::kEditionEur: return 1;
         case assets::kEditionGold: return 2;
+        case assets::kEditionLanguages: break;
     }
     return 0;
 }
@@ -90,6 +91,7 @@ const char* EditionTitle(assets::Edition edition) {
         case assets::kEditionUs: return "US edition";
         case assets::kEditionEur: return "European edition";
         case assets::kEditionGold: return "Gold bonus rides";
+        case assets::kEditionLanguages: break;
     }
     return "?";
 }
@@ -99,6 +101,7 @@ const char* EditionGame(assets::Edition edition) {
         case assets::kEditionUs: return "Sim Theme Park, Mac CD";
         case assets::kEditionEur: return "Theme Park World, PC CD";
         case assets::kEditionGold: return "PC Gold bonus CD";
+        case assets::kEditionLanguages: break;
     }
     return "?";
 }
@@ -121,6 +124,7 @@ const char* EditionPhrase(assets::Edition edition) {
         case assets::kEditionUs: return "the US edition";
         case assets::kEditionEur: return "the European edition";
         case assets::kEditionGold: return "the Gold bonus rides";
+        case assets::kEditionLanguages: break;
     }
     return "?";
 }

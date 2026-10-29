@@ -585,7 +585,7 @@ float DoNodePolySearch(tag_sNode* nodeP, sEmbeddedDataNodeParams* paramsP, float
     for (uint32_t sets = U16(node, 0x5a); sets != 0; --sets, set += 0x10) {
         const uint8_t* face = Ptr(node, 0x70) + U16(set, 4) * 8;
         const uint8_t* table = static_cast<const uint8_t*>(gPolySearchTable);
-        // TPW_PORT_FIX kartheight DoNodePolySearch | Mac: the node's first vertex in the search table is the halfword at +0x10 of its embedded record | Port: while gPortRideCtx is set, the record is a host sEmbeddedRecord and the halfword is the one SetupMeshForPolySearchSimple wrote in its mF10 | Why: the set's records are a native array of host sEmbeddedRecords (32 bytes, the vertex index in mF10 at +0x18; TPInitialiseEmbeddedData), so the set's word at +4 was its padding, read as null: each surface of flag 2 (a Dino Kart's lava jump and mammoth tunnel, the Space go-karts' base and teleport) was searched against the root node's vertices, which left a car on it with no height (-100) or millions of units up, and a second such surface would be read through a pointer near 0
+        // TPW_PORT_FIX kartheight DoNodePolySearch | Mac: the node's first vertex in the search table is the halfword at +0x10 of its embedded record | Port: while gPortRideCtx is set, the record is a host sEmbeddedRecord and the halfword is the one SetupMeshForPolySearchSimple wrote in its mF10 | Why: the set's records are a native array of host sEmbeddedRecords (32 bytes, the vertex index in mF10 at +0x18; TPInitialiseEmbeddedData), so the set's word at +4 was its padding, read as null: each surface of flag 2 (a Dino Kart's lava jump and mammoth tunnel, the Space go-karts' base and teleport) was searched against the root node's vertices, which left a car on it with no height (-100) or millions of units up, and a second such surface would be read through a pointer near 0; contributed by samueleagle91 (tpw-port PR #72), reported by pulpmetal on Discord
         if (params != nullptr)
             table += (gPortRideCtx ? *reinterpret_cast<const uint16_t*>(&reinterpret_cast<const sEmbeddedRecord*>(params)->mF10)
                                    : U16(params, 0x10)) * 0xc;
@@ -676,7 +676,7 @@ float GetHeightFromPolySearch(float x, float z, int a, int b) {
         if (best == -100.0f) best = F32(Ptr(world, 0x78), 0x44);
     }
     if (a == 0 && embed != nullptr && (U32(embed, 0) & 8) != 0) {
-        // TPW_PORT_FIX kartheight GetHeightFromPolySearch | Mac: the embedded records from the set's word at +4, 0x14 bytes apart | Port: while gPortRideCtx is set, the set's mRecords, sizeof(sEmbeddedRecord) apart | Why: the set's records are a native array of host sEmbeddedRecords (32 bytes, the vertex index in mF10 at +0x18; TPInitialiseEmbeddedData), so the set's word at +4 was its padding, read as null: each surface of flag 2 (a Dino Kart's lava jump and mammoth tunnel, the Space go-karts' base and teleport) was searched against the root node's vertices, which left a car on it with no height (-100) or millions of units up, and a second such surface would be read through a pointer near 0
+        // TPW_PORT_FIX kartheight GetHeightFromPolySearch | Mac: the embedded records from the set's word at +4, 0x14 bytes apart | Port: while gPortRideCtx is set, the set's mRecords, sizeof(sEmbeddedRecord) apart | Why: the set's records are a native array of host sEmbeddedRecords (32 bytes, the vertex index in mF10 at +0x18; TPInitialiseEmbeddedData), so the set's word at +4 was its padding, read as null: each surface of flag 2 (a Dino Kart's lava jump and mammoth tunnel, the Space go-karts' base and teleport) was searched against the root node's vertices, which left a car on it with no height (-100) or millions of units up, and a second such surface would be read through a pointer near 0; contributed by samueleagle91 (tpw-port PR #72), reported by pulpmetal on Discord
         const uint8_t* params = gPortRideCtx
             ? reinterpret_cast<const uint8_t*>(static_cast<const sEmbeddedSet*>(mesh->mF28)->mRecords)
             : Ptr(Ptr(RideCtx(), 0x28), 4);
@@ -694,7 +694,7 @@ float GetHeightFromPolySearch(float x, float z, int a, int b) {
                     best = r;
                 }
             }
-            params += paramsStep;
+            params += paramsStep;  // kartheight, above
             flags += 0x14;
             node += 0xa0;
         }

@@ -12,7 +12,8 @@
 # package step against stand-ins for the package tools and sudo) and packages_real and real (the system's own package
 # manager: as root, or with a sudo that asks no password, as on a CI runner).
 #
-# Cases: fresh shells legacy rerun updater dev tags refusals paths packages buildfail interrupt interrupt_first flatpak
+# Cases: fresh shells legacy rerun updater dev tags refusals paths packages compiler buildfail interrupt interrupt_first
+#   flatpak
 #   packages_real  the package step for real: the build's packages installed with the system's package manager
 #   real     one real build, from a local tag of the CI checkout (needs TPW_CI_SOURCE: the checkout to take); with
 #            TPW_CI_UPDATE=1, then the launcher's Update button's run against a newer local tag (a second build)
@@ -237,6 +238,21 @@ exec "\$@"
 EOF
     chmod 755 "$farm/dpkg-query" "$farm/apt-get" "$farm/id" "$farm/sudo"
     [ "${FAKE_SUDO:-nopasswd}" != none ] || rm -f "$farm/sudo"
+}
+
+# A stand-in C++ compiler NAME in the farm FOLDER that says it is KIND (gcc or clang) version MAJOR.
+fake_cxx() { # FOLDER NAME KIND MAJOR
+    local banner
+    banner="g++ (a stand-in) $4.1.0, Copyright (C) 2024 Free Software Foundation, Inc."
+    [ "$3" = gcc ] || banner="clang version $4.0.1 (a stand-in)"
+    cat >"$1/$2" <<EOF
+#!/bin/sh
+case "\$1" in
+    --version) echo "$banner" ;;
+    -dumpversion) echo $4 ;;
+esac
+EOF
+    chmod 755 "$1/$2"
 }
 
 # The packages install.sh asks apt for, from the script itself.
@@ -765,6 +781,72 @@ case_packages() {
     done
 }
 
+# The C++ compiler (GCC 13 or clang 18, or newer): one too old stops the line before sudo or any package install; with no
+# compiler yet, the g++ apt would install is the one checked; CXX names another, and the install keeps it for its updates.
+case_compiler() {
+    local all
+    all=$(apt_packages)
+
+    new_case compiler-old
+    note "GCC 11: refused before sudo or apt-get, nothing made"
+    unset TPW_INSTALL_PACKAGES
+    fake_init
+    fake_release 0.0.1
+    tool_farm "$C/farm"
+    fake_packages "$C/farm"
+    fake_cxx "$C/farm" c++ gcc 11
+    printf '%s\n' $all | grep -vxF libvulkan1 >"$C/pkg-state"
+    ls -A "$H" >"$C/home-before.txt"
+    PATH="$C/farm" run_line "$C/o1" --no-launch
+    fail_run "$C/o1" 'The C\+\+ compiler is GCC 11; the build needs GCC 13 or clang 18'
+    expect_text "$C/o1" 'Nothing was changed.'
+    expect_text "$C/o1" '| CXX=g++-13 sh'
+    expect_no_text "$C/pkg-log" 'sudo'
+    expect_no_text "$C/pkg-log" 'apt-get'
+    ls -A "$H" >"$C/home-after.txt"
+    cmp -s "$C/home-before.txt" "$C/home-after.txt" || bad "a run refused for its compiler made something"
+
+    note "clang 17: refused too, and a g++-14 beside it is the one named"
+    fake_cxx "$C/farm" c++ clang 17
+    fake_cxx "$C/farm" g++-14 gcc 14
+    PATH="$C/farm" run_line "$C/o2" --no-launch
+    fail_run "$C/o2" 'The C\+\+ compiler is clang 17'
+    expect_text "$C/o2" 'This Linux also has g++-14.'
+    expect_no_text "$C/pkg-log" 'sudo'
+
+    note "CXX=g++-14: built, and kept for the update"
+    CXX=g++-14 PATH="$C/farm" run_line "$C/o3" --no-launch
+    ok_run "$C/o3" 0.0.1
+    expect_text "$C/o3" 'The C++ compiler: GCC 14 (g++-14).'
+    expect_in "$DIR/build/install-info.txt" "cxx=g++-14"
+    fake_release 0.0.2
+    PATH="$C/farm" run_line "$C/o4" --no-launch
+    ok_run "$C/o4" 0.0.2
+    expect_text "$C/o4" 'The C++ compiler: GCC 14 (g++-14).'
+    expect_in "$DIR/build/install-info.txt" "cxx=g++-14"
+
+    new_case compiler-apt
+    note "no compiler yet, and apt would install GCC 12: refused before sudo or apt-get"
+    unset TPW_INSTALL_PACKAGES
+    fake_init
+    fake_release 0.0.1
+    tool_farm "$C/farm"
+    fake_packages "$C/farm"
+    cat >"$C/farm/apt-cache" <<'EOF'
+#!/bin/sh
+echo "g++:"
+echo "  Installed: (none)"
+echo "  Candidate: 4:12.2.0-3"
+EOF
+    chmod 755 "$C/farm/apt-cache"
+    PATH="$C/farm" run_line "$C/o1" --no-launch
+    fail_run "$C/o1" 'The C\+\+ compiler is GCC 12'
+    expect_text "$C/o1" "the g++ that apt-get would install (4:12.2.0-3)"
+    expect_no_text "$C/pkg-log" 'sudo'
+    expect_no_text "$C/pkg-log" 'apt-get'
+    [ ! -e "$DIR" ] || bad "a run refused for its compiler made $DIR"
+}
+
 # The package step for real: the system's package manager installs what is missing (this must run as root, or with a
 # sudo that asks no password), then the same line finds everything installed.
 case_packages_real() {
@@ -997,7 +1079,8 @@ case_public() {
 
 main() {
     if [ $# -eq 0 ]; then
-        set -- fresh shells legacy rerun updater dev tags refusals paths packages buildfail interrupt interrupt_first flatpak
+        set -- fresh shells legacy rerun updater dev tags refusals paths packages compiler buildfail interrupt interrupt_first \
+            flatpak
     fi
     run_cases "$@"
 }

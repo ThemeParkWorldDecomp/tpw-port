@@ -23,3 +23,6 @@ __pycache__/
 .DS_Store
 .idea/
 .vscode/
+
+# The playtest's local setting: where your own game files are (CONTRIBUTING.md, "Before a pull request").
+.playtest-data
