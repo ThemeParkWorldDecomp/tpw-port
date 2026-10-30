@@ -242,8 +242,9 @@ fs::path HostPathForWriting(const std::string& gamePath) {
 // hfsdump (the project's disc extractor) writes "<name>.finfo" and "<name>.rsrc" next to
 // each file; they are not part of the game's folder.
 static bool IsDumpSideFile(const fs::path& path) {
-    const std::string ext = path.extension().string();
-    if (ext != ".finfo" && ext != ".rsrc") return false;
+    // Compared as paths: string() throws on Windows for an extension the ANSI code page cannot spell.
+    const fs::path ext = path.extension();
+    if (ext != fs::path(".finfo") && ext != fs::path(".rsrc")) return false;
     std::error_code ec;
     fs::path base = path;
     base.replace_extension();
