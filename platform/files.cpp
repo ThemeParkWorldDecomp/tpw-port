@@ -90,7 +90,10 @@ static bool EscapedInHostNames(wchar_t c) {
 
 static fs::path HostName(const std::string& name) {
     std::wstring host;
-    for (wchar_t c : HostNameOf(name).native()) {
+    // Held in a local: a range-for over HostNameOf(name).native() keeps only the reference, and the path it names is gone
+    // before the loop starts, so a name too long for the string's own buffer (restart.INTS, autosave.TPWS) was read from freed memory.
+    const fs::path base = HostNameOf(name);
+    for (wchar_t c : base.native()) {
         if (EscapedInHostNames(c)) {
             static const wchar_t kHex[] = L"0123456789ABCDEF";
             host += L'%';
