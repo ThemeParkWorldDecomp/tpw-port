@@ -69,32 +69,15 @@ The Settings box has these rows:
 
 ### Cheats
 
-The original game's cheats are all there, off until you turn on cheat mode in a park:
+#### How to enable cheat mode
 
-1. Press G: the entry price panel opens.
-2. Click the park's name at the top of the panel: the Rename Item box opens, with two lines.
-3. Clear both lines, then type `Kevin the` on the first and `Cosmic Cow` on the second, exactly so: capitals as shown,
-   one space, nothing more. Return moves from the first line to the second.
-4. Press Return (or click the tick). The entrance sign now reads Kevin the Cosmic Cow.
+1. In a park, press G and click the park's name at the top of the panel.
+2. Rename it `Kevin the` on the first line and `Cosmic Cow` on the second, exactly as shown.
+3. Press Return. The entrance sign now reads Kevin the Cosmic Cow.
 
-Control+Shift+Option+C on a Mac (Ctrl+Shift+Alt+C on Windows and Linux) also turns it on, and puts $1 in the bank.
-Cheat mode stays on while you play (renaming the sign again does not turn it off) and is saved with the park: loading
-a park saved without it turns it off.
+Or press Control+Shift+Option+C on a Mac (Ctrl+Shift+Alt+C on Windows and Linux).
 
-On a Mac every key below needs the port's fixes on, as every tpw-port build has them (the HandleTyping row of
-[FIXES.md](FIXES.md)): the Mac original read the character a key typed, so the cheats held with Option or Control on a
-letter or number, or with Shift on a number, never worked there.
-
-- Control is Control or Command on a Mac.
-- The keypad keys are the numeric keypad's, so a Mac laptop needs a keyboard with one.
-- On a Mac keyboard F11 and F12 are the volume keys: hold fn with them, or turn on "Use F1, F2, etc. keys as standard
-  function keys" in System Settings, Keyboard. macOS may also keep F11 for Show Desktop, and Linux may keep Ctrl+Alt with
-  an F key for switching to a text console.
-- The people, litter and vomit appear where the pointer is. Guests come only while the park is open: with its gates
-  closed, the guest keys open the park instead.
-- The golden ticket keys work without cheat mode too: the original's debug keys hold the same ones.
-- Tried in a game says on which systems the row was checked by playing. The others were checked against the game's code
-  and the port's key tests only: no row has been tried in a game on Windows or Linux yet.
+#### Cheat list
 
 | What it does | macOS | Windows | Linux | Tried in a game |
 | --- | --- | --- | --- | --- |
@@ -129,6 +112,26 @@ letter or number, or with Shift on a number, never worked there.
 | The game's own weather again | Control+F12 | Ctrl+F12 | Ctrl+F12 | not yet |
 | Real-time lighting off or on | Control+Shift+Option+F12 | Ctrl+Shift+Alt+F12 | Ctrl+Shift+Alt+F12 | not yet |
 | Show or hide the frame rate | Control+Shift+Option+F11 | Ctrl+Shift+Alt+F11 | Ctrl+Shift+Alt+F11 | not yet |
+
+#### Good to know
+
+- Clear both lines before typing the cheat name: capitals as shown, one space, nothing more. Return moves from the
+  first line to the second, and the tick works as well as Return.
+- Cheat mode stays on while you play (renaming the sign again does not turn it off) and is saved with the park: loading
+  a park saved without it turns it off. The Control+Shift+Option+C way also puts $1 in the bank.
+- Control is Control or Command on a Mac.
+- The keypad keys are the numeric keypad's, so a Mac laptop needs a keyboard with one.
+- On a Mac keyboard F11 and F12 are the volume keys: hold fn with them, or turn on "Use F1, F2, etc. keys as standard
+  function keys" in System Settings, Keyboard. macOS may also keep F11 for Show Desktop, and Linux may keep Ctrl+Alt with
+  an F key for switching to a text console.
+- The people, litter and vomit appear where the pointer is. Guests come only while the park is open: with its gates
+  closed, the guest keys open the park instead.
+- The golden ticket keys work without cheat mode too: the original's debug keys hold the same ones.
+- Tried in a game says on which systems the row was checked by playing. The others were checked against the game's code
+  and the port's key tests only: no row has been tried in a game on Windows or Linux yet.
+- On a Mac every key needs the port's fixes on, as every tpw-port build has them (the HandleTyping row of
+  [FIXES.md](FIXES.md)): the Mac original read the character a key typed, so the cheats held with Option or Control on a
+  letter or number, or with Shift on a number, never worked there.
 
 ### Updates
 
