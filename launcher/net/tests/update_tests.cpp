@@ -277,11 +277,6 @@ void TestVersions() {
     Check(!Newer("0.0.4", "0.0.4"), "0.0.4 = 0.0.4");
     Check(Newer("0.10.0", "0.9.9"), "numbers, not text");
     Check(!Newer("junk", "0.0.1"), "junk is never newer");
-    Check(CheckDue("", 1000), "never checked");
-    Check(!CheckDue("1000", 1000 + 3600), "an hour later");
-    Check(CheckDue("1000", 1000 + 24 * 3600), "a day later");
-    Check(CheckDue("99999", 1000), "a clock put back");
-    Check(CheckDue("12abc", 1000), "junk in the key");
     int step = 0, steps = 0;
     std::string words;
     Check(ParseStep("STEP 2/4 Downloading the source", step, steps, words) && step == 2 && steps == 4 &&
@@ -371,21 +366,18 @@ void TestUpdater() {
         Check(updater.WhatsNewUrl() == net::ReleasePageUrl("0.0.4"), "What's new is the release page");
         Check(!updater.ScriptInstall(), "a prebuilt launcher: Update opens the release page");
     }
-    {   // the next launch: not due, the banner from launcher.ini; a version already reached is dropped
+    {   // the next launch, an hour later: the banner from launcher.ini at once, and the question asked again
         Settings settings;
         settings.keys = {{"update_found", "0.0.4"}, {"update_last_check", std::to_string(now)}};
-        bool asked = false;
-        ui::Updater::Hooks hooks = Answering("0.0.4");
-        hooks.questions.latestRelease = [&](const net::Limits&) {
-            asked = true;
-            return net::Release();
-        };
-        ui::Updater updater(settings, Stable(false), nullptr, hooks);
+        ui::Updater updater(settings, Stable(false), nullptr, Answering("0.0.5"));
+        Check(updater.Visible() && updater.Found() == "0.0.4", "the kept banner shows before any answer");
         updater.StartupCheck(now + 3600);
         Settle(updater);
-        Check(!asked && updater.Visible() && updater.Found() == "0.0.4", "not due: no question, the banner stays");
+        Check(updater.Visible() && updater.Found() == "0.0.5" && settings.keys["update_found"] == "0.0.5" &&
+                  settings.keys["update_last_check"] == std::to_string(now + 3600),
+              "asked again within the day: a release out an hour later shows");
         settings.keys["update_found"] = "0.0.3";
-        ui::Updater current(settings, Stable(false), nullptr, hooks);
+        ui::Updater current(settings, Stable(false), nullptr, Answering("0.0.5"));
         Check(!current.Visible(), "a found version this launcher has is not shown");
     }
     {   // offline: nothing said, nothing kept, asked again next launch

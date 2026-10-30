@@ -60,14 +60,6 @@ bool Newer(const std::string& candidate, const std::string& current) {
     return !c.dev && now.dev;
 }
 
-bool CheckDue(const std::string& lastCheck, long long now) {
-    if (lastCheck.empty() || lastCheck.size() > 18) return true;
-    for (char c : lastCheck)
-        if (c < '0' || c > '9') return true;
-    const long long last = std::atoll(lastCheck.c_str());
-    return last > now || now - last >= 24 * 60 * 60;
-}
-
 Install FindInstall(const std::string& exeDir) {
     namespace fs = std::filesystem;
     Install install;
@@ -213,12 +205,8 @@ void Updater::StartupCheck(long long now) {
         Log("update check: off (Settings)");
         return;
     }
-    if (!update::CheckDue(settings_.Setting(kUpdateLastCheckKey), now)) {
-        Log(std::string("update check: not due (once a day)") +
-            (found_.empty() ? "" : "; found earlier: " + found_));
-        return;
-    }
-    Log("update check: asking GitHub for the newest release (this launcher " + current_.version + ")");
+    Log("update check: asking GitHub for the newest release (this launcher " + current_.version + ")" +
+        (found_.empty() ? "" : "; found earlier: " + found_));
     checkTime_ = now;
     Begin(Phase::Checking, [this] {
         net::Limits limits;

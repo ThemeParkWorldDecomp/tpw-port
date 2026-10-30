@@ -220,7 +220,7 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
         ui.SetLogsFolder(placement.logsFolder);
         ui.SetShowLogs(placement.showLogs);
         ui.SetExportLogs(placement.exportLogs);
-        // The update check: once a day, on a thread of its own; closing the window stops it (or an update's build).
+        // The update check: at every start, on a thread of its own; closing the window stops it (or an update's build).
         const char* base = SDL_GetBasePath();
         Updater updater(backend, update::DescribeCurrent(kLauncherVersion, !placement.programFolder.empty() ? placement.programFolder : base ? base : ""),
                         placement.log);

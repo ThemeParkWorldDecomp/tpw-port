@@ -1,12 +1,13 @@
 // updater.h: the update check and the Update button (port_README.md, "Updates"; notes/updater-and-offline.md in the
 // monorepo for the why).
 //
-// The check: on launcher start, at most once a day, in the background, never delaying the window. It compares the
+// The check: at every launcher start, in the background, never delaying the window. It compares the
 // newest release (net::LatestRelease) with this launcher's version, on every install: releases only (the maintainer's decision,
 // 2026-10-25). A dev build (0.0.4-dev) newer than the newest release hears of nothing; one older than it, or 0.0.4-dev
 // once 0.0.4 is out, is offered the release. Dev builds come only from running install.sh --dev. No answer (offline,
-// GitHub down, a rate limit, junk) says nothing, and the next launch asks again. What it found is kept in launcher.ini,
-// so the banner shows on later launches without asking again.
+// GitHub down, a rate limit, junk) says nothing. What it found is kept in launcher.ini, so the banner shows at once on
+// later launches, offline too, until an answer says this launcher is current. (Once a day before 0.2.1: a release went
+// unseen for up to a day.)
 //
 // The Update button: an install made by install.sh (install.ps1 on Windows) is a folder DIR with source/ (the clone),
 // build/ (this launcher), build-next/ and channel.txt. Update runs `install.sh --update --stage --dir DIR` (never
@@ -32,9 +33,10 @@ namespace tpw::ui {
 
 // launcher.ini's key for the Settings box's "Check for updates": absent or "1" on, "0" off. ON BY DEFAULT, unlike every
 // other setting of the launcher (port_CONTRIBUTING.md: settings are off by default): The maintainer's explicit exception, so that
-// players hear of fixes. It asks GitHub one question a day and sends nothing about the player.
+// players hear of fixes. It asks GitHub one question per launch and sends nothing about the player.
 inline constexpr const char* kCheckUpdatesKey = "check_updates";
-// When the last check got an answer, in seconds since 1970 (a check that got none leaves it, so the next launch asks).
+// When the last check got an answer, in seconds since 1970 (a check that got none leaves it). Kept for the log and
+// for launchers before 0.2.1, which checked once a day by it.
 inline constexpr const char* kUpdateLastCheckKey = "update_last_check";
 // What the last answer found: a newer version ("0.0.4"), or "none".
 inline constexpr const char* kUpdateFoundKey = "update_found";
@@ -49,8 +51,6 @@ struct Version {
 bool ParseVersion(const std::string& text, Version& out);
 // True when `candidate` is a later version than `current`; 0.0.4 is later than 0.0.4-dev (main before the release).
 bool Newer(const std::string& candidate, const std::string& current);
-// True when a check is due: never answered, a day since, or a last check in the future (a clock put back).
-bool CheckDue(const std::string& lastCheck, long long now);
 
 // An install made by install.sh: `exeDir` is DIR/build, the folder of the running launcher.
 struct Install {

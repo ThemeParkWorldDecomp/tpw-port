@@ -135,7 +135,7 @@ Or press Control+Shift+Option+C on a Mac (Ctrl+Shift+Alt+C on Windows and Linux)
 
 ### Updates
 
-Once a day, when it starts, the launcher asks GitHub whether a newer version is out. It asks in the background and the
+Each time it starts, the launcher asks GitHub whether a newer version is out. It asks in the background and the
 window never waits for it. It sends nothing about you or your game: the question is the same for everyone, and GitHub
 sees only that someone asked.
 

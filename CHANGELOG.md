@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.1 (not released yet)
+
+### Bug Fixes
+
+#### Game
+
+- Windows: fixed saved parks being lost, or saved under a cut-off name, when the file name was long. (Thanks @samueleagle91)
+- Windows: fixed a crash listing the players when a player's name has letters the computer's language setting cannot show, such as Japanese on an English Windows. (Thanks @samueleagle91)
+
+#### Launcher
+
+- The launcher now checks for a new version each time it starts, not once a day, so the Update banner shows as soon as a release is out.
+
 ## 0.2.0 (2026-10-29)
 
 ### New Features
