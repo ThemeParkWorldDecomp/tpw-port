@@ -1034,9 +1034,10 @@ void LauncherUi::DrawSettings(const Rect& w) {
     const float rowH = 50;
     float pw = std::min(w.w - 2 * metric::kMargin, 640.0f);
     float titleH = text_.LineHeight(style::kHeadline) + 12;
-    // Everything below the title, as drawn below.
+    // Everything below the title, as drawn below: the Game section's 7 rows, the Renderer row (counted last) when shown.
+    // A row added below is counted here too; the Settings scroll test checks the sum against what is drawn.
     float bodyH = 2 * (text_.LineHeight(style::kBodyBold) + 4) + 40 + text_.LineHeight(style::kSmall) + 14 + 3 * rowH +
-                  4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + 6 * rowH +
+                  4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + 7 * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + static_cast<float>(SamOptions().size()) * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + rowH + (rendererRow_ ? rowH : 0.0f);
@@ -1358,6 +1359,9 @@ void LauncherUi::DrawSettings(const Rect& w) {
         y += rowH;
     }
     y += 4;
+    // The body as drawn, with the two lines bodyH keeps for the message below (SettingsBodyDrawn).
+    settingsBodyCounted_ = bodyH;
+    settingsBodyDrawn_ = y + offset - bodyTop + 2 * text_.LineHeight(style::kSmallBold);
     if (verify_.valid() && verifyIndex_ >= 0) {
         std::string msg = std::string("Checking every file of the ") + EditionTitle(kEditions[verifyIndex_]) + " again";
         text_.Draw(style::kSmallBold, in.x, y, msg, colour::kInk);

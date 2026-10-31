@@ -223,6 +223,11 @@ public:
     void ShowRendererRow(bool shown) { rendererRow_ = shown; }
     // Whether the last frame scrolled the Settings box, with its clip and its bar (false when the box is closed).
     bool SettingsScrolls() const { return settingsOpen_ && settingsScrolls_; }
+    // The Settings box's body (everything below its title) in the last frame, in points: the height counted before it
+    // was drawn, which sizes the box and how far it scrolls, and the height then drawn. The two must agree (0 when the
+    // box is closed).
+    float SettingsBodyCounted() const { return settingsOpen_ ? settingsBodyCounted_ : 0.0f; }
+    float SettingsBodyDrawn() const { return settingsOpen_ ? settingsBodyDrawn_ : 0.0f; }
     // Where the last frame drew the launcher's version ("v" and the version, the footer's bottom right corner), in
     // points; empty when not shown.
     Rect VersionRect() const { return versionRect_; }
@@ -358,6 +363,7 @@ private:
     Rect soundPanRect_;        // last frame's (SoundPanRect)
     Rect rendererRect_;        // last frame's (RendererRect)
     bool settingsScrolls_ = false;   // last frame's (SettingsScrolls)
+    float settingsBodyCounted_ = 0, settingsBodyDrawn_ = 0;   // last frame's (SettingsBodyCounted, SettingsBodyDrawn)
 
     std::string notice_;
     bool noticeProblem_ = false;

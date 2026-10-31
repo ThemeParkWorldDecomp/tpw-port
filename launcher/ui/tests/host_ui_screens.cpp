@@ -1359,6 +1359,22 @@ void CheckSettingsScroll(SDL_Renderer* renderer) {
         Check(lastSam.w > 0 && lastSam.Bottom() < updates.y && updates.Bottom() < height - metric::kMargin,
               "settings: in a tall window the Graphics section's last row and Check for updates are in the box");
     }
+
+    // The height the box is sized and scrolled by, counted before it is drawn, is the height drawn: in the smallest window
+    // and a tall one, with the Renderer row and without. A row the count leaves out leaves the box that much short at the
+    // bottom.
+    for (const bool renderer : {false, true}) {
+        ui.ShowRendererRow(renderer);
+        for (const float tallHeight : {static_cast<float>(metric::kMinHeight), fits + 100}) {
+            height = tallHeight;
+            frames(1);
+            const float counted = ui.SettingsBodyCounted(), drawn = ui.SettingsBodyDrawn();
+            std::printf("settings at %.0fx%.0f points%s: the body counted %.0f points, drawn %.0f\n", width, height,
+                        renderer ? " with the Renderer row" : "", counted, drawn);
+            Check(drawn > 0 && counted - drawn > -0.5f && counted - drawn < 0.5f,
+                  "settings: the box's height counts every row it draws");
+        }
+    }
 }
 
 // The Settings box's Language rows (launcher_ui.h LanguageKey, LanguageChoices): a row an edition, only the languages the
