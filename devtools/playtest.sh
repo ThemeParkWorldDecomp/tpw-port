@@ -102,6 +102,18 @@ if [ -n "$short" ]; then
 fi
 echo "playtest: verifier:$line, 100% for US, European and Gold"
 
+# The data folder's log (logs/launcher.log) holds every run of the launcher and of the game's own application, each under
+# its own "==== run N | ..." line, and a launch cuts the oldest runs off its front when it grows long. lastrun prints the
+# highest run number in it; runlines N prints its lines from the first run numbered above N on (the runs since).
+lastrun() {
+  cat "$data/logs/"*.log 2>/dev/null | sed -n 's/^==== run \([0-9][0-9]*\) |.*/\1/p' | sort -n | tail -n 1
+}
+runlines() {
+  for f in "$data/logs/"*.log; do
+    [ -f "$f" ] && awk -v after="$1" 'on || (/^==== run [0-9]+ [|]/ && $3 + 0 > after + 0) { on = 1; print }' "$f"
+  done
+}
+
 # 2. The plays. The easy-park recipe at run_launcher.sh's 2048 x 1536 (4:3): the lobby's New Player, the name, the first
 # park's gate, the park's buttons, Park Information (clicks are at passes up to 2850).
 recipe="--click 1326,121@200 --type Tess@230 --click 1418,566@300 --click 143,1177@800 --click 261,1414@2300
@@ -111,7 +123,7 @@ for e in $editions; do
   case "$e" in us) label=US ;; eur) label=EUR ;; gold) label=Gold ;; esac
   name="playtest-$e"
   fdir="$work/frames-$e"; mkdir "$fdir"
-  : > "$work/stamp-$e"
+  before=$(lastrun)
   common="--data $data --mute --no-movies --frames $frames --dump-frames $fdir --dump-every 150"
   [ -z "$display" ] || common="$common --display $display"
   start=$(date +%s)
@@ -126,11 +138,12 @@ for e in $editions; do
   fi
   secs=$(( $(date +%s) - start ))
   runlog="$build/launch-$name.log"
-  # The launcher's output, and the data folder's run logs written since (the game's own log: on a Mac the Gold run's
-  # game is an application of its own beside the launcher).
+  # The launcher's output, and the lines this run added to the data folder's log, no earlier run's (the game's own lines
+  # are only there: on a Mac the Gold run's game is an application of its own beside the launcher).
   cat "$runlog" > "$work/out-$e.txt" 2>/dev/null
-  find "$data/logs" -name '*.log' -newer "$work/stamp-$e" -exec cat {} + >> "$work/out-$e.txt" 2>/dev/null
-  nframes=$(find "$fdir" -name '*.bmp' | wc -l | tr -d ' ')
+  runlines "${before:-0}" >> "$work/out-$e.txt"
+  # The game's frames (the Gold run's launcher window adds its own, launcher-frame-NNNN.bmp).
+  nframes=$(find "$fdir" -name 'frame-*.bmp' | wc -l | tr -d ' ')
   why=""
   rc=$(sed -n 's/^exit=//p' "$runlog" | tail -n 1)
   [ "$rc" = 0 ] || why="$why; exit ${rc:-unknown}"
