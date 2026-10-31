@@ -90,7 +90,11 @@ function Wait-Game([string]$Program, [int]$Id, [datetime]$Since, [datetime]$Unti
 }
 
 try {
-  $version = (& $launcher --version 2>$null) -join ' '
+  # --version prints to standard output, which & does not catch from a Windows (not console) program: through the files,
+  # as the verifier's below.
+  $versionOut = Join-Path $work 'version-out.txt'; $versionErr = Join-Path $work 'version-err.txt'
+  $null = Invoke-Launcher @('--version') $versionOut $versionErr 60
+  $version = @(Get-Content -LiteralPath $versionOut -ErrorAction SilentlyContinue) -join ' '
   Write-Output "playtest: $version"
 
   # 1. The verifier: --import with the given paths, or with an empty folder (nothing to import), prints the status of each
