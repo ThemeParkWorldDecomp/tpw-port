@@ -317,6 +317,16 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     if(TPW_STATIC_RUNTIME)
       target_link_options(tpw_launcher PRIVATE -static-libstdc++ -static-libgcc)
     endif()
+    # Two of the game's units find a constructor of their own program by its name at run time, with
+    # dlsym(RTLD_DEFAULT, ...): the Save panel's cursor text sprite (ui_loadSavePanel.cpp) and the online park list's
+    # park (FS_OnlineList.cpp). A Mac executable answers such a lookup by itself, and the Windows one exports every
+    # symbol (below); a Linux executable exports nothing unless the linker is told to, so the lookup answered NULL, the
+    # sprite was never constructed, and opening the Save panel crashed in SetClientDrawObject. Only those two names are
+    # exported: --export-dynamic (every symbol) would put the launcher's own zlib and FFmpeg in front of the system
+    # libraries' copies for every library loaded into the process.
+    target_link_options(tpw_launcher PRIVATE
+      "LINKER:--export-dynamic-symbol=_ZN34InterfaceCursorPosTextObjectSpriteC1EPv"
+      "LINKER:--export-dynamic-symbol=_ZN13CFSOnlineParkC1EPK10ccParkInfoP23CFSOnlineSystemParkList")
   endif()
   if(WIN32)
     # A Windows app, not a console one: started from Explorer it opens no console window, and what it prints goes into

@@ -261,6 +261,9 @@ jobs:
           # Only the system's C and C++ runtimes: no OpenGL, Vulkan, X11 or audio library is linked (SDL opens them at run time).
           ldd build/tpw_launcher
           ! ldd build/tpw_launcher | grep -E 'libGL|libvulkan|libX11|libwayland|libasound|libpulse'
+          # The constructors the game looks up in its own program by name (CMakeLists.txt, the Linux link) are exported.
+          nm -D build/tpw_launcher | grep -q ' T _ZN34InterfaceCursorPosTextObjectSpriteC1EPv$'
+          nm -D build/tpw_launcher | grep -q ' T _ZN13CFSOnlineParkC1EPK10ccParkInfoP23CFSOnlineSystemParkList$'
       - name: The shaders' SPIR-V matches their sources
         run: sh devtools/vulkan_shaders.sh --check
       - name: Build and run the tests
