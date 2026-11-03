@@ -1007,8 +1007,8 @@ void CUI2DMap::UpdateAllDrawRelated() {
         rect[1] = perY * static_cast<int32_t>(a >> 7) + 0x2a;
         rect[2] = perX * (static_cast<int32_t>(b & 0x7f) + 1) + 0xf;
         rect[3] = perY * (static_cast<int32_t>(b >> 7) + 1) + 0x2a;
-        void* current = nullptr;
-        std::memcpy(&current, map + 0x20060, sizeof(current));
+        // TPW_PORT_FIX maphover UpdateAllDrawRelated | Mac: the patrol area of the member of staff under the pointer is framed in the highlight colour (entry 0x1d4), the others in 0x1b0; the hovered sprite is read from the map's word at 0x20060, where MapAreaCallback keeps it | Port: the hovered sprite is read where MapAreaCallbackResult keeps it on the host (HoverOf, 0x200a0) | Why: a 64-bit build; the host keeps the hovered sprite's pointer apart, as a pointer cannot share the Mac's word, but this read stayed at 0x20060, which never matches a sprite, so no patrol area was ever highlighted: pointing at a member of staff on the park map redrew the whole map and changed nothing
+        const CUI2DMapSprite* const current = HoverOf(this);
         Colour9 frame;
         std::memset(&frame, 0, sizeof(frame));
         CopyEntry(frame, sprite == current ? 0x1d4 : 0x1b0);
