@@ -4,11 +4,13 @@
 #include <cstring>
 #include <ctime>
 #include <mutex>
+#include <vector>
 
 #include "platform.h"
 #include "platform/arena.h"
 #include "platform/ltms.h"
 #include "platform/macdoze.h"
+#include "platform/macdoze_system.h"
 
 namespace NS_MacDoze {
 
@@ -53,6 +55,57 @@ void EnterCriticalSection(void** handle) {
 
 void LeaveCriticalSection(void** handle) {
     if (*handle != nullptr) static_cast<std::recursive_mutex*>(*handle)->unlock();
+}
+
+// The 4 byte handle words: index + 1 into this table (a freed entry is not reused). Initialize makes the mutex at once, so that two
+// threads never race to make it (the online chat's thread and the game's lock the same one); Enter still makes one for a word that
+// was never initialised (a static object, zero).
+namespace {
+std::mutex& HandleTableLock() {
+    static std::mutex lock;
+    return lock;
+}
+std::vector<std::recursive_mutex*>& HandleTable() {
+    static std::vector<std::recursive_mutex*> table;
+    return table;
+}
+std::recursive_mutex* MutexOf(uint32_t* handle, bool make) {
+    std::lock_guard<std::mutex> guard(HandleTableLock());
+    std::vector<std::recursive_mutex*>& table = HandleTable();
+    if (*handle == 0 || *handle > table.size()) {
+        if (!make) return nullptr;
+        table.push_back(new std::recursive_mutex);
+        *handle = static_cast<uint32_t>(table.size());
+    }
+    return table[*handle - 1];
+}
+}  // namespace
+
+void InitializeCriticalSection(uint32_t* section) {
+    if (section == nullptr) return;
+    *section = 0;
+    MutexOf(section, true);
+}
+
+void DeleteCriticalSection(uint32_t* section) {
+    if (section == nullptr) return;
+    std::lock_guard<std::mutex> guard(HandleTableLock());
+    std::vector<std::recursive_mutex*>& table = HandleTable();
+    if (*section != 0 && *section <= table.size()) {
+        delete table[*section - 1];
+        table[*section - 1] = nullptr;
+    }
+    *section = 0;
+}
+
+void EnterCriticalSection(uint32_t* handle) {
+    std::recursive_mutex* mutex = MutexOf(handle, true);
+    if (mutex != nullptr) mutex->lock();
+}
+
+void LeaveCriticalSection(uint32_t* handle) {
+    std::recursive_mutex* mutex = MutexOf(handle, false);
+    if (mutex != nullptr) mutex->unlock();
 }
 
 // The new value. The game runs on one thread, and so did the Mac shim (cooperative

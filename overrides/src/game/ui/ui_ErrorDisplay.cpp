@@ -35,6 +35,8 @@
 #include <cstdint>
 #include <cstring>
 #include <new>
+// TPW_PORT_FIX unreachable AddUIError | Mac: none | Port: the online server client's header, for its message when the server cannot be reached | Why: AddUIError below shows it
+#include "platform/online_boss.h"
 
 // Dialog (main app, SimTheme Park 2.04b3, 0x101f12c8, 328 bytes; the inventory files it under ui_ErrorDisplay.cpp): the window maker the
 // game's dialogs start from (UI_DialogBox is another function). Unit w43b.
@@ -240,6 +242,11 @@ int32_t ErrorDlgCancel(void*) {
 
 // 0x101f1df0: a NULL table means the text resources' table (gText + 0x558).
 void AddUIError(int32_t error, TbITable* table) {
+    // TPW_PORT_FIX unreachable AddUIError | Mac: a server that cannot be reached is the game's "disconnected" error 0x4c | Port: when the online server client says the server could not be reached (a name not found, a connection refused or not answered, a server that does not speak the protocol), its own message "Can't reach the online server. Please check your internet connection and try again." | Why: the player is told plainly what is wrong (the cause goes to the log); a wrong password or a full server keeps the game's own messages
+    if (table == nullptr && error == 0x4c && tpw::online::boss::TakeUnreachable()) {
+        table = tpw::online::boss::UnreachableTable();
+        error = 0;
+    }
     if (table == nullptr) table = static_cast<TbITable*>(gText.mResourcePointers[3]);
     errorthingy record;
     record.mTable = table;

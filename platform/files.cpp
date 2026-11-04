@@ -204,8 +204,7 @@ static std::string JoinParts(const std::vector<std::string>& parts) {
     return path;
 }
 
-fs::path FindHostPath(const std::string& gamePath) {
-    const auto parts = SplitGamePath(gamePath);
+static fs::path FindHostPathOf(const std::vector<std::string>& parts) {
     fs::path found = FindUnder(config().userDir, parts);
     if (!found.empty()) return found;
     // The chosen language (language_pack.h): its text, speech and pictures, at their places in the game folder.
@@ -226,6 +225,19 @@ fs::path FindHostPath(const std::string& gamePath) {
     found = GoldRideHostPath(parts);
     if (!found.empty()) return found;
     return FindUnder(config().gameDir, parts);
+}
+
+fs::path FindHostPath(const std::string& gamePath) {
+    auto parts = SplitGamePath(gamePath);
+    fs::path found = FindHostPathOf(parts);
+    // A film the game opens by its Mac CD name (Data:Movies:bf.mov) that no folder holds: the PC CD's film of the same
+    // name (BF.TGQ, an EA file of TQI pictures and EA ADPCM sound), which quicktime.cpp plays the same way. A .mov found
+    // anywhere comes first, so a folder with the Mac CD's films plays them as it always did.
+    if (!found.empty() || parts.empty()) return found;
+    std::string& name = parts.back();
+    if (name.size() <= 4 || !EqualNoCase(name.substr(name.size() - 4), ".mov")) return found;
+    name.replace(name.size() - 4, 4, ".tgq");
+    return FindHostPathOf(parts);
 }
 
 fs::path HostPathForWriting(const std::string& gamePath) {

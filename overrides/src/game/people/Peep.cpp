@@ -278,6 +278,32 @@ inline uint16_t Step(uint16_t cell, const MapDelta& d) {
     return static_cast<uint16_t>(static_cast<uint32_t>(cell) + (static_cast<uint32_t>(d.mY) << 7) + static_cast<uint32_t>(d.mX));
 }
 
+// TPW_PORT_FIX mods IsModBridge | Mac: no such function | Port: TPW_MOD_HOOK staff_bridge_wander, a footbridge cell: mode 0x1e (IsWalkable, the walkable freeform cells MAP_wall_in_way lets a targeted walk onto, made only by CMapCell::Reset from attribute 0x80) without flag 0x80 (Reset's mark of attribute 0x10, the pavement outside the park gate, also mode 0x1e) | Why: tpw-mods staff-cross-bridges
+inline bool IsModBridge(const CMapCell* cell) {
+    return cell->IsWalkable() != 0 && (cell->mFlags & 0x80u) == 0;
+}
+
+// TPW_PORT_FIX mods ModBridgeSteps | Mac: no such function | Port: TPW_MOD_HOOK staff_bridge_wander, the steps the hook adds from the cell `cur`
+// (bit i for SetRandomDestination's candidate i: +Y, +X, -Y, -X) where `nb`, its path links, has none: onto a bridge cell from a path or a
+// bridge cell, and onto a path cell from a bridge cell | Why: tpw-mods staff-cross-bridges
+uint32_t ModBridgeSteps(uint16_t cur, const CMapCell* cell, uint32_t nb) {
+    static const uint32_t kLink[4] = {0x10, 0x04, 0x01, 0x40};
+    const MapDelta* const delta[4] = {&gMapDeltaPlusY, &gMapDeltaPlusX, &gMapDeltaMinusY, &gMapDeltaMinusX};
+    const bool onBridge = IsModBridge(cell);
+    if (!onBridge && cell->IsPath() == 0) return 0;
+    const uint32_t m = static_cast<uint32_t>(cur) - 1u;
+    const int32_t x = static_cast<int32_t>(m & 0x7fu);
+    const int32_t y = static_cast<int32_t>(m >> 7);
+    uint32_t steps = 0;
+    for (int32_t i = 0; i < 4; ++i) {
+        if ((nb & kLink[i]) != 0) continue;
+        if (CMap::IsXYValid(x + delta[i]->mX, y + delta[i]->mY) == 0) continue;
+        const CMapCell* next = CellAt(Step(cur, *delta[i]));
+        if (IsModBridge(next) || (onBridge && next->IsPath() != 0)) steps |= 1u << i;
+    }
+    return steps;
+}
+
 }  // namespace
 
 // 0x10113870: a random walk target. A stranded peep whose surroundings are unchanged only shows its bubble. Otherwise it follows up to 1-5
@@ -306,7 +332,9 @@ int32_t CPeep::SetRandomDestination() {
         }
     }
 
-    if (here->NumberOfHVNeighbours() > 0) {
+    // TPW_PORT_FIX mods CPeep::SetRandomDestination | Mac: a random walk steps only along path links, which no cell has toward a bridge (mode 0x1e), so staff never cross one while patrolling | Port: TPW_MOD_HOOK staff_bridge_wander (gModStaffBridgeWander, include/ThingReceivers.h), a staff member's walk may also step onto, along and off a bridge (ModBridgeSteps), every other rule the Mac's; off, the Mac's walk | Why: tpw-mods staff-cross-bridges
+    const bool bridges = gModStaffBridgeWander && staff;
+    if (here->NumberOfHVNeighbours() > 0 || (bridges && ModBridgeSteps(PeepCell(self), here, 0) != 0)) {
         while (true) {
             const int32_t old = counter;
             counter = old - 1;
@@ -320,6 +348,16 @@ int32_t CPeep::SetRandomDestination() {
             cand[1] = (nb & 0x04) ? Step(cur, gMapDeltaPlusX) : 0;
             cand[2] = (nb & 0x01) ? Step(cur, gMapDeltaMinusY) : 0;
             cand[3] = (nb & 0x40) ? Step(cur, gMapDeltaMinusX) : 0;
+            // TPW_PORT_FIX mods CPeep::SetRandomDestination | Mac: the candidates are the path links only | Port: TPW_MOD_HOOK staff_bridge_wander, the bridge steps join them before the patrol, queue and exit tests | Why: tpw-mods staff-cross-bridges
+            if (bridges) {
+                const uint32_t extra = ModBridgeSteps(cur, cell, nb);
+                const MapDelta* const delta[4] = {&gMapDeltaPlusY, &gMapDeltaPlusX, &gMapDeltaMinusY, &gMapDeltaMinusX};
+                for (int32_t i = 0; i < 4; ++i) {
+                    if ((extra & (1u << i)) == 0) continue;
+                    cand[i] = Step(cur, *delta[i]);
+                    ++n;
+                }
+            }
 
             if (staff && outside == 0) {
                 for (int32_t i = 0; i < 4; ++i) {
@@ -756,7 +794,9 @@ int32_t CPeep::SetDest(MapPos x, MapPos y) {
     SetStranded(0);
     Half(this, 0x18) = static_cast<uint16_t>(PosHalf(x));
     Half(this, 0x1a) = static_cast<uint16_t>(PosHalf(y));
-    // TPW_PORT_FIX setdest CPeep::SetDest | Mac: answers what new_target leaves in r3: new_target (0x100ffcfc in the 2.0.1 CD's program) returns straight after recalc_path, which answers 0 when the wall hugger finds no way to the target and 1 when it plans one | Port: recalc_path called as new_target calls it (the target in 16.16, mode 0), and its answer | Why: the header declares new_target void, so the translation answered 1 for every target; a peep sent where no path leads believed it had a way: a tired staff member set out for a staff room he could not reach and stood still for good (GoToRestArea, ProcessWalkingToRestArea), where the Mac's would find no rest area and patrol on
+    // The original answers what new_target (0x101347ec; 0x100ffcfc in the 2.0.1 CD's program) leaves in r3: it returns straight after
+    // recalc_path, which answers 0 when the wall hugger finds no way to the target and 1 when it plans one. The header declares
+    // new_target void, so recalc_path is called as new_target calls it (the target in 16.16, mode 0) and its answer is answered.
     return PilotOf(this)->recalc_path(Vector2d(PosHalf(x) << 8, PosHalf(y) << 8), static_cast<Vehicle::RecalcPathMode>(0));
 }
 

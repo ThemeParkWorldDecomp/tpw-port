@@ -1,7 +1,7 @@
 /* Written by gen_config.py (in place of FFmpeg's configure); run it again rather than edit this file. */
 #ifndef FFMPEG_CONFIG_H
 #define FFMPEG_CONFIG_H
-#define FFMPEG_CONFIGURATION "tpw: gen_config.py, svq1_decoder adpcm_ima_qt_decoder mov_demuxer file_protocol null_bsf"
+#define FFMPEG_CONFIGURATION "tpw: gen_config.py, svq1_decoder adpcm_ima_qt_decoder eatqi_decoder adpcm_ea_decoder mov_demuxer ea_demuxer file_protocol null_bsf"
 #define FFMPEG_LICENSE "LGPL version 2.1 or later"
 #define CONFIG_THIS_YEAR 2026
 #define FFMPEG_DATADIR ""
@@ -48,6 +48,8 @@
 #define CONFIG_MACOS_KPERF 0
 #define CONFIG_MEDIACODEC 0
 #define CONFIG_MEMORY_POISONING 0
+#define CONFIG_ME_CMP 0
+#define CONFIG_MPEGVIDEOENCDSP 0
 #define CONFIG_NETWORK 0
 #define CONFIG_OHCODEC 0
 #define CONFIG_OPENCL 0

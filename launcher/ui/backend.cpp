@@ -1,23 +1,11 @@
 // backend.cpp: the launcher screen's importer interface over assets::Importer (backend.h).
 #include "backend.h"
 
-#include <filesystem>
-#include <system_error>
 #include <utility>
 
 namespace tpw::ui {
 
 using assets::Edition;
-
-namespace {
-// The manifest's US Mac program record (the program group has one).
-const assets::ManifestRecord* ProgramRecord() {
-    const assets::ManifestRecord* records = assets::ManifestRecords();
-    for (size_t i = 0; i < assets::ManifestRecordCount(); ++i)
-        if (records[i].group == assets::kGroupProgram && (records[i].editions & assets::kEditionUs)) return &records[i];
-    return nullptr;
-}
-}  // namespace
 
 ImporterBackend::ImporterBackend(std::string prefPath) : prefPath_(std::move(prefPath)) {
     while (prefPath_.size() > 1 && prefPath_.back() == '/') prefPath_.pop_back();
@@ -65,40 +53,7 @@ assets::ImportProgress ImporterBackend::Latest() const {
 
 assets::ImportReport ImporterBackend::Wait() {
     if (!importer_) return {};
-    assets::ImportReport report = importer_->Wait();
-    report.status[1] = WithProgram(report.status[1]);
-    return report;
-}
-
-std::string ImporterBackend::ProgramPath() const {
-    const assets::ManifestRecord* record = ProgramRecord();
-    if (!importer_ || !record) return {};
-    return importer_->DestinationPath(assets::kEditionUs, *record);
-}
-
-bool ImporterBackend::HasProgram() const {
-    const assets::ManifestRecord* record = ProgramRecord();
-    std::string path = ProgramPath();
-    if (!record || path.empty()) return false;
-    std::error_code ec;
-    uint64_t size = std::filesystem::file_size(path, ec);
-    if (ec) return false;
-    for (uint8_t k = 0; k < record->hash_count; ++k)
-        if (assets::ManifestHashes()[record->first_hash + k].size == size) return true;
-    return false;
-}
-
-assets::EditionStatus ImporterBackend::WithProgram(assets::EditionStatus s) const {
-    if (s.edition != assets::kEditionEur || s.required == 0 || HasProgram()) return s;
-    // The European edition's tables come from the US Mac program, which the PC CD does not have: one more file to
-    // find, on the US Mac CD.
-    ++s.records;
-    ++s.required;
-    ++s.files;
-    ++s.missing[assets::kSourceMacCd];
-    ++s.missingFiles[assets::kSourceMacCd];
-    s.unlocked = false;
-    return s;
+    return importer_->Wait();
 }
 
 assets::EditionStatus ImporterBackend::Status(Edition edition) const {
@@ -107,7 +62,7 @@ assets::EditionStatus ImporterBackend::Status(Edition edition) const {
         s.edition = edition;
         return s;
     }
-    return WithProgram(importer_->Status(edition));
+    return importer_->Status(edition);
 }
 
 std::string ImporterBackend::DataFolder() const {
@@ -145,6 +100,18 @@ long ImporterBackend::VerifyEdition(Edition edition, std::string& err) {
         return -1;
     }
     return importer_->VerifyEdition(edition, err);
+}
+
+std::vector<assets::EditedFile> ImporterBackend::EditedFiles(Edition edition) const {
+    return importer_ ? importer_->EditedFiles(edition) : std::vector<assets::EditedFile>();
+}
+
+bool ImporterBackend::RestoreOriginal(Edition edition, const std::string& dest, std::string& err) {
+    if (!importer_) {
+        err = "the data folder is not open";
+        return false;
+    }
+    return importer_->RestoreOriginal(edition, dest, err);
 }
 
 bool ImporterBackend::RemoveEdition(Edition edition, std::string& err) {

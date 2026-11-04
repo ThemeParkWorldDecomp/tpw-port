@@ -1,7 +1,8 @@
 #!/bin/sh
 # run_launcher.sh BUILD_DIR NAME SECONDS [launcher options]: runs BUILD_DIR/tpw_launcher from
 # the project root with its own user folder (BUILD_DIR/user-NAME) and log
-# (BUILD_DIR/launch-NAME.log), and force-quits it after SECONDS. (The launcher turns a plain
+# (BUILD_DIR/launch-NAME.log; in the default --game run the launcher's own launcher.log goes in that user folder's
+# logs/, never the maintainer's per-user one), and force-quits it after SECONDS. (The launcher turns a plain
 # kill into a quit event, which a hung loop never sees, so the kill is -9.) Unless the options
 # name a --display, the window opens on the MacBook's built-in screen: test and development
 # windows must never land on the maintainer's external monitor (2026-10-13).
@@ -46,7 +47,7 @@ background="--background"
 # --windowed nor --background: the game's real full-screen window, a Space of its own on the --display screen (the
 # built-in one unless the options name another), as a player gets it; that screen is taken over until the run ends.
 windowed="--windowed"
-# The game comes from the extracted US CD (--game, --program below) unless the options start from the launcher's data
+# The game comes from the extracted US CD (--game below) unless the options start from the launcher's data
 # folder instead: --play us|eur (that edition, no launcher window), --data DIR (another data folder than the per-user
 # one), or the script's own --launcher-window (the launcher's window opens, on the same screen and behind the others like
 # the game's; drop the discs on it and press Play). The run keeps its own user folder either way.
@@ -54,12 +55,14 @@ from_data=""
 for arg in "$@"; do
   case "$arg" in --play|--data|--launcher-window) from_data=yes ;; esac
 done
-rest=""
+# The options left for the launcher stay as they were given ("$@"), so a value with a space (--type "TPW Test 1@1320")
+# reaches it whole.
 for arg in "$@"; do
+  shift
   if [ "$arg" = "--foreground" ]; then background=""
   elif [ "$arg" = "--fullscreen" ]; then background=""; windowed=""
   elif [ "$arg" != "--launcher-defaults" ] && [ "$arg" != "--launcher-window" ] && [ "$arg" != "--paced" ]; then
-    rest="$rest $arg"
+    set -- "$@" "$arg"
   fi
 done
 mkdir -p "$build/user-$name"
@@ -69,12 +72,11 @@ mkdir -p "$build/user-$name"
 # ad-hoc signature stays.
 codesign -f -s "${TPW_SIGN_IDENTITY:-Apple Development}" "$build/tpw_launcher" >/dev/null 2>&1 || true
 cd "$root" || exit 1
-# The game's data tables come from the US CD's program (--program), whichever game folder the options name: the European
-# folder (devtools/import_eur.py) has no Mac program of its own. A --program in the options takes its place.
+# The game's data tables are built in, so no run names a program of the game.
 if [ -n "$from_data" ]; then
-  "$build/tpw_launcher" --user "$build/user-$name" $windowed $display $aspect $resolution $background $rest > "$build/launch-$name.log" 2>&1 &
+  "$build/tpw_launcher" --user "$build/user-$name" $windowed $display $aspect $resolution $background "$@" > "$build/launch-$name.log" 2>&1 &
 else
-  "$build/tpw_launcher" --game "extracted/disc-hfs/Theme Park Data" --program "extracted/disc-hfs/Theme Park Data/SimTheme Park" --user "$build/user-$name" $windowed $display $aspect $resolution $background $rest > "$build/launch-$name.log" 2>&1 &
+  "$build/tpw_launcher" --game "extracted/disc-hfs/Theme Park Data" --user "$build/user-$name" $windowed $display $aspect $resolution $background $rest > "$build/launch-$name.log" 2>&1 &
 fi
 pid=$!
 n=0

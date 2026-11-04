@@ -33,7 +33,7 @@ inline constexpr const char* kProductNameWithVersion = TPW_UI_PRODUCT_NAME " v" 
 #undef TPW_UI_PRODUCT_NAME
 // How the games are mentioned: descriptively, never as a logo (launcher-design section 5, "Trademark naming").
 inline constexpr const char* kTagline =
-    "An unofficial port for playing your own copy of Sim Theme Park (Mac) and Theme Park World (PC).";
+    "An unofficial port for playing your own copy of Sim Theme Park or Theme Park World (Mac or Windows).";
 // Shown on the first screen and in the About box, word for word.
 inline constexpr const char* kDisclaimer =
     "Not affiliated with or endorsed by Electronic Arts. Sim Theme Park and Theme Park World are trademarks of their "

@@ -229,12 +229,29 @@ int32_t PostcardBitmap::resize_into_buffer(uint8_t* out, int32_t width, int32_t 
         yRuns[i] = static_cast<uint8_t>((next >> 16) - (accumulator >> 16));
         accumulator = next;
     }
+    // TPW_PORT_FIX postcardstretch PostcardBitmap::resize_into_buffer | Mac: an output larger than the source (a stretch) gets runs of 0 source pixels across and of 0 rows down, and their averages divide 0 by 0 (divwu, whose answer the PowerPC leaves undefined; the function is 0x100c0050 in the inventory), so those pixels and rows have no picture (black in the port) | Port: a run of 0 in a stretch takes the next source pixel (or row), the last one at the end, without using it up | Why: the Send Postcard preview's surface grows with the game size (InterfaceDrawObjectSprite sizes it in screen pixels), so the 640x240 card is stretched at sizes above 1024x768: at 2048x1536 three pixels in four were black, the picture dark and dotted (tpw-port #90)
+    const bool stretchX = sourceWidth > 0 && width > sourceWidth;
+    const bool stretchY = mHeight > 0 && height > static_cast<int32_t>(mHeight);
+    uint32_t rowsDone = 0;
     for (int32_t y = 0; y < height; ++y) {
-        const uint32_t rows = yRuns[y];
+        uint32_t rows = yRuns[y];
+        const uint8_t* again = source;
+        const bool rowAgain = stretchY && rows == 0;
+        if (rowAgain) {
+            rows = 1;
+            if (rowsDone == mHeight) source -= sourceWidth * 4;
+        }
         uint8_t* line = rowBuffer;
         for (uint32_t row = 0; row < rows; ++row) {
+            int32_t column = 0;
             for (int32_t x = 0; x < width; ++x) {
-                const uint32_t count = xRuns[x];
+                uint32_t count = xRuns[x];
+                const uint8_t* back = source;
+                const bool pixelAgain = stretchX && count == 0;
+                if (pixelAgain) {
+                    count = 1;
+                    if (column == sourceWidth) source -= 4;
+                }
                 uint32_t sum0 = 0;
                 uint32_t sum1 = 0;
                 uint32_t sum2 = 0;
@@ -246,12 +263,22 @@ int32_t PostcardBitmap::resize_into_buffer(uint8_t* out, int32_t width, int32_t 
                     sum3 += source[3];
                     source += 4;
                 }
+                if (pixelAgain) {
+                    source = back;
+                } else {
+                    column += static_cast<int32_t>(count);
+                }
                 line[0] = static_cast<uint8_t>(DivideUnsigned(sum0 & 0xffff, count));
                 line[1] = static_cast<uint8_t>(DivideUnsigned(sum1 & 0xffff, count));
                 line[2] = static_cast<uint8_t>(DivideUnsigned(sum2 & 0xffff, count));
                 line[3] = static_cast<uint8_t>(DivideUnsigned(sum3 & 0xffff, count));
                 line += 4;
             }
+        }
+        if (rowAgain) {
+            source = again;
+        } else {
+            rowsDone += rows;
         }
         for (int32_t x = 0; x < width; ++x) {
             const uint8_t* column = rowBuffer + x * 4;

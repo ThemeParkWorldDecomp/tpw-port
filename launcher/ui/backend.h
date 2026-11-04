@@ -21,8 +21,7 @@ public:
     virtual std::vector<assets::ImportProgress> Drain() = 0;
     virtual assets::ImportProgress Latest() const = 0;
     virtual assets::ImportReport Wait() = 0;
-    // An edition's state. The real backend counts the US Mac program as one more required file of the European
-    // edition, from the US Mac CD, so its tile says that CD is still needed until the program is in place.
+    // An edition's state.
     virtual assets::EditionStatus Status(assets::Edition edition) const = 0;
     // Where the verified files are kept.
     virtual std::string DataFolder() const = 0;
@@ -41,6 +40,13 @@ public:
     virtual bool SaveSetting(const std::string& key, const std::string& value, std::string& err) { return true; }
     // Every language pack's state (assets/importer.h Languages()): available, partial with what is missing, or absent.
     virtual std::vector<assets::LanguageStatus> Languages() const { return {}; }
+    // The edition's .sam files kept as the player's edit, each with its read check (assets/importer.h EditedFiles), and
+    // putting the kept original back over one (RestoreOriginal); the tile's "Customized settings" badge.
+    virtual std::vector<assets::EditedFile> EditedFiles(assets::Edition edition) const { return {}; }
+    virtual bool RestoreOriginal(assets::Edition edition, const std::string& dest, std::string& err) {
+        err = "no original is kept";
+        return false;
+    }
 };
 
 class ImporterBackend : public ImportBackend {
@@ -50,11 +56,6 @@ public:
     // Opens the importer (assets/importer.h Open()); call once before anything else.
     bool Open(std::string& err);
     assets::Importer* importer() { return importer_.get(); }
-    // The US Mac program in the data folder (assets/us/Theme Park Data/SimTheme Park): both editions read the game's
-    // tables from it (platform/game_tables.cpp), the European one included, whose PC CD has no Mac program. HasProgram:
-    // a file of an accepted size is there (what the importer counts as present). Empty or false before Open.
-    std::string ProgramPath() const;
-    bool HasProgram() const;
     // The folder launcher.ini is in.
     const std::string& PrefPath() const { return prefPath_; }
     // One of launcher.ini's keys kept for later units (LauncherIni::extra): its value, empty when there is none.
@@ -82,10 +83,11 @@ public:
     std::string Setting(const std::string& key) const override;
     bool SaveSetting(const std::string& key, const std::string& value, std::string& err) override;
     std::vector<assets::LanguageStatus> Languages() const override;
+    std::vector<assets::EditedFile> EditedFiles(assets::Edition edition) const override;
+    bool RestoreOriginal(assets::Edition edition, const std::string& dest, std::string& err) override;
 
 private:
     std::string IniPath() const;
-    assets::EditionStatus WithProgram(assets::EditionStatus s) const;
     std::string prefPath_;
     std::unique_ptr<assets::Importer> importer_;
     std::map<std::string, std::string> saved_;   // the settings SaveSetting wrote

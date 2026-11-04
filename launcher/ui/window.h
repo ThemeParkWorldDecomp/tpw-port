@@ -58,6 +58,10 @@ struct WindowPlacement {
     ShowLogsFn showLogs = nullptr;
     // What the About box's Export logs calls (null: no such button).
     ExportLogsFn exportLogs = nullptr;
+    // The build's mods (a build with the port's fixes: launcher/main.cpp, platform/mods.h), which the header's Mods
+    // button shows; `mods` false: no such button.
+    bool mods = false;
+    std::vector<ModRow> modRows;
 };
 
 // Initialises SDL's video subsystem if it is not yet, and leaves it initialised. On Play the window is not closed: it

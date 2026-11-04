@@ -1,17 +1,55 @@
 # Changelog
 
-## 0.2.1 (not released yet)
+## 0.3.0 (not released yet)
+
+### New Features
+
+- New Settings option: Several keys at once (off by default). Hold two arrow keys to walk and turn at the same time in first person, as on the PC. (Thanks Addable13)
+- A Mods window in the launcher, for optional changes to how the game plays (all off by default, and off is the original), and the first mod, Enable strikes: staff can go on strike in an open park, as Bullfrog's code was written to do, and the advisor gives the two strike messages the original never used (a last warning a week before a strike, and word when it is over). (Thanks BMCTV and slappyhead for the strike reports)
+- A second mod, Patrolling staff can cross bridges: staff walking their rounds can cross a footbridge, like the bridge over the stream in the Lost Kingdom, not only when sent to a job on the other side. A bridge outside a worker's patrol area is still never taken.
+- The game plays the films from a Windows disc (the .TGQ files) when your game data has no Mac films, and the launcher counts them in place of the Mac films.
+- Play from a Windows disc alone: the US Windows CD (2.0) gives Sim Theme Park and the European one Theme Park World, with no Mac CD. They play with the Windows release's own text, settings files, sign fonts and films. With a Mac CD there too, the Mac edition is played as before. A US Windows CD 1.0 gets a message saying how to bring it to 2.0 with EA's official patch.
+- The online screens can connect to a revived online server that speaks the original game's protocol, the same server original PC games can use: Logging in, the news, the cities, their parks and top 10, and publishing a park work. The launcher learns the server's address with its update check; Settings has an Online server field for another one.
+- Parks on the online server can be visited again: the players visiting a park see each other in its visitor list, chat, keep their buddy and ignore lists, and vote for the park, as in the original.
+- When the online server can't be reached (no internet connection, or the server is down), the game says so plainly: "Can't reach the online server. Please check your internet connection and try again." The reason is written to launcher.log. A wrong password or a full server still gets the game's own message.
+- Create an online account in the game: the online login panel has a Create account button. Choose a login name and a password (typed twice), give an e-mail address for password resets (kept private, never shown) and tick "I am 13 or older". OK puts the name and the password in the login boxes, so you only press Log in. Forgot password? e-mails you a 6-digit code to set a new password in the game.
 
 ### Bug Fixes
 
 #### Game
 
+- The online globe shows the Bullfrog flag on the North Pole city again, as the original did; it showed a plain pin.
 - Windows: fixed saved parks being lost, or saved under a cut-off name, when the file name was long. (Thanks @samueleagle91)
 - Windows: fixed a crash listing the players when a player's name has letters the computer's language setting cannot show, such as Japanese on an English Windows. (Thanks @samueleagle91)
+- European edition: fixed a crash placing the Shocker coaster in Space Zone, or loading a park that has one. (Thanks pulpmetal and @samueleagle91)
+- Each in-game notification shows its own icon again (the red "!", the speech bubble, the golden ticket, a challenge's icon, the postcard's envelope), not always the yellow "i". (Thanks a pretty cool guy, Piro and @samueleagle91)
+- Fixed tired staff standing still for good when no path leads to a staff room: like in the original, they now keep working. (Thanks BMCTV and @samueleagle91)
+- Fixed the visitor list, the staff room panel and the hire panel keeping people who had already left, and the lists opened from a visitor, a member of staff, a ride or an item not selecting it. (Thanks @samueleagle91)
+- Fixed the Send Postcard preview looking dark and dotted at game sizes larger than 1024x768.
+- Coaster track pieces being placed show the see-through blue preview again. (Thanks Addable13, Piro)
+- Fixed the camera not scrolling left or right on a widescreen with the game's interface hidden (F3), or after closing the Bankrupt (game over) screen. (Thanks Addable13 and @samueleagle91)
+- Fixed a right click at the left or right of a widescreen not closing the Bankrupt (game over) screen.
+- Fixed a right click at the left or right of a widescreen not closing the Congratulations screen when you win a park.
+- Fixed a crash loading a park whose saved roller coaster has a pylon without its ride part. (Thanks @samueleagle91)
+- Fixed a crash loading a park whose save file was cut short or damaged, for example when the game was closed while it was saving: such a save is now left unloaded, like any save the game cannot read.
+- Fixed a crash opening a staff or visitor list after adding people or staff with the cheat keys. (Thanks BMCTV)
+- Linux: fixed the game closing when you save a park from the in-park menu. (Thanks xoob and @adds39939)
+- Fixed lines missing, or drawn in the wrong colour, on the Park Information and Financial Information charts. (Thanks a pretty cool guy and @samueleagle91)
+- Fixed the park map not showing paths, queues, rides, shops or the park's land and its edge, and showing the map's other colours wrong.
+- Fixed the park map not highlighting the patrol area of the member of staff under the pointer. (Thanks @samueleagle91)
+- Fixed a rare crash in a busy park when a sound started just as another one ended.
+- Fixed a rare crash after long play when a set of sounds was freed while its sounds were still playing.
+- The online login box shows the password as stars again, as the original did.
+- A postcard (Ctrl-P or Cmd-P in a park) put in the outbox keeps its picture again; it was saved without it.
+- Fixed a crash when a chat line in a visited park starts with / (such as /afk). The line is sent as an ordinary chat message for now; the chat commands come in a later version.
+- Fixed the online globe looking empty when a city has only a few parks: every city's flag now stands up clearly, the North Pole's too, as they did on the original server with its hundreds of parks.
 
 #### Launcher
 
+- Fixed the bottom of the launcher's Settings box being cut off. (Thanks @samueleagle91)
 - The launcher now checks for a new version each time it starts, not once a day, so the Update banner shows as soon as a release is out.
+- Edit the game's .sam settings files freely, as in the original: an edited file is now kept and used by the game, instead of being removed at the next start. The edition's tile shows a Customized settings badge; it lists the edited files, warns of a line the game can't read, and has a Restore original button for each. (Thanks BMCTV, slappyhead and @samueleagle91)
+- The game's data tables are built in: the launcher no longer needs the Mac program from a disc.
 
 ## 0.2.0 (2026-10-29)
 
