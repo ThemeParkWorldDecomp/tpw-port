@@ -52,8 +52,49 @@ function Invoke-Launcher([string[]]$LauncherArgs, [string]$Out, [string]$Err, [i
   return $p.ExitCode
 }
 
+# The data folder's log (logs\launcher.log) holds every run of the launcher and of the game's own process, each under its
+# own "==== run N | ..." line, and a launch cuts the oldest runs off its front when it grows long. Returns the highest run
+# number in it: what a run adds is the lines from the first run numbered above that (Get-RunLines).
+function Get-LastRun {
+  $last = 0
+  foreach ($log in @(Get-ChildItem -LiteralPath (Join-Path $data 'logs') -Filter *.log -ErrorAction SilentlyContinue)) {
+    Select-String -LiteralPath $log.FullName -Pattern '^==== run (\d+) \|' |
+      ForEach-Object { $last = [Math]::Max($last, [int]$_.Matches[0].Groups[1].Value) }
+  }
+  return $last
+}
+
+# The log's lines from the first run numbered above $After on: the runs since, the launcher's and the game's own process's.
+function Get-RunLines([int]$After) {
+  foreach ($log in @(Get-ChildItem -LiteralPath (Join-Path $data 'logs') -Filter *.log -ErrorAction SilentlyContinue)) {
+    $first = Select-String -LiteralPath $log.FullName -Pattern '^==== run (\d+) \|' |
+             Where-Object { [int]$_.Matches[0].Groups[1].Value -gt $After } | Select-Object -First 1
+    if ($first) { Get-Content -LiteralPath $log.FullName | Select-Object -Skip ($first.LineNumber - 1) }
+  }
+}
+
+# Waits until $Until for the game's own process that the launcher's window handed the game to (its program and process
+# number from the "handed to" line). Returns what was wrong with it: nothing when it exited 0, else its exit code, the time
+# limit (it is stopped then), or that no such process was running (it had ended already, or the number is another's now).
+function Wait-Game([string]$Program, [int]$Id, [datetime]$Since, [datetime]$Until) {
+  $none = "no process $Id to wait for"
+  try {
+    $p = [System.Diagnostics.Process]::GetProcessById($Id)
+    $null = $p.Handle   # keeps the process handle, so ExitCode is there after the wait
+    if ($p.ProcessName -ne [System.IO.Path]::GetFileNameWithoutExtension($Program) -or $p.StartTime -lt $Since) { return $none }
+  } catch { return $none }
+  $ms = [Math]::Max(0, [int]($Until - (Get-Date)).TotalMilliseconds)
+  if (-not $p.WaitForExit($ms)) { $p.Kill(); return 'force-quit at the time limit' }
+  if ($p.ExitCode -ne 0) { return "exit $($p.ExitCode)" }
+  return ''
+}
+
 try {
-  $version = (& $launcher --version 2>$null) -join ' '
+  # --version prints to standard output, which & does not catch from a Windows (not console) program: through the files,
+  # as the verifier's below.
+  $versionOut = Join-Path $work 'version-out.txt'; $versionErr = Join-Path $work 'version-err.txt'
+  $null = Invoke-Launcher @('--version') $versionOut $versionErr 60
+  $version = @(Get-Content -LiteralPath $versionOut -ErrorAction SilentlyContinue) -join ' '
   Write-Output "playtest: $version"
 
   # 1. The verifier: --import with the given paths, or with an empty folder (nothing to import), prints the status of each
@@ -96,18 +137,28 @@ try {
     # which starts the game with the Gold rides switched on when all three editions are ready.
     $mode = if ($e -eq 'gold') { @('--window-click', '205,373@30') } else { @('--play', $e) }
     $so = Join-Path $work "play-$e-out.txt"; $se = Join-Path $work "play-$e-err.txt"
+    $before = Get-LastRun
     $start = Get-Date
     $rc = Invoke-Launcher ($common + $mode + $recipe + $tail) $so $se 900
-    $secs = [int]((Get-Date) - $start).TotalSeconds
-    # The launcher's output and the data folder's run logs written since this run started.
-    $texts = @($so, $se) + @(Get-ChildItem -LiteralPath (Join-Path $data 'logs') -Filter *.log -ErrorAction SilentlyContinue |
-                             Where-Object { $_.LastWriteTime -ge $start } | ForEach-Object { $_.FullName })
-    $all = @(Get-Content -LiteralPath $texts -ErrorAction SilentlyContinue)
     $why = @()
+    if ($e -eq 'gold') {
+      # The launcher's window hands the game to a program of its own ("play: ..., handed to ...\Sim Theme Park.exe
+      # (process N; ...)") and exits once the game's window is up; the game plays on, writing into the same log. Gold is
+      # judged when that process has ended, within the same time limit, and it too must exit 0.
+      $handed = Get-RunLines $before | Select-String -Pattern 'handed to (.+) \(process (\d+);' | Select-Object -First 1
+      if ($handed) {
+        $wrong = Wait-Game $handed.Matches[0].Groups[1].Value ([int]$handed.Matches[0].Groups[2].Value) $start $start.AddSeconds(900)
+        if ($wrong) { $why += "the game's own process: $wrong" }
+      }
+    }
+    $secs = [int]((Get-Date) - $start).TotalSeconds
+    # The launcher's output and the lines this run added to the data folder's log (no earlier run's).
+    $all = @(Get-Content -LiteralPath $so, $se -ErrorAction SilentlyContinue) + @(Get-RunLines $before)
     if ($rc -eq -1) { $why += 'force-quit at the time limit' } elseif ($rc -ne 0) { $why += "exit $rc" }
     $stand = $all | Select-String -Pattern 'launcher: (0 of \d+) stand-ins were reached' | Select-Object -Last 1
     if (-not $stand) { $why += 'no "0 of N stand-ins were reached" line' }
-    $n = @(Get-ChildItem -LiteralPath $fdir -Filter *.bmp -ErrorAction SilentlyContinue).Count
+    # The game's frames (the Gold run's launcher window adds its own, launcher-frame-NNNN.bmp).
+    $n = @(Get-ChildItem -LiteralPath $fdir -Filter 'frame-*.bmp' -ErrorAction SilentlyContinue).Count
     if ($n -eq 0) { $why += 'no frames' }
     if ($e -eq 'gold') {
       if (-not ($all | Select-String -SimpleMatch 'play: Sim Theme Park, the US edition' -Quiet)) {
