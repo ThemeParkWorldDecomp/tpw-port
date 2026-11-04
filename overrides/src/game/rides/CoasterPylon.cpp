@@ -1856,6 +1856,9 @@ tag_sTrackBrace* NewTrackBrace(sPylonRecord* pylon, float x, float z, float loft
             brace->mWord70 = InstanceRide(control->mRideType, 0x3fa, ride, 0, 0, nullptr, 0, 0, 0xffffffffu, 0);
         } else {
             brace->mWord70 = RestoreRideInstance(extra, control->mRideType, 0x3fa, ride, 0, nullptr, 0, 0, 0);
+            // TPW_PORT_FIX pylonnoride NewTrackBrace | Mac: the restored brace's ride taken as found | Port: when no saved ride matches (0), a new one as for a brace placed in the editor | Why: gRideAnimSets[0] is null, so loading such a pylon wrote through it and the park crashed on load; reported by samueleagle91 (tpw-port #75)
+            if (brace->mWord70 == 0)
+                brace->mWord70 = InstanceRide(control->mRideType, 0x3fa, ride, 0, 0, nullptr, 0, 0, 0xffffffffu, 0);
         }
         tag_sRideAnimSet* set = gRideAnimSets[brace->mWord70];
         set->mFlags |= 0x80000;

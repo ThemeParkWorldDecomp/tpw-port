@@ -12,7 +12,7 @@
 
 namespace tpw::launcher {
 
-// --no-preload: the launcher's window opens without reading anything ahead (Play reads the tables then).
+// --no-preload: the launcher's window opens without reading anything ahead.
 extern bool gNoPreload;
 // --window-click: scripted clicks in the launcher's window (a test run).
 extern std::vector<ui::WindowPlacement::Click> gWindowClicks;
@@ -26,8 +26,8 @@ ui::WindowOutcome OpenLauncherWindow(ui::ImporterBackend& backend, ui::LaunchCho
 // launcher.ini kept from the last start; when the game's window is shown the new total is written there.
 void BeginStartup(ui::ImporterBackend& backend, assets::Edition edition);
 
-// LoadGameTables for the game: the preload's result when it read them (it is waited for, behind the bar), else read now.
-// A start without the data folder (--game) is counted from here, with no total.
-bool LoadTables(const std::filesystem::path& program, std::string* why);
+// The game starts: the preload is waited for (FinishPreload, behind the bar). A start without the data folder (--game) is
+// counted from here, with no total.
+void StartGame();
 
 }  // namespace tpw::launcher

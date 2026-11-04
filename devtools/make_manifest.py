@@ -2,18 +2,30 @@
 """Regenerate assets/manifest_data.inc, the asset manifest the launcher compiles in (hashes, sizes and names only).
 
 usage: python3 -I devtools/make_manifest.py [--scratch DIR | --base FILE] [--languages DIR | --keep-languages]
-                                           [--out FILE] [--check] [--verify-program EXTRACTED]
+                                           [--pc DIR] [--out FILE] [--check] [--verify-program EXTRACTED]
 
 What a game folder must hold, one record per file, found by CONTENT (size and SHA-256), never by the disc image's MD5:
 
   US  (editions us)    import_originals.py CHECKSUMS, the "Theme Park Data" folder of the Mac CD: data/ without the
                        four Finder "Icon" files, the 17 font resource forks (data/fonts/*.rsrc: the game reads the
                        TrueType fonts out of them, the data forks are empty) and the program's data fork, with BOTH
-                       accepted builds (CD 2.0.1 and patch 2.04b3) as SHA-256 values of one record.
+                       accepted builds (CD 2.0.1 and patch 2.04b3) as SHA-256 values of one record; and the PC CD's
+                       nine films (data/Movies/*.tgq, the European records: film_rules). The program is optional (kept
+                       when a drop has it): the game's data tables are built into the port.
   EUR (editions eur)   import_eur.py EXPECTED, all of the European folder (PC disc files, Mac files, tuning files,
                        resource forks and Finder info files); the sizes come from tree-ee54d817.json and the content
                        source (pc or mac) from draft-manifests.json, both written by the launcher-design study.
   Gold (editions gold) gold-wads.sha256 (the 35 ride wads) and the ride configuration text, sizes from gold-cab/.
+  US-PC, EUR-PC (editions us-pc, eur-pc)  the Windows discs (version 2.0) alone, from the lists in --pc: us-pc.tsv and
+                       eur-pc.tsv, "SHA-256<TAB>size<TAB>path" for every file of the disc's Data folder, the language files
+                       the installer copies into data/Language (USEnglish/Filter/American, USEnglish/Meshes/American;
+                       English/Filter/English, English/Meshes/English) and the 17 TrueType fonts packed in Data/fonts.wad
+                       (as Data/fonts.wad/<name>, unpacked). The game folder is the Mac one: the fonts are plain
+                       data/fonts/<name> files, Legal_<language>.tga is also data/Init/<res>/legal.tga, the PC disc's own
+                       med.sam and sound.sam are kept (no Mac tuning), the films (.tgq) are required (the port plays
+                       them), and only the edition's own language folder is taken (American for US, English for European). Spellings follow
+                       the Mac edition's records (us or eur), so equal files share a record. There is no program, no
+                       resource fork, no Finder info and no "_" bonus ride: the Windows release has none.
   Languages (editions lang)  one pack per language the original knows, under lang/<Name>/<game path>: the text folder
                        data/Language/<Name>/ (tables, fonts, residx.dat, the code page files, swears.txt and alloweds.txt,
                        the 3 meshes), the 20 speech files of data/global/Speech and data/levels/<world>/Speech, and the
@@ -51,8 +63,9 @@ DECOMP = os.path.dirname(HERE)
 DEFAULT_SCRATCH = "/Volumes/6TB-2024/_scratch/wiring/launcher-design"
 DEFAULT_OUT = os.path.join(DECOMP, "assets", "manifest_data.inc")
 DEFAULT_LANGUAGES = os.path.expanduser("~/tpw-local/languages/hash")
+DEFAULT_PC = os.path.expanduser("~/tpw-local/pcedition/lists")
 
-# The two builds of the program the launcher accepts (SHA-1 as the study and gen_game_tables.py name them), and the
+# The two builds of the program the launcher keeps when a drop has them (SHA-1 as the study and gen_game_tables.py name them), and the
 # SHA-256 the lists carry for each; --verify-program recomputes both from the files.
 PROGRAM_CD = ("45d731f0d059a7dde6caa1142545fcd3a7fadd43",
               "04809cd4ccee5433c7fb0b7c93d32f6a7aa629c1849181c0b7906415e5e295f5", 2274758)
@@ -69,11 +82,16 @@ GROUPS = ["core", "fonts-rsrc", "movies", "language:american", "language:english
 GROUP_NAME = {"core": "kGroupCore", "fonts-rsrc": "kGroupFontsRsrc", "movies": "kGroupMovies",
               "language:american": "kGroupLanguageAmerican", "language:english": "kGroupLanguageEnglish",
               "program": "kGroupProgram", "gold": "kGroupGold", "language-pack": "kGroupLanguagePack"}
-EDITION_BIT = {"us": 1, "eur": 2, "gold": 4, "lang": 8}
-EDITION_NAME = {"us": "kEditionUs", "eur": "kEditionEur", "gold": "kEditionGold", "lang": "kEditionLanguages"}
+EDITION_BIT = {"us": 1, "eur": 2, "gold": 4, "lang": 8, "us-pc": 16, "eur-pc": 32}
+EDITION_NAME = {"us": "kEditionUs", "eur": "kEditionEur", "gold": "kEditionGold", "lang": "kEditionLanguages",
+                "us-pc": "kEditionUsPc", "eur-pc": "kEditionEurPc"}
+PC_EDITIONS = ("us-pc", "eur-pc")
 SOURCE_NAME = {"mac": "kSourceMacCd", "pc": "kSourcePcCd", "gold": "kSourceGoldCd", "lang": "kSourceLanguageDisc"}
 FLAG_REQUIRED, FLAG_RSRC, FLAG_FINFO, FLAG_TUNING = 1, 2, 4, 8
 MAC_TUNING = ("data/med.sam", "data/sound.sam")
+# The two Japanese logo films, which the program never opens (it opens Data:Movies:bf.mov and the eight intro films)
+# and no PC CD has: written when found, not required.
+UNOPENED_FILMS = ("data/Movies/bfj.mov", "data/Movies/BFj2.mov")
 
 LANG_DEST_FOLDER = "lang"
 # The original's spellings of the languages (FS_Registry.cpp), in the order of the table.
@@ -205,7 +223,7 @@ def us_set(cs, c):
         fail("CHECKSUMS has no CD program with the expected size and SHA-256 (%r)" % (cd,))
     if pt != (PROGRAM_PATCH[2], PROGRAM_PATCH[1]):
         fail("CHECKSUMS has no patch program with the expected size and SHA-256 (%r)" % (pt,))
-    out.append((PROGRAM_DEST, [cd, pt], "program", "us", "mac", FLAG_REQUIRED))
+    out.append((PROGRAM_DEST, [cd, pt], "program", "us", "mac", 0))   # optional: the tables are built in
     return out
 
 
@@ -239,6 +257,22 @@ def eur_set(exp, tree, draft):
     return out
 
 
+def film_rules(candidates):
+    """The films either disc gives: the PC CD's (data/Movies/*.tgq, EA TQI pictures and EA ADPCM sound), which the port
+    plays where the program opens the Mac CD's .mov of the same name (platform/files.cpp), are the same files on the US
+    and the European PC CD, so they belong to the US edition too; the importer counts a .mov and its .tgq as one required
+    file (FilmCounterpart in assets/manifest.h). UNOPENED_FILMS are not required. The same candidates again change nothing
+    (--base reads its output back through this too)."""
+    out = []
+    for dest, hashes, group, edition, source, flags in candidates:
+        if dest in UNOPENED_FILMS:
+            flags &= ~FLAG_REQUIRED
+        out.append((dest, hashes, group, edition, source, flags))
+        if group == "movies" and source == "pc" and edition == "eur" and dest.lower().endswith(".tgq"):
+            out.append((dest, hashes, group, "us", source, flags))
+    return out
+
+
 def gold_set(scratch, shalist):
     folder = os.path.join(scratch, "gold-cab")
     out = []
@@ -259,6 +293,80 @@ def gold_set(scratch, shalist):
     p = os.path.join(folder, GOLD_CONFIG)
     out.append((GOLD_DEST_FOLDER + "/" + GOLD_CONFIG, [(os.path.getsize(p), sha256_file(p))], "gold", "gold", "gold",
                 FLAG_REQUIRED))
+    return out
+
+
+# ---- the Windows discs: {pc edition: (Mac edition whose spellings it takes, its language, the installer's folder)}
+PC_SETS = {"us-pc": ("us", "American", "usenglish"), "eur-pc": ("eur", "English", "english")}
+
+
+def pc_set(edition, rows, base_records):
+    """The records of a Windows disc's edition from its list (read_disc_list rows)."""
+    mac, lang, installer = PC_SETS[edition]
+    other = "eur" if mac == "us" else "us"
+    full, dirs = {}, {}
+    for e in (mac, other):
+        for dest, _, _, bits, _, _ in base_records:
+            if not bits & EDITION_BIT[e]:
+                continue
+            if e == mac:
+                full.setdefault(dest.lower(), dest)
+            parts = dest.split("/")
+            for i in range(1, len(parts)):
+                dirs.setdefault("/".join(parts[:i]).lower(), "/".join(parts[:i]))
+    text = "data/Language/%s/" % lang
+    text_names = {k[len(text):]: v[len(text):] for k, v in full.items() if k.startswith(text.lower())}
+
+    def spell(low_path, name):
+        if low_path in full:
+            return full[low_path]
+        low = low_path.split("/")[:-1]
+        folder = [dirs.get("/".join(low[:i + 1]), low[i]).rsplit("/", 1)[-1] for i in range(len(low))]
+        return "/".join(folder + [name])
+
+    out = []
+    group_lang = "language:american" if lang == "American" else "language:english"
+    for rel, size, sha in rows:
+        parts = rel.split("/")
+        low = [x.lower() for x in parts]
+        name = parts[-1]
+        flags, group = FLAG_REQUIRED, "core"
+        if low[:2] == ["data", "fonts.wad"] and len(low) == 3:
+            dests = [spell("data/fonts/" + low[2], name)]
+        elif low[0] == installer and len(low) == 4 and low[1] in ("filter", "meshes") and low[2] == lang.lower():
+            if not (low[3] in FILTER_FILES if low[1] == "filter" else low[3].endswith(".md2")):
+                continue                                         # the .mtr files: the game never reads them
+            dests, group = [text + text_names.get(low[3], name)], group_lang
+        elif low[0] != "data" or len(low) < 2:
+            continue
+        elif low[1] == "language":
+            if len(low) != 4 or low[2] != lang.lower():
+                continue                                         # another language's folder (the US disc's English)
+            dests, group = [text + text_names.get(low[3], name)], group_lang
+        elif low[1] == "movies":
+            dests, group = [spell("/".join(low), name)], "movies"
+        elif low[1] == "fonts.wad":
+            dests, flags = [spell("/".join(low), name)], 0       # read through its members above
+        else:
+            dests = [spell("/".join(low), name)]
+            if len(low) == 4 and low[1] == "init" and low[3] == "legal_%s.tga" % lang.lower():
+                dests.append(spell("/".join(low[:3] + ["legal.tga"]), "legal.tga"))
+        for d in dests:
+            out.append((d, [(size, sha)], group, edition, "pc", flags))
+    fonts = [c for c in out if c[0].lower().startswith("data/fonts/")]
+    if len(fonts) != 17:
+        fail("%s: %d fonts from fonts.wad, expected 17" % (edition, len(fonts)))
+    seen = {}
+    for c in out:
+        if seen.setdefault(c[0], c[1]) != c[1]:
+            fail("%s: two contents for %s" % (edition, c[0]))
+    return out
+
+
+def pc_sets(folder, base_records):
+    out = []
+    for edition in PC_EDITIONS:
+        out += pc_set(edition, read_disc_list(os.path.join(folder, edition + ".tsv")), base_records)
     return out
 
 
@@ -527,8 +635,10 @@ def render(records, languages):
     o = []
     o.append("// manifest_data.inc: generated by devtools/make_manifest.py; do not edit. Hashes, sizes and names only.\n")
     o.append("// Included once, by assets/manifest.cpp, inside namespace tpw::assets.\n")
-    o.append("// %d records (us %d, eur %d, gold %d, lang %d; a record shared by two editions is counted in both), %d hashes.\n"
-             % (len(records), counts["us"], counts["eur"], counts["gold"], counts["lang"], len(hashes)))
+    o.append("// %d records (us %d, eur %d, gold %d, lang %d, us-pc %d, eur-pc %d; a record shared by two editions is\n"
+             "// counted in each), %d hashes.\n"
+             % (len(records), counts["us"], counts["eur"], counts["gold"], counts["lang"], counts["us-pc"],
+                counts["eur-pc"], len(hashes)))
     o.append("\n")
     o.append("// One accepted content: SHA-256, size in bytes and the record it belongs to. A record's hashes are\n")
     o.append("// consecutive, from its first_hash.\n")
@@ -655,7 +765,7 @@ def build(scratch):
         if tree_us.get(p) != v:
             fail("CHECKSUMS and tree-e921f604.json disagree on %s" % p)
     cand = us_set(cs, c) + eur_set(exp, tree_eur, draft) + gold_set(scratch, os.path.join(scratch, "gold-wads.sha256"))
-    return merge(cand)
+    return merge(film_rules(cand))
 
 
 def summary(records, languages):
@@ -665,10 +775,10 @@ def summary(records, languages):
         by_group = {}
         for r in rs:
             by_group[r[2]] = by_group.get(r[2], 0) + 1
-        lines.append("%-5s %4d records; groups %s" % (e, len(rs), ", ".join("%s %d" % (g, by_group[g]) for g in GROUPS
+        lines.append("%-6s %4d records; groups %s" % (e, len(rs), ", ".join("%s %d" % (g, by_group[g]) for g in GROUPS
                                                                         if g in by_group)))
         req = sum(1 for r in rs if r[5] & FLAG_REQUIRED)
-        lines.append("      required %d, optional %d, rsrc %d, finfo %d, tuning %d; sources %s"
+        lines.append("       required %d, optional %d, rsrc %d, finfo %d, tuning %d; sources %s"
                      % (req, len(rs) - req, sum(1 for r in rs if r[5] & FLAG_RSRC), sum(1 for r in rs if r[5] & FLAG_FINFO),
                         sum(1 for r in rs if r[5] & FLAG_TUNING),
                         ", ".join("%s %d" % (s, sum(1 for r in rs if r[4] == s)) for s in SOURCE_NAME
@@ -692,15 +802,18 @@ def records_as_candidates(records):
     return out
 
 
-def from_base(path, keep_languages):
-    """The records of an earlier output (the language ones only with KEEP_LANGUAGES), and its language table."""
+def from_base(path, keep_languages, keep_pc):
+    """The records of an earlier output (the language ones only with KEEP_LANGUAGES, the Windows discs' only with
+    KEEP_PC), and its language table."""
     out = []
     records, languages = parse_inc(path)
     for dest, hs, group, bits, source, flags in records:
+        if group == "program":
+            flags &= ~FLAG_REQUIRED   # an output from before the tables were built in had it required
         for e in EDITION_BIT:
-            if bits & EDITION_BIT[e] and (keep_languages or e != "lang"):
+            if bits & EDITION_BIT[e] and (keep_languages or e != "lang") and (keep_pc or e not in PC_EDITIONS):
                 out.append((dest, hs, group, e, source, flags))
-    return merge(out), languages
+    return merge(film_rules(out)), languages
 
 
 def main(argv):
@@ -712,6 +825,8 @@ def main(argv):
                     help="the disc lists (*.tsv: SHA-256, size and path per file) the language packs come from")
     ap.add_argument("--keep-languages", action="store_true",
                     help="with --base: take the language records and table from FILE too (no disc lists read)")
+    ap.add_argument("--pc", metavar="DIR", help="the Windows discs' lists (us-pc.tsv, eur-pc.tsv); without it, --base "
+                    "keeps FILE's us-pc and eur-pc records and a build from the study reads %s" % DEFAULT_PC)
     ap.add_argument("--out", default=DEFAULT_OUT)
     ap.add_argument("--check", action="store_true", help="compare with --out instead of writing it")
     ap.add_argument("--verify-program", metavar="EXTRACTED", help="recompute the program builds' hashes from ROOT/extracted")
@@ -722,9 +837,11 @@ def main(argv):
         if a.keep_languages and not a.base:
             fail("--keep-languages needs --base")
         if a.base:
-            records, languages = from_base(a.base, a.keep_languages)
+            records, languages = from_base(a.base, a.keep_languages, not a.pc)
         else:
             records, languages = build(a.scratch), []
+        if a.pc or not a.base:
+            records = merge(records_as_candidates(records) + pc_sets(a.pc or DEFAULT_PC, records))
         if not a.keep_languages:
             extra, languages = language_set(a.languages, records)
             records = merge(records_as_candidates(records) + extra)

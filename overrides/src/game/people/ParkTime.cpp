@@ -111,6 +111,11 @@ void CParkTime::Update() {
         CMsgEndOfDay message;
         MessageCentreForPost()->PostMessage(message);
         gUIInterface.DateChange(gParkDate);
+        // TPW_PORT_FIX mods CParkTime::Update | Mac: nothing more on a new day | Port: TPW_MOD_HOOK strike_messages (gModStrikeMessages, include/ThingReceivers.h), the staff room's daily look for a last strike warning (CStaffHQ::ModEndOfDay); off, nothing | Why: tpw-mods enable-strikes
+        if (gModStrikeMessages) {
+            CStaffHQ* hq = gWorld->GetStaffHQ();
+            if (hq != nullptr) hq->ModEndOfDay();
+        }
     }
     if (gParkDate.mMonth != mMonthAtLastUpdate) {
         CMsgEndOfMonth message;

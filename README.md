@@ -1,7 +1,8 @@
 # tpw-port
 
 An unofficial port of Sim Theme Park (AKA Theme Park World, 1999) for Macs (Apple Silicon and Intel), 64-bit Windows
-and Linux. You need your own copy of the game. Nothing from the game is in here.
+and Linux. You need your own copy of the game. Nothing from the game is in here but seven data tables of the original
+program, which tpw-decomp holds and every build compiles in.
 
 ## Quick start
 
@@ -39,7 +40,8 @@ PC CD, or a zip or disc image of either. The launcher checks every file and tick
 a progress bar shows while the game starts, and the launcher's window closes when the game's window appears. Once the
 US, European and Gold discs are all checked, the window shows just two tiles, Sim Theme Park and Theme Park World, each
 with its own Play button. At every start the launcher compares each file's size and date with what it recorded,
-rehashes only the files that changed and removes any that no longer match.
+rehashes only the files that changed and removes any that no longer match, except a `.sam` settings file you edited,
+which it keeps and the game reads (Edited settings files below).
 
 The Settings box has these rows:
 
@@ -65,7 +67,16 @@ The Settings box has these rows:
   cloud shadows, ground blending (Off, 16, 32, 64), texture quality (Low, High), lighting and visitor shadows (Off, On),
   and visitor looks (2, 4, 6, 8: how many kinds of visitor walk around the park).
 - Check for updates: on by default (the one launcher setting that is; see Updates below). Off, the launcher never asks.
-- Check again: rehashes every file.
+- Check again: rehashes every file (an edited `.sam` settings file is kept).
+
+To create an online account, press Create account on the online login panel (the lobby's globe). The popup, in the
+game's own style, asks for a login name, a password (typed twice; 6 to 16 characters, letters, digits and punctuation),
+an e-mail address and an "I am 13 or older" tick. The e-mail is private: the server keeps it only for password resets,
+never shows it and does not verify it. Don't use a password you use anywhere else, as the 1999 game sends it
+unencrypted. Once the account is made, OK puts the name and the password in the login boxes. Forgot password? on
+the same panel e-mails a 6-digit code to that address (valid 30 minutes); type it with a new password and OK fills the
+login boxes the same way. These popups are the port's one addition to the game's own screens, as the original has no
+way to make an account in the game.
 
 ### Cheats
 
@@ -98,7 +109,7 @@ Or press Control+Shift+Option+C on a Mac (Ctrl+Shift+Alt+C on Windows and Linux)
 | Clean up all the litter in the park | Shift+Y | Shift+Y | Shift+Y | not yet |
 | Break down the ride under the pointer | Shift+B | Shift+B | Shift+B | not yet |
 | Nothing (the original's "ride worn" cheat is empty) | Option+Shift+B | Alt+Shift+B | Alt+Shift+B | not yet |
-| All staff go on strike, and the month's costs are charged at once | Control+Option+S | Ctrl+Alt+S | Ctrl+Alt+S | Mac |
+| Force staff strikes (park 2+ years old; warning first; a second press may not turn it off) and charge a month's costs at once | Control+Option+S | Ctrl+Alt+S | Ctrl+Alt+S | Mac |
 | Play the winning sequence (again to stop it) | Option+Shift+1 | Alt+Shift+1 | Alt+Shift+1 | Mac |
 | Start the bankruptcy sequence | Option+Shift+0 | Alt+Shift+0 | Alt+Shift+0 | not yet |
 | Take out the bank's loan 1, 2, 3 or 4 | Control+keypad 1 to 4 | Ctrl+keypad 1 to 4 | Ctrl+keypad 1 to 4 | not yet |
@@ -133,6 +144,18 @@ Or press Control+Shift+Option+C on a Mac (Ctrl+Shift+Alt+C on Windows and Linux)
   [FIXES.md](FIXES.md)): the Mac original read the character a key typed, so the cheats held with Option or Control on a
   letter or number, or with Shift on a number, never worked there.
 
+### Mods
+
+Mods are optional changes to how the game plays, from [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods). The launcher's Mods button, next to
+Settings, lists them, each with a switch, what it does, the editions it is for, whether it changes saved games and the
+mods it cannot be on with. Every mod is off until you turn it on, and with every mod off the game is exactly the
+original. When any is on, the button says how many (1 mod on), and launcher.log names each one the game starts with.
+
+| Mod | What it does | Editions |
+| --- | --- | --- |
+| Enable strikes | Staff can go on strike in an open park, as Bullfrog's code was written to do before the release blocked it. Strikes still need a park older than 24 months and staff with a real grievance. The advisor also gives the two strike messages the original never used: a last warning a week before a strike, and word when a strike is over. | US, European, Gold |
+| Patrolling staff can cross bridges | Staff walking their rounds can cross a footbridge, like the bridge over the stream in the Lost Kingdom. In the original they only crossed one when sent to a job on the other side. A bridge outside a worker's patrol area is still never taken. | US, European, Gold |
+
 ### Updates
 
 Each time it starts, the launcher asks GitHub whether a newer version is out. It asks in the background and the
@@ -163,11 +186,17 @@ The game itself never needs the internet: everything plays offline.
   - The US Mac CD gives Sim Theme Park.
   - The Mac CD plus the European PC CD give Theme Park World too. Only the later pressings of the PC CD work (2000
     and after); the 1999 first pressing holds version 1.0 data and is refused.
-  - The PC Gold bonus CD adds its Gold bonus rides to either edition: 18 new rides and newer copies of 17 others, laid
+  - A Windows CD alone works too: the US Windows CD (version 2.0) gives Sim Theme Park, the European one gives Theme
+    Park World, each with the Windows release's own text, settings files and films. With a Mac CD in the data folder
+    as well, the play tile plays the Mac edition, as before. The US Windows CD's first release (1.0) is not enough on
+    its own: install it on Windows, apply EA's official v2.0 patch, then drop the installed game folder together with
+    the CD.
+  - The PC Gold bonus CD adds its Gold bonus rides to any of these: 18 new rides and newer copies of 17 others, laid
     over the game's files when you play (the Gold Edition switch on each play tile turns them off). A park saved
     with a Gold ride built needs the switch on: with it off, the game refuses the park as the original does when a
     downloaded ride is missing, and opens the theme's park afresh.
-- No patches. The port is built from the last Mac patch (2.04b3) and reads only the game's data files.
+- No patches, except EA's v2.0 patch for a US Windows CD 1.0 (above). The port is built from the last Mac patch
+  (2.04b3) and reads only the game's data files.
 
 Your checked game files and your saves live in `~/Library/Application Support/STP-TPW Launcher` on a Mac, in
 `%APPDATA%\STP-TPW Launcher` on Windows and in `~/.local/share/STP-TPW Launcher` on Linux (in the Flatpak,
@@ -177,6 +206,29 @@ game adds to, each run under a line with its number, the date, the launcher's ve
 newest 5 MB. The About box's Show logs button shows it, and its Export logs button saves its recent runs as one file in
 your Downloads folder. `tpw_launcher --version` prints the launcher's version. On Windows the launcher has no console:
 what it prints goes into the same log file, unless its output is redirected (`build\tpw_launcher.exe 2> log.txt`).
+
+### Edited settings files
+
+The game's `.sam` files are its settings, plain text in the game folder: `assets/us/Theme Park Data` (Sim Theme Park)
+and `assets/eur/Theme Park Data` (Theme Park World) in that folder, such as `data/levels/Standard.sam`. You can edit
+them as players of the original did, with any value you like: an edited `.sam` file is kept and the game reads it as it
+is. Every other changed file is removed, as before.
+
+An edition with edited `.sam` files shows a Customized settings badge on its tile. It only tells you: Play works as
+normal. Click it for the list of the edited files, with a Restore original button for each, which puts the file from
+your disc back without the disc. For that the launcher keeps a copy of every `.sam` file as your disc has it, in
+`assets/us/originals` and `assets/eur/originals` in the data folder (for example
+`assets/us/originals/data/levels/Standard.sam`). It makes the copies when it checks a disc and, for a game you added
+before this version, at its next start. A copy is only ever made from a file that matches the disc, never from an
+edited one. If you edited a file before the launcher had its copy, the list says so: drop your disc again and Restore
+original works.
+
+The game reads a `.sam` file as the original did: at a line it cannot read, it stops reading the file without a word,
+and the settings after that line keep their zero values, which can make the game crash. The list warns of that line
+("Line 12 can't be read; the game may crash or ignore later settings."). It checks with the game's own reading rules, so
+a value the game takes is never flagged, however large or small. Every start, the log names each edited file and what
+the check found (`startup check: edited us/data/levels/Standard.sam: the game reads it to the end; the original is
+kept`).
 
 ## Asset packs
 
@@ -240,11 +292,14 @@ on the Mac, bugs included. This repository adds what it takes to play:
   game's window: OpenGL (platform/gl_backend.cpp, platform/offscreen.cpp), or on Linux the port's own Vulkan renderer
   (platform/vulkan/), which draws the OpenGL 1.1 calls the game makes. On Linux those calls are the platform layer's own
   (platform/gl_entry.cpp), handed to the Vulkan renderer or to the system's OpenGL.
-- overrides/: the port's fixes, 239 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
+- overrides/: the port's fixes, 315 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
   the port does and why. Each file there is built in place of the tpw-decomp file of the same path. Headers are read
   from a copy of tpw-decomp's headers in the build folder with the overridden ones laid over it.
-- mods/: the [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) submodule, for optional changes to how the game plays. It holds no mods yet
-  and the launcher has no Mods screen yet; the port builds and plays the same without it.
+- mods/: the [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) submodule, for optional changes to how the game plays (Mods, above). Its
+  mods.cmake names the mods, and platform/mods.cmake builds each one into the launcher, with its tests. A mod changes
+  the game only through a hook: a TPW_MOD_HOOK row of [FIXES.md](FIXES.md), which does what the Mac does until a mod
+  switches it on. Without mods/ (or with `-DTPW_MODS_DIR=<folder>` naming another copy) the port builds and plays the
+  same, with no mods. Its CONTRIBUTING.md says how to add one.
 
 ### The Windows build
 
@@ -339,10 +394,9 @@ own toolchain (llvm-mingw extracted to C:\llvm-mingw, CMake, Ninja and Python 3 
     cmake --build build --target tpw_launcher
     build\tpw_launcher.exe
 
--DTPW_MOVIES=OFF builds without the films. The launcher reads the game's data tables at run time from the game folder's
-"SimTheme Park" program (or the one --program names), so the build holds none of them. -DTPW_TABLES_AT_CONFIGURE=ON
-compiles them in at configure time instead, from -DTPW_GAME_PROGRAM=<path> (default: the CD's program in the
-extracted/ folder beside tpw-port, below).
+-DTPW_MOVIES=OFF builds without the films. The original program's seven data tables (the advisor's tables, the save
+file's legal texts, the panels' window scripts, the ride templates) are in tpw-decomp and compiled into every build,
+so neither the build nor the launcher needs a program of the game (tpw-decomp's README says more).
 
 The submodule's URL is relative (../tpw-decomp), so it resolves to tpw-decomp beside tpw-port, on the same server or in
 the same folder. A clone of a local folder needs `git -c protocol.file.allow=always submodule update --init`.
@@ -427,7 +481,7 @@ the CD (manuals, installers, extras), which nothing reads. A patch file given to
         Theme_Park_World_Bonus_Stuff/  the bonus fonts, when that zip is there
 
 From WORK, `tpw-port/build/tpw_launcher --game "extracted/disc-hfs/Theme Park Data"` plays from there.
-`tpw_launcher --play us` (or eur) starts an edition from the launcher's data folder without its window.
+`tpw_launcher --play us` (or eur, us-pc, eur-pc) starts an edition from the launcher's data folder without its window.
 `tpw_launcher --help` lists every option.
 
 On Linux the tests take `SDL_AUDIO_DRIVER=dummy` on a machine with no sound device (a CI runner), SDL's own stand-in for
@@ -436,7 +490,7 @@ Sans). The renderer test needs a screen and a Vulkan device (Mesa's lavapipe wil
 and Ubuntu), and skips without them. CI runs the tests under a virtual screen (`xvfb-run`).
 
 After Play the launcher's window stays open with a progress bar until the game's window appears, then it closes. While
-the window is open a thread reads ahead the game's tables and the first files of the edition last played, so that Play
+the window is open a thread reads ahead the first files of the edition last played, so that Play
 finds them in the system's file cache; `--no-preload` turns that off. The bar counts bytes: what the game read before
 its window appeared the last time is kept in the data folder's launcher.ini (startup_bytes_us, startup_bytes_eur), and
 the first start of an edition shows a moving bar without a number.
@@ -518,7 +572,7 @@ The project is three repositories, and every change belongs in exactly one of th
 
 | Repository | What it holds | Pull requests |
 | --- | --- | --- |
-| [tpw-decomp](https://github.com/ThemeParkWorldDecomp/tpw-decomp) | The translation: the Mac program's own functions in C++, each behaving exactly as the Mac build does, bugs included, with the differential tests that check it. | None. A function that behaves differently from the Mac is reported as an issue on tpw-port. |
+| [tpw-decomp](https://github.com/ThemeParkWorldDecomp/tpw-decomp) | The translation: the Mac program's own functions in C++, each behaving exactly as the Mac build does, bugs included, with the differential tests that check it and the seven data tables of the Mac program that it compiles in. | None. A function that behaves differently from the Mac is reported as an issue on tpw-port. |
 | [tpw-port](https://github.com/ThemeParkWorldDecomp/tpw-port) | The original game on today's Macs, Windows PCs and Linux machines: the launcher, the platform layer, the builds, and the fixes that make it run as it did on the Mac. | Welcome, by its CONTRIBUTING.md. |
 | [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) | Optional changes to how the game plays, each one off until the player turns it on. tpw-port carries it as a submodule at mods/. | Welcome, by its CONTRIBUTING.md. |
 
@@ -529,6 +583,10 @@ control does or the save files, it belongs in tpw-mods, even as a setting that i
 One exception: an option the original game already had in its .sam data files belongs in tpw-port, even when it
 changes how a park plays, as long as it offers only the values the original accepts and its default is the original's.
 Players set it in the launcher or a game menu, never by editing a .sam file.
+
+One addition to the game's own screens: the online login panel has a "Create account" button, a sign-up popup and a
+password reset ("Forgot password?"), drawn in the game's own style. The original made accounts and reset passwords on
+EA's website, which is gone. It belongs in tpw-port, and with the port's fixes off the panel is the original's.
 
 Pull requests are welcome here for anything that passes that test: fixes, other systems (the BSDs, for example), build
 changes, tools. [CONTRIBUTING.md](CONTRIBUTING.md) has the rules, including the three a setting must meet. An accepted

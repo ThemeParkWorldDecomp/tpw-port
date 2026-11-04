@@ -1,6 +1,6 @@
 // msl_runtime.cpp: the Metrowerks runtime imports the translated library code calls through
 // include/ui_ime.h (operator new and delete, the string and wide-memory primitives, __throw),
-// on the host's heap and C library. The unit tests fake these; the launcher had stand-ins
+// on the arena and the host's C library. The unit tests fake these; the launcher had stand-ins
 // that returned 0, so the first std::map insertion of a level (CMessageCentre::Subscribe
 // from CStaffHQ's constructor) wrote through a NULL node pointer.
 //
@@ -10,10 +10,12 @@
 // is therefore granted twice its size plus a margin, and zeroed, so the host object always
 // fits whichever size was asked for. Nothing here is a translation of game code.
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <new>
 
 #include "platform.h"
+#include "platform/arena.h"
 #include "platform/msl.h"
 #include "ui_ime.h"
 
@@ -28,11 +30,9 @@ uint32_t HostSize(uint32_t size) {
     return static_cast<uint32_t>(wanted);
 }
 
-void* Allocate(uint32_t size) {
-    void* p = ::operator new(HostSize(size), std::nothrow);
-    if (p != nullptr) std::memset(p, 0, HostSize(size));
-    return p;
-}
+// From the arena: the Mac keeps these blocks' addresses in 32-bit words (a string's representation in a string object, a node in a
+// tree's links), and an arena block's address is its offset there (see include/Ptr32.h). MslDelete gives them back.
+void* Allocate(uint32_t size) { return tpw::ArenaAllocZeroed(HostSize(size)); }
 
 }  // namespace
 
@@ -49,9 +49,13 @@ void* MslNew(uint32_t size) { return Allocate(size); }
 
 void* MslNewArray(uint32_t size) { return Allocate(size); }
 
-void MslDelete(void* p) { ::operator delete(p); }
+// A block from the arena (a deque's table or block, whose address a 32-bit word keeps) goes back there.
+void MslDelete(void* p) {
+    if (p != nullptr && tpw::InArena(p)) tpw::ArenaFree(p);
+    else ::operator delete(p);
+}
 
-void MslDeleteArray(void* p) { ::operator delete(p); }
+void MslDeleteArray(void* p) { MslDelete(p); }
 
 // operator new(0x10) for a string representation: the host MslCharRep and MslWideStringRep are
 // both 24 bytes (three words and a pointer); the general rule grants 64, which covers either.
@@ -92,6 +96,19 @@ char16_t* MslWmemmove(char16_t* d, const char16_t* s, uint32_t n) {
 }
 
 }  // namespace IME
+
+// The Mac had one heap, the host has two: a block MslNew gave (the arena) may be freed by a translation's plain delete, as the Mac's
+// operator delete took any block (a message centre subscription's tree node, SubscriptionTree::erase). The host's delete sends an
+// arena block back to the arena; every other block goes to the C library, as the default delete does.
+void operator delete(void* p) noexcept {
+    if (p != nullptr && tpw::InArena(p)) tpw::ArenaFree(p);
+    else std::free(p);
+}
+void operator delete[](void* p) noexcept { ::operator delete(p); }
+void operator delete(void* p, std::size_t) noexcept { ::operator delete(p); }
+void operator delete[](void* p, std::size_t) noexcept { ::operator delete(p); }
+void operator delete(void* p, const std::nothrow_t&) noexcept { ::operator delete(p); }
+void operator delete[](void* p, const std::nothrow_t&) noexcept { ::operator delete(p); }
 
 // rand of the C library (0x10239148), which the level setup calls for the park's seed
 // (src/game/rides/BumperRide.cpp declares it as ::Rand): the one generator the MSL

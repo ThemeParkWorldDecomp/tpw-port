@@ -4,7 +4,7 @@ The project is three repositories, and every change belongs in exactly one of th
 
 | Repository | What it holds | Pull requests |
 | --- | --- | --- |
-| [tpw-decomp](https://github.com/ThemeParkWorldDecomp/tpw-decomp) | The translation: the Mac program's own functions in C++, each behaving exactly as the Mac build does, bugs included, with the differential tests that check it. | None. A function that behaves differently from the Mac is reported as an issue on tpw-port. |
+| [tpw-decomp](https://github.com/ThemeParkWorldDecomp/tpw-decomp) | The translation: the Mac program's own functions in C++, each behaving exactly as the Mac build does, bugs included, with the differential tests that check it and the seven data tables of the Mac program that it compiles in. | None. A function that behaves differently from the Mac is reported as an issue on tpw-port. |
 | [tpw-port](https://github.com/ThemeParkWorldDecomp/tpw-port) | The original game on today's Macs, Windows PCs and Linux machines: the launcher, the platform layer, the builds, and the fixes that make it run as it did on the Mac. | Welcome, by its CONTRIBUTING.md. |
 | [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) | Optional changes to how the game plays, each one off until the player turns it on. tpw-port carries it as a submodule at mods/. | Welcome, by its CONTRIBUTING.md. |
 
@@ -15,6 +15,10 @@ control does or the save files, it belongs in tpw-mods, even as a setting that i
 One exception: an option the original game already had in its .sam data files belongs in tpw-port, even when it
 changes how a park plays, as long as it offers only the values the original accepts and its default is the original's.
 Players set it in the launcher or a game menu, never by editing a .sam file.
+
+One addition to the game's own screens: the online login panel has a "Create account" button, a sign-up popup and a
+password reset ("Forgot password?"), drawn in the game's own style. The original made accounts and reset passwords on
+EA's website, which is gone. It belongs in tpw-port, and with the port's fixes off the panel is the original's.
 
 ## What belongs here
 
@@ -36,6 +40,9 @@ Players set it in the launcher or a game menu, never by editing a .sam file.
   3. Its FIXES.md row names the .sam file and key it comes from.
 
   A value fixed in the game's code is not an option: changing the 1,500 visitor limit, for example, is a mod.
+- The online login panel's "Create account" button, its sign-up popup and its password reset ("Forgot password?"),
+  drawn in the game's own style: the original made accounts on EA's website, which is gone. This is the only addition
+  to the game's own screens; any other new screen or button is not taken.
 
 ## How to make a change
 
@@ -51,9 +58,10 @@ Players set it in the launcher or a game menu, never by editing a .sam file.
 
 ## Before a pull request
 
-The game's files are the retail discs' (the US Mac CD, the European PC CD and the Gold bonus CD), and you need your own
-copy of them in the launcher's data folder to test a change. This repository never holds them, a link to them, or the
-place a copy came from, and a pull request never shows where yours are.
+The game's files are the retail discs' (the US Mac CD, the US Windows CD, the European PC CD and the Gold bonus CD), and
+you need your own copy of them in the launcher's data folder to test a change. This repository never holds them, a link
+to them, or the place a copy came from, and a pull request never shows where yours are. The one exception is the seven
+game tables built into the tpw-decomp submodule's tables/ and include/ (2026-11-02).
 
 A pull request that changes the game or the launcher (anything the game or the launcher runs: overrides/, platform/,
 launcher/, the build, the installers) is made only after both of these, on your own computer:

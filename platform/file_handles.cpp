@@ -15,6 +15,7 @@
 #include "handoff.h"
 #include "platform.h"
 #include "platform/macdoze.h"
+#include "platform/macdoze_system.h"
 
 namespace fs = std::filesystem;
 
@@ -219,21 +220,39 @@ int32_t RemoveDirectory(const char* name) {
     return fs::is_directory(user, ec) && fs::remove(user, ec) ? 1 : 0;
 }
 
-// Renames within the user folder; a file that only the game folder has cannot be moved.
+namespace {
+// A path in the temp folder (GetTempPath: a host folder, which the postcard is saved into with fopen) is a host path, as the
+// Mac's temp folder path was one its file calls took; every other path is the game's.
+bool InTempFolder(const char* name) {
+    char folder[0x400];
+    const uint32_t length = GetTempPath(sizeof folder, folder);
+    return length < sizeof folder && std::strncmp(name, folder, length) == 0;
+}
+fs::path PathForReading(const char* name) { return InTempFolder(name) ? fs::path(name) : tpw::FindHostPath(name); }
+fs::path PathForWriting(const char* name) { return InTempFolder(name) ? fs::path(name) : tpw::HostPathForWriting(name); }
+}  // namespace
+
+// Renames within the user folder (or out of the temp folder: the postcard put in the outbox); a file that only the game folder
+// has cannot be moved.
 int32_t MoveFile(const char* from, const char* to) {
     std::error_code ec;
-    const fs::path source = tpw::HostPathForWriting(from);
-    if (!fs::exists(source, ec) || !tpw::FindHostPath(to).empty()) return 0;
-    fs::rename(source, tpw::HostPathForWriting(to), ec);
+    const fs::path source = PathForWriting(from);
+    if (!fs::exists(source, ec) || fs::exists(PathForReading(to), ec)) return 0;
+    const fs::path target = PathForWriting(to);
+    fs::rename(source, target, ec);
+    if (ec && InTempFolder(from)) {   // the temp folder may be on another disk
+        ec.clear();
+        if (fs::copy_file(source, target, ec) && !ec) fs::remove(source, ec);
+    }
     return ec ? 0 : 1;
 }
 
 int32_t CopyFile(const char* from, const char* to, int32_t failIfExists) {
     std::error_code ec;
-    const fs::path source = tpw::FindHostPath(from);
-    if (source.empty() || fs::is_directory(source, ec)) return 0;
-    if (failIfExists != 0 && !tpw::FindHostPath(to).empty()) return 0;
-    fs::copy_file(source, tpw::HostPathForWriting(to), fs::copy_options::overwrite_existing, ec);
+    const fs::path source = PathForReading(from);
+    if (source.empty() || !fs::exists(source, ec) || fs::is_directory(source, ec)) return 0;
+    if (failIfExists != 0 && fs::exists(PathForReading(to), ec)) return 0;
+    fs::copy_file(source, PathForWriting(to), fs::copy_options::overwrite_existing, ec);
     return ec ? 0 : 1;
 }
 

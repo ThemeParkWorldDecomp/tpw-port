@@ -19,10 +19,11 @@ its strings kept, and these are findings:
   program   curl or wget as a program to run: a string that is just "curl" (or a path to it, or curl.exe), or a command
             line that starts with it ("curl -fL ...")
 
-launcher/net/ is the one place they belong and is not read. Everything else that has one must be on one of the two
-lists below: ORIGINAL_ONLINE (the original game's online layer, kept as the original had it) or VENDORED (a library's
-file, with the reason). An entry that no longer has a finding fails the check too, so the lists cannot go stale. In a
-tpw-port clone, tpw-decomp/src/... and overrides/src/... are listed as src/....
+launcher/net/ is the one place they belong and is not read. Everything else that has one must be on one of the
+lists below: ORIGINAL_ONLINE (the original game's online layer, kept as the original had it), ONLINE_SERVER (the one
+file that connects to the online server the launcher sets) or VENDORED (a library's file, with the reason). An entry
+that no longer has a finding fails the check too, so the lists cannot go stale. In a tpw-port clone, tpw-decomp/src/...
+and overrides/src/... are listed as src/....
 
 What the check does not see: build tooling (shell scripts, the Makefile, CMake, devtools' Python), which runs while
 building and is not part of the game or the launcher; and the update script the launcher's Update button runs
@@ -45,11 +46,11 @@ EXEMPT_PREFIXES = ("launcher/net/",)
 # The original game's online layer: the TPW Online world, its e-mail and its FTP client, translated as the original had
 # them, the port's stand-in for the Winsock calls they make (platform/winsock.cpp, over the host's sockets) and the unit
 # tests of that code. They stay as they are: the translation keeps the original's code whole, and none of it runs
-# unless the player picks the online world in the game's lobby (the globe), where it stops at the login: that goes
-# through the Mac's online library, which the port answers with "not connected" at once (platform/online_library.cpp:
-# no name lookup, no socket; the servers are long gone), so the game shows its own cannot-connect message and nothing
-# past the login runs. The check still reads these files, so that the list holds them and no more: a new file that
-# reaches the sockets is a finding. Paths as listed (see normalized()).
+# unless the player picks the online world in the game's lobby (the globe). Its login goes through the Mac's online
+# library, which the port answers with its online server client (platform/online_library.cpp, ONLINE_SERVER below):
+# the original's servers are long gone, so the client talks to the launcher's online server instead. The check still
+# reads these files, so that the list holds them and no more: a new file that reaches the sockets is a finding. Paths
+# as listed (see normalized()).
 ORIGINAL_ONLINE = {
     "platform/winsock.cpp", "include/FS_Online.h", "include/email.h",
     "src/game/online/Connection.cpp", "src/game/online/EmailMessage.cpp", "src/game/online/FS_Online.cpp",
@@ -67,7 +68,16 @@ VENDORED = {
     "third_party/ffmpeg/libavformat/url.c": "FFmpeg's address parsing, under #if CONFIG_NETWORK, which our "
                                             "config/config.h sets to 0.",
 }
-ALLOWED = ORIGINAL_ONLINE | set(VENDORED)
+# The online server client's connection (include/platform/online_boss.h), the only socket code of the port's online
+# library: it is reached only when the player picks the online world (the globe), and it connects only to the
+# launcher's online server (the player's --online-server or Settings choice, else online.txt's, else the built-in one)
+# or a host that server itself names.
+ONLINE_SERVER = {
+    "platform/online_boss_socket.cpp": "the TCP connection to the launcher's online server, and to no other host; "
+                                       "nothing is opened until the player picks the online world "
+                                       "(platform/online_boss.cpp has no socket code of its own).",
+}
+ALLOWED = ORIGINAL_ONLINE | set(ONLINE_SERVER) | set(VENDORED)
 
 HEADERS = re.compile(r"^\s*#\s*(?:include|import)\s*[<\"]\s*("
                      r"sys/socket\.h|netinet/[^>\"]*|arpa/inet\.h|netdb\.h|winsock2?\.h|ws2tcpip\.h|mswsock\.h|"
@@ -170,7 +180,7 @@ def main():
     if bad:
         print("\nNetwork code belongs in launcher/net/ (CONTRIBUTING.md, \"Playable offline\"). Move it there, or, for "
               "a file of the original game's online layer or of a vendored library, add it to ORIGINAL_ONLINE or "
-              "VENDORED in devtools/check_offline.py with the reason.")
+              "VENDORED in devtools/check_offline.py with the reason (ONLINE_SERVER is one file and stays one).")
     print("check_offline: %d files read, %d findings, %d allowed in %d files, %d stale entries"
           % (scanned, len(bad), sum(allowed_hits.values()), len(allowed_hits), len(stale)))
     return 1 if bad or stale else 0

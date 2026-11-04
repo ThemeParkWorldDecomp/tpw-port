@@ -1011,7 +1011,7 @@ void ToggleGameWindow() {
     if (gGameWindowToggled == 0) {
         if ((gFirstPersonFlags & 0x16) != 0) return;
         if (gBumholeWindow == nullptr) {
-            // TPW_PORT_FIX hiddenui ToggleGameWindow | Mac: the window is 2048 x 1536 units, the whole 4:3 screen | Port: as wide and as high as the unit space (2048 x 1536 on a 4:3 screen at full interface size), as InitGameUI makes the game's view | Why: it takes the game's view's place while the interface is hidden (F3, or Escape on the game over screen) and tells the camera where the pointer is; on a wider screen, or with a smaller interface, the screen's edges were outside it, so the pointer at an edge left the window and the park did not scroll (reported by Addable13 on Discord)
+            // TPW_PORT_FIX v5L26 ToggleGameWindow | Mac: the bumhole window (the view while the game window is hidden, and after the game over screen) is 2048 x 1536 units | Port: as wide and as high as the unit space, like the game window | Why: a widescreen port; the 4:3 window sat in the middle of a wide screen, so with the pointer at the left or right edge it was outside it and the camera did not scroll (Addable13)
             gBumholeWindow = gUIRootWindow->CreateObject(1, 1, 0xddf22, 0, 0, static_cast<int16_t>(gUIUnitWidth - 1),
                                                          static_cast<int16_t>(gUIUnitHeight - 1));
             if (gBumholeWindow != nullptr) {
