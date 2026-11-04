@@ -14,6 +14,7 @@
 #include "TPConfig.h"
 #include "TPEngine.h"
 #include "TPMain.h"
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -205,7 +206,8 @@ void PostcardBitmap::alphablt(PostcardBitmap& dest, uint32_t x, uint32_t y) {
 // channel is dropped), 2 a 4444 halfword of channels 1, 2 and 3 with 0xf, 3 the bytes 0xff and channels 0, 1 and 2 (the last
 // channel is dropped); both words are written the way the Mac's stores lay them (high byte first; the port's fixes write
 // format 2's halfword as a host word, below). Any other format writes nothing and `out` does not move. A buffer that
-// cannot be had answers 0 and keeps the ones already made.
+// cannot be had answers 0 and keeps the ones already made. Scaling up makes runs of 0, which the Mac writes as 0 (black);
+// the port's fixes take the nearest source pixel for them (below).
 int32_t PostcardBitmap::resize_into_buffer(uint8_t* out, int32_t width, int32_t height, int32_t format) {
     const int32_t sourceWidth = static_cast<int32_t>(mWidth);
     const uint8_t* source = mPixels;
@@ -229,12 +231,24 @@ int32_t PostcardBitmap::resize_into_buffer(uint8_t* out, int32_t width, int32_t 
         yRuns[i] = static_cast<uint8_t>((next >> 16) - (accumulator >> 16));
         accumulator = next;
     }
+    uint32_t sourceRows = 0;   // the source rows passed so far
     for (int32_t y = 0; y < height; ++y) {
         const uint32_t rows = yRuns[y];
+        // TPW_PORT_FIX previewscale PostcardBitmap::resize_into_buffer | Mac: an output pixel whose run is 0 source pixels (or 0 source rows) is written 0 (black), which happens whenever the bitmap is scaled up: the Send Postcard preview at screens wider than 1024 (its box is 0.625 of the screen's width, and the card 640 pixels wide) | Port: such a pixel takes the nearest source pixel (the next one along, or the last of its row or of the picture) without passing it, so a picture scaled up is pixel-doubled; scaling down is unchanged | Why: the port's screens are large (the launcher's default is 4096x3072), and at 2048x1536 the preview showed only every other pixel of every other row, dark and dotted (tpw-port issue #90); the online outbox's preview calls it the same way
+        const uint32_t taken = rows != 0 ? rows : 1;
+        const uint8_t* const rowsStart = source;
+        if (rows == 0 && sourceRows >= mHeight && sourceRows != 0) source -= sourceWidth * 4;   // past the last row: the last row
         uint8_t* line = rowBuffer;
-        for (uint32_t row = 0; row < rows; ++row) {
+        for (uint32_t row = 0; row < taken; ++row) {
+            const uint8_t* const rowStart = source;
             for (int32_t x = 0; x < width; ++x) {
                 const uint32_t count = xRuns[x];
+                if (count == 0) {   // TPW_PORT_FIX previewscale (above): the nearest source pixel, not passed
+                    const bool pastRow = source - rowStart >= static_cast<std::ptrdiff_t>(sourceWidth) * 4 && source != rowStart;
+                    std::memcpy(line, pastRow ? source - 4 : source, 4);
+                    line += 4;
+                    continue;
+                }
                 uint32_t sum0 = 0;
                 uint32_t sum1 = 0;
                 uint32_t sum2 = 0;
@@ -253,23 +267,25 @@ int32_t PostcardBitmap::resize_into_buffer(uint8_t* out, int32_t width, int32_t 
                 line += 4;
             }
         }
+        if (rows == 0) source = rowsStart;   // TPW_PORT_FIX previewscale (above): the row read is not passed
+        sourceRows += rows;
         for (int32_t x = 0; x < width; ++x) {
             const uint8_t* column = rowBuffer + x * 4;
             uint32_t sum0 = 0;
             uint32_t sum1 = 0;
             uint32_t sum2 = 0;
             uint32_t sum3 = 0;
-            for (uint32_t i = 0; i < rows; ++i) {
+            for (uint32_t i = 0; i < taken; ++i) {
                 sum0 += column[0];
                 sum1 += column[1];
                 sum2 += column[2];
                 sum3 += column[3];
                 column += width * 4;
             }
-            const uint32_t average0 = DivideUnsigned(sum0 & 0xffff, rows) & 0xffff;
-            const uint32_t average1 = DivideUnsigned(sum1 & 0xffff, rows) & 0xffff;
-            const uint32_t average2 = DivideUnsigned(sum2 & 0xffff, rows) & 0xffff;
-            const uint32_t average3 = DivideUnsigned(sum3 & 0xffff, rows) & 0xffff;
+            const uint32_t average0 = DivideUnsigned(sum0 & 0xffff, taken) & 0xffff;
+            const uint32_t average1 = DivideUnsigned(sum1 & 0xffff, taken) & 0xffff;
+            const uint32_t average2 = DivideUnsigned(sum2 & 0xffff, taken) & 0xffff;
+            const uint32_t average3 = DivideUnsigned(sum3 & 0xffff, taken) & 0xffff;
             if (format == 1) {
                 const uint32_t word = (average1 << 24) | (average2 << 16) | ((average3 << 8) & 0x00ffff00u) | 0xff;
                 out[0] = static_cast<uint8_t>(word >> 24);
