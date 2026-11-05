@@ -122,6 +122,7 @@ template <class T>
 inline T& MacAt(void* base, size_t offset) {
     return *reinterpret_cast<T*>(static_cast<char*>(base) + offset);
 }
+void ClearHostHoverAndDrag(CUI2DMap* map);   // below, beside HoverOf
 }  // namespace
 
 int16_t gMapPanelScript[] = {TPW_WINDOW_SCRIPT_102B2366};   // 0x102b2366: the image's words (generated, devtools/gen_game_tables.py)
@@ -230,6 +231,8 @@ void CUI2DMap::CreateMapPanel() {
     MacAt<uint32_t>(self, 0x20060) = 0;
     MacAt<uint16_t>(self, 0x20064) = 0;
     MacAt<uint32_t>(self, 0x20084) = 0;
+    // TPW_PORT_FIX mapreopen CUI2DMap::CreateMapPanel | Mac: the hovered sprite (the word at 0x20060) and the drag flag (0x20084) are cleared as the panel opens, with the hovered thing's id (0x20064) | Port: the host's own places for the two (HoverOf at 0x200a0 and the drag flag at 0x200a8, where MapAreaCallback reads and writes them) are cleared as well | Why: a 64-bit build; only the Mac's words were cleared, so a map opened again still held the sprite hovered the last time, which CloseSprites had freed with the others: the first pointer move over the map read that freed sprite (a crash once its memory is used again), and a double-click before any move opened the status panel of whatever it pointed at; a drag still on when the map closed went on scrolling it
+    ClearHostHoverAndDrag(this);
     GetHFieldMaxVertexIndices(&MacAt<uint32_t>(self, 0x24), &MacAt<uint32_t>(self, 0x28));
 
     const float scale = 0.1f;
@@ -454,6 +457,10 @@ template <class T> T& Field(CUI2DMap* map, size_t offset) { return *reinterpret_
 constexpr size_t kHoverOffset = 0x200a0;
 constexpr size_t kDragOffset = 0x200a8;
 CUI2DMapSprite*& HoverOf(CUI2DMap* map) { return Field<CUI2DMapSprite*>(map, kHoverOffset); }
+void ClearHostHoverAndDrag(CUI2DMap* map) {   // TPW_PORT_FIX mapreopen (CreateMapPanel)
+    HoverOf(map) = nullptr;
+    Field<int32_t>(map, kDragOffset) = 0;
+}
 CUI2DMapSprite* SpriteOf(CUI2DMapSprite* p) { return p; }
 CUI2DMapSprite* WordOf(CUI2DMapSprite* p) { return p; }
 
