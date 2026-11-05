@@ -57,9 +57,12 @@ bool Fit(bool fit, int gameWide, int gameHigh);
 // Whether the game draws into a target of its own size (the fit is on and its targets exist).
 bool FitReady();
 
-// The swap waits for this many of the screen's refreshes (platform/window.cpp MatchSwapIntervalToRefresh). False when the
-// backend refused it (OpenGL: the driver); the caller then asks for 1.
+// The swap waits for this many of the screen's refreshes (platform/window.cpp WaitForEveryRefresh asks for 1). False when
+// the backend refused it (OpenGL: the driver).
 bool SetSwapInterval(int interval);
+// The launcher's Frame rate limit: the most frames a second the game draws (platform/window.cpp HoldToFrameLimit); 0, the
+// default, none beyond the monitor's refresh.
+inline int gFrameLimit = 0;
 
 // The frame (see above). ReadPresent: the present target as RGB bytes, bottom row first, width x height x 3 (the target's
 // size: GameSize with the fit, the window's pixels without); false when it cannot be read.

@@ -2143,7 +2143,7 @@ int32_t BankruptWindowMsg(InterfaceWindow* window, int32_t message, int32_t a, i
 
 extern "C" void __register_global_object(void* object, void* destructor, void* node);   // runtime glue 0x10239940
 
-// ---- the image's data (the two window scripts are generated at configure time, unit v5L42) and the file's globals
+// ---- the image's data (the two window scripts are in include/WindowScripts.inc, unit v5L42) and the file's globals
 int16_t gCongratsScript[] = {TPW_WINDOW_SCRIPT_102A772C};   // 0x102a772c (21 words)
 int16_t gBankruptScript[] = {TPW_WINDOW_SCRIPT_102A7756};   // 0x102a7756 (21 words)
 // The window animations (the image's frames): the congratulations window slides in, rises, spins once, drops and slides out, then again
@@ -2200,7 +2200,9 @@ void UI_Bankrupt(CObject* object) {
     }
     UI_SendMessage(gGameWindow, 6, 0, 0);
     UI_SendMessage(gFirstPersonWindow, 6, 0, 0);
-    InterfaceWindow* created = gUIRootWindow->CreateObject(1, 1, 0x7472, 0, 0, 0x7ff, 0x5ff);
+    // TPW_PORT_FIX v5L26 UI_Bankrupt | Mac: the Bankrupt screen's window, which takes the right click that closes it, is 2048 x 1536 units | Port: as wide and as high as the unit space | Why: a widescreen port; the 4:3 window sat in the middle of a wide screen, so a right click at the left or right of the screen did not close it
+    InterfaceWindow* created = gUIRootWindow->CreateObject(1, 1, 0x7472, 0, 0, static_cast<int16_t>(gUIUnitWidth - 1),
+                                                           static_cast<int16_t>(gUIUnitHeight - 1));
     created->SetCallbackFunction(BankruptWindowMsg);
     InterfaceWindow* window = created->Build(gBankruptScript, nullptr);
     CoolRect rect;
@@ -2243,7 +2245,9 @@ void UI_Congratulations(CObject* object) {
     }
     UI_SendMessage(gGameWindow, 6, 0, 0);
     UI_SendMessage(gFirstPersonWindow, 6, 0, 0);
-    InterfaceWindow* created = gUIRootWindow->CreateObject(1, 1, 0x7472, 0, 0, 0x7ff, 0x5ff);
+    // TPW_PORT_FIX v5L26 UI_Congratulations | Mac: the Congratulations screen's window, which takes the right click that closes it, is 2048 x 1536 units | Port: as wide and as high as the unit space | Why: a widescreen port; the 4:3 window sat in the middle of a wide screen, so a right click at the left or right of the screen did not close it
+    InterfaceWindow* created = gUIRootWindow->CreateObject(1, 1, 0x7472, 0, 0, static_cast<int16_t>(gUIUnitWidth - 1),
+                                                           static_cast<int16_t>(gUIUnitHeight - 1));
     InterfaceWindow* window = created->Build(gCongratsScript, nullptr);
     window->Enable(0);   // the virtual at table offset 0x1c
     CoolRect rect;

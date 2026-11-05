@@ -2,6 +2,7 @@
 
 #include "CMpegBase.h"
 #include "helpers/LbMpegHelpers.h"
+#include "helpers/SoundPoolLock.h"
 #include "platform/interfacelib.h"
 #include "platform/macdoze.h"
 #include "platform/samsutils.h"
@@ -68,6 +69,8 @@ int32_t BitRateOf(unsigned lsf, unsigned layer, unsigned index) {
 int32_t muldiv(int32_t a, int32_t b, int32_t c);
 
 void CMpegBase::ClearCache() {
+    // TPW_PORT_FIX soundpools CMpegBase::ClearCache | Mac: unlocked | Port: under SoundPoolLock (include/helpers/SoundPoolLock.h) | Why: SDL's audio thread gives samples back in parallel with the game
+    std::lock_guard<std::mutex> guard(SoundPoolLock());
     while (mFirstCMpegBase != nullptr) {
         CMpegBase* object = mFirstCMpegBase;
         mFirstCMpegBase = object->mNextPooled;
@@ -80,6 +83,8 @@ void CMpegBase::ClearCache() {
 void* CMpegBase::operator new(std::size_t size) {
     if (size == 0) size = 1;
     if (size != sizeof(CMpegBase)) return ::operator new(size);
+    // TPW_PORT_FIX soundpools CMpegBase::operator_new | Mac: unlocked | Port: under SoundPoolLock (include/helpers/SoundPoolLock.h) | Why: SDL's audio thread gives samples back in parallel with the game
+    std::lock_guard<std::mutex> guard(SoundPoolLock());
     if (mFirstCMpegBase == nullptr) return ::operator new(size);
     --mCurrentCMpegBase;
     if (mCurrentCMpegBase < mLowCMpegBase) mLowCMpegBase = mCurrentCMpegBase;
@@ -95,6 +100,8 @@ void CMpegBase::operator delete(void* object, std::size_t size) {
         ::operator delete(object);
         return;
     }
+    // TPW_PORT_FIX soundpools CMpegBase::operator_delete | Mac: unlocked | Port: under SoundPoolLock (include/helpers/SoundPoolLock.h) | Why: SDL's audio thread gives samples back in parallel with the game
+    std::lock_guard<std::mutex> guard(SoundPoolLock());
     CMpegBase* pooled = static_cast<CMpegBase*>(object);
     pooled->mNextPooled = mFirstCMpegBase;
     mFirstCMpegBase = pooled;
@@ -103,6 +110,8 @@ void CMpegBase::operator delete(void* object, std::size_t size) {
 }
 
 void CMpegBase::TopUp() {
+    // TPW_PORT_FIX soundpools CMpegBase::TopUp | Mac: unlocked | Port: under SoundPoolLock (include/helpers/SoundPoolLock.h) | Why: SDL's audio thread gives samples back in parallel with the game
+    std::lock_guard<std::mutex> guard(SoundPoolLock());
     int32_t count = 0;
     for (CMpegBase* object = mFirstCMpegBase; object != nullptr; object = object->mNextPooled) ++count;
     for (; count < mLevelCMpegBase; ++count) {

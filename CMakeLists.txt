@@ -15,6 +15,9 @@ endif()
 
 add_compile_options(-Wall -Wextra -Wno-unused-parameter -ffp-contract=off -fwrapv)
 add_compile_definitions(TPW_PORT_FIX)
+set(TPW_PORT_FIX ON)   # the fixes are always on here: the ctest checks of the fixes (if(TPW_PORT_FIX) below) and the mods
+# The mods the launcher is built with (platform/mods.cmake): the tpw-mods submodule. Without it the build has no mods.
+set(TPW_MODS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mods CACHE PATH "The tpw-mods folder whose mods the launcher is built with")
 # The WIN32 parts of this file: Windows port contributed by samueleagle91 (tpw-port PR #1).
 if(WIN32)
   # The C++ runtime (libc++, libunwind) and winpthreads are linked into each program: a player's machine has none of the
@@ -26,15 +29,8 @@ set(TPW_DECOMP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tpw-decomp)
 if(NOT EXISTS ${TPW_DECOMP_DIR}/CMakeLists.txt)
   message(FATAL_ERROR "tpw-decomp is missing: git submodule update --init")
 endif()
-# The game's data tables come from your own copy of the game (see tpw-decomp's README). The launcher reads them at run
-# time from the game folder's "SimTheme Park" application (or the one its --program names), so the build holds none of
-# them. Only a build made with -DTPW_TABLES_AT_CONFIGURE=ON compiles them in at configure time, from TPW_GAME_PROGRAM;
-# its default is the CD's own SimTheme Park application, as the import writes it next to this repository. Any full Mac
-# build will do (the CD's 2.0.1, the 2.04b3 patch's, the 2.1 releases).
-if(NOT TPW_GAME_PROGRAM AND NOT DEFINED ENV{TPW_GAME_PROGRAM})
-  set(TPW_GAME_PROGRAM "${CMAKE_CURRENT_SOURCE_DIR}/../extracted/disc-hfs/Theme Park Data/SimTheme Park"
-      CACHE FILEPATH "A full Mac SimTheme Park application (its data fork) the data tables are read from")
-endif()
+# The game's seven data tables are in tpw-decomp (tables/ and include/, see its README) and compiled into the game library,
+# so the build and the launcher need no program of the game.
 set(TPW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 # The Linux build (the TPW_LINUX parts of this file): the platform layer's host code is in platform/host_linux.cpp and
 # platform/linux, and the game is drawn by the system's OpenGL or, when the player chooses it, by the port's own Vulkan
@@ -167,6 +163,7 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   add_library(tpw_platform STATIC ${TPW_PLATFORM_SOURCES})
   target_include_directories(tpw_platform PUBLIC ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
   target_link_libraries(tpw_platform PUBLIC SDL3::SDL3)
+  target_link_libraries(tpw_platform PRIVATE ZLIB::ZLIB)   # platform/online_ftp.cpp's park checks
   if(NOT TPW_LINUX)
     target_link_libraries(tpw_platform PUBLIC OpenGL::GL)
   endif()
@@ -176,9 +173,6 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   enable_language(C)
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/libjpeg-6b ${CMAKE_CURRENT_BINARY_DIR}/third_party/libjpeg-6b)
   target_link_libraries(tpw_platform PRIVATE tpw_libjpeg)
-  if(TPW_TABLES_AT_CONFIGURE)
-    target_compile_definitions(tpw_platform PRIVATE TPW_TABLES_AT_CONFIGURE=1)   # LoadGameTables reads nothing
-  endif()
   if(APPLE)
     # platform/gdi.cpp draws the signs' text with CoreText into a CoreGraphics bitmap.
     target_link_libraries(tpw_platform PUBLIC "-framework CoreText" "-framework CoreGraphics" "-framework CoreFoundation" objc)
@@ -220,9 +214,9 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     target_link_libraries(tpw_platform PUBLIC ${CMAKE_DL_LIBS} Threads::Threads)
   endif()
 
-  # The game's films (QuickTime, Sorenson video) play through FFmpeg (platform/quicktime.cpp), built from source here
-  # (third_party/ffmpeg: a trimmed FFmpeg, LGPL 2.1 or later, static); no copy on the host is ever looked for. With
-  # TPW_MOVIES off the game skips its films.
+  # The game's films (the Mac CD's QuickTime ones, Sorenson video, or the PC CD's EA .TGQ ones, EA TQI video) play
+  # through FFmpeg (platform/quicktime.cpp), built from source here (third_party/ffmpeg: a trimmed FFmpeg, LGPL 2.1 or
+  # later, static); no copy on the host is ever looked for. With TPW_MOVIES off the game skips its films.
   option(TPW_MOVIES "Play the game's films (FFmpeg, built from third_party/ffmpeg)" ON)
   set(TPW_MOVIE_SYSLIBS)
   if(TPW_MOVIES)
@@ -397,6 +391,75 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
       message(STATUS "tpw: platform tests not made (no libclang found; TPW_LIBCLANG names one)")
     endif()
   endif()
+  # The tpw-mods mods (platform/mods.h, platform/mods.cmake: TPW_MODS_DIR, their catalog and tests), with the port's
+  # fixes only: a build without them has no mods and no Mods box.
+  if(TPW_PORT_FIX)
+    include(platform/mods.cmake)
+  else()
+    get_target_property(platform_sources tpw_platform SOURCES)
+    list(REMOVE_ITEM platform_sources ${CMAKE_CURRENT_SOURCE_DIR}/platform/mods.cpp)
+    set_property(TARGET tpw_platform PROPERTY SOURCES ${platform_sources})
+  endif()
+  # The sound library's pools taken from on one thread and given back on another (the game and SDL's audio thread): no
+  # object handed out twice. The program builds only the pools' functions of their src files (tests/host_sound_pools_keep.cmake),
+  # cut by the same slicer as the platform tests, so it is made where they are. The original's pools are not locked (their
+  # give-back ran at interrupt time), so ctest runs it only with the port's fixes; a build without them makes it, and it fails.
+  find_package(Threads REQUIRED)
+  add_executable(tpw_host_sound_pools ${TPW_DECOMP_DIR}/tests/host_sound_pools.cpp)
+  include(${TPW_DECOMP_DIR}/tests/host_sound_pools_keep.cmake)
+  list(TRANSFORM TPW_SOUND_POOLS_SOURCES PREPEND ${TPW_DECOMP_DIR}/src/)
+  target_sources(tpw_host_sound_pools PRIVATE ${TPW_SOUND_POOLS_SOURCES})
+  target_include_directories(tpw_host_sound_pools PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+  target_link_libraries(tpw_host_sound_pools PRIVATE Threads::Threads)
+  tpw_slice(TARGET tpw_host_sound_pools NAME sound_pools KEEP ${TPW_SOUND_POOLS_KEEP})
+  get_target_property(tpw_platform_tests_skipped tpw_platform_tests EXCLUDE_FROM_ALL)
+  if(tpw_platform_tests_skipped)
+    set_target_properties(tpw_host_sound_pools PROPERTIES EXCLUDE_FROM_ALL ON)
+  elseif(TPW_PORT_FIX)
+    add_test(NAME sound_pools COMMAND tpw_host_sound_pools)
+  endif()
+  # Quitting with the park map open: the map's destroy message cancels its advisor message after the world is deleted. The
+  # program builds only UIMain_CancelAdvisorMessage of src/game/ui/ui_main.cpp (the world and the advisor are the test's
+  # stand-ins). The original asks the null world, so ctest runs it only with the port's fixes; a build without them fails.
+  add_executable(tpw_host_map_quit ${TPW_DECOMP_DIR}/tests/host_map_quit.cpp ${TPW_DECOMP_DIR}/src/game/ui/ui_main.cpp)
+  target_include_directories(tpw_host_map_quit PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+  if(TPW_PORT_FIX)
+    target_compile_definitions(tpw_host_map_quit PRIVATE TPW_HOST_MAP_QUIT_GUARD)   # the test sets the fix's flag
+  endif()
+  tpw_slice(TARGET tpw_host_map_quit NAME map_quit KEEP __Z27UIMain_CancelAdvisorMessage14AdvisorMessage)
+  if(tpw_platform_tests_skipped)
+    set_target_properties(tpw_host_map_quit PROPERTIES EXCLUDE_FROM_ALL ON)
+  elseif(TPW_PORT_FIX)
+    add_test(NAME map_quit COMMAND tpw_host_map_quit)
+  endif()
+  # A sound bank's reference count raised by the game and lowered by SDL's audio thread at once: no change lost. The program
+  # builds src/bullfrog/TbRefRelease.cpp whole (it holds only the count). The original counts with a plain load and store, so
+  # ctest runs it only with the port's fixes; a build without them makes it, and it fails.
+  add_executable(tpw_host_ref_count ${TPW_DECOMP_DIR}/tests/host_ref_count.cpp ${TPW_DECOMP_DIR}/src/bullfrog/TbRefRelease.cpp)
+  target_include_directories(tpw_host_ref_count PRIVATE ${TPW_INCLUDE_DIR})
+  target_link_libraries(tpw_host_ref_count PRIVATE Threads::Threads)
+  if(TPW_PORT_FIX)
+    add_test(NAME ref_count COMMAND tpw_host_ref_count)
+  endif()
+  # A park file's packed block cut short or damaged, unpacked with the block's length (the port's fixes parkload and
+  # truncsave): no read past the block, and only a whole block unpacks. The program builds the packing and that unpacking of
+  # src/bullfrog/LbZLib.cpp, with the host's zlib; the original has no such call, so it is made only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_truncated_save ${TPW_DECOMP_DIR}/tests/host_truncated_save.cpp ${TPW_DECOMP_DIR}/src/bullfrog/LbZLib.cpp)
+    target_include_directories(tpw_host_truncated_save PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    target_link_libraries(tpw_host_truncated_save PRIVATE ZLIB::ZLIB)
+    tpw_slice(TARGET tpw_host_truncated_save NAME truncated_save KEEP
+      __Z31LbZLib_PortMemDecompressCheckedPvjS_j   # LbZLib_PortMemDecompressChecked(void*, unsigned int, void*, unsigned int)
+      __Z18LbZLib_MemCompressPvS_jS_   # LbZLib_MemCompress(void*, void*, unsigned int, void*)
+      __ZNK3bfl8compress5CZLib11MemCompressEPhPKhjS2_   # bfl::compress::CZLib::MemCompress(unsigned char*, unsigned char const*, unsigned int, unsigned char*) const
+      __ZNK3bfl8compress5CZLib21CompressWorkspaceSizeEv   # bfl::compress::CZLib::CompressWorkspaceSize() const
+      __Z10SwapHeaderP14ZLibCompHeader)   # SwapHeader(ZLibCompHeader*)
+    if(tpw_platform_tests_skipped)
+      set_target_properties(tpw_host_truncated_save PROPERTIES EXCLUDE_FROM_ALL ON)
+    else()
+      add_test(NAME truncated_save COMMAND tpw_host_truncated_save)
+    endif()
+  endif()
   # The launcher's log file (platform/log_file.cpp): one file that each run adds to, its run headers, the cut to its newest
   # 5 MB, the old files folded in, and Export logs (platform/log_export.cpp), in a temporary folder.
   add_executable(tpw_log_tests platform/tests/log_tests.cpp)
@@ -408,6 +471,35 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   target_include_directories(tpw_log_scrub_tests PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
   target_link_libraries(tpw_log_scrub_tests PRIVATE tpw_platform)
   add_test(NAME log_scrub COMMAND tpw_log_scrub_tests)
+  # The online server client (platform/online_boss.cpp) against a fake connection: the framing, every request and every reply
+  # parser, byte for byte, with malformed and oversized replies.
+  add_executable(tpw_online_boss_tests platform/tests/online_boss_tests.cpp)
+  target_include_directories(tpw_online_boss_tests PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+  target_link_libraries(tpw_online_boss_tests PRIVATE tpw_platform)
+  add_test(NAME online_boss COMMAND tpw_online_boss_tests)
+  # The online sign-up (platform/online_signup.cpp) against a fake connection: the request, every reply, the name rules, the
+  # job and the texts. Its popup (platform/online_signup_ui.cpp, the fix `signup`) with the game's window calls as fakes.
+  add_executable(tpw_online_signup_tests platform/tests/online_signup_tests.cpp)
+  target_include_directories(tpw_online_signup_tests PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+  target_link_libraries(tpw_online_signup_tests PRIVATE tpw_platform)
+  add_test(NAME online_signup COMMAND tpw_online_signup_tests)
+  add_executable(tpw_online_signup_ui_tests platform/tests/online_signup_ui_tests.cpp)
+  target_include_directories(tpw_online_signup_ui_tests PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+  target_link_libraries(tpw_online_signup_ui_tests PRIVATE tpw_platform)
+  add_test(NAME online_signup_ui COMMAND tpw_online_signup_ui_tests)
+  # The online server's park downloads (platform/online_ftp.cpp) against fake connections: each FTP step, its errors and bounds,
+  # and the park checks with malformed parks built in the test.
+  add_executable(tpw_online_ftp_tests platform/tests/online_ftp_tests.cpp)
+  target_include_directories(tpw_online_ftp_tests PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+  target_link_libraries(tpw_online_ftp_tests PRIVATE tpw_platform ZLIB::ZLIB)
+  add_test(NAME online_ftp COMMAND tpw_online_ftp_tests)
+  # The same client against a running online server (decomp-onlinesrv's tpw-online) on this computer: skips (77) unless
+  # TPW_ONLINE_SERVER names one.
+  add_executable(tpw_online_boss_e2e platform/tests/online_boss_e2e.cpp)
+  target_include_directories(tpw_online_boss_e2e PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+  target_link_libraries(tpw_online_boss_e2e PRIVATE tpw_platform)
+  add_test(NAME online_boss_e2e COMMAND tpw_online_boss_e2e)
+  set_tests_properties(online_boss_e2e PROPERTIES SKIP_RETURN_CODE 77)
 
   if(TPW_LINUX)
     # The Vulkan renderer against the system's OpenGL, through the game's OpenGL calls (platform/tests/renderer_tests.cpp):
@@ -423,6 +515,13 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   add_executable(tpw_host_filmbox ${TPW_DECOMP_DIR}/tests/host_filmbox.cpp)
   target_include_directories(tpw_host_filmbox PRIVATE ${TPW_INCLUDE_DIR})
   add_test(NAME filmbox COMMAND tpw_host_filmbox)
+  if(TPW_MOVIES)
+    # A PC CD's film (an EA .TGQ file) made in the test, opened and decoded the way platform/quicktime.cpp plays one:
+    # the ea demuxer, EA TQI pictures, EA ADPCM sound. No game file, no window.
+    add_executable(tpw_tgq_tests platform/tests/tgq_tests.cpp)
+    target_link_libraries(tpw_tgq_tests PRIVATE tpw_ffmpeg)
+    add_test(NAME tgq COMMAND tpw_tgq_tests)
+  endif()
   # An older build's language files read by the later program (include/platform/old_text_tables.h): its UITEXT and
   # CHAT_COMMANDS made the later build's, its fonts found by file name. No game, no files.
   add_executable(tpw_host_old_text_tables ${TPW_DECOMP_DIR}/tests/host_old_text_tables.cpp)
@@ -569,6 +668,13 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   # it needs no internet and runs where networking is blocked (the CI's offline runs).
   add_executable(tpw_update_tests launcher/net/tests/update_tests.cpp)
   target_link_libraries(tpw_update_tests PRIVATE tpw_launcher_ui)
+  # The online.txt to publish in tpw-port (at its root there, devtools/split here) parses to the built-in address.
+  foreach(online_txt online.txt devtools/split/online.txt)
+    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${online_txt})
+      target_compile_definitions(tpw_update_tests PRIVATE TPW_ONLINE_TXT="${CMAKE_CURRENT_SOURCE_DIR}/${online_txt}")
+      break()
+    endif()
+  endforeach()
   add_test(NAME update COMMAND tpw_update_tests)
   # The game's own application on a Mac (launcher/game_app.h), the part that runs everywhere: the bundles' names, the
   # Info.plist the launcher writes for them, the arguments both ways and the .icns it writes from the icon.
@@ -585,19 +691,11 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     target_link_libraries(tpw_installed_icon_tests PRIVATE shell32 ole32)   # TellExplorer
   endif()
   add_test(NAME installed_icon COMMAND tpw_installed_icon_tests)
-  # The run-time table loader (platform/game_tables.cpp) against the configure-time tables, where the build has them (the
-  # differential tests' or TPW_TABLES_AT_CONFIGURE's): every table it reads from the CD's 2.0.1 program and from the 2.04b3
-  # patch's, by the program's SHA-1 and by the content search, must equal the generated arrays byte for byte. The scorers
-  # are the test's own (one body per name), so the game library is not linked. A program that is absent is skipped.
-  if(TPW_GENERATED_DIR AND EXISTS ${TPW_GENERATED_DIR}/advisor_lines.cpp)
-    add_executable(tpw_game_tables_tests platform/tests/game_tables_tests.cpp platform/game_tables.cpp ${TPW_GENERATED_SOURCES})
-    target_include_directories(tpw_game_tables_tests PRIVATE ${TPW_INCLUDE_DIR} ${TPW_GENERATED_DIR})
-    target_compile_definitions(tpw_game_tables_tests PRIVATE TPW_TABLES_AT_CONFIGURE=1)
-    add_test(NAME game_tables COMMAND tpw_game_tables_tests
-             "${CMAKE_CURRENT_SOURCE_DIR}/../extracted/disc-hfs/Theme Park Data/SimTheme Park"
-             "${CMAKE_CURRENT_SOURCE_DIR}/../extracted/SimTPPatch_204b3/Sim Theme Park Patch/patch 2.04b3/SimTheme Park")
-    set_tests_properties(game_tables PROPERTIES SKIP_RETURN_CODE 77)
-  endif()
+  # Which icon.png the launcher shows: the run's data folder's, the per-user folder's, or the stand-in (launcher/app_icon.h).
+  add_test(NAME launcher_icon COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/launcher/tests/icon_choice_test.py $<TARGET_FILE:tpw_launcher>)
+  # No function of the game or the launcher is looked up by its symbol at run time (a Linux launcher exports none of its
+  # own, so the lookup finds nothing there and Save crashed; Discord, xoob, 2026-11-01): devtools/check_own_dlsym.py.
+  add_test(NAME own_dlsym COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/devtools/check_own_dlsym.py)
 else()
   message(STATUS "tpw: launcher not built (needs OpenGL and Python 3)")
 endif()

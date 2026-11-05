@@ -65,7 +65,7 @@ BARE_ARCHIVE = re.compile(r"archive\.org", re.I)
 # The files that list the game's own files by hash (per-file SHA-1/SHA-256, program builds, tool downloads): a long hash
 # beside the word "image" or "download" there names a file of the game or a tool, not a particular download.
 HASH_FILES = {"devtools/import_eur.py", "devtools/import_originals.py", "assets/manifest_data.inc",
-              "include/platform/game_table_lists.inc", "tests/host_manifest.cpp", "Makefile", "install.ps1"}
+              "tests/host_manifest.cpp", "Makefile", "install.ps1"}
 # The monorepo's own files that the export does not publish (export_split.py MONO_ONLY): archive.org may be written there.
 # Not README.md: the port's README.md is published, so it stays under the rule (as does every file in a published tree).
 ARCHIVE_OK = {"HANDOFF.md", "NOTES.md", "STATUS.md", "PROGRESS.md"}
@@ -183,7 +183,7 @@ def self_test():
         # a long hash beside a disc or a download, except where the game's own files are listed
         ("the disc image's sha256 " + "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "a.md", True),
         ("sha1 of the downloaded zip " + "da39a3ee5e6b4b0d3255bfef95601890afd80709", "launcher/a.cpp", True),
-        ("the zip item " + "da39a3ee5e6b4b0d3255bfef95601890afd80709", "include/platform/game_table_lists.inc", False),
+        ("the zip item " + "da39a3ee5e6b4b0d3255bfef95601890afd80709", "devtools/import_originals.py", False),
         ('{"Data/a.wad", "' + "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" + '"},', "assets/manifest_data.inc", False),
         ("cmake sha256 " + "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "a.cmake", False),
         # Redump ids, site names, item titles

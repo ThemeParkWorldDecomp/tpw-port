@@ -2,6 +2,7 @@
 // untranslated (the OnlineConfig constructor is in src/game/online/FS_Online.cpp).
 #pragma once
 #include <cstdint>
+#include <map>
 #include <new>
 #include <string>
 
@@ -9,12 +10,9 @@
 #include "TbDynamicStringTemplate.h"
 #include "TbTList.h"
 
-// The park GetFTPDownloadParkInfo describes (name and layout invented; only the theme is
-// read so far).
-struct CFSFTPParkInfo {
-    uint8_t mF00[0x4c];
-    int32_t mTheme;          // 0x4c  index into the online theme list
-};
+// The park GetFTPDownloadParkInfo describes: its answer is the system's CFSOnlinePark (mFTPPark), so it is read as one, never at the
+// Mac's offsets (name invented).
+struct CFSFTPParkInfo;
 
 // The online library's connection classes (imports of the "online" shared library; main has none of their functions). Only the calls
 // the system makes are declared: Release, and the destructor called without a delete (the library owns the storage).
@@ -155,6 +153,13 @@ public:
 };
 namespace ftp_callee {
 void ControlCallback(CFTPControl* control, int32_t state, int32_t result);   // virtual slot +8 of the control through __ptr_glue 0x1023baa8
+// Host only (port fix ftpthread): the online server's park downloads (include/platform/online_ftp.h) take the client's commands
+// when an online server is set; true when they took it. The source's weak defaults answer false (and End does nothing);
+// platform/online_library.cpp's take them.
+bool PortFTPConnect(FTPClient* self, const char* user, const char* password);
+bool PortFTPDownload(FTPClient* self, const char* remote, const char* local);
+bool PortFTPDisconnect(FTPClient* self);
+void PortFTPEnd(FTPClient* self);
 }
 
 // Unit v5101: the callees of FTPClient's members (the connection base class, the socket and C library imports, the thread library); all
@@ -522,6 +527,19 @@ extern const CFSOnlineCity* gOnlineCityOverlayShown;   // 0x10395d00, the city t
 extern int32_t gOnlineLoginPanelFlag;                  // 0x10395d2c, cleared when the login panel gets message 0x14
 // TPW_PORT_FIX login64 gPortOnlineLoginPanel | Mac: the login panel's window is kept only in the 32-bit word gOnlineLoginPanelFlag | Port: the whole pointer is kept here as well (CreateOnlineLoginPanel), and RemoveOnlineLoginPanel closes this window while the word still holds its low 32 bits | Why: a 64-bit build; the word cannot hold a host pointer, so the login panel's Cancel sent its close message to a cut-down address and crashed
 inline InterfaceWindow* gPortOnlineLoginPanel = nullptr;
+// TPW_PORT_FIX parkrows PortKeepParkRow/PortParkOfRow | Mac: the park list panel and the find panel keep a row's park only in the row's 32-bit data word | Port: the whole pointer is also kept here, by its word, when the row is added, and a click on the row finds it again (a word not kept is read as the Mac reads it) | Why: a 64-bit build; the word cannot hold a host pointer, so clicking a park in the list opened its info panel at a cut-down address and crashed
+inline std::map<int32_t, const CFSOnlinePark*>& PortParkRows() {
+    static std::map<int32_t, const CFSOnlinePark*> rows;
+    return rows;
+}
+inline void PortKeepParkRow(const CFSOnlinePark* park) {
+    PortParkRows()[static_cast<int32_t>(reinterpret_cast<uintptr_t>(park))] = park;
+}
+inline const CFSOnlinePark* PortParkOfRow(int32_t data) {
+    auto it = PortParkRows().find(data);
+    if (it != PortParkRows().end()) return it->second;
+    return reinterpret_cast<const CFSOnlinePark*>(static_cast<uintptr_t>(static_cast<uint32_t>(data)));
+}
 extern char16_t gOnlineLoginPassword[33];              // 0x10395d30 (size from the next global)
 extern char16_t gOnlineLoginName[33];                  // 0x10395d72 (size invented)
 extern int16_t gCityInfoOverlayScript[];               // 0x102b0288, initialised data of the window script (not defined by this unit)
@@ -612,10 +630,12 @@ void GeneralParkDownloadCompleteCallback(int32_t, const void*);         // 0x101
 // Unit v5537 (src/game/ui/ui_onlineParkInfoPanel.cpp): the info panel's globals, its message function (untranslated; the Mac passes the address of
 // its TVector at 0x10268588) and the two callees the panel calls that no header declared.
 extern InterfaceWindow* gOnlineParkInfoPanel;                      // 0x103961e4, NULL when no panel is open
-extern CFSOnlinePark gOnlineParkInfoPark;                          // 0x10396118, the copy of the park the panel shows
-extern void (*gOnlineParkInfoCancel)();                            // 0x10396114
-extern void (*gOnlineParkInfoDownload)(int32_t, const void*);      // 0x10396110
-extern void* gOnlineParkInfoContext;                               // 0x1039610c
+// The next four are other names of the message function's globals below (gOnlineParkInfoParkStorage, gOnlineParkInfoClose,
+// gVisitParkPostDownload, gVisitParkContext): the Mac has one word or block at each address.
+extern CFSOnlinePark& gOnlineParkInfoPark;                         // 0x10396118, the copy of the park the panel shows
+extern void (*&gOnlineParkInfoCancel)();                           // 0x10396114
+extern void (*&gOnlineParkInfoDownload)(int32_t, const void*);     // 0x10396110
+extern const void*& gOnlineParkInfoContext;                        // 0x1039610c
 extern int16_t gOnlineParkInfoScript[];                            // 0x102b0e58, initialised data of the window script (not defined by this unit)
 int32_t OnlineParkInfoPanelMsg(InterfaceWindow* window, int32_t message, int32_t a, int32_t b);   // 0x101ea7f0, untranslated
 namespace park_info_callee {
@@ -729,6 +749,9 @@ extern char16_t gFTPDownloadSlashC;   // 0x102a72a8
 namespace ftpdl_callee {
 CFSOnlineServer* ReturnFTPDownloadServer(CFSOnlineSystemServerList* list);   // 0x1017b0b4 CFSOnlineSystemServerList::ReturnFTPDownloadServer
 TbDynamicStringTemplate<char16_t>* RemoveHead(TbPtrList<TbDynamicStringTemplate<char16_t>>* list);   // 0x10178114
+// Host only (port fix ftpthread): 0 when the FTP client can download, else the error id a download fails with at once. The
+// source's weak default answers 0; the launcher's (platform/online_library.cpp) answers an error, as its FTP client has no thread.
+int32_t PortFTPDownloadUnavailable();
 }  // namespace ftpdl_callee
 
 // Unit v5371 (src/game/online/Connection.cpp): the connection base class's receive buffer and local address.
@@ -790,7 +813,7 @@ extern uint8_t gPlayerLoginNodeA[];                // 0x10394af8
 extern uint8_t gPlayerLoginNodeB[];                // 0x10394ad8
 
 // Unit v5924 (src/game/online/FS_Online.cpp).
-extern NS_MacDoze::_GUID gOnlineNewsGuid;   // 0x102a7248 (the news requests' GUID; the Mac's first word is 0x5c200a41, the rest was not read)
+extern NS_MacDoze::_GUID gOnlineNewsGuid;   // 0x102a7248 (the news requests' GUID, 5c200a41 298111d3 adf400e0 18904fd5)
 void FSOnlineNewsConnectionCallback(int32_t, int32_t, void*, void*);   // 0x10171dfc (the TVector at 0x102674a0)
 void CreateOnlineNewsPanel();                                          // 0x101e3264 (820)
 // Unit v51117 (src/game/save/FS_MasterSave.cpp, src/game/online/FS_Online.cpp)
@@ -799,6 +822,9 @@ void FSOnlineUploadServerConnectionCallback(int32_t, int32_t, void*, void*);   /
 extern char16_t gMasterSaveWideText[];  // 0x1024c95e: the wide text is at +0x5f bytes
 extern uint8_t gMasterSaveString[];            // 0x10380a90: the wide string object (names invented)
 extern uint8_t gMasterSaveNode[];              // 0x10380aa4: its __register_global_object record
+// The word a pointer is kept in, with the whole pointer remembered for when the word comes back (for a test that writes such a
+// word into the system itself; the system's own stores go through the same table).
+int32_t KeepPointerWord(const void* pointer);
 namespace online_callee {
 void Free(void* p);   // 0x10238a70, the C library's free (weak in the source, a fake in the tests)
 }

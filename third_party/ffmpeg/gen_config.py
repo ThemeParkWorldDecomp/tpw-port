@@ -21,9 +21,10 @@ import re
 import sys
 
 
-# What the game's films need (QuickTime .mov, Sorenson Video 1, IMA4 ADPCM): the components registered and built.
-DECODERS = ["svq1", "adpcm_ima_qt"]
-DEMUXERS = ["mov"]
+# What the game's films need: the Mac CD's (QuickTime .mov, Sorenson Video 1, IMA4 ADPCM) and the PC CD's (EA's .TGQ
+# files: the ea demuxer, EA TQI pictures and EA ADPCM sound). The components registered and built.
+DECODERS = ["svq1", "adpcm_ima_qt", "eatqi", "adpcm_ea"]
+DEMUXERS = ["mov", "ea"]
 PROTOCOLS = ["file"]
 BSFS = ["null"]                      # a decoder without bitstream filters of its own gets the null filter
 COMPONENTS = ([d + "_decoder" for d in DECODERS] + [d + "_demuxer" for d in DEMUXERS] +
@@ -33,7 +34,8 @@ ON = {
     # the libraries kept
     "CONFIG_AVUTIL", "CONFIG_AVCODEC", "CONFIG_AVFORMAT", "CONFIG_SWSCALE",
     # subsystems the components above select (configure's *_select)
-    "CONFIG_HPELDSP", "CONFIG_ISO_MEDIA", "CONFIG_RIFFDEC", "CONFIG_MPEG4AUDIO",
+    "CONFIG_HPELDSP", "CONFIG_ISO_MEDIA", "CONFIG_RIFFDEC", "CONFIG_MPEG4AUDIO", "CONFIG_AANDCTTABLES",
+    "CONFIG_BLOCKDSP", "CONFIG_BSWAPDSP",
     # configure's defaults that change what code is built
     "CONFIG_STATIC", "CONFIG_SAFE_BITSTREAM_READER", "CONFIG_SWSCALE_ALPHA", "CONFIG_UNSTABLE",
     # zlib (the game links it anyway): the films' movie headers are compressed (a cmov atom)

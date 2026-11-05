@@ -12,7 +12,9 @@
 #include "app_icon_standin.h"
 #include "game_app.h"
 #include "icon.h"
+#include "importer.h"
 #include "installed_icon.h"
+#include "ui/theme.h"
 
 // platform.h is not included: it brings the game's own headers, whose Rect and DebugStr clash with Apple's MacTypes.h
 // (platform/gdi_text.cpp keeps clear of it the same way). The one thing wanted from it is the log line.
@@ -29,6 +31,30 @@ void Log(const char* format, ...) __attribute__((format(printf, 1, 2)));
 #endif
 
 namespace tpw::launcher {
+
+std::string ExistingDataFolder() {
+    std::error_code ec;
+    std::filesystem::path guess;
+#if defined(__APPLE__)
+    if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0')
+        guess = std::filesystem::path(home) / "Library" / "Application Support" / tpw::ui::kDataFolderName;
+#elif defined(_WIN32)
+    if (const char* appData = std::getenv("APPDATA"); appData != nullptr && *appData != '\0')
+        guess = std::filesystem::path(appData) / tpw::ui::kDataFolderName;
+#elif defined(__linux__)
+    if (const char* dataHome = std::getenv("XDG_DATA_HOME"); dataHome != nullptr && *dataHome != '\0')
+        guess = std::filesystem::path(dataHome) / tpw::ui::kDataFolderName;
+    else if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0')
+        guess = std::filesystem::path(home) / ".local" / "share" / tpw::ui::kDataFolderName;
+#endif
+    if (!guess.empty()) return std::filesystem::is_directory(guess, ec) ? guess.string() : std::string();
+    std::string folder;
+    if (char* pref = SDL_GetPrefPath("", tpw::ui::kDataFolderName)) {
+        folder = pref;
+        SDL_free(pref);
+    }
+    return folder;
+}
 
 namespace {
 
@@ -78,11 +104,17 @@ bool SetDockIcon(const IconImage& icon, const char** reason) {
 }
 #endif
 
-// The icon to show: `dataFolder`'s icon.png (own: true, `source` its Source text) or the stand-in.
+// The icon to show: `dataFolder`'s icon.png, else the per-user data folder's (a run with a folder of its own, --data or
+// a test's, on a machine where the game was imported: launcher.ini's data_folder first, as the window follows it), else
+// the stand-in. `own` true and `source` the Source text for an icon.png.
 IconImage LoadIcon(const std::string& dataFolder, bool& own, std::string& source) {
     IconImage icon;
-    const std::string path = dataFolder + "/icon.png";
-    own = !dataFolder.empty() && tpw::assets::ReadIconPng(path, icon, &source);
+    own = !dataFolder.empty() && tpw::assets::ReadIconPng(dataFolder + "/icon.png", icon, &source);
+    const std::string perUser = own ? std::string() : ExistingDataFolder();
+    if (!perUser.empty()) {
+        own = tpw::assets::ReadIconPng(tpw::assets::ResolveDataRoot(perUser) + "/icon.png", icon, &source) ||
+              tpw::assets::ReadIconPng(perUser + "/icon.png", icon, &source);
+    }
     if (!own) icon = StandInAppIcon();
     return icon;
 }

@@ -7,7 +7,6 @@
 
 #include "handoff.h"
 #include "platform.h"
-#include "platform/game_tables.h"
 
 namespace tpw::launcher {
 
@@ -20,7 +19,7 @@ namespace fs = std::filesystem;
 
 // launcher.ini's key for the bytes the last start of an edition read.
 std::string StartupBytesKey(assets::Edition edition) {
-    return std::string("startup_bytes_") + (edition == assets::kEditionUs ? "us" : "eur");
+    return std::string("startup_bytes_") + assets::EditionName(edition);
 }
 
 // Where the count goes once the game's window is shown (the backend is gone by then).
@@ -47,7 +46,7 @@ std::vector<fs::path> FirstFiles(assets::Edition edition, const fs::path& gameDi
     static const char* const kAfter[] = {"data/ui.wad",           "data/esprites.wad",
                                          "data/Lobby.wad",        "data/global/advisor.wad",
                                          "data/global/speech/lips.wad", "data/high.sam"};
-    const bool us = edition == assets::kEditionUs;
+    const bool us = assets::IsUsGame(edition);
     const fs::path language = fs::path("data/Language") / (us ? "American" : "English");
     std::vector<fs::path> files;
     for (const char* name : kBefore) files.push_back(gameDir / name);
@@ -85,13 +84,11 @@ ui::WindowOutcome OpenLauncherWindow(ui::ImporterBackend& backend, ui::LaunchCho
         tpw::Log("preload: off (--no-preload)");
     } else {
         tpw::PreloadPlan plan;
-        if (backend.HasProgram()) {
-            plan.program = backend.ProgramPath();
-            plan.loadTables = &LoadGameTables;
-        }
         const std::string last = backend.LastChoice();
         if (!last.empty() && backend.importer() != nullptr) {
-            gPreloadEdition = last == "us" ? assets::kEditionUs : assets::kEditionEur;
+            if (!assets::EditionFromName(last.c_str(), gPreloadEdition) || gPreloadEdition == assets::kEditionGold ||
+                gPreloadEdition == assets::kEditionLanguages)
+                gPreloadEdition = assets::kEditionEur;
             gPreloadForEdition = true;
             if (backend.Status(gPreloadEdition).unlocked)
                 plan.files = FirstFiles(gPreloadEdition, backend.importer()->GameFolder(gPreloadEdition));
@@ -122,19 +119,13 @@ void BeginStartup(ui::ImporterBackend& backend, assets::Edition edition) {
     tpw::OnStartupProgress();
 }
 
-bool LoadTables(const fs::path& program, std::string* why) {
+void StartGame() {
     if (!tpw::StartupBegun()) {
         tpw::StartupBegin(0);
         tpw::StartupStamp("start (counted from here, no total)");
     }
-    bool ok = false;
-    if (tpw::PreloadedTables(program, &ok, why)) {
-        tpw::StartupStamp(ok ? "tables loaded (by the preload)" : "tables failed (in the preload)");
-        return ok;
-    }
-    ok = LoadGameTables(program.string().c_str(), why);
-    tpw::StartupStamp(ok ? "tables loaded" : "tables failed");
-    return ok;
+    tpw::FinishPreload();
+    tpw::StartupStamp("preload finished");
 }
 
 }  // namespace tpw::launcher
