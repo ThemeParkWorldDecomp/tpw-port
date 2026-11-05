@@ -793,7 +793,8 @@ int32_t CObject::IsAvailableToChoose() {
 // and src/Object_opening.cpp hold other CObject members. The guests are CPerson, a placeholder class: the ride reads one word of a guest (+0x220, his
 // state) and calls five of his members, which stay untranslated (the launcher answers zero).
 
-int32_t ObjectReadyForAdmitting(CPerson*) __asm__("__ZNK7CPerson17ReadyForAdmittingEv");   // 0x1011f0b8
+// TPW_PORT_FIX admitbool ObjectReadyForAdmitting | Mac: CPerson::ReadyForAdmitting answers its byte in r3, so the whole register is 0 or 1 | Port: the alias answers bool, as the function it names (ThingReceivers.h) | Why: declared int32_t, LetPeopleOn tested all of the answer's register while the function sets only its low byte (on x86-64, sete %al; the rest keeps what was there, such as the guest's state 0xb), so a guest still walking up to the front of the queue (+0x1f1 not 0) was admitted: the ride then waited for someone who could not board, forgot him a turn later, and the queue stood still until he caught up (the game's own asserts say "Person been admitted to a ride that they're not first in queue for" and "Object N thinks person M is being loaded, person thinks otherwise"; seen every few turns at the bouncy castle of the playtest's Lost Kingdom park)
+bool ObjectReadyForAdmitting(CPerson*) __asm__("__ZNK7CPerson17ReadyForAdmittingEv");   // 0x1011f0b8
 void ObjectOnAdmittance(CPerson*) __asm__("__ZN7CPerson12OnAdmittanceEv");                 // 0x1011f114
 int32_t ObjectExitRide(CPerson*) __asm__("__ZN7CPerson8ExitRideEv");                       // 0x1011f5a4
 
