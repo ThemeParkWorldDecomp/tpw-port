@@ -150,6 +150,54 @@ Answer Check(const Current& current, const Questions& questions, const net::Limi
 
 }  // namespace update
 
+const char* OnlineServerChoice::Describe() const {
+    switch (from) {
+        case From::Option: return "the --online-server option";
+        case From::Setting: return "the Settings box (launcher.ini's online_server)";
+        case From::Found: return "the address read from tpw-port's online.txt";
+        case From::BuiltIn: return "the built-in address";
+    }
+    return "";
+}
+
+OnlineServerChoice ChooseOnlineServer(const std::string& option, const std::string& setting, const std::string& found) {
+    OnlineServerChoice choice;
+    std::string why;
+    if (!option.empty()) {
+        if (net::ValidHost(option, &why)) {
+            choice.host = option;
+            choice.from = OnlineServerChoice::From::Option;
+            return choice;
+        }
+        choice.skipped.push_back("--online-server \"" + option.substr(0, 60) + "\" is not a host (" + why + ")");
+    }
+    if (!setting.empty()) {
+        if (net::ValidHost(setting, &why)) {
+            choice.host = setting;
+            choice.from = OnlineServerChoice::From::Setting;
+            return choice;
+        }
+        choice.skipped.push_back("launcher.ini's online_server \"" + setting.substr(0, 60) + "\" is not a host (" + why +
+                                 ")");
+    }
+    if (!found.empty()) {
+        if (net::ValidHost(found, &why)) {
+            choice.host = found;
+            choice.from = OnlineServerChoice::From::Found;
+            return choice;
+        }
+        choice.skipped.push_back("launcher.ini's " + std::string(kOnlineServerFoundKey) + " \"" + found.substr(0, 60) +
+                                 "\" is not a host (" + why + ")");
+    }
+    choice.host = net::kOnlineServerBuiltIn;
+    choice.from = OnlineServerChoice::From::BuiltIn;
+    return choice;
+}
+
+std::string AutomaticOnlineServer(const ImportBackend& settings) {
+    return ChooseOnlineServer("", "", settings.Setting(kOnlineServerFoundKey)).host;
+}
+
 Updater::Updater(ImportBackend& settings, update::Current current, void (*log)(const char*), Hooks hooks)
     : settings_(settings), current_(std::move(current)), log_(log), hooks_(std::move(hooks)) {
     if (!hooks_.exists)
@@ -184,12 +232,32 @@ void Updater::Remember(const std::string& found) {
         Log("update: cannot keep what the check found in launcher.ini: " + err);
 }
 
+void Updater::KeepPointer(const net::OnlinePointer& pointer) {
+    if (!pointer.ok) {
+        Log("online server: tpw-port's online.txt not used (" + pointer.why + "); the game keeps " +
+            AutomaticOnlineServer(settings_) + " when no server is named");
+        return;
+    }
+    if (settings_.Setting(kOnlineServerFoundKey) == pointer.server) {
+        Log("online server: tpw-port's online.txt names " + pointer.server + ", as before");
+        return;
+    }
+    std::string err;
+    if (!settings_.SaveSetting(kOnlineServerFoundKey, pointer.server, err)) {
+        Log("online server: cannot keep the address from tpw-port's online.txt in launcher.ini: " + err);
+        return;
+    }
+    Log("online server: tpw-port's online.txt names " + pointer.server + ", kept for the game");
+}
+
 void Updater::Begin(Phase phase, std::function<void()> job) {
     if (worker_.joinable()) worker_.join();
     {
         std::lock_guard<std::mutex> lock(mutex_);
         done_ = false;
         answer_ = update::Answer();
+        askedPointer_ = false;
+        pointer_ = net::OnlinePointer();
         staged_ = alreadyCurrent_ = false;
         stageVersion_.clear();
         stageFailure_.clear();
@@ -205,15 +273,22 @@ void Updater::StartupCheck(long long now) {
         Log("update check: off (Settings)");
         return;
     }
-    Log("update check: asking GitHub for the newest release (this launcher " + current_.version + ")" +
+    Log("update check: asking GitHub for the newest release, then the online server's address (this launcher " +
+        current_.version + ")" +
         (found_.empty() ? "" : "; found earlier: " + found_));
     checkTime_ = now;
     Begin(Phase::Checking, [this] {
         net::Limits limits;
         limits.cancel = &cancel_;
         update::Answer answer = update::Check(current_, hooks_.questions, limits);
+        // The online server's address only when GitHub answered: offline, it would only wait as long again.
+        const bool ask = answer.answered && !cancel_ && hooks_.questions.onlinePointer;
+        net::OnlinePointer pointer;
+        if (ask) pointer = hooks_.questions.onlinePointer(limits);
         std::lock_guard<std::mutex> lock(mutex_);
         answer_ = std::move(answer);
+        askedPointer_ = ask;
+        pointer_ = std::move(pointer);
         done_ = true;
     });
 }
@@ -303,6 +378,7 @@ void Updater::Poll() {
     const Phase was = phase_;
     phase_ = Phase::Idle;
     const update::Answer answer = answer_;
+    if (was == Phase::Checking && askedPointer_) KeepPointer(pointer_);
     if (!answer.answered) {
         // No internet, GitHub down, a rate limit or junk: nothing is said, and the next launch asks again.
         offline_ = true;

@@ -886,8 +886,8 @@ namespace {
 // labs of the C library: the most negative number stays as it is (wrapping negation).
 int32_t MacLabs(int32_t value) { return value < 0 ? -value : value; }
 
-// The data word of the entry at `index`: the word after the entry's own (the original reads storage + 4 * index + 4).
-// TPW_PORT_FIX listdata EntryData | Mac: the 32-bit word at storage + 4 * index + 4, the entry's data word (kLCData) | Port: the entry's kLCData word of the host's block, its low half (mInt), as GetData reads it | Why: a 64-bit build; the host's block words (LCWord) are 8 bytes so that a string cell can hold a pointer, so the Mac's byte offset read half of some other word: FindData never found an entry by its data word and PropagateMessage handed the rows the wrong one, so the lists kept the rows they take away (a visitor who leaves the park in the visitors list, a member of staff who leaves the staff room in its panel, an applicant hired or gone in the hire panel), and those that open on the clicked thing (all staff, all items, the visitors and ride lists) did not select it
+// The data word of the entry at `index`: the word after the entry's own, kLCData (the original reads storage + 4 * index + 4,
+// its words being 4 bytes; the host's are LCWord, so the word is read as GetData reads it).
 int32_t EntryData(const uint8_t* storage, int32_t index) {
     return reinterpret_cast<const LCWord*>(storage)[index + kLCData].mInt;
 }

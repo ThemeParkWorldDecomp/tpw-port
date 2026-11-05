@@ -7,9 +7,11 @@
 
 #include <algorithm>
 #include <cctype>
+#include <vector>
 
 #include "fit.h"
 #include "platform.h"
+#include "platform/online_boss.h"
 
 namespace SamsUtilities {
 
@@ -21,14 +23,20 @@ constexpr bool kApple = false;   // Alt+Enter toggles full screen (platform/wind
 #endif
 
 // What the original keeps in the object beyond the fields the game reads: the key that is
-// down (UGamework +0x34 character, +0x35 key code, +0x38 modifiers).
+// down (UGamework +0x34 character, +0x35 key code, +0x38 modifiers), and the SDL key it came from.
 struct KeyState {
     char character = 0;
     char keyCode = 0;
     uint32_t modifiers = 0;
+    int32_t scancode = 0;
 };
 KeyState gKey;
 int32_t gFrames = 0;
+#ifdef TPW_PORT_FIX
+// With the launcher's "Several keys at once" (tpw::gPortSeveralKeys): the keys that went down before the remembered one
+// (gKey) and are still down, each with the modifiers it went down with.
+std::vector<KeyState> gHeldKeys;
+#endif
 
 // The autoKey events the Mac's Event Manager sent while the key that went down last stayed down: the first after the
 // system's delay, then one at each interval (UGamework::Run takes an autoKey as a key-down, 0x100054c4). The port
@@ -191,9 +199,34 @@ void UGamework::Run() {
         gKey.character = MacCharacter(key);
         gKey.keyCode = static_cast<char>(macKey);
         gKey.modifiers = modifiers;
+        gKey.scancode = static_cast<int32_t>(key.scancode);
         HandleTyping(gKey.character, gKey.keyCode, gKey.modifiers, true);
         return true;
     };
+#ifdef TPW_PORT_FIX
+    // TPW_PORT_FIX severalkeys UGamework::Run | Mac: 0x100054c4 releases the key that is down before it presses the next one, and 0x100056a0 releases it at any key's key-up, so the game saw one key at a time (Up held, then Left: first person turns and stops walking) | Port: with the launcher's "Several keys at once" on (gPortSeveralKeys, off by default) a key that goes down keeps the keys already down (gHeldKeys) and each comes up at its own key-up, as the PC's window messages did; off, the Mac's | Why: walking and turning at once in first person, as on the PC (reported by Addable13)
+    // A held key's own key-up: released with the modifiers it went down with. False when this key is not held.
+    auto releaseHeldKey = [this, &releaseKey](int32_t scancode) {
+        if (gKey.scancode == scancode && (gKey.character != 0 || gKey.keyCode != 0)) {
+            releaseKey();
+            return true;
+        }
+        for (auto held = gHeldKeys.begin(); held != gHeldKeys.end(); ++held) {
+            if (held->scancode != scancode) continue;
+            HandleTyping(held->character, held->keyCode, held->modifiers, false);
+            gHeldKeys.erase(held);
+            return true;
+        }
+        return false;
+    };
+    // Before a key goes down: the remembered key stays down, among the held keys. The same key down again with no key-up
+    // seen comes up first.
+    auto keepKeys = [&releaseHeldKey](int32_t scancode) {
+        releaseHeldKey(scancode);
+        if (gKey.character != 0 || gKey.keyCode != 0) gHeldKeys.push_back(gKey);
+        gKey = KeyState();
+    };
+#endif
     while (mRunning) {
         SDL_Event sdl;
         while (mRunning && SDL_PollEvent(&sdl)) {
@@ -241,6 +274,13 @@ void UGamework::Run() {
                 // The host's repeats are not the Mac's (the autoKeys are made below), and a modifier is no key.
                 if (sdl.key.repeat || IsModifierKey(sdl.key.scancode)) break;
                 gAutoKey = AutoKey();
+#ifdef TPW_PORT_FIX
+                if (tpw::gPortSeveralKeys) {   // severalkeys: the keys already down stay down
+                    keepKeys(static_cast<int32_t>(sdl.key.scancode));
+                    if (pressKey(sdl.key)) gAutoKey = StartAutoKey(sdl.key.scancode, false);
+                    break;
+                }
+#endif
                 // 0x100054c4: a key still down is released first (the Mac reported one key
                 // at a time), with a Process pass in between.
                 if (gKey.keyCode != 0) {
@@ -258,6 +298,12 @@ void UGamework::Run() {
                 // that went down last until that key came up.
                 if (IsModifierKey(sdl.key.scancode)) break;
                 if (sdl.key.scancode == gAutoKey.scancode) gAutoKey = AutoKey();
+#ifdef TPW_PORT_FIX
+                if (tpw::gPortSeveralKeys) {   // severalkeys: only the key that came up
+                    releaseHeldKey(static_cast<int32_t>(sdl.key.scancode));
+                    break;
+                }
+#endif
                 if (gKey.character != 0 || gKey.keyCode != 0) releaseKey();
                 break;
             case SDL_EVENT_WINDOW_FOCUS_GAINED:
@@ -330,13 +376,34 @@ void UGamework::Run() {
             if (IsModifierKey(sdlKey.scancode)) continue;   // only in the modifiers (ScriptedSDLModifiers)
             if (key.down == pass) {
                 gAutoKey = AutoKey();
+#ifdef TPW_PORT_FIX
+                if (tpw::gPortSeveralKeys) keepKeys(key.scancode);   // severalkeys
+#endif
                 if (gKey.keyCode != 0) releaseKey();
                 if (pressKey(sdlKey)) gAutoKey = StartAutoKey(sdlKey.scancode, true);
             } else {
                 if (sdlKey.scancode == gAutoKey.scancode) gAutoKey = AutoKey();
+#ifdef TPW_PORT_FIX
+                if (tpw::gPortSeveralKeys) {   // severalkeys: only the key that came up
+                    releaseHeldKey(key.scancode);
+                    continue;
+                }
+#endif
                 if (gKey.character != 0 || gKey.keyCode != 0) releaseKey();
             }
         }
+#ifdef TPW_PORT_FIX
+        // severalkeys: a held key the keyboard no longer holds, with no key-up seen, is released, as the autoKey's is below.
+        for (size_t index = 0; index < gHeldKeys.size();) {
+            const KeyState held = gHeldKeys[index];
+            if (SDL_GetKeyboardState(nullptr)[held.scancode] || tpw::ScriptedKeyDown(held.scancode)) {
+                ++index;
+                continue;
+            }
+            gHeldKeys.erase(gHeldKeys.begin() + static_cast<std::ptrdiff_t>(index));
+            HandleTyping(held.character, held.keyCode, held.modifiers, false);
+        }
+#endif
         if (!mRunning) break;
         // The autoKey of the key that went down last (AutoKey, above), at most one a pass. It is 0x100054c4 for that
         // key: the remembered key is released with the modifiers it went down with, then pressed and remembered with
@@ -407,9 +474,13 @@ void UGamework::Run() {
             const char macKey = static_cast<char>(tpw::MacKeyCodeFromScancode(
                 static_cast<SDL_Scancode>(tpw::ScancodeFromWindowsKey(windowsKey))));
             const uint32_t modifiers = std::isupper(static_cast<unsigned char>(character)) ? 0x200u : 0u;
-            tpw::Log("scripted typing: '%c' %s (pass %d)", character, down ? "down" : "up", pass);
+            tpw::Log("scripted typing: '%c' %s (pass %d)", typing.hidden ? '*' : character, down ? "down" : "up", pass);
             HandleTyping(character, macKey, modifiers, down);
         }
+#ifdef TPW_PORT_FIX
+        // TPW_PORT_FIX online-server UGamework::Run | Mac: the online library's comms thread called the game's online callbacks itself, at any moment | Port: the online server client's answers are given here, on the game's thread, once a pass before Process (none unless the launcher names a server) | Why: a callback that ran on another thread raced the game's online objects, which the callbacks change and may delete
+        tpw::online::boss::Pump();
+#endif
         if (!Process()) mRunning = false;
         if (tpw::config().probe) {
             const uint32_t* c = tpw_probe::gCounters;

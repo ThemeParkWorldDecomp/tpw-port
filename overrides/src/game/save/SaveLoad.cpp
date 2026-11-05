@@ -441,7 +441,16 @@ bool PortIsEarlySave(const uint8_t* modules, uint32_t size) {
 // every path (the disc file's destructor closes it).
 //
 // Quirks kept: the open test is the debug word's (see SaveLoad.h); a block that is not a zlib block is released with delete[]
-// instead of the allocator's Free; the CTRACE of a short read is made before the packed buffer is freed.
+// instead of the allocator's Free (with the port fixes, Free); the CTRACE of a short read is made before the packed buffer is freed.
+//
+// With the port fixes (parkload) the reader does not trust the file's sizes: what is left after the header must be 1 to
+// kPortMaxPackedSave bytes and the block's unpacked size 1 to kPortMaxUnpackedSave bytes, the block is unpacked from the bytes
+// read into exactly its declared size (LbZLib_PortMemDecompressChecked), and a block that does not unpack fails the load (6).
+// A file with less than a block header left fails so too (truncsave), and both failures write a line to the log.
+namespace {
+constexpr int32_t kPortMaxPackedSave = 64 << 20;      // a park's packed modules
+constexpr uint32_t kPortMaxUnpackedSave = 256u << 20; // and unpacked
+}  // namespace
 int32_t CSaveLoad::Load(const char* path, CSaveLoadHeader* header, LoadType type) {
     GAME_ASSERTMSG(type != kLoadHeaderOnly || header != nullptr,
                    "Cannot have a header-only load but supply no header pointer\n");
@@ -484,6 +493,11 @@ int32_t CSaveLoad::Load(const char* path, CSaveLoadHeader* header, LoadType type
         mError = kErrorEmptyOrBad;
         return 0;
     }
+    // TPW_PORT_FIX parkload CSaveLoad::Load | Mac: allocates and reads what the file's size less the header's end comes to (a negative difference asks for nearly 4 GB) | Port: a negative difference, or more than kPortMaxPackedSave bytes, is refused as an empty file is (6) | Why: a damaged or crafted park (a downloaded one) asked for gigabytes
+    if (remaining < 0 || remaining > kPortMaxPackedSave) {
+        mError = kErrorEmptyOrBad;
+        return 0;
+    }
     uint8_t* packed = TemporaryAllocator().Allocate(static_cast<uint32_t>(remaining));
     if (file.Read(packed, static_cast<uint32_t>(remaining)) != remaining) {
         CTRACE(kTraceSaveLoad, "Could not read %d bytes out of compressed save file", remaining);
@@ -492,9 +506,17 @@ int32_t CSaveLoad::Load(const char* path, CSaveLoadHeader* header, LoadType type
         return 0;
     }
     file.Close();
+    // TPW_PORT_FIX truncsave CSaveLoad::Load | Mac: reads the block's 0x1c byte header however few bytes are left | Port: a file with less than a block header left fails as a block that is not one does (6), with a line in the log | Why: a save cut short (the game closed while it saved) had its block header read past the bytes read
+    if (static_cast<uint32_t>(remaining) < sizeof(ZLibCompHeader)) {
+        std::fprintf(stderr, "port: %s is cut short or damaged; it was not loaded\n", path);
+        TemporaryAllocator().Free(packed);
+        mError = kErrorEmptyOrBad;
+        return 0;
+    }
     const uint32_t unpackedSize = LbZLib_MemDecompressedSize(packed);
-    if (unpackedSize == 0) {
-        delete[] packed;
+    // TPW_PORT_FIX parkload CSaveLoad::Load | Mac: any unpacked size the block declares is allocated, and a block that is not one is released with delete[] (the block is the temporary allocator's) | Port: a size over kPortMaxUnpackedSave is refused as a block that is not one, and the block goes back to the allocator (Free) | Why: a damaged or crafted park asked for gigabytes, and delete[] on the allocator's block corrupts the heap
+    if (unpackedSize == 0 || unpackedSize > kPortMaxUnpackedSave) {
+        TemporaryAllocator().Free(packed);
         mError = kErrorEmptyOrBad;
         return 0;
     }
@@ -504,7 +526,14 @@ int32_t CSaveLoad::Load(const char* path, CSaveLoadHeader* header, LoadType type
         mError = kErrorNoMemory;
         return 0;
     }
-    LbZLib_MemDecompress(packed, unpacked, nullptr);
+    // TPW_PORT_FIX parkload CSaveLoad::Load | Mac: unpacks with zlib told the input is 0xc0000000 bytes long, and goes on whatever the unpacking answers | Port: unpacks only the bytes read into exactly the declared size (LbZLib_PortMemDecompressChecked), and a block that does not unpack so fails the load (6) | Why: a damaged or crafted park (a downloaded one) was inflated past its buffer, or loaded half unpacked
+    if (LbZLib_PortMemDecompressChecked(packed, static_cast<uint32_t>(remaining), unpacked, unpackedSize) != unpackedSize) {
+        TemporaryAllocator().Free(packed);
+        std::fprintf(stderr, "port: %s is cut short or damaged; it was not loaded\n", path); // TPW_PORT_FIX truncsave (the line in the log)
+        TemporaryAllocator().Free(unpacked);
+        mError = kErrorEmptyOrBad;
+        return 0;
+    }
     TemporaryAllocator().Free(packed);
     // TPW_PORT_FIX v5L27 CSaveLoad::Load | Mac: reads every park in the current format | Port: notes a park an early port build wrote, for the readers of its modules | Why: see gPortEarlySave in SaveLoad.h
     gPortEarlySave = PortIsEarlySave(unpacked, unpackedSize);
@@ -527,7 +556,10 @@ int32_t CSaveLoad::Load(const char* path, CSaveLoadHeader* header, LoadType type
     memory.Seek(0, 0);
     TemporaryAllocator().Free(unpacked);
     if (type != kLoadOnline) PreLoadOperations();
-    const int32_t loaded = LoadModules(memory, type);
+    serialise::gPortReadWatch = {true, false}; // TPW_PORT_FIX parkload CSaveLoad::Load | Mac: LoadModules' answer alone decides | Port: a failed LOADVAR or LOADVARSTRUCT while it runs fails the load too | Why: see serialise::PortReadWatch (include/Serialise.h)
+    int32_t loaded = LoadModules(memory, type);
+    if (serialise::gPortReadWatch.failed) loaded = 0;
+    serialise::gPortReadWatch = {};
     gPortEarlySave = false;
     file.Close();
     memory.Close();
@@ -926,12 +958,13 @@ uint32_t KeyWordAsLoadedOnTheMac(uint32_t raw) {
 // count is not the length asked for; a failed read answers 0 and leaves mError alone. `type` 2 (a park of the player's folder) lets the
 // ride database leave out its preview rides.
 //
-// Quirks kept: the language byte is not range checked (the table has 7 texts); the text is compared as a NUL terminated string and the
-// original does not terminate it (the host buffer has one more unit, 0, so a text with no 0 is compared in its 640 units); the text
-// mismatch, a failing Serialise and a failed read leave mError as it was, while a ride record the database cannot satisfy sets 8 and a
-// wrong key 6; gParkRequiredRides is overwritten before the key is read, so it holds the record of a file whose key is wrong; a flag
-// word other than 0 and 1 reads the header too (with a NULL header the original calls Serialise on NULL and crashes); a flag of 0 with a
-// header asks for one the file does not have: the assert reports and the answer is 1 with the header untouched.
+// Quirks kept: the language byte is not range checked (the table has 7 texts; with the port fixes, 7 or more fails as a text that does
+// not match); the text is compared as a NUL terminated string and the original does not terminate it (the host buffer has one more
+// unit, 0, so a text with no 0 is compared in its 640 units); the text mismatch, a failing Serialise and a failed read leave mError as
+// it was, while a ride record the database cannot satisfy sets 8 and a wrong key 6; gParkRequiredRides is overwritten before the key
+// is read, so it holds the record of a file whose key is wrong; a flag word other than 0 and 1 reads the header too (with a NULL
+// header the original calls Serialise on NULL and crashes); a flag of 0 with a header asks for one the file does not have: the assert
+// reports and the answer is 1 with the header untouched.
 int32_t CSaveLoad::LoadHeader(bfl::FileSystem::CFile& file, LoadType type, CSaveLoadHeader* header) {
     void* const handle = &file;
     uint32_t count = 0;
@@ -943,6 +976,11 @@ int32_t CSaveLoad::LoadHeader(bfl::FileSystem::CFile& file, LoadType type, CSave
     text[0x280] = 0;
     if (!LbFile_Read(handle, text, 0x500, &count).Succeeded() || count != 0x500) return 0;
     SamsUtilities::_USwapBlock16(reinterpret_cast<uint16_t*>(text), 0x280);
+    // TPW_PORT_FIX parkload CSaveLoad::LoadHeader | Mac: the language byte indexes the seven legal texts unchecked | Port: a language of 7 or more is a text that does not match (the assertion, then 0) | Why: a damaged or crafted park (a downloaded one) made the comparison read past the table
+    if (language >= sizeof gSaveLegalText / sizeof *gSaveLegalText) {
+        GAME_ASSERTMSG(0, "The save game legal text has been jiggered with!\n");
+        return 0;
+    }
     // (the original's index is the byte zero extended, times 0x14, from the table; here the same element)
     if (*(gSaveLegalText + language) != text) {
         GAME_ASSERTMSG(0, "The save game legal text has been jiggered with!\n");

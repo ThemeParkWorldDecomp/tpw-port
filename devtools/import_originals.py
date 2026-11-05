@@ -23,14 +23,16 @@ and unpacked into WORK/extracted as
                                                  resource fork as NAME.rsrc (when it has one) and its type and creator
                                                  as NAME.finfo ("TYPE<tab>CREATOR"); --whole-disc writes the rest of
                                                  the disc beside it (manuals, installers, extras), which nothing reads.
-                                                 "Theme Park Data/SimTheme Park" is the program the build reads its
-                                                 data tables from.
+                                                 "Theme Park Data/SimTheme Park" is the program the seven data
+                                                 tables are generated again from by tpw-decomp's check
+                                                 (devtools/check_game_tables.py); the build and the launcher do not
+                                                 need it.
   Theme_Park_World_Bonus_Stuff/Theme Park World Bonus Stuff/tpwfnt/
                                                  the bonus fonts, when the bonus zip is there
   tpw-eur/Theme Park Data/                       the Theme Park World edition's game folder, when the European PC image
                                                  is there (written by devtools/import_eur.py, which says what it holds)
 
-which is where the build (TPW_GAME_PROGRAM's default, WORK/tpw-port/../extracted/...) and the launcher
+which is where tpw-decomp's tests (TPW_GAME_PROGRAM's default, WORK/tpw-decomp/../extracted/...) and the launcher
 (--game "extracted/disc-hfs/Theme Park Data", from WORK) look. Every file written is then checked against the SHA-256
 list at the end of this script; the result is OK or the list of the files that differ.
 

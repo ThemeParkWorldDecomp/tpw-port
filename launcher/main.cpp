@@ -35,10 +35,18 @@
 #include "tpw_probe.h"
 #include "ResolutionBalance.h"
 #include "OptionsBalance.h"
+#include "ChallengeBalance.h"
+#include "FS_MasterSave.h"
+#include "HoardingsBalance.h"
+#include "MainBalance.h"
+#include "OnlineBalance.h"
+#include "RideDB.h"
+#include "SoundBalance.h"
 #include "AudioPlaceHolder.h"
 #include "UI_Base.h"
 #include "TPSettings.h"
 #include "TPAdvisor.h"
+#include "AdvisorScoring.h"
 #include "TrueTypeRender.h"
 #include "analyser.h"
 #include "rsse.h"
@@ -54,22 +62,30 @@
 #include "gfx.h"
 #include "handoff.h"
 #include "log_export.h"
+#ifdef TPW_PORT_FIX
+#include "mods.h"
+#endif
 #ifdef _WIN32
 #include "host_win.h"
 #endif
 #ifdef __linux__
 #include "host_linux.h"
 #endif
-#include "platform/game_tables.h"
+#include "platform/arena.h"
+#include "sam_check.h"
+#include "platform/online_boss.h"
 #include "startup.h"
 #include "static_init.h"
 #include "stubs.h"
 #include "ui_main.h"
 #include "ui_mainmenu.h"
 #include "ui/backend.h"
+#include "ui/texts.h"
 #include "ui/theme.h"
 #include "ui/updater.h"
 #include "ui/window.h"
+
+extern uint64_t gMslMacAddressHigh;   // src/game/ui/ui_graph.cpp: the upper half of the 32-bit words the deques keep
 
 namespace {
 // The largest preset, 4096 x 3072 (3840 x 2160 at 16:9), rendered offscreen and scaled to the window (the maintainer,
@@ -91,6 +107,8 @@ char** gArgv = nullptr;
 std::string gGameIconFolder;    // the data folder whose icon.png the game's window shows (DressGameWindow)
 bool gGameUs = true;            // the edition playing is the US one (DressGameWindow)
 bool gTraceStubs = false;
+std::string gOnlineServer;      // --online-server HOST: the online server the game connects to (updater.h ChooseOnlineServer)
+std::string gOnlineServerSetting, gOnlineServerFound;   // launcher.ini's online_server (the player's) and online_server_found
 long gStubCalls = 0;
 const char* volatile gLastStub = nullptr;
 // Calls per stand-in (keyed by its name, which the stub table keeps for the whole run), so the
@@ -192,6 +210,12 @@ int RunGame(int32_t resolution) {
 // process has started its run.
 volatile sig_atomic_t gExitLogged = 0;
 
+#ifdef TPW_PORT_FIX
+// The mods that are on in this run (platform/mods.h), as the crash and abort lines name them: "launcher: mods on:
+// enable-strikes 1.0.0\n", written once before the game starts; empty while none is.
+char gModsOnLine[512] = "";
+#endif
+
 void LogExit(int code) {
     if (gExitLogged) return;
     gExitLogged = 1;
@@ -222,6 +246,9 @@ void OnCrash(int signal) {
                                    signal, gLastStub != nullptr ? gLastStub : "(none)"));
     if (const char* running = RunningStaticInitialiser())
         CrashWrite(text, std::snprintf(text, sizeof text, "launcher: inside the static initialiser %s\n", running));
+#ifdef TPW_PORT_FIX
+    CrashWrite(gModsOnLine, static_cast<int>(std::strlen(gModsOnLine)));
+#endif
 #ifdef _WIN32
     // Where it happened: the exception and the stack that host_win.cpp kept, as module offsets.
     if (const char* fatal = tpw::win32::LastFatalException()) {
@@ -284,7 +311,8 @@ void Usage(const char* program) {
                  "  --game DIR     the installed game: the folder that holds \"data\" (default: $TPW_GAME_DIR). Without\n"
                  "                 either, the launcher's own window opens: drop your discs on it, then press Play; the\n"
                  "                 verified files, the saves and launcher.ini are kept in the data folder (below)\n"
-                 "  --play E       without the window: start edition E (us or eur) from the data folder, as Play does\n"
+                 "  --play E       without the window: start edition E (us, eur, us-pc or eur-pc) from the data\n"
+                 "                 folder, as Play does\n"
                  "  --from-launcher DIR  with --play: this run is the launcher window's Play, as the game's own process\n"
                  "                 (on a Mac Sim Theme Park.app or Theme Park World.app beside the launcher, on Windows Sim\n"
                  "                 Theme Park.exe or Theme Park World.exe beside tpw_launcher.exe), in the launcher's folder\n"
@@ -302,7 +330,7 @@ void Usage(const char* program) {
                  "                 pack's state (available, partial with what is missing, or absent), and exit as\n"
                  "                 --import does\n"
                  "  --no-preload   the launcher's window reads nothing ahead while it is open (by default it reads the\n"
-                 "                 game's tables and the first files of the edition last played, so Play starts sooner)\n"
+                 "                 first files of the edition last played, so Play starts sooner)\n"
                  "  --window-click X,Y@F  a scripted left click in the launcher's own window at point (X, Y) of it (it\n"
                  "                 opens 800 x 560 points), pressed before its drawn frame F and released before F + 1\n"
                  "  --data DIR     the folder launcher.ini is in (default: the per-user folder SDL names for the\n"
@@ -312,9 +340,6 @@ void Usage(const char* program) {
                  "                 data folder, or the stand-in until a game is imported) as this file and exit: a .ico\n"
                  "                 when the name ends in .ico, a PNG otherwise; the install script makes the icon of the\n"
                  "                 application it puts in Applications, or of the Start menu shortcut, from it\n"
-                 "  --program FILE the game's data tables are read from this full Mac \"SimTheme Park\" or \"Theme Park\n"
-                 "                 World\" application (its data fork; the CD's 2.0.1, the 2.04b3 patch's or a 2.1 release)\n"
-                 "                 (default: $TPW_GAME_PROGRAM, else \"SimTheme Park\" in the game folder)\n"
                  "  --user DIR     where saves and settings go (default: a per-user folder, one for each edition; from\n"
                  "                 the launcher's window or --play, saves/us or saves/eur in the data folder)\n"
                  "  --packs DIR    the asset packs: zips of replacement game files, each at its place in the game folder\n"
@@ -328,7 +353,7 @@ void Usage(const char* program) {
                  "                 English or American, from the game folder)\n"
                  "  --language-root DIR  the folder that holds lang/NAME/data/... (default: from the launcher's window\n"
                  "                 or --play, assets in the data folder; else none)\n"
-                 "  --edition E    the edition the game folder holds: stp, Sim Theme Park (the US Mac disc), or tpw, Theme\n"
+                 "  --edition E    the edition the game folder holds: stp, Sim Theme Park (the US disc), or tpw, Theme\n"
                  "                 Park World (the UK/European disc, from devtools/import_eur.py); the window's title\n"
                  "                 follows it (default: told by the folder's data:Language, American being stp)\n"
                  "  --stp, --eur   the same as --edition stp, --edition tpw\n"
@@ -364,8 +389,14 @@ void Usage(const char* program) {
                  "  --hold NAME@N-M  a scripted key held from pass N to pass M (its modifier counts for the clicks between)\n"
                  "  --type TEXT@N  scripted typing: one character every two passes from pass N (letters, digits, space;\n"
                  "                 \\r for return)\n"
+                 "  --type-env VAR@N  as --type, the text from the environment variable VAR, logged as '*' (a password)\n"
                  "  --no-movies    skip the logo and intro films\n"
                  "  --mute         no sound\n"
+                 "  --online-server HOST  the online screens connect to the online server at HOST (a revived server that\n"
+                 "                 speaks the original protocol), on the ports the game's online.sam names. Wins over\n"
+                 "                 launcher.ini's online_server= (the Settings box's Online server).\n"
+                 "                 Without either, they connect to the address the update check read from tpw-port's\n"
+                 "                 online.txt, or the built-in one. No other host is reached\n"
                  "  --display D    open the window on screen D: an SDL display number (0, 1, ...) or part of the\n"
                  "                 screen's name, case-blind (\"builtin\" is the MacBook's own screen; the log lists them)\n"
                  "  --no-fit       a window as large as the game's resolution in points, drawn into directly (by default the\n"
@@ -395,7 +426,7 @@ void Usage(const char* program) {
 bool TakesValue(const std::string& arg) {
     static const char* const kWithValue[] = {"--game",  "--data",        "--play",       "--import",     "--program",    "--window-click",
                                              "--user",  "--edition",     "--resolution", "--aspect",     "--frames",
-                                             "--click", "--drag",        "--type",       "--dump-frames", "--dump-every",
+                                             "--click", "--drag",        "--type",       "--type-env",   "--dump-frames", "--dump-every",
                                              "--dump-limit", "--display", "--write-icon", "--language", "--language-root",
                                              "--renderer", tpw::launcher::kFromLauncherOption, tpw::launcher::kGameAppTestOption};
     for (const char* option : kWithValue)
@@ -403,40 +434,11 @@ bool TakesValue(const std::string& arg) {
     return false;
 }
 
-// The data folder as it is, for a run that must not make it (--write-icon, which the install script runs before the
-// launcher's first start): SDL's pref path makes the folder when it is missing, so the per-user place it names on a Mac
-// (~/Library/Application Support/<name>), on Windows (%APPDATA%\<name>) and on Linux ($XDG_DATA_HOME/<name>, else
-// ~/.local/share/<name>) is looked at first, and taken only when it is there. Empty when there is none yet (the
-// stand-in icon then).
-std::string ExistingDataFolder() {
-    std::error_code ec;
-    std::filesystem::path guess;
-#if defined(__APPLE__)
-    if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0')
-        guess = std::filesystem::path(home) / "Library" / "Application Support" / tpw::ui::kDataFolderName;
-#elif defined(_WIN32)
-    if (const char* appData = std::getenv("APPDATA"); appData != nullptr && *appData != '\0')
-        guess = std::filesystem::path(appData) / tpw::ui::kDataFolderName;
-#elif defined(__linux__)
-    if (const char* dataHome = std::getenv("XDG_DATA_HOME"); dataHome != nullptr && *dataHome != '\0')
-        guess = std::filesystem::path(dataHome) / tpw::ui::kDataFolderName;
-    else if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0')
-        guess = std::filesystem::path(home) / ".local" / "share" / tpw::ui::kDataFolderName;
-#endif
-    if (!guess.empty()) return std::filesystem::is_directory(guess, ec) ? guess.string() : std::string();
-    std::string folder;
-    if (char* pref = SDL_GetPrefPath("", tpw::ui::kDataFolderName)) {
-        folder = pref;
-        SDL_free(pref);
-    }
-    return folder;
-}
-
 // The data folder whose icon.png is the launcher's icon before the window opens the folder (--write-icon, and the
 // launcher's own bundle on a Mac, app_bundle.h): --data's, else the per-user one when it is there, with launcher.ini's
 // data_folder followed as the window follows it (assets/importer.h ResolveDataRoot). Empty when there is none yet.
 std::string IconDataFolder(const std::string& dataDir) {
-    const std::string pref = dataDir.empty() ? ExistingDataFolder() : dataDir;
+    const std::string pref = dataDir.empty() ? tpw::launcher::ExistingDataFolder() : dataDir;
     return pref.empty() ? pref : tpw::assets::ResolveDataRoot(pref);
 }
 
@@ -457,8 +459,8 @@ int EarlyOptions(int argc, char** argv, std::string& dataDir) {
         if (arg == "--check-updates") {   // the update check of the window (updater.h), once, in the open
             const tpw::ui::update::Current current =
                 tpw::ui::update::DescribeCurrent(tpw::ui::kLauncherVersion, tpw::launcher::ProgramFolder());
-            std::printf("%s (build: %s)\nasks: the newest release\n", tpw::ui::kProductNameWithVersion,
-                        TPW_LAUNCHER_BUILD);
+            std::printf("%s (build: %s)\nasks: the newest release, then the online server's address\n",
+                        tpw::ui::kProductNameWithVersion, TPW_LAUNCHER_BUILD);
             if (current.install.Found()) std::printf("installed by the install script in %s\n", current.install.dir.c_str());
             const auto start = std::chrono::steady_clock::now();
             const tpw::ui::update::Answer answer = tpw::ui::update::Check(current, tpw::ui::update::Questions());
@@ -466,6 +468,12 @@ int EarlyOptions(int argc, char** argv, std::string& dataDir) {
             if (!answer.answered) std::printf("answer: none (%s) after %.1f s\n", answer.why.c_str(), seconds);
             else if (answer.found.empty()) std::printf("answer: up to date, after %.1f s\n", seconds);
             else std::printf("answer: %s is out, after %.1f s\n", answer.found.c_str(), seconds);
+            if (answer.answered) {   // then the online server's address, as the window's check asks it (nothing is kept)
+                const tpw::net::OnlinePointer pointer = tpw::net::OnlineServerPointer();
+                if (pointer.ok) std::printf("online server: %s (tpw-port's online.txt)\n", pointer.server.c_str());
+                else std::printf("online server: online.txt not used (%s); built-in %s\n", pointer.why.c_str(),
+                                 tpw::net::kOnlineServerBuiltIn);
+            }
             return 0;
         }
         if (TakesValue(arg) && i + 1 < argc) {
@@ -486,15 +494,35 @@ int EarlyOptions(int argc, char** argv, std::string& dataDir) {
     return -1;
 }
 
-// Opens the log file (platform/log_file.h, logs/launcher.log) in the data folder's logs/: --data's folder, else the
+// The --user folder of a run that names its game folder with --game and has no --data (devtools/run_launcher.sh's
+// default, a developer's or a test's run), else empty.
+std::string GameRunUserFolder(int argc, char** argv) {
+    bool game = false;
+    std::string user, data;
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (!TakesValue(arg) || i + 1 >= argc) continue;
+        if (arg == "--game") game = true;
+        if (arg == "--user") user = argv[i + 1];
+        if (arg == "--data") data = argv[i + 1];
+        ++i;
+    }
+    return game && data.empty() ? user : std::string();
+}
+
+// Opens the log file (platform/log_file.h, logs/launcher.log) in the data folder's logs/: --data's folder, else, for a
+// --game run with --user, that folder's logs/ (so a test run's lines stay out of the player's own log), else the
 // per-user one (SDL's pref path, as ChooseFromDataFolder finds it); when that cannot be made, in the temporary folder.
 // stderr's first line names it.
 void OpenLog(int argc, char** argv, const std::string& dataDir) {
     const std::string firstLine = std::string(tpw::ui::kProductNameWithVersion) + " (build: " + TPW_LAUNCHER_BUILD + ")";
     std::filesystem::path folder;
     std::string why;
+    const std::string gameUser = GameRunUserFolder(argc, argv);
     if (!dataDir.empty()) {
         folder = std::filesystem::path(dataDir) / "logs";
+    } else if (!gameUser.empty()) {
+        folder = std::filesystem::path(gameUser) / "logs";
     } else if (char* pref = SDL_GetPrefPath("", tpw::ui::kDataFolderName)) {
         folder = std::filesystem::path(pref) / "logs";
         SDL_free(pref);
@@ -613,8 +641,9 @@ void NameAppMenu(const char* name) {
 void KeepSettings(const tpw::ui::ImporterBackend& backend, const std::string& prefPath) {
     for (const char* key : {tpw::ui::kSkipIntroKey, tpw::ui::kBackToLauncherKey, tpw::ui::kSmoothZoomKey,
                             tpw::ui::kInterfaceSizeKey, tpw::ui::kPcSoundPicksKey, tpw::ui::kSoundPanKey,
-                            tpw::ui::kFullScreenKey, tpw::ui::kRendererKey, tpw::ui::kCheckUpdatesKey,
-                            tpw::ui::kLanguageUsKey, tpw::ui::kLanguageEurKey,
+                            tpw::ui::kSeveralKeysKey, tpw::ui::kFullScreenKey, tpw::ui::kRendererKey, tpw::ui::kFrameRateKey,
+                            tpw::ui::kCheckUpdatesKey, tpw::ui::kLanguageUsKey, tpw::ui::kLanguageEurKey,
+                            tpw::ui::kOnlineServerKey,
                             tpw::ui::kUpdateLastCheckKey, tpw::ui::kUpdateFoundKey}) {
         const std::string value = backend.Setting(key);
         std::string ignored;
@@ -741,10 +770,45 @@ std::string SettingsLanguage(const tpw::ui::ImporterBackend& backend, tpw::asset
     return {};
 }
 
+// The game's description tables, by the .sam files it reads with each (World.cpp, TPGlobals.cpp, RideDB.cpp,
+// FS_MasterSave.cpp, ChallengeHQ.cpp, AdvisorScoring.cpp), for the edited files' read check (assets/sam_check.h).
+void RegisterSamTables() {
+    static_assert(sizeof(tpw::assets::SamRow) == sizeof(BalanceDescription), "a SamRow is a BalanceDescription");
+    auto add = [](std::initializer_list<const char*> names, const BalanceDescription* rows, size_t count) {
+        for (const char* name : names)
+            tpw::assets::SetSamTable(name, reinterpret_cast<const tpw::assets::SamRow*>(rows), count);
+    };
+    add({"standard.sam", "easy_standard.sam", "online_standard.sam"}, gMainBalanceDescriptions,
+        std::size(gMainBalanceDescriptions));
+    add({"global.sam"}, gGlobalParkDataBalanceDescriptions, std::size(gGlobalParkDataBalanceDescriptions));
+    add({"hoardings.sam", "endhoardings.sam"}, gHoardingsBalanceDescriptions, std::size(gHoardingsBalanceDescriptions));
+    add({"sound.sam"}, gSoundBalanceDescriptions, std::size(gSoundBalanceDescriptions));
+    add({"online.sam", "onlineoverride.sam"}, gOnlineBalanceDescriptions, std::size(gOnlineBalanceDescriptions));
+    add({"low.sam", "med.sam", "high.sam"}, gOptionsBalanceDescriptions, std::size(gOptionsBalanceDescriptions));
+    add({"_resolution.sam"}, gResolutionBalanceDescriptions, std::size(gResolutionBalanceDescriptions));
+    add({"challenges.sam"}, gChallengeBalanceDescriptions, std::size(gChallengeBalanceDescriptions));
+    add({"rides.sam", "shops.sam", "sideshow.sam", "features.sam", "upgrades.sam", "online_rides.sam"},
+        gRideBalanceDescriptions, std::size(gRideBalanceDescriptions));
+    add({"advisor.sam"}, gAdvisorBalanceDescriptions, std::size(gAdvisorBalanceDescriptions));
+}
+
+// The .sam files kept as the player's edit (assets/importer.h EditedFiles), one line each.
+void LogEditedFiles(const char* tag, const tpw::ui::ImportBackend& backend) {
+    for (tpw::assets::Edition edition : {tpw::assets::kEditionUs, tpw::assets::kEditionEur}) {
+        for (const tpw::assets::EditedFile& file : backend.EditedFiles(edition)) {
+            std::string read = file.unreadableLine > 0
+                                   ? "line " + std::to_string(file.unreadableLine) + " can't be read (the game stops there)"
+                                   : "the game reads it to the end";
+            tpw::Log("%s: edited %s/%s: %s; %s", tag, tpw::assets::EditionName(edition), file.dest.c_str(), read.c_str(),
+                     file.original ? "the original is kept" : "no original kept yet (drop the disc again)");
+        }
+    }
+}
+
 // No --game: the edition comes from the data folder, through the launcher's window or --play. Fills in the game
-// folder, the edition, the user folder, the program and the language (each unless an option named it already) and
+// folder, the edition, the user folder, the packs and the language (each unless an option named it already) and
 // returns -1 to start the game; any other value is the launcher's exit code (0 when the window was closed).
-int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, std::filesystem::path& packs,
+int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
                          std::filesystem::path& languageRoot, std::string& language, const std::string& dataDir,
                          const std::string& play, bool rendererGiven) {
     std::string prefPath = dataDir;
@@ -777,10 +841,12 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
                      static_cast<unsigned long long>(check.checked), static_cast<unsigned long long>(check.rehashed),
                      static_cast<unsigned long long>(check.Removed()));
         if (check.Removed() > 0) tpw::Log("startup check: %s", check.Notice().c_str());
+        if (!check.edited.empty()) tpw::Log("startup check: %s", check.Kept().c_str());
+        LogEditedFiles("startup check", backend);
     }
     tpw::ui::LaunchChoice choice;
     if (!play.empty()) {
-        choice.edition = play == "us" ? tpw::assets::kEditionUs : tpw::assets::kEditionEur;
+        tpw::assets::EditionFromName(play.c_str(), choice.edition);   // one of the four the option takes
         choice.skipIntro = backend.Setting(tpw::ui::kSkipIntroKey) == "1";
         // the tiles' Gold Edition switch, as the window's Play reads it: on while the Gold data is there and not switched off
         choice.gold = backend.Status(tpw::assets::kEditionGold).unlocked &&
@@ -788,13 +854,9 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
         const tpw::assets::EditionStatus status = backend.Status(choice.edition);
         if (!status.unlocked) {
             tpw::LogRawF(
-                         "launcher: --play %s: %zu of %zu required files of that edition are in \"%s\"\n%s"
+                         "launcher: --play %s: %zu of %zu required files of that edition are in \"%s\"\n"
                          "launcher: open the launcher without --game and --play, and drop your discs on its window\n",
-                         play.c_str(), status.requiredPresent, status.required, backend.DataFolder().c_str(),
-                         choice.edition == tpw::assets::kEditionEur && !backend.HasProgram()
-                             ? "launcher: the European edition also needs the US Mac CD (the game's tables come from its "
-                               "program)\n"
-                             : "");
+                         play.c_str(), status.requiredPresent, status.required, backend.DataFolder().c_str());
             return 1;
         }
         // The launcher window's Play in the game's own process (--from-launcher): its "Back to the launcher after
@@ -848,6 +910,24 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
             shown.folder = done.folder.u8string();
             return shown;
         };
+#ifdef TPW_PORT_FIX
+        // The header's Mods button: the build's mods (platform/mods.h's catalog, none in a build without a mods folder).
+        placement.mods = true;
+        for (const tpw::mods::Mod& mod : tpw::mods::Catalog()) {
+            tpw::ui::ModRow row;
+            row.id = mod.id;
+            row.name = mod.name;
+            row.version = mod.version;
+            row.author = mod.author;
+            row.text = mod.text;
+            row.editions[0] = (mod.editions & tpw::mods::kUs) != 0;
+            row.editions[1] = (mod.editions & tpw::mods::kEuropean) != 0;
+            row.editions[2] = (mod.editions & tpw::mods::kGold) != 0;
+            row.changesSaves = mod.changesSaves;
+            row.conflicts = mod.conflicts;
+            placement.modRows.push_back(row);
+        }
+#endif
         if (!config.display.empty()) {
             if (config.background) {   // before SDL's video starts, as the game's window sets them
                 SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
@@ -881,7 +961,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
     // game's application has started (on Windows, until its window is shown) and exits; the game's own log file takes it
     // from there. Only when the bundle (the game's program) cannot be made or started does the game play in this process.
     if (play.empty()) {
-        const bool usApp = choice.edition == tpw::assets::kEditionUs;
+        const bool usApp = tpw::assets::IsUsGame(choice.edition);
         tpw::launcher::GameApp app;
         std::string why;
         if (tpw::launcher::StartGameApp(gArgc, gArgv, usApp, backend.DataFolder(), !config.background, app, why)) {
@@ -920,7 +1000,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
     gBackToLauncher = choice.backToLauncher;
     gGameIconFolder = backend.DataFolder();   // and on a Mac the icon of the launcher's bundle it opens again (ReopenLauncher)
 #if !defined(__APPLE__)
-    gGameUs = choice.edition == tpw::assets::kEditionUs;
+    gGameUs = tpw::assets::IsUsGame(choice.edition);
     tpw::SetGameWindowMadeHook(&DressGameWindow);
 #endif
     // The Settings box's "Full screen" (on unless launcher.ini says 0): off is --windowed, a window with a title bar.
@@ -963,6 +1043,11 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
     // The Settings box's "Stereo panning" (CSprocketsModule::SetChannelInfo, platform/sound_device.h): off, every sound centred.
     tpw::gPortSoundPan = backend.Setting(tpw::ui::kSoundPanKey) == "1";
     if (tpw::gPortSoundPan) tpw::Log("stereo panning (the launcher's Settings)");
+    // The Settings box's "Several keys at once" (UGamework::Run, platform/gamework.cpp): off, one key at a time.
+    tpw::gPortSeveralKeys = backend.Setting(tpw::ui::kSeveralKeysKey) == "1";
+    if (tpw::gPortSeveralKeys) tpw::Log("several keys at once (the launcher's Settings)");
+    gOnlineServerSetting = backend.Setting(tpw::ui::kOnlineServerKey);
+    gOnlineServerFound = backend.Setting(tpw::ui::kOnlineServerFoundKey);
     // The Settings box's Graphics section: the original's options files' values the player chose (EngineStartup_OptionsFile).
     for (const tpw::ui::SamOption& option : tpw::ui::SamOptions()) {
         const std::string value = backend.Setting(option.key);
@@ -976,11 +1061,20 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
         }
     }
 #endif
+    {   // The Settings box's "Frame rate limit" (gfx::gFrameLimit): 0, Monitor, unless launcher.ini names a limit.
+        const std::string value = backend.Setting(tpw::ui::kFrameRateKey);
+        tpw::gfx::gFrameLimit = tpw::ui::FrameRateSetting(value);
+        if (tpw::gfx::gFrameLimit != 0)
+            tpw::Log("frame rate limit: at most %d frames a second (the launcher's Settings)", tpw::gfx::gFrameLimit);
+        else if (!value.empty() && value != "0")
+            tpw::Log("frame rate limit: launcher.ini's %s=%s is not a limit of %d or more; Monitor is kept",
+                     tpw::ui::kFrameRateKey, value.c_str(), tpw::ui::kFrameRateLowest);
+    }
     if (choice.skipIntro) {
         config.movies = false;
         tpw::Log("intro films: skipped (the launcher's Settings)");
     }
-    const bool us = choice.edition == tpw::assets::kEditionUs;
+    const bool us = tpw::assets::IsUsGame(choice.edition);   // the Windows editions share their game's saves and name
     const std::string edition = us ? "stp" : "tpw";
     if (!config.edition.empty() && config.edition != edition)
         tpw::Log("edition: %s was asked for, but the data folder's %s edition was chosen", config.edition.c_str(),
@@ -993,7 +1087,6 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
         AdoptOldSaves(prefPath, saves, us);
         config.userDir = saves;
     }
-    if (program.empty()) program = backend.ProgramPath();
     if (packs.empty()) packs = std::filesystem::path(backend.DataFolder()) / "packs";
     // The languages are kept in assets/lang/<Name>, apart from the game folders (platform/language_pack.h). The Settings
     // box's Language is as --language, which goes first.
@@ -1024,6 +1117,42 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
     }
     else if (backend.Status(tpw::assets::kEditionGold).unlocked) tpw::Log("Gold rides: off (data present, switched off)");
     else tpw::Log("Gold rides: no data");
+#ifdef TPW_PORT_FIX
+    // The Mods box's mods (platform/mods.h): each one that is on, is for this edition (and for the Gold rides when they
+    // are on) and does not conflict with one before it switches its hooks on. With none on the game is the original.
+    {
+        const uint8_t editions = static_cast<uint8_t>((us ? tpw::mods::kUs : tpw::mods::kEuropean) |
+                                                      (choice.gold ? tpw::mods::kGold : 0));
+        tpw::mods::Hooks hooks;
+        std::vector<const tpw::mods::Mod*> on;
+        std::string line;
+        for (const tpw::mods::Mod& mod : tpw::mods::Catalog()) {
+            if (backend.Setting(tpw::mods::Key(mod)) != "1") continue;
+            if ((mod.editions & editions) != editions) {
+                tpw::Log("mods: %s %s is on but not for this edition; left off", mod.id.c_str(), mod.version.c_str());
+                continue;
+            }
+            const tpw::mods::Mod* clash = nullptr;
+            for (const tpw::mods::Mod* other : on) {
+                if (std::find(mod.conflicts.begin(), mod.conflicts.end(), other->id) != mod.conflicts.end() ||
+                    std::find(other->conflicts.begin(), other->conflicts.end(), mod.id) != other->conflicts.end())
+                    clash = other;
+            }
+            if (clash != nullptr) {
+                tpw::Log("mods: %s %s is on but conflicts with %s; left off", mod.id.c_str(), mod.version.c_str(),
+                         clash->id.c_str());
+                continue;
+            }
+            mod.switchOn(hooks);
+            on.push_back(&mod);
+            tpw::Log("mods: %s %s on", mod.id.c_str(), mod.version.c_str());
+            line += (line.empty() ? "" : ", ") + mod.id + " " + mod.version;
+        }
+        tpw::mods::Apply(hooks);
+        if (!line.empty())
+            std::snprintf(gModsOnLine, sizeof gModsOnLine, "launcher: mods on: %s\n", line.c_str());
+    }
+#endif
     return -1;
 }
 
@@ -1054,24 +1183,27 @@ std::unique_ptr<tpw::ui::ImporterBackend> OpenDataFolder(const std::string& data
 }
 
 // One line per edition (its state, its required files, what is still missing from which disc) and one per language
-// pack (assets::LanguageStatus::Line), each after `tag`. True when the US, European and Gold editions are all ready.
+// pack (assets::LanguageStatus::Line), each after `tag`. True when the US, European and Gold editions are all ready (the
+// Windows editions are logged too, and do not count).
 bool LogEditionsAndLanguages(const char* tag, const tpw::ui::ImporterBackend& backend) {
     bool ready = true;
-    for (tpw::assets::Edition edition : {tpw::assets::kEditionUs, tpw::assets::kEditionEur, tpw::assets::kEditionGold}) {
+    for (tpw::assets::Edition edition : {tpw::assets::kEditionUs, tpw::assets::kEditionEur, tpw::assets::kEditionGold,
+                                         tpw::assets::kEditionUsPc, tpw::assets::kEditionEurPc}) {
         const tpw::assets::EditionStatus status = backend.Status(edition);
         std::string still;
         for (int disc = 0; disc < 3; ++disc) {
             if (status.missing[disc] == 0) continue;
             still += still.empty() ? "; still missing: " : ", ";
             still += std::to_string(status.missing[disc]) + " from " +
-                     tpw::assets::SourceDiscName(static_cast<tpw::assets::DiscSource>(disc));
+                     tpw::ui::DiscName(edition, static_cast<tpw::assets::DiscSource>(disc));
         }
         tpw::Log("%s: %s: %s, %zu of %zu required files%s", tag, tpw::assets::EditionName(edition), status.StateWord(),
                  status.requiredPresent, status.required, still.c_str());
-        ready = ready && status.unlocked;
+        if (!tpw::assets::IsWindowsEdition(edition)) ready = ready && status.unlocked;
     }
     for (const tpw::assets::LanguageStatus& language : backend.Languages())
         tpw::Log("%s: language %s", tag, language.Line().c_str());
+    LogEditedFiles(tag, backend);
     return ready;
 }
 
@@ -1127,7 +1259,8 @@ int ImportFromOptions(const std::string& dataDir, const std::vector<std::string>
 }
 
 // --verify: Check again without the window: every present file of every edition and language pack hashed again (one
-// that no longer matches is removed, as the window's Check again does), then the same lines as --import's end.
+// that no longer matches is removed, as the window's Check again does; an edited .sam is kept), then the same lines as
+// --import's end.
 // Returns 0 when the US, European and Gold editions are all ready, 1 otherwise.
 int VerifyFromOptions(const std::string& dataDir) {
     const std::unique_ptr<tpw::ui::ImporterBackend> opened = OpenDataFolder(dataDir);
@@ -1136,8 +1269,11 @@ int VerifyFromOptions(const std::string& dataDir) {
     tpw::Log("verify: the data folder %s", backend.DataFolder().c_str());
     const std::string notice = backend.StartupNotice();
     if (!notice.empty()) tpw::Log("verify: on opening: %s", notice.c_str());
+    const std::string kept = backend.importer()->LastOpenCheck().Kept();
+    if (!kept.empty()) tpw::Log("verify: on opening: %s", kept.c_str());
     for (tpw::assets::Edition edition : {tpw::assets::kEditionUs, tpw::assets::kEditionEur, tpw::assets::kEditionGold,
-                                         tpw::assets::kEditionLanguages}) {
+                                         tpw::assets::kEditionLanguages, tpw::assets::kEditionUsPc,
+                                         tpw::assets::kEditionEurPc}) {
         std::string err;
         const long removed = backend.VerifyEdition(edition, err);
         if (removed < 0) {
@@ -1244,7 +1380,6 @@ int LauncherMain(int argc, char** argv) {
     bool aspectGiven = false;   // --aspect; without it the screen's own shape (ScreenAspect)
     bool rendererGiven = false;   // --renderer; without it launcher.ini's renderer key, else the build's default (gfx.h)
     if (const char* dir = std::getenv("TPW_GAME_DIR")) config.gameDir = dir;
-    std::filesystem::path program;   // the application the data tables are read from (platform/game_tables.cpp)
     std::filesystem::path packs;     // --packs: the asset packs' folder (asset_packs.h)
     std::string language;            // --language: the language laid over the game folder (language_pack.h)
     std::filesystem::path languageRoot;   // --language-root: the folder holding lang/<Name>
@@ -1253,7 +1388,6 @@ int LauncherMain(int argc, char** argv) {
     bool verify = false;                // --verify: check the data folder again, with no window
     bool gameGiven = false;             // --game (TPW_GAME_DIR alone does not stop --import)
     std::string appTest;                // --game-app-test: the edition whose hand-over is tested (GameAppTest)
-    if (const char* file = std::getenv("TPW_GAME_PROGRAM")) program = file;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         auto value = [&]() -> const char* {
@@ -1273,8 +1407,8 @@ int LauncherMain(int argc, char** argv) {
         else if (arg == tpw::launcher::kGameAppTestOption) appTest = value();
         else if (arg == "--play") {
             play = value();
-            if (play != "us" && play != "eur") {
-                tpw::LogRawF("launcher: --play wants us or eur: %s\n", play.c_str());
+            if (play != "us" && play != "eur" && play != "us-pc" && play != "eur-pc") {
+                tpw::LogRawF("launcher: --play wants us, eur, us-pc or eur-pc: %s\n", play.c_str());
                 return 2;
             }
         }
@@ -1283,7 +1417,9 @@ int LauncherMain(int argc, char** argv) {
             while (i + 1 < argc && argv[i + 1][0] != '-') imports.push_back(argv[++i]);   // the paths after it
         }
         else if (arg == "--verify") verify = true;
-        else if (arg == "--program") program = value();
+        // The game's data tables are built in (tables/ and include/ in tpw-decomp): an older script's --program is
+        // taken and left unused.
+        else if (arg == "--program") tpw::Log("launcher: --program %s is not used (the game's data tables are built in)", value());
         else if (arg == "--no-preload") tpw::launcher::gNoPreload = true;
         else if (arg == "--window-click") {
             const char* spec = value();
@@ -1403,6 +1539,20 @@ int LauncherMain(int argc, char** argv) {
             }
             config.typing.push_back(typing);
         }
+        else if (arg == "--type-env") {
+            const std::string spec = value();
+            const size_t at = spec.rfind('@');
+            tpw::Config::ScriptedTyping typing{};
+            const char* text = at == std::string::npos ? nullptr : std::getenv(spec.substr(0, at).c_str());
+            if (text == nullptr || (typing.pass = std::atoi(spec.c_str() + at + 1)) < 1) {
+                tpw::LogRawF("launcher: --type-env wants VAR@N (a set environment variable and the pass number from 1): %s\n",
+                             spec.c_str());
+                return 2;
+            }
+            typing.text = text;
+            typing.hidden = true;
+            config.typing.push_back(typing);
+        }
         else if (arg == "--probe") {
             config.probe = true;
             tpw_probe::gLog = [](const char* text) { tpw::Log("%s", text); };
@@ -1412,6 +1562,7 @@ int LauncherMain(int argc, char** argv) {
         else if (arg == "--dump-limit") config.dumpLimit = std::atoi(value());
         else if (arg == "--no-movies") config.movies = false;
         else if (arg == "--mute") config.mute = true;
+        else if (arg == "--online-server") gOnlineServer = value();
         else if (arg == "--display") config.display = value();
         else if (arg == "--background") config.background = true;
         else if (arg == "--no-fit") config.fit = false;
@@ -1462,7 +1613,7 @@ int LauncherMain(int argc, char** argv) {
     }
     if (config.gameDir.empty()) {
         const int exitCode =
-            ChooseFromDataFolder(config, program, packs, languageRoot, language, dataDir, play, rendererGiven);
+            ChooseFromDataFolder(config, packs, languageRoot, language, dataDir, play, rendererGiven);
         if (exitCode >= 0) {
             SDL_Quit();
             return exitCode;
@@ -1491,6 +1642,22 @@ int LauncherMain(int argc, char** argv) {
     tpw::Log("game folder: %s", config.gameDir.string().c_str());
     tpw::Log("edition: %s", config.edition == "stp" ? "SimTheme Park (stp)" : "Theme Park World (tpw)");
     tpw::Log("user folder: %s", config.userDir.string().c_str());
+#ifdef TPW_PORT_FIX
+    // TPW_PORT_FIX online-server: the online screens against a revived online server (platform/online_boss.cpp, the
+    // original protocol): the connection made on its own thread and the answers given on the game's (UGamework::Run), every reply
+    // length bounded, a reply that is not "Bs" or answers no request dropping the connection, the login's e-mail copied in the
+    // room it has, the message records under a lock. The server is the player's (the option or the Settings box), else
+    // the automatic one (tpw-port's online.txt, read by the update check, or the built-in).
+    const tpw::ui::OnlineServerChoice server =
+        tpw::ui::ChooseOnlineServer(gOnlineServer, gOnlineServerSetting, gOnlineServerFound);
+    for (const std::string& line : server.skipped) tpw::Log("online: %s; not used", line.c_str());
+    tpw::online::boss::SetServer(server.host);
+    tpw::Log("online: the online server is %s, from %s (the ports are online.sam's)", server.host.c_str(),
+             server.Describe());
+#else
+    if (!gOnlineServer.empty() || !gOnlineServerSetting.empty())
+        tpw::Log("online: the online server needs TPW_PORT_FIX; the game cannot connect");
+#endif
     if (!packs.empty()) {
         tpw::launcher::UsePacks(packs);
 #ifdef TPW_PORT_FIX
@@ -1513,19 +1680,8 @@ int LauncherMain(int argc, char** argv) {
         }
     }
 
-    // The original program's data tables (the advisor's, the window scripts, the ride templates and the save file's legal
-    // texts) are not in the build: they come from the player's own copy of the game, before the static initialisers run.
-    if (program.empty()) program = config.gameDir / "SimTheme Park";
-    std::string why;
-    if (!tpw::launcher::LoadTables(program, &why)) {
-        tpw::LogRawF(
-                     "launcher: the game's data tables could not be read from \"%s\": %s\n"
-                     "launcher: --program (or TPW_GAME_PROGRAM) names a full Mac \"SimTheme Park\" application, such as the\n"
-                     "launcher: US Mac CD's own, as devtools/import_originals.py writes it into the game folder\n",
-                     program.string().c_str(), why.c_str());
-        return 1;
-    }
-    tpw::Log("game tables: %s (%s)", tpw::GameTableSource().c_str(), program.string().c_str());
+    // The preload is waited for behind the bar; a start with --game is counted from here.
+    tpw::launcher::StartGame();
 
     // 4:3 leaves the game's own sizes alone (the 1280 x 1024 preset stays 5:4); anything wider widens the screen.
 #ifdef TPW_PORT_FIX
@@ -1619,6 +1775,13 @@ int main(int argc, char** argv) {
     tpw::launcher::RunFromAppBundle(argc, argv, IconDataFolder(dataDir), bundleNote);
     OpenLog(argc, argv, dataDir);
     std::atexit(LogExitAtExit);
+    RegisterSamTables();
+    // The arena starts on a 4 GB boundary (platform/arena.cpp): its offsets are then the low halves of its addresses, and the
+    // translation's words read through gMslMacAddressHigh (the deques' block tables) name the same bytes as its Ptr32s.
+    if (const uintptr_t arena = reinterpret_cast<uintptr_t>(tpw::ArenaBase()); (arena & 0xffffffffu) == 0)
+        gMslMacAddressHigh = static_cast<uint64_t>(arena) >> 32;
+    else
+        tpw::Log("arena: at %p, not on a 4 GB boundary (the online chat's queue cannot work)", reinterpret_cast<void*>(arena));
     if (bundleNote.empty()) bundleNote = tpw::launcher::TakeBundleNote();
     if (!bundleNote.empty()) tpw::Log("app bundle: %s", bundleNote.c_str());
 #if defined(__APPLE__)

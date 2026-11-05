@@ -235,7 +235,7 @@ void Ui::Tile(const std::string& id, const Rect& r, const TileView& v) {
     y += text_.DrawWrapped(style::kSmall, tx, y, tw, v.detail, colour::kInkSoft);
 
     // The bar repeats the badge's ring, so it gives way when the words need its room.
-    Rect bar{x, inner.Bottom() - pad - 8, w, 8};
+    Rect bar{x, inner.Bottom() - pad - 8 - v.footer, w, 8};
     if (v.badge == Badge::Partial && y + 4 <= bar.y) {
         canvas_.FillRound(bar, 4, colour::kYellowSoft);
         if (v.fraction > 0)
@@ -315,6 +315,46 @@ bool Ui::Toggle(const std::string& id, const Rect& r, bool& on, bool enabled) {
     return flipped;
 }
 
+bool Ui::TextField(const std::string& id, const Rect& r, std::string& value, size_t maxLength, std::string_view hint,
+                   bool& editing, bool enabled) {
+    const bool hot = interactive_ && enabled && Hovered(r);
+    if (input_.pressed) editing = hot;
+    if (!enabled) editing = false;
+    bool changed = false;
+    if (editing) {
+        for (int i = 0; i < input_.erased && !value.empty(); ++i) {
+            value.pop_back();
+            changed = true;
+        }
+        for (char c : input_.typed)
+            if (c >= 0x20 && c <= 0x7e && value.size() < maxLength) {
+                value += c;
+                changed = true;
+            }
+        if (input_.entered) editing = false;
+    }
+    const float focus = Spring(id + "#focus", editing ? 1.0f : 0.0f);
+    canvas_.Outlined(r, 10, 2.5f + focus, colour::kPaper, enabled ? Mix(colour::kInk, colour::kLimeDeep, Clamp01(focus))
+                                                                     : colour::kInkSoft);
+    const Style s = style::kSmall;
+    const float x = r.x + 12, ty = r.y + (r.h - text_.LineHeight(s)) * 0.5f, room = r.w - 24 - 4;
+    std::string shown;
+    if (value.empty()) {
+        if (!hint.empty()) text_.Draw(s, x, ty, text_.Fit(s, hint, room, false), Mix(colour::kInkSoft, colour::kPaper, 0.4f));
+    } else {
+        shown = text_.Fit(s, value, room, true);   // the end, where the typing is
+        text_.Draw(s, x, ty, shown, enabled ? colour::kInk : colour::kInkSoft);
+    }
+    if (editing) {
+        animating_ = true;   // the caret blinks
+        if (std::fmod(time_, 1.0) < 0.6) {
+            const float cx = x + (shown.empty() ? 0.0f : text_.Width(s, shown)) + 1;
+            canvas_.FillRound({cx, ty + 2, 2, text_.LineHeight(s) - 4}, 1, colour::kInk);
+        }
+    }
+    return changed;
+}
+
 bool Ui::Segmented(const std::string& id, const Rect& r, const std::vector<std::string>& options,
                    const std::vector<bool>& enabled, int& selected) {
     int n = static_cast<int>(options.size());
@@ -344,6 +384,38 @@ bool Ui::Segmented(const std::string& id, const Rect& r, const std::vector<std::
         text_.DrawCentred(style::kButton, cell, label, on ? colour::kInk : colour::kGrey);
     }
     return changed;
+}
+
+bool Ui::Slider(const std::string& id, const Rect& r, int& value, int low, int high, bool enabled) {
+    high = std::max(low, high);
+    value = std::clamp(value, low, high);
+    // The knob's centre runs from a knob's radius inside the left end to one inside the right.
+    const float knobR = r.h * 0.5f - 5;
+    const float left = r.x + r.h * 0.5f, span = std::max(1.0f, r.w - r.h);
+    bool hot = interactive_ && enabled && Hovered(r);
+    if (hot && input_.pressed) {
+        active_ = id;
+        sliderStart_ = value;
+    }
+    bool dragging = active_ == id && interactive_ && enabled;
+    if (dragging && (input_.down || input_.released)) {
+        float t = Clamp01((input_.mouseX - left) / span);
+        value = low + static_cast<int>(std::lround(t * static_cast<float>(high - low)));
+    }
+    bool kept = dragging && input_.released && value != sliderStart_;
+
+    float k = high > low ? static_cast<float>(value - low) / static_cast<float>(high - low) : 0.0f;
+    float hover = Spring(id + "#hover", hot || (dragging && input_.down) ? 1.0f : 0.0f);
+    Rgba line = enabled ? colour::kInk : colour::kInkSoft;
+    Rect track{r.x, r.CentreY() - 7, r.w, 14};
+    canvas_.Outlined(track, track.h * 0.5f, 2.5f, enabled ? colour::kCream : Mix(colour::kGrey, colour::kPaper, 0.5f), line);
+    float cx = left + span * k;
+    if (enabled && cx > track.x + track.h * 0.5f)
+        canvas_.FillRound({track.x + 2.5f, track.y + 2.5f, cx - track.x - 2.5f, track.h - 5}, (track.h - 5) * 0.5f,
+                          colour::kLime);
+    canvas_.FillCircle(cx, r.CentreY(), knobR + 2.5f + 1.0f * hover, line);
+    canvas_.FillCircle(cx, r.CentreY(), knobR + 1.0f * hover, colour::kPaper);
+    return kept;
 }
 
 bool Ui::Dropdown(const std::string& id, const Rect& r, std::string_view label, bool open, bool enabled) {
