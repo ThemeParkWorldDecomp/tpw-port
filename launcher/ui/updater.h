@@ -6,7 +6,7 @@
 // 2026-10-25). A dev build (0.0.4-dev) newer than the newest release hears of nothing; one older than it, or 0.0.4-dev
 // once 0.0.4 is out, is offered the release. Dev builds come only from running install.sh --dev. No answer (offline,
 // GitHub down, a rate limit, junk) says nothing. What it found is kept in launcher.ini, so the banner shows at once on
-// later launches, offline too, until an answer says this launcher is current. (Once a day before 0.2.1: a release went
+// later launches, offline too, until an answer says this launcher is current. (Once a day before 0.3.0: a release went
 // unseen for up to a day.)
 //
 // The Update button: an install made by install.sh (install.ps1 on Windows) is a folder DIR with source/ (the clone),
@@ -36,10 +36,30 @@ namespace tpw::ui {
 // players hear of fixes. It asks GitHub one question per launch and sends nothing about the player.
 inline constexpr const char* kCheckUpdatesKey = "check_updates";
 // When the last check got an answer, in seconds since 1970 (a check that got none leaves it). Kept for the log and
-// for launchers before 0.2.1, which checked once a day by it.
+// for launchers before 0.3.0, which checked once a day by it.
 inline constexpr const char* kUpdateLastCheckKey = "update_last_check";
 // What the last answer found: a newer version ("0.0.4"), or "none".
 inline constexpr const char* kUpdateFoundKey = "update_found";
+// The online server's address the check last read from the tpw-port repository (net::OnlineServerPointer), for the
+// game when the player names none (ChooseOnlineServer). Kept apart from the player's own (launcher_ui.h
+// kOnlineServerKey); a refused file or no answer leaves it as it was.
+inline constexpr const char* kOnlineServerFoundKey = "online_server_found";
+
+// The online server the game connects to, first of: the --online-server option, the player's own (the Settings box's
+// "Online server", launcher.ini's online_server), the address the update check found, the built-in one
+// (net::kOnlineServerBuiltIn). An option or a setting that is not a host (net::ValidHost) is passed over, with a line
+// in `skipped` saying why. `from` says which one it is, for the log.
+struct OnlineServerChoice {
+    enum class From { Option, Setting, Found, BuiltIn };
+    std::string host;
+    From from = From::BuiltIn;
+    std::vector<std::string> skipped;
+    bool Named() const { return from == From::Option || from == From::Setting; }   // the player's own
+    const char* Describe() const;   // "the --online-server option", ...
+};
+OnlineServerChoice ChooseOnlineServer(const std::string& option, const std::string& setting, const std::string& found);
+// What the Settings box shows greyed in an empty Online server field: the found address or the built-in one.
+std::string AutomaticOnlineServer(const ImportBackend& settings);
 
 namespace update {
 
@@ -77,6 +97,9 @@ Current DescribeCurrent(const std::string& version, const std::string& exeDir);
 // The questions the check asks (net.h), replaceable for the tests.
 struct Questions {
     std::function<net::Release(const net::Limits&)> latestRelease = [](const net::Limits& l) { return net::LatestRelease(l); };
+    std::function<net::OnlinePointer(const net::Limits&)> onlinePointer = [](const net::Limits& l) {
+        return net::OnlineServerPointer(l);
+    };
 };
 
 // One check, blocking (the Updater runs it on its thread; --check-updates in the open). `found`: the newer version,
@@ -121,7 +144,8 @@ public:
     Updater(const Updater&) = delete;
     Updater& operator=(const Updater&) = delete;
 
-    // On launcher start: the check when it is on and due. Returns at once.
+    // On launcher start: the check when it is on, and after it, when GitHub answered, the online server's address
+    // (kOnlineServerFoundKey). Returns at once.
     void StartupCheck(long long now);
     // Every frame, on the UI thread: takes what the background thread found and keeps it in launcher.ini.
     void Poll();
@@ -158,6 +182,7 @@ private:
     void Log(const std::string& line);
     void Begin(Phase phase, std::function<void()> job);
     void Remember(const std::string& found);
+    void KeepPointer(const net::OnlinePointer& pointer);
     bool Usable(const std::string& found) const;
 
     ImportBackend& settings_;
@@ -179,6 +204,8 @@ private:
     std::atomic<bool> cancel_{false};
     bool done_ = false;
     update::Answer answer_;
+    bool askedPointer_ = false;
+    net::OnlinePointer pointer_;
     bool staged_ = false, alreadyCurrent_ = false;
     std::string stageVersion_, stageFailure_;
     int step_ = 0, steps_ = 0;

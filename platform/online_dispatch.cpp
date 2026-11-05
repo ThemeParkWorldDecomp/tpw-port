@@ -22,14 +22,18 @@
 #include "TPString.h"
 #include "ThingReceivers.h"
 #include "UIInterface.h"
+#include "email.h"
 #include "lobby.h"
 #include "online.h"
+#include "platform/arena.h"
 #include "std_basic_filebuf.h"
 #include "std_basic_istream.h"
 #include "ui_DrawObject.h"
 #include "ui_ime.h"
+#include "ui_controls.h"
 #include "ui_mainmenu.h"
 #include "ui_publishParkPanel.h"
+#include "UI_pump.h"
 
 namespace {
 
@@ -47,8 +51,29 @@ bool OnlineControlTeleportThing(tag_IDX_TYPE<IDXTYPEUniqueNameThingId, uint16_t>
 // 0x102384b8 operator new and 0x10238218 operator delete, the glue every callee namespace below names under its own spelling.
 namespace online_callee {
 
-void* OperatorNew(uint32_t size) { return IME::MslNew(size); }
-void OperatorDelete(void* p) { IME::MslDelete(p); }
+// The online control's block (0xe8c bytes, made here and then constructed in place) comes from its own allocator, the arena, and goes back there.
+// So do the chat and vote clients (0xc bytes), whose addresses the control keeps in 32-bit words.
+void* OperatorNew(uint32_t size) {
+    if (size == 0xe8c) return COnlineControl::operator new(sizeof(COnlineControl), std::nothrow);
+    if (size == 0xc) return tpw::ArenaAllocZeroed(Granted(size));
+    return IME::MslNew(size);
+}
+void OperatorDelete(void* p) {
+    if (p != nullptr && tpw::InArena(p)) tpw::ArenaFree(p);
+    else IME::MslDelete(p);
+}
+
+// 0x10200ca4 and 0x10200d04, bthread_mutex's constructor and destructor (src/game/online/bthread.cpp, email.cpp) on the online control's
+// two mutex words (+0x18, +0x1c).
+void MutexCtor(void* self) { bthread_mutex::Construct(static_cast<bthread_mutex*>(self)); }
+void MutexDtor(void* self, int16_t flag) { bthread_mutex::Destroy(static_cast<bthread_mutex*>(self), flag); }
+
+// 0x102011a8 Argument(const std::wstring&) (src/game/online/email.cpp) and 0x10201478 std::vector<Argument>::push_back
+// (src/game/MslSupport.cpp), on the online control's request lists.
+void ArgumentCtor(void* self, const void* text) { Argument::Construct(static_cast<Argument*>(self), text); }
+void ArgumentVectorPushBack(void* vector, const void* argument) {
+    static_cast<ArgumentVector*>(vector)->push_back(*static_cast<const Argument*>(argument));
+}
 
 }  // namespace online_callee
 
@@ -215,6 +240,24 @@ void OnlineSystemCtor(void* self) { new (self) CFSOnlineSystem(); }   // 0x1016f
 // 0x1018f93c InterfaceRankTextObject(NULL), on the block the online park list panels made for 0x19c bytes.
 namespace parklist_callee {
 void RankCtor(void* mem) { new (mem) InterfaceRankTextObject(nullptr); }
+
+// FillParkList's local std::wstring (0x101ec1d4): one native pointer to the representation (length, capacity, users, the characters),
+// the layout of the translated string library (src/game/MslSupport.cpp): its empty constructor 0x101e0b84 and assign 0x101b2510. The
+// destructor 0x101468f8 gives up the share (a count of 0 is taken as 1) and the last user frees the characters and the representation;
+// the flag is -1 here (a local), so the string itself is never freed.
+void WStringCtor(void* self) { IME::MslWideString_ctorEmpty(static_cast<IME::MslWideString*>(self)); }
+void WStringAssign(void* self, const char16_t* text, uint32_t n) { static_cast<LCString*>(self)->assign(text, n); }
+void WStringDtor(void* self, int16_t flag) {
+    (void)flag;
+    IME::MslWideStringRep*& rep = *static_cast<IME::MslWideStringRep**>(self);
+    if (rep == nullptr) return;
+    if (rep->mRefs == 0) rep->mRefs = 1;
+    if (--rep->mRefs == 0) {
+        IME::MslDelete(rep->mData);
+        IME::MslDelete(rep);
+    }
+    rep = nullptr;
+}
 }  // namespace parklist_callee
 
 // ---- wire-w1b: the FTP client, the upload request and the main menu's publish path (include/FS_Online.h, ui_mainmenu.h, FS_LoadSave.h)

@@ -52,8 +52,9 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <dlfcn.h>
+#include <map>
 #include <new>
+#include <utility>
 
 // Unit v51065: the online lists' small members, the park lists' GetList for the top ten and the by-park-id lists, the login callbacks,
 // two destructors (the city list's and the theme list's base), the park instance of LoggedInGetList and the FTP download getters.
@@ -109,6 +110,16 @@ namespace {
 
 // A callback or context the Mac keeps in a 32-bit word.
 int32_t PointerWord(const void* p) { return static_cast<int32_t>(reinterpret_cast<uintptr_t>(p)); }
+
+// TPW_PORT_FIX list64 PortKeepListPointers | Mac: the park lists keep their callback and its context only in the 32-bit words at 0x1c and 0x20 | Port: the whole pointers are also kept here, by their words, for CallListCallbackDefault | Why: a 64-bit build; the words cannot hold a host pointer, so a park list's answer called its callback at a cut-down address
+std::map<std::pair<int32_t, int32_t>, std::pair<const void*, const void*>>& PortListPointers() {
+    static std::map<std::pair<int32_t, int32_t>, std::pair<const void*, const void*>> pointers;
+    return pointers;
+}
+
+void PortKeepListPointers(const void* callback, const void* context) {
+    PortListPointers()[{PointerWord(callback), PointerWord(context)}] = {callback, context};
+}
 
 }  // namespace
 
@@ -180,7 +191,8 @@ int32_t CFSOnlineSystemCityList::RequestListFromServer(City* city, uint32_t unus
 void CFSOnlineSystemCityList::StoreReceivedList(const ccCityList* list) {
     const char* info = reinterpret_cast<const char*>(list->mInfos);
     for (int32_t i = 0; i < list->mCount; ++i) {
-        void* memory = ::operator new(0x68);
+        // TPW_PORT_FIX record64 CFSOnlineSystemCityList::StoreReceivedList | Mac: operator new(0x68), the Mac's CFSOnlineCity | Port: operator new(sizeof(CFSOnlineCity)) | Why: a 64-bit build; the host's city (pointers and three host strings) is larger than 0x68 bytes, so the constructor wrote past the block and corrupted the heap
+        void* memory = ::operator new(sizeof(CFSOnlineCity));
         new (memory) CFSOnlineCity(reinterpret_cast<const ccCityInfo*>(info), this);
         info += 0x30;
     }
@@ -194,12 +206,13 @@ void CFSOnlineSystemCityList::StoreReceivedList(const ccCityList* list) {
 // virtual calls through __ptr_glue); the unit's test library defines them again as recording fakes.
 #define TPW_WEAK __attribute__((weak))
 namespace parklist_callee {
-// CFSOnlinePark's constructor (0x1017c0d8) is found by its symbol at run time: the test library does not compile its file.
+// The Mac's new of 0xc0 bytes and CFSOnlinePark's constructor (0x1017c0d8), which adds the park to the list. The constructor is
+// called directly: a dlsym of its symbol finds nothing in a Linux launcher, which exports none of its own symbols. The unit's
+// slice leaves this one out (the constructor is not in it).
 TPW_WEAK void NewPark(const ccParkInfo* info, CFSOnlineSystemParkList* list) {
-    typedef void (*Ctor)(void*, const ccParkInfo*, CFSOnlineSystemParkList*);
-    static Ctor ctor = reinterpret_cast<Ctor>(dlsym(RTLD_DEFAULT, "_ZN13CFSOnlineParkC1EPK10ccParkInfoP23CFSOnlineSystemParkList"));
-    void* park = ::operator new(0xc0);
-    if (ctor != nullptr) ctor(park, info, list);
+    // TPW_PORT_FIX record64 parklist_callee::NewPark | Mac: operator new(0xc0), the Mac's CFSOnlinePark | Port: operator new(sizeof(CFSOnlinePark)) | Why: a 64-bit build; the host's park is larger than 0xc0 bytes, so the constructor wrote past the block and corrupted the heap
+    void* park = ::operator new(sizeof(CFSOnlinePark));
+    new (park) CFSOnlinePark(info, list);
 }
 }  // namespace parklist_callee
 
@@ -238,6 +251,7 @@ void CFSOnlineSystemParkList_InCity::GetList(int32_t cityID, Callback callback, 
     mF18 = 0;
     mF1C = static_cast<int32_t>(reinterpret_cast<uintptr_t>(callback));
     mF20 = static_cast<int32_t>(reinterpret_cast<uintptr_t>(context));
+    PortKeepListPointers(reinterpret_cast<const void*>(callback), context);   // TPW_PORT_FIX list64 (PortKeepListPointers)
 
     if (mReceived != nullptr) {
         --mReceived->mRefCount;
@@ -308,6 +322,7 @@ void CFSOnlineSystemParkList_InWorldByPlayerName::GetList(const char16_t* player
     mF18 = 0;
     mF1C = static_cast<int32_t>(reinterpret_cast<uintptr_t>(callback));
     mF20 = static_cast<int32_t>(reinterpret_cast<uintptr_t>(context));
+    PortKeepListPointers(reinterpret_cast<const void*>(callback), context);   // TPW_PORT_FIX list64 (PortKeepListPointers)
 
     if (mReceived != nullptr) {
         --mReceived->mRefCount;
@@ -484,6 +499,7 @@ void CFSOnlineSystemParkList_InCityTop10::GetList(int32_t cityID, Callback callb
     mF18 = 0;
     mF1C = static_cast<int32_t>(reinterpret_cast<uintptr_t>(callback));
     mF20 = static_cast<int32_t>(reinterpret_cast<uintptr_t>(context));
+    PortKeepListPointers(reinterpret_cast<const void*>(callback), context);   // TPW_PORT_FIX list64 (PortKeepListPointers)
     ReleaseReceived(this);
     if (gOnlineSystem == nullptr) gOnlineSystem = MakeOnlineSystem();
     if (gOnlineSystem->AreWeLoggedIn() != 0) {
@@ -506,6 +522,7 @@ void CFSOnlineSystemParkList_InWorldByParkID::GetList(int32_t parkID, Callback c
     mF18 = 0;
     mF1C = static_cast<int32_t>(reinterpret_cast<uintptr_t>(callback));
     mF20 = static_cast<int32_t>(reinterpret_cast<uintptr_t>(context));
+    PortKeepListPointers(reinterpret_cast<const void*>(callback), context);   // TPW_PORT_FIX list64 (PortKeepListPointers)
     ReleaseReceived(this);
     if (gOnlineSystem == nullptr) gOnlineSystem = MakeOnlineSystem();
     if (gOnlineSystem->AreWeLoggedIn() != 0) {
@@ -831,6 +848,9 @@ CFSOnlineCity::CFSOnlineCity(const ccCityInfo* info, CFSOnlineSystemCityList* li
     mPosZ = static_cast<float>(scale * RawWord<float>(info, 0x10));
     mValue = RawWord<int32_t>(info, 0x18);
     *text44 = static_cast<const char16_t*>(info->mBlock1C.get());
+    // The Mac's 0x14 and 0x4c are the name's and text44's buffers (0x0c + 8, 0x44 + 8); the host keeps them as pointers of their own.
+    mName = name->mData;
+    mFtpName = text44->mData;
     mF58 = RawWord<int32_t>(info, 0x20);
     mF5C = RawWord<int32_t>(info, 0x24);
     mF60 = RawWord<int32_t>(info, 0x28);
@@ -1071,6 +1091,12 @@ void CallListCallbackDefault(int32_t callback, int32_t error, int32_t context, v
         callback == PointerWord(reinterpret_cast<const void*>(gPortCityListCallback)) && context == PointerWord(gPortCityListContext)) {
         fn = reinterpret_cast<Fn>(gPortCityListCallback);
         data = gPortCityListContext;
+    } else {
+        auto kept = PortListPointers().find({callback, context});
+        if (kept != PortListPointers().end()) {
+            fn = reinterpret_cast<Fn>(const_cast<void*>(kept->second.first));
+            data = kept->second.second;
+        }
     }
     fn(error, data, list);
 }

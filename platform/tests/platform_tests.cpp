@@ -11,6 +11,7 @@
 #include <cstring>
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <cmath>
 #include <fstream>
@@ -34,6 +35,7 @@
 #include "platform/indirectx.h"
 #include "platform/ltms.h"
 #include "platform/macdoze.h"
+#include "platform/macdoze_system.h"
 #include "platform/msl.h"
 #include "platform/samsutils.h"
 #include "platform/upixels.h"
@@ -244,6 +246,51 @@ static void TestPacks(const fs::path& scratch) {
 
     tpw::PackDirs().clear();
     CHECK(Same(tpw::FindHostPath("data:init:640:Splash_American.tga"), config.gameDir / "data" / "init" / "640" / "Splash_American.tga"));
+    config.gameDir = gameDir;
+    config.userDir = userDir;
+}
+
+// The films: the game opens them by their Mac CD names (Data:Movies:bf.mov); a folder with the PC CD's films instead
+// (BF.TGQ) gives those, while a .mov anywhere, the user folder, a pack or the game folder, still comes first.
+static void TestFilms(const fs::path& scratch) {
+    tpw::Config& config = tpw::config();
+    const fs::path gameDir = config.gameDir;
+    const fs::path userDir = config.userDir;
+    config.gameDir = scratch / "game";
+    config.userDir = scratch / "user";
+    const fs::path movies = config.gameDir / "data" / "Movies";
+    const fs::path pack = scratch / "pack";
+    Touch(movies / "BF.TGQ");
+    Touch(movies / "bub.mov");
+    Touch(movies / "bub.tgq");
+    Touch(movies / "JUG.TGQ");
+    Touch(movies / "Grav.mov.tgq");
+    Touch(movies / "init.tga.tgq");
+    Touch(pack / "data" / "Movies" / "jug.mov");
+    Touch(config.userDir / "data" / "Movies" / "roc.mov");
+    Touch(movies / "ROC.TGQ");
+    tpw::PackDirs() = {pack};
+
+    CHECK(Same(tpw::FindHostPath("Data:Movies:bf.mov"), movies / "BF.TGQ"));
+    CHECK(Same(tpw::FindHostPath("DATA:MOVIES:BF.MOV"), movies / "BF.TGQ"));
+    CHECK(Same(tpw::FindHostPath("Data:Movies:bf.tgq"), movies / "BF.TGQ"));
+    CHECK(Same(tpw::FindHostPath("Data:Movies:bub.mov"), movies / "bub.mov"));               // the .mov first
+    CHECK(Same(tpw::FindHostPath("Data:Movies:jug.mov"), pack / "data" / "Movies" / "jug.mov"));   // a pack's .mov too
+    CHECK(Same(tpw::FindHostPath("Data:Movies:roc.mov"), config.userDir / "data" / "Movies" / "roc.mov"));
+    CHECK(tpw::FindHostPath("Data:Movies:mir.mov").empty());
+    CHECK(tpw::FindHostPath("Data:Movies:grav.mov").empty());     // only a name's .mov becomes .tgq
+    CHECK(tpw::FindHostPath("Data:Movies:init.tga").empty());     // and only a film's
+    CHECK(tpw::FindHostPath("Data:Movies:.mov").empty());
+    // What MOVIE_Play hands QuickTime: the spec of the .mov name, standing for the .tgq.
+    unsigned char path[256];
+    SamsUtilities::UString::c2pcpy(path, "Data:Movies:plan.mov");
+    FSSpec spec{};
+    CHECK(FSMakeFSSpec(0, 0, path, &spec) == -43);
+    Touch(movies / "Plan.tgq");
+    CHECK(FSMakeFSSpec(0, 0, path, &spec) == 0);
+    CHECK(Same(tpw::HostPathOfSpec(&spec), movies / "Plan.tgq"));
+
+    tpw::PackDirs().clear();
     config.gameDir = gameDir;
     config.userDir = userDir;
 }
@@ -799,6 +846,9 @@ static void TestFileHandles() {
         outbox_callee::StreamGetline(&in, line, sizeof(line), '\n');
         CHECK(std::strcmp(line, "subject") == 0 && in.ios->mState == 0);
         outbox_callee::StreamDestroy(&in);
+        // Outbox::DeleteMail removes the same file.
+        outboxdel_callee::Unlink(kMail);
+        CHECK(!fs::exists(mailFile));
         // A mail neither folder has fails to open, and reading makes no folder for it.
         outbox_callee::StreamCtor(&in);
         CHECK(!outbox_callee::StreamOpen(&in, "TPW:Theme Park Data:save:users:U5L48:outbox:00000004.dat") && in.filebufOpen == 0);
@@ -1057,15 +1107,18 @@ static void TestScriptedClick() {
 namespace {
 // A UGamework that keeps what a key table would (CKeyTable::KeyDown and KeyUp match the key and the modifiers exactly):
 // the key codes and modifiers that went down and have not come up. Walking in first person is the camera table's Up
-// with no modifiers (0x7e, the Mac's up arrow), read at every Process pass (TestAutoKeys).
+// with no modifiers (0x7e, the Mac's up arrow), read at every Process pass (TestAutoKeys); turning left is its Left (0x7b,
+// TestSeveralKeys).
 struct KeyRecorder : SamsUtilities::UGamework {
     std::map<std::pair<int, uint32_t>, bool> held;
     std::map<int32_t, std::vector<int>> walk;   // per pass: whether Up with no modifiers was held, at each Process
+    std::map<int32_t, int> turn;                 // per pass: whether Left with no modifiers was held, at its last Process
     int strayUps = 0;                            // releases of a key and modifiers that were not down
     std::string typed;                           // the characters released (the game types a character at its key-up)
     KeyRecorder() : UGamework(0) {}
     bool Process() override {
         walk[tpw::CurrentPass()].push_back(held.count({0x7e, 0}) != 0 ? 1 : 0);
+        turn[tpw::CurrentPass()] = held.count({0x7b, 0}) != 0 ? 1 : 0;
         return true;
     }
     void HandleTyping(char character, char keyCode, uint32_t modifiers, bool down) override {
@@ -1085,6 +1138,7 @@ struct KeysRun {
     int32_t first = 0;
     // The walk state at the end of a pass (its last Process), and the passes run between a release and a press.
     int Walk(int32_t pass) { return recorder.walk[first - 1 + pass].back(); }
+    int Turn(int32_t pass) { return recorder.turn[first - 1 + pass]; }
     int Extra(int32_t pass) { return static_cast<int>(recorder.walk[first - 1 + pass].size()) - 1; }
     KeysRun(const std::vector<tpw::Config::ScriptedKey>& keys, int32_t passes) {
         tpw::Config& config = tpw::config();
@@ -1204,6 +1258,49 @@ static void TestAutoKeys() {
         for (size_t i = 0; i < expected.size() && i < recorder.log.size(); ++i) CHECK(recorder.log[i] == expected[i]);
         SDL_QuitSubSystem(SDL_INIT_EVENTS);
     }
+}
+
+static void TestSeveralKeys() {
+    // One key at a time, as on the Mac (0x100054c4 releases the key that is down before it presses the next, 0x100056a0
+    // releases it at any key's key-up): Up held, then Left from pass 10 to 20, turns and stops walking for good (Up is
+    // not pressed again). With the launcher's "Several keys at once" (tpw::gPortSeveralKeys) each key is down from its
+    // key-down to its own key-up, as on the PC: walking and turning at once.
+    const int32_t up = SDL_SCANCODE_UP, left = SDL_SCANCODE_LEFT;
+    tpw::gPortSeveralKeys = false;
+    {
+        KeysRun run({{up, 1, 40}, {left, 10, 20}}, 42);
+        for (int32_t pass = 1; pass <= 42; ++pass) {
+            CHECK(run.Walk(pass) == (pass < 10 ? 1 : 0));
+            CHECK(run.Turn(pass) == (pass >= 10 && pass < 20 ? 1 : 0));
+        }
+        CHECK(run.recorder.held.empty() && run.recorder.strayUps == 0);
+    }
+#ifdef TPW_PORT_FIX
+    tpw::gPortSeveralKeys = true;
+    {
+        KeysRun run({{up, 1, 40}, {left, 10, 20}}, 42);
+        for (int32_t pass = 1; pass <= 42; ++pass) {
+            if (run.Walk(pass) != (pass < 40 ? 1 : 0) || run.Turn(pass) != (pass >= 10 && pass < 20 ? 1 : 0))
+                std::fprintf(stderr, "several keys 1: pass %d walks %d turns %d\n", pass, run.Walk(pass), run.Turn(pass));
+            CHECK(run.Walk(pass) == (pass < 40 ? 1 : 0));
+            CHECK(run.Turn(pass) == (pass >= 10 && pass < 20 ? 1 : 0));
+        }
+        CHECK(run.recorder.held.empty() && run.recorder.strayUps == 0);
+    }
+    {
+        // Up let go first, while Left (now repeating) is held; then Up again while Left is still held.
+        KeysRun run({{up, 1, 20}, {left, 10, 40}, {up, 30, 35}}, 42);
+        for (int32_t pass = 1; pass <= 42; ++pass) {
+            if (run.Walk(pass) != (pass < 20 || (pass >= 30 && pass < 35) ? 1 : 0) ||
+                run.Turn(pass) != (pass >= 10 && pass < 40 ? 1 : 0))
+                std::fprintf(stderr, "several keys 2: pass %d walks %d turns %d\n", pass, run.Walk(pass), run.Turn(pass));
+            CHECK(run.Walk(pass) == (pass < 20 || (pass >= 30 && pass < 35) ? 1 : 0));
+            CHECK(run.Turn(pass) == (pass >= 10 && pass < 40 ? 1 : 0));
+        }
+        CHECK(run.recorder.held.empty() && run.recorder.strayUps == 0);
+    }
+    tpw::gPortSeveralKeys = false;
+#endif
 }
 
 // SDL's own keymap calls (src/events/SDL_keymap_c.h and SDL_keyboard_c.h of the static SDL3 the program links): a test
@@ -1799,6 +1896,32 @@ static void TestGdi() {
     LeaveCriticalSection(&section);
     LeaveCriticalSection(&section);
     CHECK(section != nullptr);
+
+    // The 4 byte handle words (bthread_mutex): two neighbours get two mutexes, made by Initialize, and a second thread waits for the
+    // first one to leave.
+    uint32_t words[2] = {0xdeadbeefu, 0xdeadbeefu};
+    InitializeCriticalSection(&words[0]);
+    InitializeCriticalSection(&words[1]);
+    CHECK(words[0] != 0 && words[1] != 0 && words[0] != words[1]);
+    EnterCriticalSection(&words[0]);
+    EnterCriticalSection(&words[0]);
+    std::atomic<int> entered{0};
+    std::thread other([&] {
+        EnterCriticalSection(&words[1]);   // the neighbour is free
+        LeaveCriticalSection(&words[1]);
+        EnterCriticalSection(&words[0]);
+        entered = 1;
+        LeaveCriticalSection(&words[0]);
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    CHECK(entered == 0);
+    LeaveCriticalSection(&words[0]);
+    LeaveCriticalSection(&words[0]);
+    other.join();
+    CHECK(entered == 1);
+    DeleteCriticalSection(&words[0]);
+    DeleteCriticalSection(&words[1]);
+    CHECK(words[0] == 0 && words[1] == 0);
 
     CHECK(AddFontResource("/nonexistent/folder/missing.ttf") == 0);
     CHECK(AddFontResource("data:fonts:missing.ttf") == 0);
@@ -3834,6 +3957,7 @@ int main() {
     fs::create_directories(scratch);
     TestPaths(scratch);
     TestPacks(scratch / "packs");
+    TestFilms(scratch / "films");
     TestGoldRides(scratch / "gold");
     TestLanguagePack(scratch / "language");
     TestEdition(scratch / "edition");
@@ -3850,6 +3974,7 @@ int main() {
     TestKeyboard();
     TestScriptedClick();
     TestAutoKeys();
+    TestSeveralKeys();
     TestTableKeys();
     TestStrings();
     TestCodePages(scratch / "codepages");

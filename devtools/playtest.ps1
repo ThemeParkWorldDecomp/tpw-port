@@ -78,10 +78,13 @@ function Get-RunLines([int]$After) {
 # limit (it is stopped then), or that no such process was running (it had ended already, or the number is another's now).
 function Wait-Game([string]$Program, [int]$Id, [datetime]$Since, [datetime]$Until) {
   $none = "no process $Id to wait for"
+  # The program's name without its folder and .exe, taken from the text: the log's path is scrubbed (log_scrub.h), and a
+  # <computer> in it is a path that Windows PowerShell's [System.IO.Path] refuses.
+  $name = ($Program -replace '^.*[\\/]', '') -replace '\.exe$', ''
   try {
     $p = [System.Diagnostics.Process]::GetProcessById($Id)
     $null = $p.Handle   # keeps the process handle, so ExitCode is there after the wait
-    if ($p.ProcessName -ne [System.IO.Path]::GetFileNameWithoutExtension($Program) -or $p.StartTime -lt $Since) { return $none }
+    if ($p.ProcessName -ne $name -or $p.StartTime -lt $Since) { return $none }
   } catch { return $none }
   $ms = [Math]::Max(0, [int]($Until - (Get-Date)).TotalMilliseconds)
   if (-not $p.WaitForExit($ms)) { $p.Kill(); return 'force-quit at the time limit' }

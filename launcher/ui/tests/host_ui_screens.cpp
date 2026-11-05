@@ -15,7 +15,6 @@
 #include <ctime>
 #include <deque>
 #include <filesystem>
-#include <fstream>
 #include <functional>
 #include <map>
 #include <memory>
@@ -188,7 +187,7 @@ public:
         ImportReport report;
         report.cancelled = cancelled_;
         if (current_.finish && !cancelled_) current_.finish(*this, report);
-        for (int i = 0; i < 3; ++i) report.status[i] = Status(kEditions[i]);
+        AllStatuses(report.status);
         ImportProgress done;
         done.kind = ImportProgress::Kind::Finished;
         done.message = report.Summary();
@@ -198,6 +197,13 @@ public:
         current_ = Script();
         return report;
     }
+    // The six editions' (StatusIndex order), as ImportReport::status holds them.
+    void AllStatuses(EditionStatus out[6]) const {
+        for (Edition e : kAllEditions) out[StatusIndex(e)] = Status(e);
+    }
+    static constexpr Edition kAllEditions[6] = {assets::kEditionUs,         assets::kEditionEur,
+                                                assets::kEditionGold,       assets::kEditionLanguages,
+                                                assets::kEditionUsPc,       assets::kEditionEurPc};
     // As Importer::StatusLocked (assets/importer.cpp).
     EditionStatus Status(Edition edition) const override {
         EditionStatus s;
@@ -209,20 +215,31 @@ public:
             bool have = (present_[i] & edition) != 0;
             bool required = (r.flags & assets::kFlagRequired) != 0;
             bool file = !SideFile(r);
+            bool satisfied = have;
+            if (const ManifestRecord* other = required ? assets::FilmCounterpart(r, edition) : nullptr) {
+                if (other->flags & assets::kFlagRequired) {
+                    size_t j = static_cast<size_t>(other - records);
+                    const std::string dest = r.dest;
+                    if (dest.compare(dest.size() - 4, 4, ".tgq") == 0) required = false;
+                    else satisfied = have || (present_[j] & edition) != 0;
+                }
+            }
             ++s.records;
             s.required += required;
+            s.requiredPresent += required && satisfied;
             s.files += file;
             if (have) {
                 ++s.present;
-                s.requiredPresent += required;
                 s.filesPresent += file;
                 s.bytesPresent += assets::RecordHash(r, 0).size;
-            } else if (required && r.source < 3) {
+            } else if (required && !satisfied && r.source < 3) {
                 ++s.missing[r.source];
                 if (file) ++s.missingFiles[r.source];
             }
         }
         s.unlocked = s.required > 0 && s.requiredPresent == s.required;
+        auto it = edited.find(edition);
+        s.edited = it == edited.end() ? 0 : it->second.size();
         return s;
     }
     std::string DataFolder() const override { return "/home/player/.local/share/" + std::string(kDataFolderName); }
@@ -257,6 +274,28 @@ public:
     }
     std::vector<assets::LanguageStatus> languages;   // the data folder's languages, as the verifier would list them
     mutable int languageReads = 0;
+    std::vector<assets::EditedFile> EditedFiles(Edition edition) const override {
+        auto it = edited.find(edition);
+        return it == edited.end() ? std::vector<assets::EditedFile>{} : it->second;
+    }
+    // As Importer::RestoreOriginal: only a listed file with its original kept; it leaves the list.
+    bool RestoreOriginal(Edition edition, const std::string& dest, std::string& err) override {
+        std::vector<assets::EditedFile>& list = edited[edition];
+        for (size_t k = 0; k < list.size(); ++k) {
+            if (list[k].dest != dest) continue;
+            if (!list[k].original) {
+                err = "no verified copy of " + dest + " is kept; drop the disc again for the original";
+                return false;
+            }
+            list.erase(list.begin() + static_cast<long>(k));
+            restored.push_back(dest);
+            return true;
+        }
+        err = dest + " is not an edited settings file";
+        return false;
+    }
+    std::map<Edition, std::vector<assets::EditedFile>> edited;   // the kept edited .sam files an edition
+    std::vector<std::string> restored;                           // what Restore original put back, in order
 
 private:
     std::vector<uint8_t> present_;
@@ -305,6 +344,32 @@ void DropOlderPressing(FakeBackend& b, ImportReport& report) {
     report.written = b.CountFiles(assets::kEditionEur) - before;
     report.entries = report.hashed = report.matched = pc.size();
     report.unknownFiles = 212;
+}
+
+// The US Windows CD's first release (1.0) as it leaves the US Windows folder: every 25th of its files has other content.
+void DropFirstRelease(FakeBackend& b, ImportReport& report) {
+    std::vector<size_t> pc = FileRecords(assets::kEditionUsPc, assets::kSourcePcCd);
+    std::vector<bool> miss(assets::ManifestRecordCount(), false);
+    for (size_t k = 0; k < pc.size(); ++k) {
+        if (k % 25 != 24) continue;
+        miss[pc[k]] = true;
+        report.differentVersions.push_back(assets::ManifestRecords()[pc[k]].dest);
+    }
+    size_t before = b.CountFiles(assets::kEditionUsPc);
+    b.Fill(assets::kEditionUsPc, [&](size_t i, const ManifestRecord&) { return !miss[i]; });
+    report.written = b.CountFiles(assets::kEditionUsPc) - before;
+    report.entries = report.hashed = report.matched = pc.size();
+    report.unknownFiles = 40;
+}
+
+void FillWindows(FakeBackend& b) {
+    b.FillAll(assets::kEditionUsPc);
+    b.FillAll(assets::kEditionEurPc);
+}
+
+void FillWindowsAndGold(FakeBackend& b) {
+    FillWindows(b);
+    b.FillAll(assets::kEditionGold);
 }
 
 // Some log rows: real destinations from the manifest, so the log looks as it will.
@@ -399,6 +464,17 @@ void FillEverything(FakeBackend& b) {
     b.FillAll(assets::kEditionGold);
 }
 
+// Edited .sam files the US edition keeps (tpw-port #94): one the game reads to its end, one with a line its parser stops
+// at, and one with no original kept yet (edited before the launcher kept copies).
+void EditUsSettings(FakeBackend& b) {
+    const std::string folder = "/home/player/.local/share/STP-TPW Launcher/assets/us/Theme Park Data/";
+    b.edited[assets::kEditionUs] = {
+        {"data/levels/Standard.sam", folder + "data/levels/Standard.sam", true, 0},
+        {"data/levels/Online_Standard.sam", folder + "data/levels/Online_Standard.sam", true, 161},
+        {"data/med.sam", folder + "data/med.sam", false, 0},
+    };
+}
+
 
 std::vector<std::string> g_written;
 
@@ -417,6 +493,11 @@ std::unique_ptr<Updater> MakeUpdater(FakeBackend& b, const std::string& state) {
         r.version = state == "first" ? "" : "0.0.9";
         r.why = r.answered ? "" : "curl failed (exit code 6)";
         return r;
+    };
+    hooks.questions.onlinePointer = [](const tpw::net::Limits&) {   // never the real one: no internet in the tests
+        tpw::net::OnlinePointer p;
+        p.why = "not asked in the tests";
+        return p;
     };
     hooks.run = [state](const tpw::proc::Options& o) {
         o.onLine("STEP 1/4 Checking this computer");
@@ -525,6 +606,45 @@ void Render(const std::string& dir, const Shot& shot, int scale) {
 }
 
 // ---- the states
+
+// The Mods box's rows (SetMods): tpw-mods' Enable strikes and Patrolling staff can cross bridges as their mod.json files
+// have them, and a made-up mod that conflicts with Enable strikes, for the European edition only, and changes saved games.
+ModRow EnableStrikes() {
+    ModRow row;
+    row.id = "enable-strikes";
+    row.name = "Enable strikes";
+    row.version = "1.0.0";
+    row.author = "TPW Decomp";
+    row.text = "Staff can go on strike in an open park, as Bullfrog's code was written to do before the release blocked "
+               "it. Strikes still need a park older than 24 months and staff with a real grievance. The advisor also gives the two "
+               "strike messages the original never used: a last warning a week before a strike, and word when a strike is over.";
+    row.editions[0] = row.editions[1] = row.editions[2] = true;
+    return row;
+}
+ModRow StaffCrossBridges() {
+    ModRow row;
+    row.id = "staff-cross-bridges";
+    row.name = "Patrolling staff can cross bridges";
+    row.version = "1.0.0";
+    row.author = "TPW Decomp";
+    row.text = "Staff walking their rounds can cross a footbridge, like the bridge over the stream in the Lost Kingdom. In "
+               "the original they only crossed one when sent to a job on the other side. A bridge outside a worker's patrol "
+               "area is still never taken.";
+    row.editions[0] = row.editions[1] = row.editions[2] = true;
+    return row;
+}
+ModRow NoStrikes() {
+    ModRow row;
+    row.id = "no-strikes";
+    row.name = "No strikes";
+    row.version = "0.1.0";
+    row.author = "A tester";
+    row.text = "Staff never strike.";
+    row.editions[1] = true;
+    row.changesSaves = true;
+    row.conflicts = {"enable-strikes"};
+    return row;
+}
 
 void PartialUsEur(FakeBackend& b) {
     b.FillAll(assets::kEditionUs);
@@ -788,6 +908,26 @@ std::vector<Shot> Shots() {
                      },
                      Screen::Checking, {}});
 
+    shots.push_back({"31-home-windows-editions", metric::kStartWidth, metric::kStartHeight, FillWindows, nullptr,
+                     Screen::Home, {}});
+    shots.push_back({"32-result-first-release", metric::kStartWidth, metric::kStartHeight, nullptr,
+                     [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>&) {
+                         FakeBackend::Script s;
+                         s.finish = DropFirstRelease;
+                         b.Queue(s);
+                         ui.OfferPaths({"/media/SimTheme Park (USA).bin"});
+                     },
+                     Screen::Result, {}});
+    shots.push_back({"33-home-ready-windows-gold", metric::kStartWidth, metric::kStartHeight, FillWindowsAndGold,
+                     nullptr, Screen::Home, {}});
+    shots.push_back({"34-play-windows-edition", metric::kStartWidth, metric::kStartHeight, FillWindows,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
+                         ui.ShowScreen(LauncherUi::Screen::Play);
+                     },
+                     Screen::Play, {}});
+    shots.push_back({"35-home-windows-smallest", metric::kMinWidth, metric::kMinHeight, FillWindows, nullptr,
+                     Screen::Home, {}});
+
     shots.push_back({"17-result-nothing-new", metric::kStartWidth, metric::kStartHeight, PartialUsEur,
                      [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>&) {
                          FakeBackend::Script s;
@@ -831,6 +971,33 @@ std::vector<Shot> Shots() {
                          ui.SetStartingProgress(-1.0f);
                      },
                      Screen::Starting, {}});
+
+    // Edited .sam files (tpw-port #94): the Customized settings badge on both homes, its box, in the smallest window too.
+    auto editUs = [](FakeBackend& b) {
+        FillEverything(b);
+        EditUsSettings(b);
+    };
+    shots.push_back({"31-home-all-confirmed-customized", metric::kStartWidth, metric::kStartHeight, editUs, nullptr,
+                     Screen::Home, {}});
+    shots.push_back({"32-customized-settings-box", metric::kStartWidth, metric::kStartHeight, editUs,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) { ui.ShowEdited(0); },
+                     Screen::Home, {}});
+    shots.push_back({"33-customized-settings-box-smallest", metric::kMinWidth, metric::kMinHeight, editUs,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) { ui.ShowEdited(0); },
+                     Screen::Home, {}});
+    shots.push_back({"34-home-customized-small-tiles", metric::kStartWidth, metric::kStartHeight,
+                     [](FakeBackend& b) {
+                         PartialUsEur(b);
+                         EditUsSettings(b);
+                     },
+                     nullptr, Screen::Home, {}});
+    shots.push_back({"35-home-customized-smallest", metric::kMinWidth, metric::kMinHeight,
+                     [](FakeBackend& b) {
+                         PartialUsEur(b);
+                         EditUsSettings(b);
+                         b.edited[assets::kEditionEur] = {{"data/med.sam", "/x/data/med.sam", true, 0}};
+                     },
+                     nullptr, Screen::Home, {}});
 
     // Every edition confirmed: two large tiles with their Gold badges and Play buttons, no drop field.
     shots.push_back({"12-home-all-confirmed", metric::kStartWidth, metric::kStartHeight, FillEverything, nullptr,
@@ -908,6 +1075,54 @@ std::vector<Shot> Shots() {
                      },
                      Screen::Home, {}});
 
+    // The Mods box (SetMods) with Enable strikes off and on, the home saying "1 mod on", and the box in the smallest
+    // window with a second mod that conflicts with it.
+    shots.push_back({"31-mods-off", metric::kStartWidth, metric::kStartHeight, FillEverything,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
+                         ui.SetMods({EnableStrikes()});
+                         ui.ShowMods(true);
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"32-mods-on", metric::kStartWidth, metric::kStartHeight,
+                     [](FakeBackend& b) {
+                         FillEverything(b);
+                         b.settings[ModKey("enable-strikes")] = "1";
+                     },
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
+                         ui.SetMods({EnableStrikes()});
+                         ui.ShowMods(true);
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"33-home-one-mod-on", metric::kStartWidth, metric::kStartHeight,
+                     [](FakeBackend& b) {
+                         FillEverything(b);
+                         b.settings[ModKey("enable-strikes")] = "1";
+                     },
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) { ui.SetMods({EnableStrikes()}); },
+                     Screen::Home, {}});
+    shots.push_back({"34-mods-smallest", metric::kMinWidth, metric::kMinHeight,
+                     [](FakeBackend& b) {
+                         FillEverything(b);
+                         b.settings[ModKey("enable-strikes")] = "1";
+                     },
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
+                         ui.SetMods({EnableStrikes(), NoStrikes()});
+                         ui.ShowMods(true);
+                     },
+                     Screen::Home, {}});
+    // The box with both of tpw-mods' mods on.
+    shots.push_back({"35-mods-two-on", metric::kStartWidth, metric::kStartHeight,
+                     [](FakeBackend& b) {
+                         FillEverything(b);
+                         b.settings[ModKey("enable-strikes")] = "1";
+                         b.settings[ModKey("staff-cross-bridges")] = "1";
+                     },
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
+                         ui.SetMods({EnableStrikes(), StaffCrossBridges()});
+                         ui.ShowMods(true);
+                     },
+                     Screen::Home, {}});
+
     // The update banner under the title (updater.h), in the smallest window: on the home with the drop field (whose
     // icon makes room for it) and on the all-confirmed one.
     shots.push_back({"22-update-found-smallest", metric::kMinWidth, metric::kMinHeight, nullptr, nullptr, Screen::Home,
@@ -922,10 +1137,136 @@ std::vector<Shot> Shots() {
                      Screen::Home, "staged"});
     shots.push_back({"27-update-failed-smallest", metric::kMinWidth, metric::kMinHeight, FillEverything, nullptr,
                      Screen::Home, "failed"});
+
+    // The Settings box's Online server field (launcher_ui.h kOnlineServerKey) at the box's end: empty, the automatic
+    // address greyed in it; and a value that is not a host being typed, with the line saying why it is not used.
+    auto onlineServer = [](const std::string& typed) {
+        return [typed](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+            ui.ShowSettings(true);
+            frames(1);
+            ui.HandleEvent(MotionEvent(90, metric::kStartHeight * 0.5f));
+            ui.HandleEvent(WheelEvent(-40));
+            frames(1);
+            if (typed.empty()) return;
+            const Rect r = ui.OnlineServerRect();
+            ui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+            frames(1);
+            ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+            frames(1);
+            ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+            frames(1);
+            SDL_Event text{};
+            text.type = SDL_EVENT_TEXT_INPUT;
+            text.text.text = typed.c_str();
+            ui.HandleEvent(text);
+        };
+    };
+    shots.push_back({"31-settings-online-server", metric::kStartWidth, metric::kStartHeight, FillEverything,
+                     onlineServer(""), Screen::Home, {}});
+    shots.push_back({"32-settings-online-server-typed", metric::kStartWidth, metric::kStartHeight, FillEverything,
+                     onlineServer("192.0.2.7:7598"), Screen::Home, {}});
     return shots;
 }
 
 // ---- checks that need no pictures
+
+// The Windows editions' wording: the tile a slot shows, the disc names, what a game from the Windows disc lacks, and the
+// US first release's result.
+void CheckWindowsTexts() {
+    CheckEq(EditionTitle(assets::kEditionUsPc), "US edition", "EditionTitle us-pc");
+    CheckEq(EditionTitle(assets::kEditionEurPc), "European edition", "EditionTitle eur-pc");
+    CheckEq(EditionGame(assets::kEditionUsPc), "Sim Theme Park, Windows disc", "EditionGame us-pc");
+    CheckEq(EditionGame(assets::kEditionEurPc), "Theme Park World, Windows disc", "EditionGame eur-pc");
+    Check(EditionIndex(assets::kEditionUsPc) == 0 && EditionIndex(assets::kEditionEurPc) == 1, "a Windows edition's tile");
+    Check(StatusIndex(assets::kEditionUsPc) == 4 && StatusIndex(assets::kEditionEurPc) == 5, "a Windows edition's status");
+    CheckEq(DiscName(assets::kEditionUsPc, assets::kSourcePcCd), "the US Windows CD", "DiscName us-pc");
+    CheckEq(DiscName(assets::kEditionEurPc, assets::kSourcePcCd), assets::SourceDiscName(assets::kSourcePcCd),
+            "DiscName eur-pc: the European PC CD");
+    CheckEq(GoldKey(assets::kEditionUsPc), kGoldUsKey, "GoldKey us-pc");
+    CheckEq(LanguageKey(assets::kEditionEurPc), kLanguageEurKey, "LanguageKey eur-pc");
+    CheckEq(OwnLanguage(assets::kEditionUsPc), "American", "OwnLanguage us-pc");
+    CheckEq(OwnLanguage(assets::kEditionEurPc), "English", "OwnLanguage eur-pc");
+    const std::string note = "The Mac CD's 17 bonus rides, sideshows and features were never on the PC (the Gold CD has "
+                             "them)";
+    CheckEq(WindowsEditionNote(assets::kEditionUsPc), note, "WindowsEditionNote us-pc");
+    CheckEq(WindowsEditionNote(assets::kEditionEurPc), note, "WindowsEditionNote eur-pc");
+    CheckEq(WindowsEditionNote(assets::kEditionUs), "", "WindowsEditionNote: none for a Mac edition");
+
+    // nothing yet: the Mac editions show, and each tile names the discs that unlock it
+    FakeBackend b;
+    EditionStatus all[6];
+    b.AllStatuses(all);
+    Check(SlotStatus(all, 0).edition == assets::kEditionUs && SlotStatus(all, 1).edition == assets::kEditionEur &&
+              SlotStatus(all, 2).edition == assets::kEditionGold,
+          "SlotStatus: nothing yet shows the Mac editions");
+    CheckEq(DescribeSlot(all, 0).detail, "Drag in the US Mac CD or the US Windows CD to unlock", "empty US tile");
+    CheckEq(DescribeSlot(all, 1).detail, "Drag in the European PC CD to unlock", "empty European tile");
+    CheckEq(DescribeSlot(all, 2).detail, DescribeTile(all[2]).detail, "empty Gold tile");
+
+    // the Windows discs alone: their editions show, ready, with what they lack
+    EditionStatus before[6];
+    b.AllStatuses(before);
+    ImportReport report;
+    FillWindows(b);
+    report.written = b.CountFiles(assets::kEditionUsPc) + b.CountFiles(assets::kEditionEurPc);
+    b.AllStatuses(report.status);
+    b.AllStatuses(all);
+    const EditionStatus& us = SlotStatus(all, 0);
+    Check(us.edition == assets::kEditionUsPc && us.unlocked, "SlotStatus: the US Windows edition shows when ready");
+    Check(SlotStatus(all, 1).edition == assets::kEditionEurPc, "SlotStatus: the European Windows edition shows when ready");
+    CheckEq(DescribeSlot(all, 0).state, "Ready to play", "US Windows tile state");
+    CheckEq(DescribeSlot(all, 0).detail, Files(us.filesPresent) + " confirmed; no Mac bonus rides", "US Windows tile detail");
+    ResultText r = DescribeResult(report, before);
+    CheckEq(r.headline, "All assets confirmed for the US edition (Windows disc) and the European edition (Windows disc)",
+            "Windows discs headline");
+    Check(r.good && r.lines.size() >= 2 && r.lines[0] == "US edition (Windows disc): ready to play" &&
+              r.lines[1] == "European edition (Windows disc): ready to play",
+          "Windows discs: a line a tile");
+
+    // the Mac CD then: the Mac editions show again, and the European one is named alone
+    b.AllStatuses(before);
+    b.FillAll(assets::kEditionUs);
+    b.FillAll(assets::kEditionEur);
+    b.AllStatuses(report.status);
+    b.AllStatuses(all);
+    Check(SlotStatus(all, 0).edition == assets::kEditionUs && SlotStatus(all, 1).edition == assets::kEditionEur,
+          "SlotStatus: a ready Mac edition goes first");
+    CheckEq(DescribeResult(report, before).headline, "All assets confirmed for the US edition and the European edition",
+            "Mac CD after the Windows discs");
+    // both editions dropped together: the Windows one is not named beside the Mac one of its tile
+    for (int i = 0; i < 6; ++i) before[i] = EditionStatus();
+    CheckEq(DescribeResult(report, before).headline, "All assets confirmed for the US edition and the European edition",
+            "Mac and Windows discs together");
+
+    // partial: the one with more files shows, and its missing files name its own disc
+    FakeBackend p;
+    p.Fill(assets::kEditionUsPc, [](size_t i, const ManifestRecord&) { return i % 2 == 0; });
+    p.AllStatuses(all);
+    const EditionStatus& half = SlotStatus(all, 0);
+    Check(half.edition == assets::kEditionUsPc && !half.unlocked, "SlotStatus: the edition with more files shows");
+    Check(MissingText(half).find("the US Windows CD") != std::string::npos, "MissingText names the US Windows CD");
+    Check(DescribeSlot(all, 0).detail == "Drag in the US Windows CD to unlock", "a partial US Windows tile");
+
+    // the US first release
+    FakeBackend f;
+    f.AllStatuses(before);
+    ImportReport first;
+    DropFirstRelease(f, first);
+    f.AllStatuses(first.status);
+    const EditionStatus& usPc = first.status[StatusIndex(assets::kEditionUsPc)];
+    Check(LooksLikeFirstRelease(first), "the first release is recognised");
+    Check(!LooksLikeOlderPressing(first), "the first release is not an older European pressing");
+    ResultText fr = DescribeResult(first, before);
+    CheckEq(fr.headline, "First release, " + FormatCount(usPc.filesPresent) + " of " + FormatCount(usPc.files) +
+                             " confirmed", "first release headline");
+    Check(!fr.good && fr.lines.size() >= 3 &&
+              fr.lines[1] == "Install it on Windows, apply EA's official v2.0 patch, then drag in the installed game "
+                             "folder together with the CD (the music and films stay on the CD).",
+          "first release: install, patch, then drop the installed folder with the CD");
+    for (const std::string& line : fr.lines)
+        Check(line.find("of a different version") == std::string::npos, "first release: the versions are said once");
+    std::printf("first release (scripted): %s\n", fr.headline.c_str());
+}
 
 void CheckTexts() {
     CheckEq(FileUrl("/Users/a b/Library/Application Support/STP-TPW Launcher/logs"),
@@ -971,13 +1312,14 @@ void CheckTexts() {
     CheckEq(t.state, Files(empty.files) + " to find", "empty tile state");
     CheckEq(t.detail, "Drag in " + DiscsNeeded(empty) + " to unlock", "empty tile detail");
 
-    EditionStatus before[3];
-    for (int i = 0; i < 3; ++i) before[i] = b.Status(kEditions[i]);
+    EditionStatus before[6];
+    b.AllStatuses(before);
     ImportReport report;
     DropOlderPressing(b, report);
-    for (int i = 0; i < 3; ++i) report.status[i] = b.Status(kEditions[i]);
+    b.AllStatuses(report.status);
     const EditionStatus& eur = report.status[1];
     Check(LooksLikeOlderPressing(report), "an older pressing is recognised");
+    Check(!LooksLikeFirstRelease(report), "an older European pressing is not the US first release");
     ResultText r = DescribeResult(report, before);
     CheckEq(r.headline, "Older pressing, " + FormatCount(eur.filesPresent) + " of " + FormatCount(eur.files) + " confirmed",
             "older pressing headline");
@@ -994,7 +1336,7 @@ void CheckTexts() {
     // a damaged container: the result names the file and the reason, and is not "nothing new"
     ImportReport damaged;
     damaged.errors.push_back("Mac CD.zip/damaged.dat: zip: checksum mismatch in damaged.dat");
-    for (int i = 0; i < 3; ++i) damaged.status[i] = before[i];
+    for (int i = 0; i < 6; ++i) damaged.status[i] = before[i];
     ResultText dr = DescribeResult(damaged, before);
     CheckEq(dr.headline, "A file could not be read", "damaged container headline");
     Check(!dr.good && !dr.lines.empty() && dr.lines.front() == damaged.errors.front(), "damaged container names the file and the reason");
@@ -1006,6 +1348,8 @@ void CheckTexts() {
     bool counted = false;
     for (const std::string& line : two.lines) counted = counted || line == "2 problems in all";
     Check(counted, "the count of problems is shown");
+
+    CheckWindowsTexts();
 
     LogRow row;
     ImportProgress hashing;
@@ -1219,6 +1563,42 @@ void CheckReady(SDL_Renderer* renderer) {
     b.RemoveEdition(assets::kEditionGold, err);
     frames(1);
     Check(ui.ReadyPlayRect(0).w == 0 && ui.TileRect(2).w > 0, "Gold missing: the three tiles again");
+}
+
+// A data folder with the Windows discs and the Gold CD: each Play starts its tile's Windows edition with the Gold rides
+// and keeps the tile's game's settings; once the Mac CD is in, the tiles play the Mac editions.
+void CheckWindowsReady(SDL_Renderer* renderer) {
+    FakeBackend b;
+    FillWindowsAndGold(b);
+    LauncherUi ui(renderer, b);
+    auto frames = [&](int n) {
+        for (int i = 0; i < n; ++i) ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+    };
+    auto click = [&](const Rect& r) {
+        ui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+        frames(1);
+    };
+    frames(1);
+    Check(ui.ReadyPlayRect(0).w > 0 && ui.ReadyPlayRect(1).w > 0, "Windows editions: the all-confirmed home");
+    LaunchChoice choice;
+    click(ui.ReadyPlayRect(0));
+    Check(ui.TakePlay(choice) && choice.edition == assets::kEditionUsPc && choice.gold,
+          "Windows editions: the US Play starts the US Windows edition with the Gold rides");
+    Check(b.LastChoice() == "us-pc", "Windows editions: the US Windows choice is kept");
+    click(ui.ReadyGoldRect(0));
+    Check(b.settings["gold_us"] == "0", "Windows editions: the US tile's Gold switch is the US game's (gold_us)");
+    click(ui.ReadyPlayRect(1));
+    Check(ui.TakePlay(choice) && choice.edition == assets::kEditionEurPc && choice.gold,
+          "Windows editions: the European Play starts the European Windows edition");
+    b.FillAll(assets::kEditionUs);
+    frames(1);
+    click(ui.ReadyPlayRect(0));
+    Check(ui.TakePlay(choice) && choice.edition == assets::kEditionUs && !choice.gold,
+          "Mac CD added: the US Play starts the Mac edition, the switch kept");
 }
 
 // Scrolling: the wheel over the area moves the offset a step a line and stops at both ends, the wheel elsewhere does
@@ -1553,6 +1933,179 @@ void CheckSoundPanSwitch(SDL_Renderer* renderer) {
     CheckEq(b.Setting(kSoundPanKey), "0", "sound panning: a launcher.ini with 1 shows it on, so one click turns it off");
 }
 
+// The Settings box's Several keys at once switch (reported by Addable13): off when launcher.ini has no key (the original's
+// one key at a time), a click keeps "1", a second click "0", and a launcher.ini with "1" shows it on.
+void CheckSeveralKeysSwitch(SDL_Renderer* renderer) {
+    FakeBackend b;
+    const float width = 1100, height = 2400;   // tall enough for the whole box
+    auto click = [&](LauncherUi& ui) {
+        const Rect r = ui.SeveralKeysRect();
+        ui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+        ui.Frame(kDt, width, height, 1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+        ui.Frame(kDt, width, height, 1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+        ui.Frame(kDt, width, height, 1);
+    };
+    LauncherUi ui(renderer, b);
+    ui.ShowSettings(true);
+    ui.Frame(kDt, width, height, 1);
+    Check(ui.SeveralKeysRect().w > 0, "several keys: the switch is in the Settings box");
+    CheckEq(b.Setting(kSeveralKeysKey), "", "several keys: nothing is kept until the player chooses");
+    click(ui);
+    CheckEq(b.Setting(kSeveralKeysKey), "1", "several keys: a click turns it on");
+    click(ui);
+    CheckEq(b.Setting(kSeveralKeysKey), "0", "several keys: a second click turns it off");
+    b.settings[kSeveralKeysKey] = "1";
+    LauncherUi again(renderer, b);
+    again.ShowSettings(true);
+    again.Frame(kDt, width, height, 1);
+    click(again);
+    CheckEq(b.Setting(kSeveralKeysKey), "0", "several keys: a launcher.ini with 1 shows it on, so one click turns it off");
+}
+
+// The Settings box's Online server field (launcher_ui.h kOnlineServerKey, widgets.h TextField): empty by default with
+// the automatic address as its hint (the found one when launcher.ini has it, else the built-in one); a click edits it,
+// typed text is kept in launcher.ini as it changes, Backspace erases, only printable ASCII and 253 characters at most
+// are taken, Return or a click elsewhere ends the editing, and Escape while editing ends it without closing the box.
+void CheckOnlineServerField(SDL_Renderer* renderer) {
+    FakeBackend b;
+    LauncherUi ui(renderer, b);
+    const float width = 1100, height = 2400;   // tall enough for the whole box
+    auto frames = [&](int n) {
+        for (int i = 0; i < n; ++i) ui.Frame(kDt, width, height, 1);
+    };
+    auto click = [&](float x, float y) {
+        ui.HandleEvent(MotionEvent(x, y));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, x, y));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, x, y));
+        frames(1);
+    };
+    auto type = [&](const char* text) {
+        SDL_Event e{};
+        e.type = SDL_EVENT_TEXT_INPUT;
+        e.text.text = text;
+        ui.HandleEvent(e);
+        frames(1);
+    };
+    auto key = [&](SDL_Keycode code) {
+        SDL_Event e{};
+        e.type = SDL_EVENT_KEY_DOWN;
+        e.key.key = code;
+        ui.HandleEvent(e);
+        frames(1);
+    };
+    ui.ShowSettings(true);
+    frames(1);
+    const Rect field = ui.OnlineServerRect();
+    Check(field.w > 0 && field.Bottom() < height, "online server: the field is in the Settings box");
+    CheckEq(ui.OnlineServerHint(), "themedecompworld.net", "online server: the hint is the built-in address");
+    type("192.0.2.1");
+    Check(b.settings.count(kOnlineServerKey) == 0, "online server: typing before a click goes nowhere");
+
+    click(field.CentreX(), field.CentreY());
+    Check(ui.OnlineServerEditing(), "online server: a click edits the field");
+    type("127.0.0.1");
+    CheckEq(b.Setting(kOnlineServerKey), "127.0.0.1", "online server: typed text is kept");
+    key(SDLK_BACKSPACE);
+    CheckEq(b.Setting(kOnlineServerKey), "127.0.0.", "online server: Backspace erases");
+    type("2\xc3\xa9\t");
+    CheckEq(b.Setting(kOnlineServerKey), "127.0.0.2", "online server: only printable ASCII is taken");
+    key(SDLK_RETURN);
+    Check(!ui.OnlineServerEditing(), "online server: Return ends the editing");
+    type("9");
+    CheckEq(b.Setting(kOnlineServerKey), "127.0.0.2", "online server: typing after Return goes nowhere");
+
+    click(field.CentreX(), field.CentreY());
+    const std::string longest(300, 'a');
+    type(longest.c_str());
+    CheckEq(std::to_string(b.Setting(kOnlineServerKey).size()), "253", "online server: 253 characters at most");
+    click(20, 20);
+    Check(!ui.OnlineServerEditing(), "online server: a click elsewhere ends the editing");
+
+    click(field.CentreX(), field.CentreY());
+    for (int i = 0; i < 260; ++i) key(SDLK_BACKSPACE);
+    CheckEq(b.Setting(kOnlineServerKey), "", "online server: erased, empty again (automatic)");
+    key(SDLK_ESCAPE);
+    Check(!ui.OnlineServerEditing() && ui.OnlineServerRect().w > 0,
+          "online server: Escape ends the editing and leaves the box open");
+    key(SDLK_ESCAPE);
+    Check(ui.OnlineServerRect().w == 0, "online server: a second Escape closes the box");
+
+    b.settings[kOnlineServerFoundKey] = "192.0.2.7";
+    b.settings[kOnlineServerKey] = "my.own.server";
+    LauncherUi again(renderer, b);
+    again.ShowSettings(true);
+    again.Frame(kDt, width, height, 1);
+    CheckEq(again.OnlineServerHint(), "192.0.2.7", "online server: the hint is the address read from online.txt");
+    CheckEq(b.Setting(kOnlineServerKey), "my.own.server", "online server: a launcher.ini value is shown, not changed");
+}
+
+// The Settings box's Frame rate limit slider: Monitor when launcher.ini has no key, nothing kept until the player lets go
+// of it, its left end the lowest limit (30), its right end the monitor's refresh rate (60 here, with no window to ask),
+// which is Monitor ("0"); a launcher.ini limit above the top is kept as it is until the slider moves; and what
+// FrameRateSetting accepts.
+void CheckFrameRateSlider(SDL_Renderer* renderer) {
+    auto checkRate = [](int got, int want, const std::string& what) {
+        CheckEq(std::to_string(got), std::to_string(want), what);
+    };
+    FakeBackend b;
+    LauncherUi ui(renderer, b);
+    const float width = 1100, height = 2400;   // tall enough for the whole box
+    auto frames = [&](int n) {
+        for (int i = 0; i < n; ++i) ui.Frame(kDt, width, height, 1);
+    };
+    auto drag = [&](float fromX, float toX) {
+        const float y = ui.FrameRateRect().CentreY();
+        const std::string kept = b.Setting(kFrameRateKey);
+        ui.HandleEvent(MotionEvent(fromX, y));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, fromX, y));
+        frames(1);
+        ui.HandleEvent(MotionEvent(toX, y));
+        frames(1);
+        CheckEq(b.Setting(kFrameRateKey), kept, "frame rate: nothing is kept while the button is held");
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, toX, y));
+        frames(1);
+    };
+    ui.ShowSettings(true);
+    frames(1);
+    const Rect r = ui.FrameRateRect();
+    Check(r.w > 0, "frame rate: the slider is in the Settings box");
+    checkRate(ui.FrameRateChoice(), 0, "frame rate: Monitor when launcher.ini has no key");
+    checkRate(ui.FrameRateHighest(), 60, "frame rate: the top is 60 when the monitor's refresh rate is unknown");
+    CheckEq(b.Setting(kFrameRateKey), "", "frame rate: nothing is kept until the player chooses");
+    drag(r.Right() - 2, r.x - 40);
+    CheckEq(b.Setting(kFrameRateKey), "30", "frame rate: dragged past the left end keeps the lowest limit");
+    checkRate(ui.FrameRateChoice(), 30, "frame rate: the slider shows the lowest limit");
+    drag(r.x + 2, r.CentreX());
+    const int middle = ui.FrameRateChoice();
+    Check(middle > kFrameRateLowest && middle < 60, "frame rate: dragged to the middle, a limit between the ends");
+    CheckEq(b.Setting(kFrameRateKey), std::to_string(middle), "frame rate: the middle's limit is kept");
+    drag(r.CentreX(), r.Right() + 40);
+    CheckEq(b.Setting(kFrameRateKey), "0", "frame rate: dragged past the right end keeps Monitor");
+    checkRate(ui.FrameRateChoice(), 0, "frame rate: the slider shows Monitor");
+
+    b.settings[kFrameRateKey] = "240";
+    LauncherUi again(renderer, b);
+    again.ShowSettings(true);
+    again.Frame(kDt, width, height, 1);
+    again.Frame(kDt, width, height, 1);
+    checkRate(again.FrameRateChoice(), 240, "frame rate: a limit above the monitor's is kept as launcher.ini has it");
+    CheckEq(b.Setting(kFrameRateKey), "240", "frame rate: showing it at the top writes nothing");
+
+    checkRate(FrameRateSetting(""), 0, "frame rate: absent is Monitor");
+    checkRate(FrameRateSetting("0"), 0, "frame rate: 0 is Monitor");
+    checkRate(FrameRateSetting("29"), 0, "frame rate: below the lowest is Monitor");
+    checkRate(FrameRateSetting("30"), 30, "frame rate: the lowest is a limit");
+    checkRate(FrameRateSetting("144"), 144, "frame rate: 144 is a limit");
+    checkRate(FrameRateSetting("-60"), 0, "frame rate: a sign is not a limit");
+    checkRate(FrameRateSetting("60fps"), 0, "frame rate: words are not a limit");
+    checkRate(FrameRateSetting("99999"), 0, "frame rate: five digits are not a limit");
+}
+
 // The Settings box's Renderer row, for the Vulkan renderer of tpw-port PR #83 by adds39939: on Linux only (kRendererRow;
 // the test shows it on every system), OpenGL when launcher.ini has no key (the default, the original's API), nothing
 // kept until the player chooses, a click on Vulkan keeps "vulkan", one on OpenGL "opengl", and a launcher.ini with
@@ -1659,6 +2212,140 @@ void CheckVisitorLooks(SDL_Renderer* renderer) {
 
 bool Overlaps(const Rect& a, const Rect& b) {
     return a.w > 0 && b.w > 0 && a.x < b.Right() && b.x < a.Right() && a.y < b.Bottom() && b.y < a.Bottom();
+}
+
+// The Mods box (SetMods): no Mods button in a build that gives no mods (one without the port's fixes); with them the
+// button opens the box, a switch keeps launcher.ini's mod.<id> ("1" on, "0" off), the button says "1 mod on" while one
+// is, the box fits the smallest window, and a switch is off and cannot be turned on for a mod with no edition in the
+// data folder or one that conflicts with a mod that is on.
+void CheckMods(SDL_Renderer* renderer) {
+    auto press = [](LauncherUi& ui, const Rect& r, const std::function<void(int)>& frames) {
+        ui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+        frames(1);
+    };
+    {
+        FakeBackend b;
+        FillEverything(b);
+        LauncherUi ui(renderer, b);
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(ui.ModsButtonRect().w == 0, "mods: no Mods button without SetMods (a build without the port's fixes)");
+    }
+    for (int size = 0; size < 2; ++size) {
+        const float w = size == 0 ? metric::kStartWidth : metric::kMinWidth;
+        const float h = size == 0 ? metric::kStartHeight : metric::kMinHeight;
+        const std::string what = "mods at " + std::to_string(static_cast<int>(w)) + "x" + std::to_string(static_cast<int>(h));
+        FakeBackend b;
+        FillEverything(b);
+        LauncherUi ui(renderer, b);
+        auto frames = [&](int n) {
+            for (int i = 0; i < n; ++i) ui.Frame(kDt, w, h, 1);
+        };
+        ui.SetMods({EnableStrikes()});
+        frames(1);
+        const Rect button = ui.ModsButtonRect();
+        Check(button.w > 0 && button.Right() <= w, what + ": the header has a Mods button");
+        Check(!Overlaps(button, ui.TitleVersionRect()), what + ": the Mods button is clear of the title");
+        Check(ui.ModsOnRect().w == 0 && ui.ModsOn() == 0, what + ": every mod is off by default, and no count is shown");
+        Check(ui.ModsBoxRect().w == 0, what + ": the box is closed");
+        press(ui, button, frames);
+        frames(1);   // the box opened in the click's frame shows from the next
+        const Rect box = ui.ModsBoxRect();
+        Check(box.w > 0, what + ": the Mods button opens the box");
+        Check(box.x >= 0 && box.y >= 0 && box.Right() <= w && box.Bottom() <= h, what + ": the box is in the window");
+        Check(!ui.ModsScrolls(), what + ": one mod fits the box without scrolling");
+        const Rect sw = ui.ModSwitchRect(0);
+        Check(sw.w > 0 && sw.x >= box.x && sw.Right() <= box.Right() && sw.y >= box.y && sw.Bottom() <= box.Bottom(),
+              what + ": the mod's switch is in the box");
+        CheckEq(b.Setting(ModKey("enable-strikes")), "", what + ": nothing is kept until the player chooses");
+        press(ui, sw, frames);
+        CheckEq(b.Setting(ModKey("enable-strikes")), "1", what + ": a click turns the mod on and keeps it");
+        Check(ui.ModOn(0) && ui.ModsOn() == 1, what + ": the mod is on");
+        SDL_Event escape{};
+        escape.type = SDL_EVENT_KEY_DOWN;
+        escape.key.key = SDLK_ESCAPE;
+        ui.HandleEvent(escape);
+        frames(1);
+        Check(ui.ModsBoxRect().w == 0, what + ": Escape closes the box");
+        const Rect on = ui.ModsOnRect();
+        Check(on.w > 0 && on.x == ui.ModsButtonRect().x && on.Right() <= w && !Overlaps(on, ui.TitleVersionRect()),
+              what + ": the Mods button says \"1 mod on\", clear of the title");
+        LauncherUi again(renderer, b);
+        again.SetMods({EnableStrikes()});
+        again.ShowMods(true);
+        again.Frame(kDt, w, h, 1);
+        Check(again.ModOn(0), what + ": a launcher.ini with 1 shows the mod on");
+        press(again, again.ModSwitchRect(0), [&](int n) {
+            for (int i = 0; i < n; ++i) again.Frame(kDt, w, h, 1);
+        });
+        CheckEq(b.Setting(ModKey("enable-strikes")), "0", what + ": a second click turns it off");
+        Check(again.ModsOn() == 0, what + ": no mod is on");
+    }
+    {   // no edition in the data folder: the switch cannot be turned on
+        FakeBackend b;
+        LauncherUi ui(renderer, b);
+        auto frames = [&](int n) {
+            for (int i = 0; i < n; ++i) ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        };
+        ui.SetMods({EnableStrikes()});
+        ui.ShowMods(true);
+        frames(1);
+        press(ui, ui.ModSwitchRect(0), frames);
+        CheckEq(b.Setting(ModKey("enable-strikes")), "", "mods: with no edition in the data folder the switch stays off");
+    }
+    {   // a conflict: with Enable strikes on, No strikes cannot be turned on
+        FakeBackend b;
+        FillEverything(b);
+        b.settings[ModKey("enable-strikes")] = "1";
+        LauncherUi ui(renderer, b);
+        auto frames = [&](int n) {
+            for (int i = 0; i < n; ++i) ui.Frame(kDt, metric::kMinWidth, metric::kMinHeight, 1);
+        };
+        ui.SetMods({EnableStrikes(), NoStrikes()});
+        ui.ShowMods(true);
+        frames(1);
+        Check(ui.ModsBoxRect().Bottom() <= metric::kMinHeight, "mods: two mods: the box is in the smallest window");
+        press(ui, ui.ModSwitchRect(1), frames);
+        CheckEq(b.Setting(ModKey("no-strikes")), "", "mods: a mod that conflicts with one that is on stays off");
+        press(ui, ui.ModSwitchRect(0), frames);
+        CheckEq(b.Setting(ModKey("enable-strikes")), "0", "mods: the mod that is on can be turned off");
+        if (ui.ModsScrolls()) {   // the second switch may be under the view: scroll to it
+            ui.HandleEvent(MotionEvent(90, metric::kMinHeight * 0.5f));
+            ui.HandleEvent(WheelEvent(-10));
+            frames(2);
+        }
+        press(ui, ui.ModSwitchRect(1), frames);
+        CheckEq(b.Setting(ModKey("no-strikes")), "1", "mods: then the other one can be turned on");
+    }
+    {   // tpw-mods' two mods: no conflict, both can be on at once
+        FakeBackend b;
+        FillEverything(b);
+        LauncherUi ui(renderer, b);
+        auto frames = [&](int n) {
+            for (int i = 0; i < n; ++i) ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        };
+        ui.SetMods({EnableStrikes(), StaffCrossBridges()});
+        ui.ShowMods(true);
+        frames(1);
+        Check(!ui.ModsScrolls(), "mods: tpw-mods' two mods fit the box without scrolling");
+        press(ui, ui.ModSwitchRect(1), frames);
+        CheckEq(b.Setting(ModKey("staff-cross-bridges")), "1", "mods: Patrolling staff can cross bridges turns on");
+        press(ui, ui.ModSwitchRect(0), frames);
+        CheckEq(b.Setting(ModKey("enable-strikes")), "1", "mods: Enable strikes turns on beside it");
+        Check(ui.ModOn(0) && ui.ModOn(1) && ui.ModsOn() == 2, "mods: both are on");
+    }
+    {   // a build with no mods folder: the box says so
+        FakeBackend b;
+        FillEverything(b);
+        LauncherUi ui(renderer, b);
+        ui.SetMods({});
+        ui.ShowMods(true);
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(ui.ModsBoxRect().w > 0 && ui.ModsOn() == 0, "mods: a build with no mods opens an empty box");
+    }
 }
 
 // The launcher's version in the footer's corner, clear of the tiles and their Play buttons at the start size and the
@@ -1790,6 +2477,102 @@ void CheckTitleVersion(SDL_Renderer* renderer) {
     }
 }
 
+// The Customized settings badge and box (tpw-port #94): no badge without edited .sam files; with them, a badge on the
+// edition's tile (above the Gold Edition switch on the all-confirmed home, at the bottom of a small tile, which grows to
+// hold it) that opens the list; the list warns of a line the game cannot read; Restore original puts a file back and
+// leaves the list, only where an original is kept; Play works as normal with the edits; Escape closes the box.
+void CheckEdited(SDL_Renderer* renderer) {
+    auto click = [](LauncherUi& ui, const Rect& r) {
+        ui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+    };
+    auto frames = [](LauncherUi& ui, int n) {
+        for (int i = 0; i < n; ++i) ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+    };
+    {
+        FakeBackend b;
+        FillEverything(b);
+        LauncherUi ui(renderer, b);
+        frames(ui, 2);
+        Check(ui.EditedBadgeRect(0).w == 0 && ui.EditedBadgeRect(1).w == 0, "customized: no badge without edited files");
+        EditUsSettings(b);
+        frames(ui, 2);
+        Rect badge = ui.EditedBadgeRect(0), us = ui.TileRect(0);
+        Check(badge.w > 0 && us.Contains(badge.x, badge.y) && us.Contains(badge.Right(), badge.Bottom()),
+              "customized: the US tile has the badge, inside it");
+        Check(badge.Bottom() < ui.ReadyGoldRect(0).y, "customized: the badge is above the Gold Edition switch");
+        Check(ui.EditedBadgeRect(1).w == 0, "customized: the European tile has none");
+        Check(ui.EditedOpen() < 0 && ui.RestoreRect(0).w == 0, "customized: the box is closed before a click");
+
+        // it does not block: Play starts the edition as before
+        LaunchChoice choice;
+        click(ui, ui.ReadyPlayRect(0));
+        Check(ui.TakePlay(choice) && choice.edition == assets::kEditionUs, "customized: Play works with the edits");
+
+        click(ui, badge);
+        Check(ui.EditedOpen() == 0, "customized: the badge opens the US box");
+        frames(ui, 1);
+        Check(ui.RestoreRect(0).w > 0 && ui.RestoreRect(1).w > 0 && ui.RestoreRect(2).w > 0 && ui.RestoreRect(3).w == 0,
+              "customized: a Restore original button a file");
+        Check(ui.ReadyPlayRect(0).w == 0, "customized: the box covers the tiles");
+        SDL_Event escape{};
+        escape.type = SDL_EVENT_KEY_DOWN;
+        escape.key.key = SDLK_ESCAPE;
+        ui.HandleEvent(escape);
+        frames(ui, 1);
+        Check(ui.EditedOpen() < 0, "customized: Escape closes the box");
+
+        ui.ShowEdited(0);
+        frames(ui, 2);
+        click(ui, ui.RestoreRect(2));   // med.sam: no original kept, the button is off
+        Check(b.restored.empty() && b.edited[assets::kEditionUs].size() == 3,
+              "customized: no restore without a kept original");
+        click(ui, ui.RestoreRect(1));
+        Check(b.restored == std::vector<std::string>{"data/levels/Online_Standard.sam"},
+              "customized: Restore original puts back that file");
+        frames(ui, 1);
+        Check(ui.EditedOpen() == 0 && ui.RestoreRect(1).w > 0 && ui.RestoreRect(2).w == 0,
+              "customized: the restored file leaves the list, the box stays open");
+        click(ui, ui.RestoreRect(0));
+        Check(b.restored.size() == 2 && b.restored[1] == "data/levels/Standard.sam", "customized: the second restore");
+        // the last one cannot be restored here: the box stays, the badge too
+        Check(ui.EditedOpen() == 0 && ui.RestoreRect(0).w > 0, "customized: the box stays while a file is left");
+        b.edited[assets::kEditionUs].clear();   // as if the player deleted it and dropped the disc
+        ui.ShowEdited(-1);
+        frames(ui, 2);
+        Check(ui.EditedBadgeRect(0).w == 0, "customized: with no edited file left, no badge");
+    }
+    {   // the small tiles: a badge at the bottom of the European one, the row taller, the field shorter
+        FakeBackend plain;
+        PartialUsEur(plain);
+        LauncherUi before(renderer, plain);
+        frames(before, 2);
+        FakeBackend b;
+        PartialUsEur(b);
+        b.edited[assets::kEditionEur] = {{"data/med.sam", "/x/data/med.sam", true, 0}};
+        LauncherUi ui(renderer, b);
+        frames(ui, 2);
+        Rect badge = ui.EditedBadgeRect(1), eu = ui.TileRect(1);
+        Check(badge.w > 0 && eu.Contains(badge.x, badge.y) && eu.Contains(badge.Right(), badge.Bottom()),
+              "customized: the small European tile has the badge, inside it");
+        Check(ui.EditedBadgeRect(0).w == 0 && ui.EditedBadgeRect(2).w == 0, "customized: the other small tiles have none");
+        Check(eu.h > before.TileRect(1).h && ui.TileRect(0).h == eu.h, "customized: the small tiles grow to hold it");
+        click(ui, badge);
+        Check(ui.EditedOpen() == 1, "customized: the small tile's badge opens the European box");
+        frames(ui, 1);
+        click(ui, ui.RestoreRect(0));
+        Check(b.restored == std::vector<std::string>{"data/med.sam"} && ui.EditedOpen() < 0,
+              "customized: restoring the only file closes the box");
+        frames(ui, 2);
+        Check(ui.EditedBadgeRect(1).w == 0 && ui.TileRect(1).h == before.TileRect(1).h,
+              "customized: the badge goes and the tiles are as before");
+    }
+}
+
 // The update banner (updater.h) in each of its states, on both homes, in the smallest window and the start size: under
 // the title's row and clear of it, above the tiles, inside the window. The Settings box's "Check for updates": on by
 // default, a click turns it off, keeps check_updates=0 and hides the banner. The first launch: no line about
@@ -1865,45 +2648,31 @@ void CheckUpdateBanner(SDL_Renderer* renderer) {
     }
 }
 
-// The real backend over an empty data folder: the European edition counts the US Mac program as one more required
-// file from the US Mac CD until a file of the program's size is in place (the program's content is not needed here: the
-// importer, too, counts a file of an accepted size as present). The folder is made under the screens folder and
-// removed again.
-void CheckProgramGate(const std::string& screens) {
+// The real backend over an empty data folder: neither edition asks for a program of the game (its data tables are
+// built in), so each edition is counted exactly as the importer counts it and the program's record is optional. The
+// folder is made under the screens folder and removed again.
+void CheckNoProgram(const std::string& screens) {
     namespace fs = std::filesystem;
-    const fs::path pref = fs::path(screens) / "program-gate";
+    const fs::path pref = fs::path(screens) / "no-program";
     std::error_code ec;
     fs::remove_all(pref, ec);
     fs::create_directories(pref, ec);
     {
         ImporterBackend backend(pref.string());
         std::string err;
-        Check(backend.Open(err), "program gate: the data folder opens: " + err);
+        Check(backend.Open(err), "no program: the data folder opens: " + err);
         if (backend.importer()) {
-            const EditionStatus raw = backend.importer()->Status(assets::kEditionEur);
-            EditionStatus eur = backend.Status(assets::kEditionEur);
-            Check(!backend.HasProgram(), "program gate: no program in an empty data folder");
-            Check(eur.required == raw.required + 1, "program gate: the European edition needs one more file");
-            Check(eur.missingFiles[assets::kSourceMacCd] == raw.missingFiles[assets::kSourceMacCd] + 1,
-                  "program gate: the missing file is on the US Mac CD");
-            Check(!eur.unlocked, "program gate: the European edition is not ready");
-            const EditionStatus us = backend.Status(assets::kEditionUs);
-            const EditionStatus usRaw = backend.importer()->Status(assets::kEditionUs);
-            Check(us.required == usRaw.required, "program gate: the US edition is counted as the importer counts it");
-            const std::string program = backend.ProgramPath();
-            Check(program.find("/assets/us/") != std::string::npos, "program gate: the program is in the US folder");
-            uint64_t size = 0;
-            for (size_t i = 0; i < assets::ManifestRecordCount(); ++i)
-                if (assets::ManifestRecords()[i].group == assets::kGroupProgram) size = assets::RecordHash(assets::ManifestRecords()[i], 0).size;
-            fs::create_directories(fs::path(program).parent_path(), ec);
-            {
-                std::ofstream out(program, std::ios::binary);
-                out.seekp(static_cast<std::streamoff>(size) - 1);
-                out.put('\0');
+            for (Edition edition : {assets::kEditionUs, assets::kEditionEur}) {
+                const EditionStatus raw = backend.importer()->Status(edition);
+                const EditionStatus status = backend.Status(edition);
+                Check(status.required == raw.required, "no program: an edition is counted as the importer counts it");
+                Check(status.missingFiles[assets::kSourceMacCd] == raw.missingFiles[assets::kSourceMacCd],
+                      "no program: nothing more is missing from the US Mac CD");
             }
-            Check(backend.HasProgram(), "program gate: a file of the program's size counts");
-            eur = backend.Status(assets::kEditionEur);
-            Check(eur.required == raw.required, "program gate: with the program, nothing more is needed");
+            for (size_t i = 0; i < assets::ManifestRecordCount(); ++i)
+                if (assets::ManifestRecords()[i].group == assets::kGroupProgram)
+                    Check((assets::ManifestRecords()[i].flags & assets::kFlagRequired) == 0,
+                          "no program: the program's record is optional");
         }
     }
     fs::remove_all(pref, ec);
@@ -1923,7 +2692,7 @@ int main(int argc, char** argv) {
     }
 
     CheckTexts();
-    CheckProgramGate(dir);
+    CheckNoProgram(dir);
 
     SDL_Surface* scratch = SDL_CreateSurface(320, 240, SDL_PIXELFORMAT_XRGB8888);
     SDL_Renderer* renderer = scratch ? SDL_CreateSoftwareRenderer(scratch) : nullptr;
@@ -1932,15 +2701,21 @@ int main(int argc, char** argv) {
         CheckButton(renderer);
         CheckDrops(renderer);
         CheckReady(renderer);
+        CheckWindowsReady(renderer);
         CheckScroll(renderer);
         CheckSettingsScroll(renderer);
         CheckLanguages(renderer);
         CheckVisitorLooks(renderer);
         CheckSoundPanSwitch(renderer);
+        CheckSeveralKeysSwitch(renderer);
+        CheckOnlineServerField(renderer);
+        CheckFrameRateSlider(renderer);
         CheckRendererRow(renderer);
+        CheckMods(renderer);
         CheckVersionAndLogs(renderer);
         CheckTitleVersion(renderer);
         CheckUpdateBanner(renderer);
+        CheckEdited(renderer);
         SDL_DestroyRenderer(renderer);
     }
     SDL_DestroySurface(scratch);

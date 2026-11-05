@@ -1,7 +1,9 @@
 // update_tests.cpp: the network module (launcher/net/net.h) and the update check (launcher/ui/updater.h), with no
 // internet. The curl it runs is this program itself (TPW_NET_CURL, with TPW_NET_FAKE saying what to answer): GitHub's
 // answers, a captive portal's, junk, silence and a flood. Then the system's curl against a port nothing listens on: no
-// answer, quickly. Then the Updater with a scripted update script: staged, failed, already current, offline.
+// answer, quickly. Then the Updater with a scripted update script: staged, failed, already current, offline. Then the
+// online server's address: tpw-port's online.txt parsed (a good file, junk, two server lines, too long, a scheme or a
+// port), fetched through the fake curl, kept by the Updater, and the order ChooseOnlineServer takes the four in.
 #include <SDL3/SDL.h>
 
 #include <algorithm>
@@ -38,6 +40,10 @@ void Check(bool ok, const std::string& what) {
     }
 }
 
+void CheckEq(const std::string& got, const std::string& want, const std::string& what) {
+    Check(got == want, what + ": \"" + got + "\", not \"" + want + "\"");
+}
+
 // This program as curl: TPW_NET_FAKE names the answer. Also as any program process.h starts (TestProcessFolder).
 int FakeCurl(const std::string& mode, int argc, char** argv) {
     if (mode == "release") std::printf("302 https://github.com/ThemeParkWorldDecomp/tpw-port/releases/tag/v9.8.7");
@@ -48,6 +54,19 @@ int FakeCurl(const std::string& mode, int argc, char** argv) {
     else if (mode == "beta") std::printf("302 https://github.com/ThemeParkWorldDecomp/tpw-port/releases/tag/v1.2.3-beta");
     else if (mode == "html") std::printf("<html><body>Sign in to the hotel's wifi</body></html>");
     else if (mode == "fail") return 22;
+    else if (mode == "pointer") std::printf("# the online server\nserver=192.0.2.7\n");
+    else if (mode == "pointer-junk") std::printf("server=http://192.0.2.7:7598/\n");
+    else if (mode == "pointer-args") {   // an address only when asked as OnlineServerPointer must ask
+        const std::vector<std::string> args(argv + 1, argv + argc);
+        auto pair = [&](const char* flag, const char* value) {
+            const auto at = std::find(args.begin(), args.end(), flag);
+            return at != args.end() && at + 1 != args.end() && *(at + 1) == value;
+        };
+        const bool right = std::find(args.begin(), args.end(), "-f") != args.end() && pair("--max-redirs", "0") &&
+                           pair("--max-filesize", "4096") && pair("--proto", "=https") && !args.empty() &&
+                           args.back() == "https://raw.githubusercontent.com/ThemeParkWorldDecomp/tpw-port/main/online.txt";
+        std::printf(right ? "server=192.0.2.9\n" : "asked wrongly\n");
+    }
     else if (mode == "sleep") SDL_Delay(30000);
     else if (mode == "flood") {
         std::string chunk(4096, 'x');
@@ -349,6 +368,11 @@ ui::Updater::Hooks Answering(const std::string& version, bool answered = true) {
         r.why = answered ? "" : "curl failed (exit code 6)";
         return r;
     };
+    hooks.questions.onlinePointer = [](const net::Limits&) {   // never the real one: no internet in the tests
+        net::OnlinePointer p;
+        p.why = "not asked in this test";
+        return p;
+    };
     return hooks;
 }
 
@@ -524,7 +548,7 @@ void TestUpdater() {
     }
     {   // closing the launcher during a check does not wait for curl
         Settings settings;
-        ui::Updater::Hooks hooks;
+        ui::Updater::Hooks hooks = Answering("");
         hooks.questions.latestRelease = [](const net::Limits& limits) {
             while (!limits.cancel->load()) SDL_Delay(5);
             return net::Release();
@@ -537,6 +561,171 @@ void TestUpdater() {
         }
         Check(Since(start) < 1000, "the updater goes at once with a check under way");
     }
+}
+
+// tpw-port's online.txt (net.h ParseOnlinePointer, ValidHost): the whole file or nothing.
+void TestOnlinePointerParse() {
+    using net::ParseOnlinePointer;
+    net::OnlinePointer p = ParseOnlinePointer("# the online server\n\nserver=164.92.124.157\n");
+    Check(p.ok && p.server == "164.92.124.157", "a good file: " + p.why);
+    p = ParseOnlinePointer("server=tpw.example.org");
+    Check(p.ok && p.server == "tpw.example.org", "a DNS name, no newline at the end: " + p.why);
+    p = ParseOnlinePointer("# comment\r\nserver=2001:db8::7\r\n\r\n   \n# end\n");
+    Check(p.ok && p.server == "2001:db8::7", "an IPv6 address, Windows line ends, a blank line of spaces: " + p.why);
+    p = ParseOnlinePointer("server=localhost  \n");
+    Check(p.ok && p.server == "localhost", "trailing spaces are dropped: " + p.why);
+    const std::pair<const char*, const char*> refused[] = {
+        {"", "no server line"},
+        {"# only a comment\n", "no server line"},
+        {"server=1.2.3.4\nserver=1.2.3.5\n", "more than one server line"},
+        {"server=1.2.3.4\nserver=1.2.3.4\n", "more than one server line"},
+        {"server=http://1.2.3.4\n", "a scheme"},
+        {"server=https://tpw.example.org/\n", "a scheme"},
+        {"server=1.2.3.4:7598\n", "a port"},
+        {"server=tpw.example.org:21\n", "a port"},
+        {"server=[2001:db8::7]:7598\n", "brackets"},
+        {"server=tpw.example.org/online\n", "a path"},
+        {"server=\n", "no host"},
+        {"server= 1.2.3.4\n", "not a host name"},
+        {"server=1.2.3.256\n", "not a host name"},
+        {"server=1.2.3\n", "not a host name"},
+        {"server=-tpw.example.org\n", "not a host name"},
+        {"server=tpw_example.org\n", "not a host name"},
+        {"server=fe80::1%en0\n", "not an IPv6 address"},
+        {"server=1:2:3:4:5:6:7:8:9\n", "not an IPv6 address"},
+        {"Server=1.2.3.4\n", "not a comment or server=HOST"},
+        {" server=1.2.3.4\n", "not a comment or server=HOST"},
+        {"server = 1.2.3.4\n", "not a comment or server=HOST"},
+        {"<html><body>Sign in to the hotel's wifi</body></html>", "not a comment or server=HOST"},
+        {"404: Not Found", "not a comment or server=HOST"},
+        {"server=1.2.3.4\n# caf\xc3\xa9\n", "not printable ASCII"},
+        {"\xef\xbb\xbfserver=1.2.3.4\n", "not printable ASCII"},
+    };
+    for (const auto& [body, why] : refused) {
+        p = ParseOnlinePointer(body);
+        Check(!p.ok && p.server.empty() && p.why.find(why) != std::string::npos,
+              std::string("refused whole: \"") + body + "\" (" + why + "): " + p.why);
+    }
+    // 4 KiB at most, comments or not.
+    std::string big = "server=1.2.3.4\n";
+    while (big.size() <= net::kOnlinePointerMax) big += "# padding padding padding padding padding\n";
+    p = ParseOnlinePointer(big);
+    Check(!p.ok && p.why.find("longer than 4096") != std::string::npos, "too long: " + p.why);
+    big.resize(net::kOnlinePointerMax);
+    big.back() = '\n';
+    p = ParseOnlinePointer(big);
+    Check(p.ok, "exactly 4096 bytes is taken: " + p.why);
+    // A host of 253 characters is one, 254 is not.
+    std::string name;
+    while (name.size() < 253) name += name.empty() ? "a" : ".a";
+    Check(name.size() == 253 && net::ValidHost(name), "a 253-character name");
+    Check(!net::ValidHost(name + "a"), "a 254-character name");
+    std::string label(63, 'b'), why;
+    Check(net::ValidHost(label + ".org") && !net::ValidHost(label + "b.org", &why), "labels of 63 characters at most");
+    for (const char* ok : {"::1", "::", "2001:db8:0:0:0:0:0:7", "::ffff:192.0.2.1", "0.0.0.0", "a-b.c", "xn--bcher-kva.example"})
+        Check(net::ValidHost(ok, &why), std::string("a host: ") + ok + " " + why);
+    for (const char* bad : {"1.2.3.04", "a..b", "a.", ".a", "1:2", "1:::2", "2001:db8::7::8", "12345::", "1.2.3.4.5"})
+        Check(!net::ValidHost(bad), std::string("not a host: ") + bad);
+#ifdef TPW_ONLINE_TXT
+    // The file to publish in tpw-port (devtools/split/online.txt).
+    std::ifstream in(TPW_ONLINE_TXT, std::ios::binary);
+    const std::string published((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    p = ParseOnlinePointer(published);
+    Check(!published.empty() && p.ok && p.server == net::kOnlineServerBuiltIn,
+          "the file to publish names the built-in address: " + p.why);
+#endif
+}
+
+// The address through curl: its options (the size cap, no redirect, an error page is a failure), and junk refused.
+void TestOnlinePointerFetch(const std::string& self) {
+    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "TPW_NET_CURL", self.c_str(), true);
+    Fake("pointer");
+    net::OnlinePointer p = net::OnlineServerPointer();
+    Check(p.ok && p.server == "192.0.2.7", "the address through curl: " + p.why);
+    Fake("pointer-junk");
+    p = net::OnlineServerPointer();
+    Check(!p.ok && p.why.find("a scheme") != std::string::npos, "junk through curl: " + p.why);
+    Fake("fail");
+    p = net::OnlineServerPointer();
+    Check(!p.ok && p.why.find("exit code 22") != std::string::npos, "a 404 (curl -f): " + p.why);
+    Fake("flood");
+    p = net::OnlineServerPointer();
+    Check(!p.ok, "a flood: " + p.why);
+    Fake("pointer-args");
+    p = net::OnlineServerPointer();
+    Check(p.ok && p.server == "192.0.2.9", "tpw-port's main branch, https, no redirect, an error page fails, 4 KiB: " +
+                                               p.why);
+    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "TPW_NET_FAKE", "", true);
+    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "TPW_NET_CURL", "", true);
+}
+
+// The Updater keeps a good address in launcher.ini (online_server_found, never the player's online_server), asks only
+// after GitHub answered, and a refused file leaves the kept one; the game's order of the four.
+void TestOnlineServer() {
+    const long long now = 1700000000;
+    auto pointing = [](const std::string& server, int* asked = nullptr) {
+        ui::Updater::Hooks hooks = Answering("");
+        hooks.questions.onlinePointer = [server, asked](const net::Limits&) {
+            if (asked != nullptr) ++*asked;
+            return net::ParseOnlinePointer(server.empty() ? std::string("junk") : "server=" + server + "\n");
+        };
+        return hooks;
+    };
+    {
+        Settings settings;
+        settings.keys["online_server"] = "my.own.server";
+        ui::Updater updater(settings, Stable(false), nullptr, pointing("192.0.2.7"));
+        updater.StartupCheck(now);
+        Settle(updater);
+        CheckEq(settings.keys["online_server_found"], "192.0.2.7", "the address is kept");
+        CheckEq(settings.keys["online_server"], "my.own.server", "the player's own is left alone");
+        CheckEq(ui::AutomaticOnlineServer(settings), "192.0.2.7", "the automatic server is the found one");
+        ui::Updater refused(settings, Stable(false), nullptr, pointing(""));
+        refused.StartupCheck(now);
+        Settle(refused);
+        CheckEq(settings.keys["online_server_found"], "192.0.2.7", "a refused file leaves the kept address");
+    }
+    {   // offline: not asked
+        Settings settings;
+        int asked = 0;
+        ui::Updater::Hooks hooks = pointing("192.0.2.7", &asked);
+        hooks.questions.latestRelease = [](const net::Limits&) { return net::Release(); };
+        ui::Updater updater(settings, Stable(false), nullptr, hooks);
+        updater.StartupCheck(now);
+        Settle(updater);
+        Check(asked == 0 && settings.keys.count("online_server_found") == 0, "no answer from GitHub: the file is not asked");
+        CheckEq(ui::AutomaticOnlineServer(settings), net::kOnlineServerBuiltIn, "nothing found: the built-in address");
+    }
+    {   // Check for updates off: nothing asked at all
+        Settings settings;
+        settings.keys["check_updates"] = "0";
+        int asked = 0;
+        ui::Updater updater(settings, Stable(false), nullptr, pointing("192.0.2.7", &asked));
+        updater.StartupCheck(now);
+        Settle(updater);
+        Check(asked == 0 && settings.keys.count("online_server_found") == 0, "updates off: the file is not asked");
+    }
+    {   // the Update button's question does not ask it
+        Settings settings;
+        int asked = 0;
+        ui::Updater::Hooks hooks = pointing("192.0.2.7", &asked);
+        ui::Updater updater(settings, Stable(true), nullptr, hooks);
+        updater.Update();
+        Settle(updater);
+        Check(asked == 0, "Update pressed: the file is not asked again");
+    }
+    using From = ui::OnlineServerChoice::From;
+    ui::OnlineServerChoice c = ui::ChooseOnlineServer("opt.example", "set.example", "192.0.2.7");
+    Check(c.host == "opt.example" && c.from == From::Option && c.Named(), "the option first");
+    c = ui::ChooseOnlineServer("", "set.example", "192.0.2.7");
+    Check(c.host == "set.example" && c.from == From::Setting && c.Named(), "then the player's setting");
+    c = ui::ChooseOnlineServer("", "", "192.0.2.7");
+    Check(c.host == "192.0.2.7" && c.from == From::Found && !c.Named(), "then the found address");
+    c = ui::ChooseOnlineServer("", "", "");
+    Check(c.host == net::kOnlineServerBuiltIn && c.from == From::BuiltIn && !c.Named(), "then the built-in one");
+    c = ui::ChooseOnlineServer("http://x", "set.example:21", "nonsense value");
+    Check(c.from == From::BuiltIn && c.skipped.size() == 3, "values that are not hosts are passed over, each said");
+    Check(std::string(c.Describe()) == "the built-in address", "described for the log");
 }
 
 }  // namespace
@@ -553,6 +742,9 @@ int main(int argc, char** argv) {
     SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "TPW_NET_FAKE", "", true);
     TestUnreachable();
     TestUpdater();
+    TestOnlinePointerParse();
+    TestOnlinePointerFetch(self);
+    TestOnlineServer();
 
     std::error_code ec;
     const fs::path root = fs::temp_directory_path(ec) /

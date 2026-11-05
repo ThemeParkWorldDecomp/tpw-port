@@ -47,7 +47,7 @@ struct WindowPlacement {
     // Called with the window as soon as it is made (before it is shown; `changed` false) and again each time an import
     // ends or the data folder changes (`changed` true), with the data folder of the moment: the launcher's Dock or
     // taskbar icon, and once it may have changed the installer's application or Start menu shortcut too
-    // (launcher/app_icon.h: the game's own icon.png from that folder, or the stand-in). Null: nothing.
+    // (launcher/app_icon.h: the game's own icon.png, or the stand-in). Null: nothing.
     void (*windowIcon)(SDL_Window* window, const char* dataFolder, bool changed) = nullptr;
     // The folder holding the bare program, for the update check (updater.h FindInstall): on macOS the folder that holds
     // the .app the launcher runs from (launcher/app_bundle.h ProgramFolder); empty: SDL_GetBasePath.
@@ -58,6 +58,10 @@ struct WindowPlacement {
     ShowLogsFn showLogs = nullptr;
     // What the About box's Export logs calls (null: no such button).
     ExportLogsFn exportLogs = nullptr;
+    // The build's mods (a build with the port's fixes: launcher/main.cpp, platform/mods.h), which the header's Mods
+    // button shows; `mods` false: no such button.
+    bool mods = false;
+    std::vector<ModRow> modRows;
 };
 
 // Initialises SDL's video subsystem if it is not yet, and leaves it initialised. On Play the window is not closed: it

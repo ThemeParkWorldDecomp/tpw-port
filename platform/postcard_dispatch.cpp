@@ -22,11 +22,14 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <list>
+#include <map>
 #include <new>
 #include <string>
+#include <unordered_set>
+#include <vector>
 
-#include <unistd.h>
 
 #include "FS_Online.h"
 #include "FS_UserInfo.h"
@@ -34,6 +37,8 @@
 #include "Postcard.h"
 #include "email.h"
 #include "platform/arena.h"
+#include "platform/online_backend.h"
+#include "platform/online_slots.h"
 #include "rsse.h"
 #include "ui_Postcard.h"
 #include "ui_controls.h"
@@ -69,6 +74,14 @@ struct WordRep {
 WordRep* Rep(uint32_t word) { return reinterpret_cast<WordRep*>(tpw::gArenaBase + word); }
 uint8_t* Data(const WordRep* rep) { return tpw::gArenaBase + rep->data; }
 
+// The representations NewRep made and FreeRep has not freed. The same destructor (0x101468f8) also reaches strings this file did not
+// make (an Argument's copies, std_destroy::DestroyOne: the string library's layout, the characters' pointer at +0x10), which are left
+// alone, as online_callee::WStringDtor leaves them.
+std::unordered_set<uint32_t>& PostcardReps() {
+    static std::unordered_set<uint32_t> reps;
+    return reps;
+}
+
 // A representation of n characters of `unit` bytes, terminated.
 uint32_t NewRep(const void* chars, uint32_t n, uint32_t unit) {
     WordRep* rep = static_cast<WordRep*>(MacNew(sizeof(WordRep)));
@@ -83,11 +96,12 @@ uint32_t NewRep(const void* chars, uint32_t n, uint32_t unit) {
     rep->cap = cap;
     rep->refs = 1;
     rep->data = tpw::ArenaOffset(data);
+    PostcardReps().insert(tpw::ArenaOffset(rep));
     return tpw::ArenaOffset(rep);
 }
 
 void FreeRep(uint32_t word) {
-    if (word == 0) return;
+    if (PostcardReps().erase(word) == 0) return;
     WordRep* rep = Rep(word);
     tpw::ArenaFree(Data(rep));
     tpw::ArenaFree(rep);
@@ -179,9 +193,11 @@ void AssignText(void* str, const char* text, uint32_t length) {
 
 void MakeText(void* str, const char* text) { Word(str) = NewRep(text, static_cast<uint32_t>(std::strlen(text)), 1); }
 
-// The flag is -1 at every call (the string is a member or a local, never deleted itself).
+// The flag is -1 at every call (the string is a member or a local, never deleted itself). The same destructor (0x101468f8) also ends the
+// online client's strings: a slot (include/platform/online_slots.h) is released, a string library copy is left (FreeRep).
 void DropText(void* str, int16_t flag) {
     (void)flag;
+    if (tpw::slots::Release(str)) return;
     FreeRep(Word(str));
     Word(str) = 0;
 }
@@ -299,13 +315,14 @@ void WStringDtor(void* str, int16_t flag) { DropText(str, flag); }
 
 // 0x1023baa8 __ptr_glue: calls the function whose TVector is `tvector` (the truncated address of the table the Email keeps in mCallback)
 // with the two arguments. The postcard panel's table is IllCallYouBack's (0x10267cf8, ui_Postcard.cpp). The outbox panel's table
-// (0x10268500) belongs to OutboxCallback 0x101e4124, which is not translated, so that call is logged and does nothing.
+// (0x10268500) belongs to OutboxCallback 0x101e4124 (ui_onlineOutbox.cpp). This glue does not route to it: that call is logged and does
+// nothing. It is never reached while no mail backend is set (MailConnect answers 0, so Email::Send has no replies to pass on).
 void PtrGlue(uint32_t tvector, int32_t a, int32_t b) {
     if (tvector == static_cast<uint32_t>(reinterpret_cast<uintptr_t>(kIllCallYouBackVector))) {
         IllCallYouBack(static_cast<EmailCompletionCode>(a), static_cast<EmailErrorCode>(b));
         return;
     }
-    ::tpw::LogRawF("email_callee::PtrGlue: no translation behind the callback table 0x%x (OutboxCallback 0x101e4124)\n",
+    ::tpw::LogRawF("email_callee::PtrGlue: nothing routed for the callback table 0x%x (OutboxCallback 0x101e4124)\n",
                    static_cast<unsigned>(tvector));
 }
 
@@ -343,10 +360,128 @@ void StringSubAssign(void* dst, const void* src, uint32_t pos, uint32_t n) {
 
 }  // namespace emailcb_callee
 
-// 0x102394d8 unlink (c/c++_shared).
-namespace outboxdel_callee {
-void Unlink(const char* path) { ::unlink(path); }
-}  // namespace outboxdel_callee
+// The mail connection (mail_shared::Mail, 0x10239520..0x102395c8): the SMTP client the Email drives one command at a time, each
+// answered through the callback MailConnect was given (Email::Callback: message 0x78 with the reply's code, 0xfffffffc when the
+// connection closes). The port has no mail client. The connection goes to the online backend (include/platform/online_backend.h):
+// with none (the launcher sets none) MailConnect fails, and the game shows its own error; with one every command is answered at
+// once, and DATA hands the card to Backend::SendMail.
+// KNOWN GAP since 0.3.0 (the changelog's online line tells players "Sending mail and postcards doesn't work yet"): no backend sends mail, so
+// OK in the outbox panel ends in the game's "Couldn't connect to email server" (0x39). To finish it: a backend with SendMail, PtrGlue above
+// routed to OutboxCallback (read, not run: without it the panel would not close), a play of Outbox::NextMail after a mail really goes out, and
+// that sentence taken out of the changelog.
+// The replies wait in a queue until the one before has been taken, so a command given from inside a callback is answered after it.
+namespace {
+
+using MailCallback = void (*)(int32_t, int32_t, uint8_t*, void*);
+
+struct MailLine {
+    MailCallback callback = nullptr;
+    void* context = nullptr;   // the Email
+    std::vector<std::string> to;
+};
+
+constexpr int32_t kMailReply = 0x78;
+constexpr int32_t kMailClosed = static_cast<int32_t>(0xfffffffc);
+constexpr int32_t kReplyOk = 250;
+constexpr int32_t kReplyClosing = 221;
+constexpr int32_t kReplyNotAvailable = 421;   // Email::Callback: the "cannot send" error
+
+std::map<void*, MailLine>& MailLines() {
+    static std::map<void*, MailLine> lines;
+    return lines;
+}
+
+struct MailReply {
+    void* mail;
+    int32_t message;
+    int32_t code;
+};
+
+void Answer(void* mail, int32_t message, int32_t code) {
+    static std::deque<MailReply> replies;
+    static bool answering = false;
+    replies.push_back({mail, message, code});
+    if (answering) return;
+    answering = true;
+    while (!replies.empty()) {
+        const MailReply reply = replies.front();
+        replies.pop_front();
+        auto it = MailLines().find(reply.mail);
+        if (it == MailLines().end() || it->second.callback == nullptr) continue;
+        const MailLine line = it->second;
+        if (reply.message == kMailClosed) MailLines().erase(it);
+        line.callback(reply.message, reply.code, nullptr, line.context);
+    }
+    answering = false;
+}
+
+}  // namespace
+
+namespace email_callee {
+
+void MailCtor(void* mail) { MailLines()[mail] = MailLine{}; }
+
+// Nonzero when connected (Email::Send answers the failure for 0).
+int32_t MailConnect(void* mail, char* server, uint16_t port, MailCallback callback, void* context, char* extra) {
+    (void)server;
+    (void)port;
+    (void)extra;
+    if (tpw::online::CurrentBackend() == nullptr) return 0;
+    MailLine& line = MailLines()[mail];
+    line.callback = callback;
+    line.context = context;
+    line.to.clear();
+    Answer(mail, kMailReply, kReplyOk);
+    return 1;
+}
+
+}  // namespace email_callee
+
+namespace emailcb_callee {
+
+void MailDoFrom(void* mail, const char* address) {
+    (void)address;   // the login's e-mail address, not kept
+    Answer(mail, kMailReply, kReplyOk);
+}
+
+void MailDoTo(void* mail, const char* address) {
+    MailLines()[mail].to.push_back(address);
+    Answer(mail, kMailReply, kReplyOk);
+}
+
+// The text is the whole message (Email::BuildBody), which carries the login's password; only the card, its title and its
+// addresses are passed on, read from the Email (its subject +0x10 and attachment's file +0x14).
+void MailDoData(void* mail, const char* text) {
+    (void)text;
+    MailLine& line = MailLines()[mail];
+    const Email* email = static_cast<const Email*>(line.context);
+    tpw::online::Backend* backend = tpw::online::CurrentBackend();
+    bool kept = false;
+    if (backend != nullptr && email != nullptr) {
+        tpw::online::Mail card;
+        card.subject = Chars(email->mString10);
+        card.to = line.to;
+        card.attachment = Chars(email->mString14);
+        kept = backend->SendMail(card);
+        ::tpw::LogRawF("postcard: %s (to %u addresses)\n", kept ? "handed to the online backend" : "could not be handed on",
+                       static_cast<unsigned>(line.to.size()));
+    }
+    line.to.clear();
+    Answer(mail, kMailReply, kept ? kReplyOk : kReplyNotAvailable);
+    if (!kept) Answer(mail, kMailClosed, 0);
+}
+
+void MailQuit(void* mail) {
+    Answer(mail, kMailReply, kReplyClosing);
+    Answer(mail, kMailClosed, 0);
+}
+
+void MailDoReset(void* mail) {
+    MailLines()[mail].to.clear();
+    Answer(mail, kMailReply, kReplyOk);
+}
+
+}  // namespace emailcb_callee
 
 namespace sendbody_callee {
 
@@ -367,6 +502,20 @@ int32_t LoginCustomerID(CFSOnlineSystem* system) { return system->GetLoginCustom
 
 // The attachment's base64 block (Email::Attachment::Destruct); attach_callee::NewArray makes it.
 void OperatorDeleteArray(void* p) { tpw::ArenaFree(p); }
+
+}  // namespace outbox_callee
+
+// 0x10238668 operator new[] and 0x10238638 operator delete[] of Email::Attachment::Construct (src/game/online/Connection.cpp,
+// whose own are the test libraries'): the card's bytes and their base64 text. The text is kept in a 32-bit word of the
+// attachment, so both come from the arena, which the word can hold.
+namespace attach_callee {
+
+void* NewArray(uint32_t size) { return MacNew(size); }
+void DeleteArray(void* p) { tpw::ArenaFree(p); }
+
+}  // namespace attach_callee
+
+namespace outbox_callee {
 
 void WStringAssign(void* str, const char16_t* text, uint32_t length) { Assign(str, text, length, 2); }
 void StringCtor(void* str, const char* text) { MakeText(str, text); }
