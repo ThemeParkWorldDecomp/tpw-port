@@ -32,10 +32,9 @@ resolution="--resolution 2048x1536"
 for arg in "$@"; do [ "$arg" = "--resolution" ] && resolution=""; done
 # --launcher-defaults (the script's own option) passes neither, for a run exactly as a player starts the game.
 for arg in "$@"; do [ "$arg" = "--launcher-defaults" ] && aspect="" && resolution=""; done
-# A test run swaps at every refresh of the screen (TPW_VSYNC_EVERY_REFRESH=1, platform/window.cpp), as before the 60-frame
-# pacing (tpw-port PR #8): the recipes' clicks are at pass numbers, and with the pacing on a 120 Hz screen 5000 passes take
-# 105 s instead of 66 to 69 s. The script's own --paced leaves it unset, for the pacing a player gets ("vsync: every 2
-# refreshes of 120.00 Hz" in the log on the MacBook; a run without it logs "vsync: every refresh ... a test run").
+# A test run leaves out the launcher's Frame rate limit (TPW_VSYNC_EVERY_REFRESH=1, platform/window.cpp): the recipes'
+# clicks are at pass numbers, which a limit would stretch. The script's own --paced leaves it unset, for the limit a
+# player chose ("at most N frames a second" in the log; a run without it logs "no frame limit ... a test run").
 paced=""
 for arg in "$@"; do [ "$arg" = "--paced" ] && paced=yes; done
 if [ -z "$paced" ]; then TPW_VSYNC_EVERY_REFRESH=1; export TPW_VSYNC_EVERY_REFRESH; fi

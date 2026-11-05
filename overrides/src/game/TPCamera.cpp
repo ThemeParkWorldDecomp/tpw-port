@@ -14,6 +14,7 @@
 #include "keytable_actions.h"
 #include "LbFile.h"
 #include "LbSCBack.h"
+#include "LbTime.h"
 #include "Light.h"
 #include "lobby.h"
 #include "m3d2.h"
@@ -380,6 +381,7 @@ int8_t gCameraMessagesF5A10Once;    // 0x102b5a10
 float gCameraMessagesF5A14;         // 0x102b5a14
 
 namespace {
+PortFramePace gCameraDragPace;   // the middle-button turn's (PortFrameScale, LbTime.h)
 constexpr int32_t kMsgFrame = 0x1e;
 constexpr int32_t kMsgModeOff = 0x20;
 constexpr int32_t kMsgReset = 0x22;
@@ -461,7 +463,8 @@ void Will_HandleCameraMessages(int32_t message, int32_t a, int32_t b) {
         if ((gCameraModeA & 2) != 0) {
             // TPW_PORT_FIX v5L26 Will_HandleCameraMessages | Mac: the middle of the screen is unit 1024 | Port: the middle of the unit space (1024 on a 4:3 screen) | Why: a widescreen port; on a wider screen the middle-button turn stands still with the pointer in the middle instead of drifting
             const float across = (2048.0f * gPointerScreenXY[0]) / FromInt(width) - static_cast<float>(gUIUnitWidth / 2);
-            gCameraF5BF4 = ppc_fmadds(gCameraYawDragScale, across, gCameraF5BF4);
+            // TPW_PORT_FIX framerate Will_HandleCameraMessages | Mac: the middle-button turn moves the key yaw its amount once a frame | Port: that amount times the steps' times (kPortFrameStepTime) since the last (PortFrameScale) | Why: the turn kept one speed at any frame rate
+            gCameraF5BF4 = ppc_fmadds(gCameraYawDragScale * PortFrameScale(gCameraDragPace), across, gCameraF5BF4);
         }
         break;
     case kMsgModeOff:
@@ -889,6 +892,8 @@ float gCameraTiltMaxZ = 0.0f;
 
 namespace {
 
+uint64_t gCameraMicros = 0;   // HandleCamera's last frame, UTimer::GetAbsolute
+
 constexpr float kK0012 = Bits(0x3a9d4952u);        // 0.0012
 constexpr float kK0002 = Bits(0x3b03126fu);        // 0.002
 constexpr float kK005 = Bits(0x3d4ccccdu);         // 0.05
@@ -902,7 +907,6 @@ inline s3DPoint* AsPoint(float* p) { return reinterpret_cast<s3DPoint*>(p); }
 inline bool Key(int16_t id) { return gKeyTableCamera->GetState(id) != 0; }
 
 // The exact conversion of the listing: a 32-bit unsigned value through the 2^52 trick, rounded to single by the fsubs.
-inline float FromU32(uint32_t v) { return static_cast<float>(v); }
 
 // TPW_PORT_FIX smoothzoom WheelZoom | Mac: (none: the wheel set the zoom at once) | Port: this frame's share of the wheel's zoom: the zoom eases to the wheel's target within the zoom limits, most of the way in a fifth of a second, and the view moves toward the ground under the pointer by the share the zoom shrank; the keys, a reset or a load end the easing | Why: smooth wheel zoom toward the pointer, as an opt-in; contributed by samueleagle91 (tpw-port PR #20)
 // The wheel's zoom for one frame of dt ms. Nothing unless the wheel is zooming and nothing else moved the zoom since the
@@ -955,8 +959,9 @@ void HandleCamera() {
     if (HandleExternalCamera()) return;
 
     const uint32_t now = static_cast<uint32_t>(gClock.ReadFixed());
-    float dt;
+    bool firstFrame = false;
     if (gCameraF5AAC != 0) {
+        firstFrame = true;
         if (isometric != 0) {
             // The first frame in the isometric view: the key yaw is made a multiple of a quarter turn.
             const float y = static_cast<float>(std::fmod(static_cast<double>(gCameraF5BF4), kHalfPiD));
@@ -969,13 +974,17 @@ void HandleCamera() {
                 gCameraF5BF4 = gCameraF5BF4 - (kHalfPi + y);
             }
         }
-        dt = 0.0f;
         gCameraF5AAC = 0;
-    } else {
-        dt = FromU32(now + 1u) - FromU32(gCameraClockStamp);
     }
+    // TPW_PORT_FIX framerate HandleCamera | Mac: the frame's time is the fixed clock's milliseconds since the last frame plus 1, at least 1 (so 1 a frame while the game is paused), and the pushed camera's velocity moves half way to the push, and the ground height under the target half way to the new one, once a frame | Port: the frame's time is the microseconds since the last frame, in milliseconds, with nothing added, and 0 on the first frame and while the game is paused; the velocity and the ground height move as far as that many halvings would in that time's steps (kPortFrameStepTime: the rest is kept 0.5 to that power) | Why: the added millisecond made every move of the camera faster the higher the frame rate (by 16% at 165 frames a second), and the halvings came once a frame; the camera keeps one pace at any frame rate, and stays still while the game is paused
+    const uint64_t micros = SamsUtilities::UTimer::GetAbsolute();
+    const uint64_t lastMicros = gCameraMicros;
+    gCameraMicros = micros;
+    float dt = 0.0f;
+    if (!firstFrame && lastMicros != 0 && micros >= lastMicros && gClock.GetPauseFlag() == 0)
+        dt = static_cast<float>(static_cast<double>(micros - lastMicros) / 1000.0);
     if (dt > 200.0f) dt = 100.0f;
-    if (dt <= 0.0f) dt = 1.0f;
+    const float frames = dt * 1000.0f / static_cast<float>(kPortFrameStepTime);
 
     // A button that went down since the last frame remembers where the pointer was.
     if (gCameraModeB != gCameraModeA && (gCameraModeB & 4) == 0 && (gCameraModeA & 4) != 0) {
@@ -1170,9 +1179,12 @@ void HandleCamera() {
         const float f3 = kK002 * root;
         const float oldX = vel[0];
         const float oldZ = vel[2];
-        vel[0] = ppc_fmadds(f30, f3, vel[0]) * 0.5f;
+        {   // the halving settles on the push itself (f30 f3, f31 f3); the rest is halved `frames` times
+            const float keep = std::pow(0.5f, frames);
+            vel[0] = f30 * f3 + (vel[0] - f30 * f3) * keep;
+            vel[2] = f31 * f3 + (vel[2] - f31 * f3) * keep;
+        }
         vel[1] = 0.0f;
-        vel[2] = ppc_fmadds(f31, f3, vel[2]) * 0.5f;
         if ((bounds & 1) != 0 && vel[0] < 0.0f) vel[0] = oldX / ppc_fmadds(kK001, dt, 1.0f);
         if ((bounds & 4) != 0 && vel[2] < 0.0f) vel[2] = oldZ / ppc_fmadds(kK001, dt, 1.0f);
         if ((bounds & 2) != 0 && vel[0] > 0.0f) vel[0] = oldX / ppc_fmadds(kK001, dt, 1.0f);
@@ -1269,8 +1281,10 @@ void HandleCamera() {
         gCameraViewPoint.y = ppc_fmsubs(y, c, z * s);
         gCameraViewPoint.z = ppc_fmadds(y, s, z * c);
         // The ground under the target, averaged with the last frame's, lifts the view point.
-        gCameraGroundHeight = gCameraGroundHeight + DetermineHFieldHeight(gCameraTarget[0], gCameraTarget[2], 1);
-        gCameraGroundHeight = gCameraGroundHeight * 0.5f;
+        {   // as the velocity above: the rest of the way is halved `frames` times
+            const float ground = DetermineHFieldHeight(gCameraTarget[0], gCameraTarget[2], 1);
+            gCameraGroundHeight = ground + (gCameraGroundHeight - ground) * std::pow(0.5f, frames);
+        }
         gCameraViewPoint.y = gCameraViewPoint.y + gCameraGroundHeight;
         // The tilt from the velocity: the square root of its size, scaled.
         if (vel[0] < 0.0f) {

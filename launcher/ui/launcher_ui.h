@@ -84,6 +84,15 @@ int LanguageChoiceIndex(const std::vector<LanguageChoice>& choices, const std::s
 // launcher.ini's key for the Settings box's "Stereo panning" ("1": a sound placed in the park plays louder in the speaker on
 // its side of the camera; absent or "0": every sound plays centred, as the original did). From tpw-port PR #19 by samueleagle91.
 inline constexpr const char* kSoundPanKey = "sound_panning";
+// launcher.ini's key for the Settings box's "Frame rate limit": absent or "0", Monitor (a frame each refresh of the
+// monitor, as the original drew with no limit of its own); else the most frames a second the game draws,
+// kFrameRateLowest or more (gfx::gFrameLimit). The row's slider goes from kFrameRateLowest up to the refresh rate of the
+// launcher's monitor, whose right end is Monitor.
+inline constexpr const char* kFrameRateKey = "frame_rate_limit";
+inline constexpr int kFrameRateLowest = 30;
+// launcher.ini's Frame rate limit as a number: 0 for Monitor (absent, "0", or not a whole number of at least
+// kFrameRateLowest).
+int FrameRateSetting(const std::string& value);
 
 // An option of the original's options files (low.sam, med.sam, high.sam) that the Settings box's Graphics section offers:
 // launcher.ini's key, its slot in the game's options table (gPortSamOptions, OptionsBalance.h), the row's title and line,
@@ -140,7 +149,10 @@ public:
     std::string Error() const { return text_.Error(); }
 
     // The window the file dialogs belong to (none in the test: Browse then says so).
-    void SetWindow(SDL_Window* window) { window_ = window; }
+    void SetWindow(SDL_Window* window) {
+        window_ = window;
+        frameRateTopStale_ = true;
+    }
     // The folder of the launcher's log file (launcher/main.cpp): the About box's Show logs opens it. Empty: no button.
     void SetLogsFolder(const std::string& folder) { logsFolder_ = folder; }
     // What the Show logs buttons call first, to select the log file (null: they open the folder).
@@ -198,6 +210,11 @@ public:
     // and the choice it shows: 0 Default (the detail level's own), else 1 + the index of its choice.
     Rect SamOptionRect(size_t index) const { return settingsOpen_ ? samRects_[index] : Rect{}; }
     int SamOptionChoice(size_t index) const { return samChoices_[index]; }
+    // The Graphics section's Frame rate limit slider in the last frame, in points (empty when the box is closed), its top
+    // (the launcher monitor's refresh rate) and the limit it shows: 0 Monitor, else frames a second.
+    Rect FrameRateRect() const { return settingsOpen_ ? frameRateRect_ : Rect{}; }
+    int FrameRateHighest() const { return frameRateHighest_; }
+    int FrameRateChoice() const { return frameRate_; }
     // The Settings box's "Check for updates" switch in the last frame, in points (empty when the box is closed).
     Rect CheckUpdatesRect() const { return settingsOpen_ ? checkUpdatesRect_ : Rect{}; }
     // The Settings box's Language field of an edition (0 US, 1 European) in the last frame, in points (empty when the box
@@ -298,6 +315,9 @@ private:
     bool smoothZoom_ = false;       // the Settings box's "Smooth wheel zoom", as launcher.ini keeps it
     int interfaceSize_ = 0;         // the Settings box's "Interface size": 0 100%, 1 85%, 2 70%
     std::vector<int> samChoices_;   // the Graphics section: for each of SamOptions(), 0 the detail level's own, else 1 + its choice
+    int frameRate_ = 0;             // the Settings box's "Frame rate limit": 0 Monitor, else frames a second (FrameRateSetting)
+    int frameRateHighest_ = 60;     // the slider's top: the refresh rate of the launcher's monitor (60 when unknown)
+    bool frameRateTopStale_ = true; // frameRateHighest_ is read again (the window moved to another monitor, its mode changed)
     bool checkUpdates_ = true;      // the Settings box's "Check for updates", as launcher.ini keeps it (on when absent)
     std::vector<assets::LanguageStatus> languages_;   // the data folder's languages (RefreshLanguages)
     int languageOpen_ = -1;         // the edition whose Language list is open (0 US, 1 European), -1 none
@@ -360,6 +380,7 @@ private:
     Rect languageRects_[2];    // last frame's (LanguageRect)
     std::vector<Rect> languageRows_;   // last frame's open list (LanguageListRow)
     std::vector<Rect> samRects_;   // last frame's (SamOptionRect), one for each of SamOptions()
+    Rect frameRateRect_;       // last frame's (FrameRateRect)
     Rect soundPanRect_;        // last frame's (SoundPanRect)
     Rect rendererRect_;        // last frame's (RendererRect)
     bool settingsScrolls_ = false;   // last frame's (SettingsScrolls)

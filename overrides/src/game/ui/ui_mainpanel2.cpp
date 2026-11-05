@@ -13,6 +13,7 @@
 #include "intrface.h"
 #include "keyboard.h"
 #include "keytable_actions.h"
+#include "LbTime.h"
 #include "LLCellSystem.h"
 #include "LoansPanelMsg.h"
 #include "lobby.h"
@@ -561,17 +562,24 @@ int32_t gCashWindowWord;       // 0x103949ac
 // 0x101a60c0 (208 bytes): the cash window (window 0x2f). Its frame counter (a function static, set to 0 the first time through) counts the
 // on-frame messages (0x1e); the counter's value before the increment having bit 1 set (and bit 0 of the pair, "== 2") runs DoCashWin and
 // starts the count again; every frame the session cost is set to 0. Created (0x15): the word at 0x103949ac and the counter go to 0.
+// TPW_PORT_FIX framerate CashWindowCallback | Mac: the counter counts frames, so the cash window is brought up to date every third frame | Port: it counts each step's time (PortFrameSteps) | Why: the cash shown is brought up to date at one pace at any frame rate
+namespace {
+PortFramePace gCashWindowPace;
+}  // namespace
+
 int32_t CashWindowCallback(InterfaceWindow* window, int32_t message, int32_t a, int32_t b) {
     if (gCashWindowGuard == 0) {
         gCashWindowFrames = 0;
         gCashWindowGuard = 1;
     }
     if (message == 0x1e) {
-        const uint32_t before = gCashWindowFrames;
-        gCashWindowFrames = before + 1;
-        if ((before & 2) == 2) {
-            DoCashWin(window);
-            gCashWindowFrames = 0;
+        for (int32_t steps = PortFrameSteps(gCashWindowPace); steps > 0; --steps) {
+            const uint32_t before = gCashWindowFrames;
+            gCashWindowFrames = before + 1;
+            if ((before & 2) == 2) {
+                DoCashWin(window);
+                gCashWindowFrames = 0;
+            }
         }
         LLCC_SystemSetSessionCost(0);
     } else if (message == 0x15) {

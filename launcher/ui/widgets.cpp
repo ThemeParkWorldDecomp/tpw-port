@@ -346,6 +346,38 @@ bool Ui::Segmented(const std::string& id, const Rect& r, const std::vector<std::
     return changed;
 }
 
+bool Ui::Slider(const std::string& id, const Rect& r, int& value, int low, int high, bool enabled) {
+    high = std::max(low, high);
+    value = std::clamp(value, low, high);
+    // The knob's centre runs from a knob's radius inside the left end to one inside the right.
+    const float knobR = r.h * 0.5f - 5;
+    const float left = r.x + r.h * 0.5f, span = std::max(1.0f, r.w - r.h);
+    bool hot = interactive_ && enabled && Hovered(r);
+    if (hot && input_.pressed) {
+        active_ = id;
+        sliderStart_ = value;
+    }
+    bool dragging = active_ == id && interactive_ && enabled;
+    if (dragging && (input_.down || input_.released)) {
+        float t = Clamp01((input_.mouseX - left) / span);
+        value = low + static_cast<int>(std::lround(t * static_cast<float>(high - low)));
+    }
+    bool kept = dragging && input_.released && value != sliderStart_;
+
+    float k = high > low ? static_cast<float>(value - low) / static_cast<float>(high - low) : 0.0f;
+    float hover = Spring(id + "#hover", hot || (dragging && input_.down) ? 1.0f : 0.0f);
+    Rgba line = enabled ? colour::kInk : colour::kInkSoft;
+    Rect track{r.x, r.CentreY() - 7, r.w, 14};
+    canvas_.Outlined(track, track.h * 0.5f, 2.5f, enabled ? colour::kCream : Mix(colour::kGrey, colour::kPaper, 0.5f), line);
+    float cx = left + span * k;
+    if (enabled && cx > track.x + track.h * 0.5f)
+        canvas_.FillRound({track.x + 2.5f, track.y + 2.5f, cx - track.x - 2.5f, track.h - 5}, (track.h - 5) * 0.5f,
+                          colour::kLime);
+    canvas_.FillCircle(cx, r.CentreY(), knobR + 2.5f + 1.0f * hover, line);
+    canvas_.FillCircle(cx, r.CentreY(), knobR + 1.0f * hover, colour::kPaper);
+    return kept;
+}
+
 bool Ui::Dropdown(const std::string& id, const Rect& r, std::string_view label, bool open, bool enabled) {
     bool clicked = Clicked(id, r, enabled);
     bool hot = interactive_ && enabled && Hovered(r);

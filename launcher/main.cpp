@@ -613,7 +613,7 @@ void NameAppMenu(const char* name) {
 void KeepSettings(const tpw::ui::ImporterBackend& backend, const std::string& prefPath) {
     for (const char* key : {tpw::ui::kSkipIntroKey, tpw::ui::kBackToLauncherKey, tpw::ui::kSmoothZoomKey,
                             tpw::ui::kInterfaceSizeKey, tpw::ui::kPcSoundPicksKey, tpw::ui::kSoundPanKey,
-                            tpw::ui::kFullScreenKey, tpw::ui::kRendererKey, tpw::ui::kCheckUpdatesKey,
+                            tpw::ui::kFullScreenKey, tpw::ui::kRendererKey, tpw::ui::kFrameRateKey, tpw::ui::kCheckUpdatesKey,
                             tpw::ui::kLanguageUsKey, tpw::ui::kLanguageEurKey,
                             tpw::ui::kUpdateLastCheckKey, tpw::ui::kUpdateFoundKey}) {
         const std::string value = backend.Setting(key);
@@ -976,6 +976,15 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& program, st
         }
     }
 #endif
+    {   // The Settings box's "Frame rate limit" (gfx::gFrameLimit): 0, Monitor, unless launcher.ini names a limit.
+        const std::string value = backend.Setting(tpw::ui::kFrameRateKey);
+        tpw::gfx::gFrameLimit = tpw::ui::FrameRateSetting(value);
+        if (tpw::gfx::gFrameLimit != 0)
+            tpw::Log("frame rate limit: at most %d frames a second (the launcher's Settings)", tpw::gfx::gFrameLimit);
+        else if (!value.empty() && value != "0")
+            tpw::Log("frame rate limit: launcher.ini's %s=%s is not a limit of %d or more; Monitor is kept",
+                     tpw::ui::kFrameRateKey, value.c_str(), tpw::ui::kFrameRateLowest);
+    }
     if (choice.skipIntro) {
         config.movies = false;
         tpw::Log("intro films: skipped (the launcher's Settings)");

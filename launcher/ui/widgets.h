@@ -1,6 +1,6 @@
 // widgets.h: the launcher screen's widgets, immediate mode: each frame the screen code calls them in drawing order and
-// they draw themselves and report clicks. About nine kinds: panel, button, tile, progress bar, log list, toggle,
-// segmented switch, drop-down and the drop field, plus badges, a notice and what scrolling needs (an offset the wheel moves, a
+// they draw themselves and report clicks. About ten kinds: panel, button, tile, progress bar, log list, toggle,
+// segmented switch, slider, drop-down and the drop field, plus badges, a notice and what scrolling needs (an offset the wheel moves, a
 // clip and a bar). Hover and press move through damped springs, which gives buttons and tiles their bouncy hover.
 // Everything is in points (draw.h).
 #pragma once
@@ -87,6 +87,10 @@ public:
     // Side by side choices; returns true when the selection changed.
     bool Segmented(const std::string& id, const Rect& r, const std::vector<std::string>& options,
                    const std::vector<bool>& enabled, int& selected);
+    // A slider over the whole numbers `low` to `high` in `r` (about 36 high): pressed anywhere on it, its knob follows the
+    // pointer while the button is held, and `value` with it. Returns true once, when the button is let go on a value
+    // other than the one it went down on (the screen code keeps it then, not at every step of the drag).
+    bool Slider(const std::string& id, const Rect& r, int& value, int low, int high, bool enabled = true);
     // A drop-down's field: the chosen option's `label` and a chevron, which turns over while `open`. Returns true when it
     // was clicked (the screen code opens or closes its list, DropList).
     bool Dropdown(const std::string& id, const Rect& r, std::string_view label, bool open, bool enabled = true);
@@ -139,6 +143,7 @@ private:
     std::unordered_map<std::string, float> scroll_;   // log lists: rows hidden above the top
     std::unordered_map<std::string, bool> follow_;    // log lists: keep the newest row in view
     std::unordered_map<std::string, ScrollState> offsets_;   // Scroll: points hidden above the top
+    int sliderStart_ = 0;  // Slider: the value of the one being dragged (active_) when the button went down
 };
 
 }  // namespace tpw::ui

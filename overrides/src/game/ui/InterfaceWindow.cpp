@@ -6,6 +6,7 @@
 #include "InterfaceFont.h"
 #include "InterfaceScrollBar.h"
 #include "InterfaceWindow.h"
+#include "LbTime.h"
 #include "lobby.h"
 #include "platform/arena.h"
 #include "platform/macdoze.h"
@@ -1753,6 +1754,14 @@ void SlideStep(InterfaceWindow* window) {
 
 }  // namespace
 
+// TPW_PORT_FIX framerate UI_DefaultWindowCallback | Mac: every frame (message 0x1e) a window's animation looks whether more than its step's milliseconds went by since its last step (doAnimFrame), so a step comes on the first frame after them: a step of 35 ms took 67 ms at 30 frames a second and 36 at 165 | Port: the window looks once each step's time (PortFrameSteps, a pace each window), as at one frame every 31 ms | Why: the windows' animations (the PAUSED sign's throb among them) keep one pace at any frame rate
+namespace {
+PortFramePace& WindowAnimPace(InterfaceWindow* window) {
+    static std::unordered_map<InterfaceWindow*, PortFramePace> paces;
+    return paces[window];
+}
+}  // namespace
+
 // The messages a window answers by itself (the others, and negative ones, are ignored; the answer is 0 unless said):
 //   1 DrawMe, 2 DrawReverseOrder, 3 ClientDraw, 4 deletes the window, 5 posts 4 to it, 6 Show(a), 7 ShiftPosition(a, b),
 //   8 SetPosition to the rectangle (a high, a low, b high, b low: left, top, right, bottom), 9 BringToTop and, when it
@@ -1805,7 +1814,8 @@ int32_t UI_DefaultWindowCallback(InterfaceWindow* window, int32_t message, int32
         break;
     case 0x1e:
         if (gUIHelpText->mWindow == window) gUIHelpText->OnFrame();
-        window->doAnimFrame();
+        if (window->mAnimating != 1 || PortFrameSteps(WindowAnimPace(window)) > 0)
+            window->doAnimFrame();
         break;
     case 0x10001:
         UI_SetCursor(window->mCursor);

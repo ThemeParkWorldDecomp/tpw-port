@@ -64,6 +64,9 @@ The Settings box has these rows:
   keeps the value of the game's own graphics quality: view distance (Short, Medium, Long, Max), sky layers (1, 2, 4),
   cloud shadows, ground blending (Off, 16, 32, 64), texture quality (Low, High), lighting and visitor shadows (Off, On),
   and visitor looks (2, 4, 6, 8: how many kinds of visitor walk around the park).
+  Below them, Frame rate limit: Monitor by default, a frame for every refresh of the monitor, as the original drew
+  with no limit of its own. The slider goes from 30 up to your monitor's refresh rate, and any of those is the most
+  frames a second the game draws; the animations keep their pace at any of them (Widescreen and resolution below).
 - Check for updates: on by default (the one launcher setting that is; see Updates below). Off, the launcher never asks.
 - Check again: rehashes every file.
 
@@ -460,9 +463,10 @@ The port runs as a real full-screen window, a Space of its own with the menu bar
 green button or the Esc menu's button leaves and re-enters it, and out of full screen the game is in a normal window:
 a title bar with the game's name, Sim Theme Park or Theme Park World, the close, minimise and zoom buttons, draggable
 and resizable, the game letterboxed inside it at its own shape; --windowed opens that window from the start;
---background keeps a frameless window fitted to the screen behind the others). The game is held to 60 frames a second: the swap waits for as many of the display's refreshes (vsync)
-as come nearest a 60th of a second, so a 120 Hz or 144 Hz screen waits for 2 and the animations run at the speed they
-were made for. The window takes the screen's own shape, 4:3, 16:10 or 16:9, so no bars show on any of them (16:10 at
+--background keeps a frameless window fitted to the screen behind the others). The game draws a frame for every refresh
+of the monitor (vsync), or fewer with the launcher's Frame rate limit. The original moved some of its animations, sounds
+and camera moves a step every frame it drew, so they ran faster the faster the machine; the port gives them a step
+every 31 ms, the game's own tick, so they keep one pace at any frame rate (FIXES.md, unit framerate). The window takes the screen's own shape, 4:3, 16:10 or 16:9, so no bars show on any of them (16:10 at
 3840 x 2400 on a MacBook, 16:9 at 3840 x 2160); --aspect still forces one. The game renders offscreen at that size and
 the window shows it scaled to fit the screen, so a small window still gets a sharp picture (3D edges and the TrueType text; the game's own textures are 256 x
 256 at most and do not gain detail). The game's bitmap fonts have one size for every resolution from 1024 x 768 up, so
@@ -487,8 +491,8 @@ on a machine that has room).
 devtools/run_launcher.sh passes --aspect 4:3 and --resolution 2048x1536 unless its options name them, because the
 scripted clicks of the test recipes are 4:3 game pixels at 2048 x 1536; a widescreen test run passes --aspect 16:9 and
 moves its clicks on right-anchored and centred panels (the script's header has the widescreen recipes for the easy park).
-The recipes' pass numbers are timed without the 60 frames a second pacing, so the script sets TPW_VSYNC_EVERY_REFRESH=1
-(a test-only variable that swaps at every refresh as before the pacing); --paced leaves it unset to test the pacing itself.
+The recipes' clicks are at pass numbers, so the script sets TPW_VSYNC_EVERY_REFRESH=1 (a test-only variable that leaves
+out the launcher's Frame rate limit); --paced leaves it unset to test the limit itself.
 
 ## Reporting a problem
 

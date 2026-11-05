@@ -1553,6 +1553,69 @@ void CheckSoundPanSwitch(SDL_Renderer* renderer) {
     CheckEq(b.Setting(kSoundPanKey), "0", "sound panning: a launcher.ini with 1 shows it on, so one click turns it off");
 }
 
+// The Settings box's Frame rate limit slider: Monitor when launcher.ini has no key, nothing kept until the player lets go
+// of it, its left end the lowest limit (30), its right end the monitor's refresh rate (60 here, with no window to ask),
+// which is Monitor ("0"); a launcher.ini limit above the top is kept as it is until the slider moves; and what
+// FrameRateSetting accepts.
+void CheckFrameRateSlider(SDL_Renderer* renderer) {
+    auto checkRate = [](int got, int want, const std::string& what) {
+        CheckEq(std::to_string(got), std::to_string(want), what);
+    };
+    FakeBackend b;
+    LauncherUi ui(renderer, b);
+    const float width = 1100, height = 2400;   // tall enough for the whole box
+    auto frames = [&](int n) {
+        for (int i = 0; i < n; ++i) ui.Frame(kDt, width, height, 1);
+    };
+    auto drag = [&](float fromX, float toX) {
+        const float y = ui.FrameRateRect().CentreY();
+        const std::string kept = b.Setting(kFrameRateKey);
+        ui.HandleEvent(MotionEvent(fromX, y));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, fromX, y));
+        frames(1);
+        ui.HandleEvent(MotionEvent(toX, y));
+        frames(1);
+        CheckEq(b.Setting(kFrameRateKey), kept, "frame rate: nothing is kept while the button is held");
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, toX, y));
+        frames(1);
+    };
+    ui.ShowSettings(true);
+    frames(1);
+    const Rect r = ui.FrameRateRect();
+    Check(r.w > 0, "frame rate: the slider is in the Settings box");
+    checkRate(ui.FrameRateChoice(), 0, "frame rate: Monitor when launcher.ini has no key");
+    checkRate(ui.FrameRateHighest(), 60, "frame rate: the top is 60 when the monitor's refresh rate is unknown");
+    CheckEq(b.Setting(kFrameRateKey), "", "frame rate: nothing is kept until the player chooses");
+    drag(r.Right() - 2, r.x - 40);
+    CheckEq(b.Setting(kFrameRateKey), "30", "frame rate: dragged past the left end keeps the lowest limit");
+    checkRate(ui.FrameRateChoice(), 30, "frame rate: the slider shows the lowest limit");
+    drag(r.x + 2, r.CentreX());
+    const int middle = ui.FrameRateChoice();
+    Check(middle > kFrameRateLowest && middle < 60, "frame rate: dragged to the middle, a limit between the ends");
+    CheckEq(b.Setting(kFrameRateKey), std::to_string(middle), "frame rate: the middle's limit is kept");
+    drag(r.CentreX(), r.Right() + 40);
+    CheckEq(b.Setting(kFrameRateKey), "0", "frame rate: dragged past the right end keeps Monitor");
+    checkRate(ui.FrameRateChoice(), 0, "frame rate: the slider shows Monitor");
+
+    b.settings[kFrameRateKey] = "240";
+    LauncherUi again(renderer, b);
+    again.ShowSettings(true);
+    again.Frame(kDt, width, height, 1);
+    again.Frame(kDt, width, height, 1);
+    checkRate(again.FrameRateChoice(), 240, "frame rate: a limit above the monitor's is kept as launcher.ini has it");
+    CheckEq(b.Setting(kFrameRateKey), "240", "frame rate: showing it at the top writes nothing");
+
+    checkRate(FrameRateSetting(""), 0, "frame rate: absent is Monitor");
+    checkRate(FrameRateSetting("0"), 0, "frame rate: 0 is Monitor");
+    checkRate(FrameRateSetting("29"), 0, "frame rate: below the lowest is Monitor");
+    checkRate(FrameRateSetting("30"), 30, "frame rate: the lowest is a limit");
+    checkRate(FrameRateSetting("144"), 144, "frame rate: 144 is a limit");
+    checkRate(FrameRateSetting("-60"), 0, "frame rate: a sign is not a limit");
+    checkRate(FrameRateSetting("60fps"), 0, "frame rate: words are not a limit");
+    checkRate(FrameRateSetting("99999"), 0, "frame rate: five digits are not a limit");
+}
+
 // The Settings box's Renderer row, for the Vulkan renderer of tpw-port PR #83 by adds39939: on Linux only (kRendererRow;
 // the test shows it on every system), OpenGL when launcher.ini has no key (the default, the original's API), nothing
 // kept until the player chooses, a click on Vulkan keeps "vulkan", one on OpenGL "opengl", and a launcher.ini with
@@ -1937,6 +2000,7 @@ int main(int argc, char** argv) {
         CheckLanguages(renderer);
         CheckVisitorLooks(renderer);
         CheckSoundPanSwitch(renderer);
+        CheckFrameRateSlider(renderer);
         CheckRendererRow(renderer);
         CheckVersionAndLogs(renderer);
         CheckTitleVersion(renderer);

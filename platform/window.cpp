@@ -281,39 +281,54 @@ bool CursorPlacement(CursorPlace& place) {
     return true;
 }
 
-// The game moves some of its animations by a fixed step every frame (the water's and the flags' phases and the cursor
-// squares' blink, src/game/park/DynamicCell.cpp), as if a frame took as long as on the machines it was made for, so on a
-// screen refreshing faster than 60 times a second they ran too fast. The swap waits for as many of the screen's refreshes
-// as come nearest a 60th of a second: 1 at 60 Hz or less, 2 at 120 Hz and 144 Hz, 4 at 240 Hz. vsync alone sets the pace,
-// so no clock of the port's own adds its waits to it. The interval is set again whenever the window is on a screen with
-// another refresh rate (one unknown counts as 60 Hz). From tpw-port PR #8 by samueleagle91.
-// TPW_VSYNC_EVERY_REFRESH set (to anything) keeps the interval of 1, the swap at every refresh as before the pacing: a
-// test-only way back for devtools/run_launcher.sh, whose recipes click at pass numbers timed without the pacing (5000
-// passes took 105 s instead of 66 to 69 s with it).
-static void MatchSwapIntervalToRefresh() {
+static bool gHoldFrameLimit = false;   // HoldToFrameLimit holds the frames to gfx::gFrameLimit (WaitForEveryRefresh)
+
+// The swap waits for every refresh of the monitor (vsync), as the original's did, so the game draws at the monitor's
+// rate and no faster: the steps the original took once a frame take their pace from the clock (LbTime.h
+// kPortFrameStepTime), so the frame rate does not change how fast anything moves. With the launcher's Frame rate limit
+// (gfx::gFrameLimit) HoldToFrameLimit holds the frames to it as well. Logged again whenever the window is on a monitor
+// with another refresh rate.
+// TPW_VSYNC_EVERY_REFRESH set (to anything) leaves the limit out: a test-only setting for devtools/run_launcher.sh and
+// devtools/playtest.ps1, whose recipes click at pass numbers.
+static void WaitForEveryRefresh() {
     static float applied = -1.0f;
     const SDL_DisplayID display = SDL_GetDisplayForWindow(gWindow.sdl);
     const SDL_DisplayMode* mode = display != 0 ? SDL_GetCurrentDisplayMode(display) : nullptr;
     const float refresh = mode != nullptr ? mode->refresh_rate : 0.0f;
     if (refresh == applied) return;
     applied = refresh;
+    if (!gfx::SetSwapInterval(1)) tpw::Log("vsync: refused (%s)", SDL_GetError());
+    gHoldFrameLimit = false;
     if (std::getenv("TPW_VSYNC_EVERY_REFRESH") != nullptr) {
-        gfx::SetSwapInterval(1);
-        tpw::Log("vsync: every refresh of %.2f Hz (TPW_VSYNC_EVERY_REFRESH, a test run)", static_cast<double>(refresh));
+        tpw::Log("vsync: every refresh of %.2f Hz, no frame limit (TPW_VSYNC_EVERY_REFRESH, a test run)",
+                 static_cast<double>(refresh));
+    } else if (gfx::gFrameLimit > 0) {
+        gHoldFrameLimit = true;
+        tpw::Log("vsync: every refresh of %.2f Hz, at most %d frames a second (the launcher's Frame rate limit)",
+                 static_cast<double>(refresh), gfx::gFrameLimit);
+    } else {
+        tpw::Log("vsync: every refresh of %.2f Hz", static_cast<double>(refresh));
+    }
+}
+
+// Just before a swap, with the launcher's Frame rate limit: waits until a frame's time (a gFrameLimit'th of a second)
+// after the last frame's turn. The turns keep to a fixed grid, so the frames average the rate exactly; a frame more than a
+// turn late starts the grid again from now rather than rushing to catch up. A limit at or above the monitor's refresh
+// never waits here: vsync holds it to the refresh.
+static void HoldToFrameLimit() {
+    static Uint64 next = 0;   // the next frame's turn, SDL_GetTicksNS (0: none yet)
+    if (!gHoldFrameLimit || gfx::gFrameLimit <= 0) {
+        next = 0;
         return;
     }
-    int interval = 1;
-    for (int i = 2; i <= 8; ++i) {
-        if (std::fabs(refresh / static_cast<float>(i) - 60.0f) < std::fabs(refresh / static_cast<float>(interval) - 60.0f))
-            interval = i;
+    const Uint64 frame = 1000000000ull / static_cast<Uint64>(gfx::gFrameLimit);
+    const Uint64 now = SDL_GetTicksNS();
+    if (next == 0 || now > next + frame) {
+        next = now + frame;
+        return;
     }
-    if (!gfx::SetSwapInterval(interval)) {
-        tpw::Log("vsync: every %d refreshes of %.2f Hz refused (%s); every refresh", interval, static_cast<double>(refresh),
-                 SDL_GetError());
-        interval = 1;
-        gfx::SetSwapInterval(1);
-    }
-    tpw::Log("vsync: every %d refresh%s of %.2f Hz", interval, interval == 1 ? "" : "es", static_cast<double>(refresh));
+    if (now < next) SDL_DelayPrecise(next - now);
+    next += frame;
 }
 
 // The frame (gfx.h): the game's picture is copied (the cursor is drawn on the copy, so the game's own picture never
@@ -329,7 +344,8 @@ void SwapBuffers() {
     SDL_GetWindowSizeInPixels(gWindow.sdl, &pixelsWide, &pixelsHigh);
     fit::PixelBox box{0, 0, pixelsWide, pixelsHigh};
     if (gFit.wanted && gfx::FitReady()) box = fit::RoundBox(fit::Letterbox(pixelsWide, pixelsHigh, gFit.gameWide, gFit.gameHigh));
-    MatchSwapIntervalToRefresh();
+    WaitForEveryRefresh();
+    HoldToFrameLimit();
     gfx::EndPresent(box, pixelsWide, pixelsHigh);
 }
 

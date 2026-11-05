@@ -128,6 +128,7 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     smoothZoom_ = backend_.Setting(kSmoothZoomKey) == "1";   // tpw-port PR #20 by samueleagle91
     for (const SamOption& option : SamOptions()) samChoices_.push_back(SamChoice(option, backend_.Setting(option.key)) + 1);
     samRects_.resize(SamOptions().size());
+    frameRate_ = FrameRateSetting(backend_.Setting(kFrameRateKey));
     pcSoundPicks_ = backend_.Setting(kPcSoundPicksKey) != "0";
     fullScreen_ = backend_.Setting(kFullScreenKey) != "0";
     renderer_ = backend_.Setting(kRendererKey) == "vulkan" ? 1 : 0;   // OpenGL unless Vulkan was chosen
@@ -227,6 +228,10 @@ void LauncherUi::HandleEvent(const SDL_Event& e) {
             break;
         case SDL_EVENT_WINDOW_MOUSE_LEAVE:
             input_.mouseX = input_.mouseY = -1e6f;
+            break;
+        case SDL_EVENT_WINDOW_DISPLAY_CHANGED:
+        case SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED:
+            frameRateTopStale_ = true;   // the Frame rate limit slider's top is read again (DrawSettings)
             break;
         case SDL_EVENT_KEY_DOWN:
             if (e.key.key == SDLK_ESCAPE) {
@@ -990,6 +995,13 @@ int SamChoice(const SamOption& option, const std::string& value) {
     return -1;
 }
 
+int FrameRateSetting(const std::string& value) {
+    if (value.empty() || value.size() > 4 || !std::all_of(value.begin(), value.end(), [](char c) { return c >= '0' && c <= '9'; }))
+        return 0;
+    const int rate = std::stoi(value);
+    return rate >= kFrameRateLowest ? rate : 0;
+}
+
 std::string LanguageShownName(const std::string& name) {
     static const std::pair<const char*, const char*> kShown[] = {
         {"English", "English"}, {"American", "American English"}, {"French", "Fran\xC3\xA7" "ais"},
@@ -1039,7 +1051,7 @@ void LauncherUi::DrawSettings(const Rect& w) {
     float bodyH = 2 * (text_.LineHeight(style::kBodyBold) + 4) + 40 + text_.LineHeight(style::kSmall) + 14 + 3 * rowH +
                   4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + 7 * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH +
-                  text_.LineHeight(style::kBodyBold) + 4 + static_cast<float>(SamOptions().size()) * rowH +
+                  text_.LineHeight(style::kBodyBold) + 4 + static_cast<float>(SamOptions().size() + 1) * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + rowH + (rendererRow_ ? rowH : 0.0f);
     float ph = std::min(w.h - 2 * metric::kMargin, titleH + bodyH + 40);
     Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
@@ -1334,6 +1346,40 @@ void LauncherUi::DrawSettings(const Rect& w) {
             std::string err;
             const std::string value = choice == 0 ? "default" : std::to_string(option.values[static_cast<size_t>(choice - 1)]);
             if (!backend_.SaveSetting(option.key, value, err)) settingsMessage_ = "Cannot keep the setting: " + err;
+        }
+        y += rowH;
+    }
+    {   // the Frame rate limit (kFrameRateKey): kFrameRateLowest up to the monitor's refresh, which is Monitor (no limit)
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, SamOptions().size() % 2 ? colour::kCream : colour::kYellowSoft.WithAlpha(120));
+        if (frameRateTopStale_) {   // the monitor's refresh rate, read again only when the window or the mode changed
+            frameRateTopStale_ = false;
+            frameRateHighest_ = 60;
+            const SDL_DisplayID display = window_ != nullptr ? SDL_GetDisplayForWindow(window_) : 0;
+            const SDL_DisplayMode* mode = display != 0 ? SDL_GetCurrentDisplayMode(display) : nullptr;
+            if (mode != nullptr && mode->refresh_rate > 0)
+                frameRateHighest_ = std::max(kFrameRateLowest, static_cast<int>(std::lround(mode->refresh_rate)));
+        }
+        const float sliderW = 220, valueW = 84;
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, "Frame rate limit", colour::kInk);
+        const char* frameRateLine = frameRate_ == 0 ? "A frame for every refresh of the monitor"
+                                                    : "The most frames a second the game draws";
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, frameRateLine, row.w - 12 - sliderW - valueW - 24, false), colour::kInkSoft);
+        // The slider's right end, the monitor's refresh rate, is Monitor (0).
+        const int before = frameRate_ == 0 ? frameRateHighest_ : std::min(frameRate_, frameRateHighest_);
+        int position = before;
+        frameRateRect_ = {row.Right() - 12 - sliderW, row.CentreY() - 18, sliderW, 36};
+        const bool kept = ui_.Slider("frame-rate", frameRateRect_, position, kFrameRateLowest, frameRateHighest_);
+        if (position != before) frameRate_ = position >= frameRateHighest_ ? 0 : position;
+        const std::string shown = frameRate_ == 0 ? "Monitor" : std::to_string(frameRate_) + " fps";
+        text_.Draw(style::kButton, frameRateRect_.x - 12 - text_.Width(style::kButton, shown),
+                   row.CentreY() - text_.LineHeight(style::kButton) * 0.5f, shown, colour::kInk);
+        if (kept) {
+            std::string err;
+            if (!backend_.SaveSetting(kFrameRateKey, std::to_string(frameRate_), err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
         }
         y += rowH;
     }

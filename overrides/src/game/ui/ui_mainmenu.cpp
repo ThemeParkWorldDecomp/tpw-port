@@ -14,6 +14,7 @@
 #include "keyboard.h"
 #include "LbDrawPrimitives.h"
 #include "LbSCBack.h"
+#include "LbTime.h"
 #include "lobby.h"
 #include "online.h"
 #include "platform/msl.h"
@@ -34,13 +35,30 @@
 #include <cstdlib>
 #include <cstring>
 #include <new>
+#include <unordered_map>
 
 // Unit v5958: the main menu's quit answer, the main menu item callback and its fade, and two of CFSLoadSave's functions (the save
 // of a park by name, the first entry of the list of the player's save files).
 
 // 0x101fa8d4 (212): extra parameter 2 is the fade: above 0 the item brightens by 0x20 a frame (grey levels, past 0xff it ends at white
 // and the parameter is 0), below 0 it steps down by 0x20 (to 0 once it is below -0xdf) and the item takes its own colour.
+// TPW_PORT_FIX framerate itemOnFrame | Mac: a main menu item's fade steps by 0x20 once a frame | Port: once each step's time (PortFrameSteps, a pace each item) | Why: the menu items brighten and dim at one pace at any frame rate
+namespace {
+PortFramePace& ItemFadePace(InterfaceWindow* window) {
+    static std::unordered_map<InterfaceWindow*, PortFramePace> paces;
+    return paces[window];
+}
+void ItemFadeStep(InterfaceWindow* window);
+}  // namespace
+
 void itemOnFrame(InterfaceWindow* window) {
+    if (static_cast<int32_t>(reinterpret_cast<intptr_t>(window->getExtraParam(2))) == 0) return;
+    const int32_t steps = PortFrameSteps(ItemFadePace(window));
+    for (int32_t step = 0; step < steps; ++step) ItemFadeStep(window);
+}
+
+namespace {
+void ItemFadeStep(InterfaceWindow* window) {
     int32_t fade = static_cast<int32_t>(reinterpret_cast<intptr_t>(window->getExtraParam(2)));
     if (fade == 0) return;
     if (fade > 0) {
@@ -59,6 +77,7 @@ void itemOnFrame(InterfaceWindow* window) {
         window->setExtraParam(2, reinterpret_cast<void*>(static_cast<intptr_t>(next)));
     }
 }
+}  // namespace
 
 // 0x101fa9dc (248): the main menu item handler: message 0x1e (a frame) runs the fade, 0x11 sets the item colour, 0x10001 and 0x10002
 // start the fade up (1) and down (-1); then the default item handler answers.

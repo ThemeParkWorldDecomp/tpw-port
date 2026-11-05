@@ -1355,7 +1355,7 @@ void EndPresent(const fit::PixelBox& box, int windowWide, int windowHigh) {
                           blit.dstOffsets[1].y - blit.dstOffsets[0].y == blit.srcOffsets[1].y;
     const bool blits = blit.dstOffsets[1].x > blit.dstOffsets[0].x && blit.dstOffsets[1].y > blit.dstOffsets[0].y;
     // Each presentation of a FIFO swapchain waits for one refresh of the screen: the swap interval is that many
-    // presentations of the same picture (platform/window.cpp's pacing to 60 frames a second).
+    // presentations of the same picture (platform/window.cpp asks for 1: a picture each refresh).
     for (int round = 0; round < r.swapInterval; ++round) {
         uint32_t index = 0;
         VkResult result = r.api.vkAcquireNextImageKHR(r.device, r.swapchain, 1000000000ull, r.acquired, VK_NULL_HANDLE, &index);
