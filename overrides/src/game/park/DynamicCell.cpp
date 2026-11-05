@@ -7,6 +7,7 @@
 #include "Game.h"
 #include "GameSys.h"
 #include "LbFile.h"
+// TPW_PORT_FIX framerate DC_TickDynamicCellMeshes | Mac: once a frame the scroll lags move half way to ten times the map origin, and while the clock runs the water and flag phases move on by 0.4 (and a phase by 0.1) times the game speed and the cursor blink counts a frame (on for 7, off for 2) | Port: the lags move as far as that many halvings would and the phases that amount times the steps' times (kPortFrameStepTime) since the last frame (PortFrameScale), and the blink counts once each step's time (PortFrameSteps) | Why: the water, the flags and the cursor squares kept one pace at any frame rate
 #include "LbTime.h"
 #include "LLCellSystem.h"
 #include "m3d2.h"
@@ -216,20 +217,22 @@ sDynamicFlagSpot gDynamicFlagSpots[8] = {      // 0x102a0320 (mF00 is 0xffffffff
     {-1, 511.25f, 22.0f, 38.75f}, {-1, 511.25f, 22.0f, 50.75f}, {-1, 551.25f, 22.0f, 38.75f}, {-1, 551.25f, 22.0f, 50.75f},
 };
 
-// TPW_PORT_FIX framerate DC_TickDynamicCellMeshes | Mac: once a frame the scroll lags move half way to ten times the map origin, and while the clock runs the water and flag phases move on by 0.4 (and a phase by 0.1) times the game speed and the cursor blink counts a frame (on for 7, off for 2) | Port: the lags move as far as that many halvings would and the phases that amount times the steps' times (kPortFrameStepTime) since the last frame (PortFrameScale), and the blink counts once each step's time (PortFrameSteps) | Why: the water, the flags and the cursor squares kept one pace at any frame rate
 namespace {
 PortFramePace gDynamicCellLagPace;     // the scroll lags'
 PortFramePace gDynamicCellPhasePace;   // the phases', while the clock runs
 PortFramePace gDynamicCellBlinkPace;   // the cursor blink's, while the clock runs
 }  // namespace
 
-// 0x100dfd88 (1,012 bytes). The listing reads every input before it stores anything.
+// 0x100dfd88 (1,012 bytes). The listing reads every input before it stores anything, and re-reads the two scroll lags after the rotate call:
+// the old lags feed the fused subtractions, the lags as the call left them get the fused additions.
 void DC_TickDynamicCellMeshes() {
     // The map origin (two ints, z then x) as floats, and the old lags (x first): the lag moves toward ten times the origin.
     const float originZ = static_cast<float>(gLLCCDB50);
     const float originX = static_cast<float>(gLLCCDB54);
     const float oldLagX = gDynamicCellF9BC4;
     const float oldLagZ = gDynamicCellF9BC0;
+    const float lagX = ppc_fmsubs(10.0f, originX, oldLagX);
+    const float lagZ = ppc_fmsubs(10.0f, originZ, oldLagZ);
 
     // The texture coordinate rows (u, v; the third float of a row is never written): the unit square's corners, the centre, and four
     // corners of a 0.8 square that the camera angle turns.
@@ -266,8 +269,8 @@ void DC_TickDynamicCellMeshes() {
     uv[0x70 / 4] = 0.5f;
     {   // the rest of the way to ten times the origin, halved once for each step's time that went by
         const float keep = std::pow(0.5f, PortFrameScale(gDynamicCellLagPace));
-        gDynamicCellF9BC4 = 10.0f * originX - (10.0f * originX - oldLagX) * keep;
-        gDynamicCellF9BC0 = 10.0f * originZ - (10.0f * originZ - oldLagZ) * keep;
+        gDynamicCellF9BC4 = ppc_fmadds(lagX, 1.0f - keep, gDynamicCellF9BC4);
+        gDynamicCellF9BC0 = ppc_fmadds(lagZ, 1.0f - keep, gDynamicCellF9BC0);
     }
 
     // The water: its phase is animated, then two grids of faces are drawn from the water's start position (read again for each call).

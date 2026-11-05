@@ -1,5 +1,6 @@
 // LBLobbyView.cpp: guessed name (the binary has no __sinit for this file): a contiguous range of LBLobbyView code, named after it.
 
+// TPW_PORT_FIX framerate UpdateSky/UpdatedFade | Mac: once a frame the sky's colour moves a sixteenth of the way to the island's, and the white fade an eighth of the way to its target | Port: each moves once each step's time (PortFrameSteps) | Why: the sky's change and the fade into an island kept one pace at any frame rate
 #include "LbTime.h"
 #include "Light.h"
 #include "lobby.h"
@@ -162,7 +163,6 @@ void CLBLobbyView::SetFogSettings(uint32_t color, float nearDistance, float farD
     gei_Display.mFogNear = nearDistance;
     gei_Display.mFogFar = farDistance;
 }
-// TPW_PORT_FIX framerate UpdateSky/UpdatedFade | Mac: once a frame the sky's colour moves a sixteenth of the way to the island's, and the white fade an eighth of the way to its target | Port: each moves once each step's time (PortFrameSteps) | Why: the sky's change and the fade into an island kept one pace at any frame rate
 namespace {
 PortFramePace gLobbySkyPace;    // UpdateSky's
 PortFramePace gLobbyFadePace;   // UpdatedFade's

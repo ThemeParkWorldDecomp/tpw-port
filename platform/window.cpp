@@ -283,7 +283,7 @@ bool CursorPlacement(CursorPlace& place) {
 
 static bool gHoldFrameLimit = false;   // HoldToFrameLimit holds the frames to gfx::gFrameLimit (WaitForEveryRefresh)
 
-// The swap waits for every refresh of the monitor (vsync), as the original's did, so the game draws at the monitor's
+// The swap waits for every refresh of the monitor (vsync), so the game draws at the monitor's
 // rate and no faster: the steps the original took once a frame take their pace from the clock (LbTime.h
 // kPortFrameStepTime), so the frame rate does not change how fast anything moves. With the launcher's Frame rate limit
 // (gfx::gFrameLimit) HoldToFrameLimit holds the frames to it as well. Logged again whenever the window is on a monitor

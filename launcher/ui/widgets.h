@@ -1,6 +1,6 @@
 // widgets.h: the launcher screen's widgets, immediate mode: each frame the screen code calls them in drawing order and
 // they draw themselves and report clicks. About ten kinds: panel, button, tile, progress bar, log list, toggle,
-// segmented switch, slider, drop-down and the drop field, plus badges, a notice and what scrolling needs (an offset the wheel moves, a
+// segmented switch, slider, drop-down, a one-line text field and the drop field, plus badges, a notice and what scrolling needs (an offset the wheel moves, a
 // clip and a bar). Hover and press move through damped springs, which gives buttons and tiles their bouncy hover.
 // Everything is in points (draw.h).
 #pragma once
@@ -15,13 +15,16 @@
 
 namespace tpw::ui {
 
-// The pointer, as the screen code collected it from SDL events since the last frame.
+// The pointer and the keyboard, as the screen code collected them from SDL events since the last frame.
 struct Input {
     float mouseX = -1e6f, mouseY = -1e6f;
     bool down = false;      // the left button is held
     bool pressed = false;   // it went down since the last frame
     bool released = false;  // it went up since the last frame
     float wheel = 0;        // lines scrolled since the last frame (positive: towards the top)
+    std::string typed;      // text typed (or pasted) since the last frame, UTF-8, for a text field being edited
+    int erased = 0;         // Backspace presses since the last frame
+    bool entered = false;   // Return was pressed since the last frame
 };
 
 enum class ButtonKind {
@@ -43,6 +46,7 @@ struct TileView {
     Badge badge = Badge::None;
     float fraction = 0;     // files confirmed, for the partial badge and bar
     bool highlight = false; // a drag is over the tile
+    float footer = 0;       // room kept free at the bottom for the screen's own button (Customized settings)
 };
 
 struct LogEntry {
@@ -100,6 +104,12 @@ public:
     // outside it, or the wheel moved. `rows`, when given, gets where each row was drawn.
     bool DropList(const std::string& id, const Rect& field, const Rect& bounds, const std::vector<std::string>& options,
                   int& selected, bool& close, std::vector<Rect>* rows = nullptr);
+    // A one-line text field. A click in it starts editing (`editing` set), a press outside it or Return ends it. While
+    // editing, what is typed is added as far as it is printable ASCII (the launcher's fonts draw it; other characters
+    // are dropped), up to `maxLength` characters, and Backspace takes the last one off. `hint` shows greyed while it is
+    // empty. Returns true when `value` changed.
+    bool TextField(const std::string& id, const Rect& r, std::string& value, size_t maxLength, std::string_view hint,
+                   bool& editing, bool enabled = true);
     // The big dashed field the player drops discs on, its icon's top at `iconTop`; `dropHover` while a drag is over it.
     void DropField(const std::string& id, const Rect& r, bool dropHover, float iconTop, bool icon = true);
     void DrawBadge(Badge badge, float cx, float cy, float radius, float fraction);

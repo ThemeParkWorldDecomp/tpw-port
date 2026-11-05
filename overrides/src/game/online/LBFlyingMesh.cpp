@@ -20,6 +20,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+// TPW_PORT_FIX framerate CLBFlyingMeshGroup::Tick | Mac: a group short of its number makes a few more once a frame | Port: once each step's time (PortFrameSteps, a pace each group) | Why: the flying meshes arrive at one pace at any frame rate
 #include <unordered_map>
 
 // The lobby's flying meshes (main app of SimTheme Park 2.04b3, 0x100aa5d4..0x100aba0c; the
@@ -186,10 +187,9 @@ CLBFlyingMeshGroup::~CLBFlyingMeshGroup() {
 // Makes instances until the maximum is reached: after each one, the lobby's generator is stepped (in place, the
 // same step as GetRand) and the making goes on unless the draw's low three bits are 1 (about one time in eight),
 // so a few come each tick. A new instance is shown at once when the group is shown. Then every instance ticks.
-// TPW_PORT_FIX framerate CLBFlyingMeshGroup::Tick | Mac: a group short of its number makes a few more once a frame | Port: once each step's time (PortFrameSteps, a pace each group) | Why: the flying meshes arrive at one pace at any frame rate
 namespace {
 PortFramePace& GroupPace(const CLBFlyingMeshGroup* group) {
-    static std::unordered_map<const CLBFlyingMeshGroup*, PortFramePace> paces;
+    static PortFramePaces<const CLBFlyingMeshGroup*> paces;
     return paces[group];
 }
 }  // namespace

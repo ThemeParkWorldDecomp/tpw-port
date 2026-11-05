@@ -2,6 +2,7 @@
 
 #define TPW_GLOBE_INIT_REAL 1
 #define TPW_GLOBE_SHOWHIDE_REAL 1
+#define TPW_GLOBE_CITYVALID_REAL 1
 #include "AdvisorScoring.h"
 #include "Bitmap.h"
 #include "BMP_InsideArea.h"
@@ -16,6 +17,7 @@
 #include "InterfaceWindow.h"
 #include "intrface.h"
 #include "keytable_actions.h"
+// TPW_PORT_FIX framerate CLBScreenComponentOnlineGlobe::Tick | Mac: once a frame the edge of the screen or the right button pushes the globe's spin, which is then damped (times 0.5, or 0.25 zoomed in) | Port: the spin settles toward where that push and damping take it as far as the steps' times since the last frame take it (PortFrameScale: the rest is kept the damping to that power) | Why: the globe spins at one speed at any frame rate, should the online world come back
 #include "LbTime.h"
 #include "Light.h"
 #include "lobby.h"
@@ -60,8 +62,10 @@ CLBGlobe::~CLBGlobe() { mScreen->UnRegisterGlobe(this); }
 
 // CLBGlobeCityFlag (lobby_globe.cpp): a city's flag on the online globe. 0x100ac5c8 constructor, 0x100ac86c destructor.
 
-// 0x1023e91e: the wide string the city's name is compared with (its text is not known here; the Mac's starts "No").
-char16_t gGlobeNoCityName[16] = u"No";
+// 0x1023e91e: the wide string the city's name is compared with: a city named "North Pole" (any case) gets the Bullfrog flag
+// in place of the pin. The file's next wide string, "upload", follows it in the Mac's data (0x1023e934, 11 characters on),
+// and __sinit_lobby_globe_cpp builds a global string from it.
+char16_t gGlobeNoCityName[] = u"North Pole\0upload";
 
 CLBGlobeCityFlag::CLBGlobeCityFlag(const CLBScreenComponentOnlineGlobe* globe, const CFSOnlineCity* city) {
     mCity = city;
@@ -90,7 +94,8 @@ CLBGlobeCityFlag::CLBGlobeCityFlag(const CLBScreenComponentOnlineGlobe* globe, c
 
     float v = static_cast<float>(mCity->mValue);
     float t = ppc_fmadds(0.0005f, v, 0.02f);
-    float lo = 0.02f;
+    // TPW_PORT_FIX globeflag CLBGlobeCityFlag::CLBGlobeCityFlag | Mac: the flag's height is 0.0005 * the city's parks + 0.02, held between 0.02 and 0.1, so a city with a few parks (or none, on the publish globe) keeps its pin or the North Pole's flag inside the globe's surface | Port: the height starts at 0.05 (the 60-park size) and still grows to 0.1 at 160 parks | Why: the original sized flags for EA's server, which had hundreds of parks a city; on today's small community servers every city looked empty
+    float lo = 0.05f;
     float k;
     if (t >= lo) {
         k = 0.1f;
@@ -102,12 +107,20 @@ CLBGlobeCityFlag::CLBGlobeCityFlag(const CLBScreenComponentOnlineGlobe* globe, c
     mMesh->Scale(s, s, k);
 
     mGlobe = globe;
-    reinterpret_cast<CLBGlobeFlagOwner*>(const_cast<CLBScreenComponentOnlineGlobe*>(mGlobe))->AddFlag(this);
+    GlobeRegisterFlag(mGlobe, this);
 }
 
 // Complete-object destructor; the Mac's delete flag and the NULL check belong to the caller here.
 CLBGlobeCityFlag::~CLBGlobeCityFlag() {
-    reinterpret_cast<CLBGlobeFlagOwner*>(const_cast<CLBScreenComponentOnlineGlobe*>(mGlobe))->RemoveFlag(this);
+    GlobeUnRegisterFlag(mGlobe, this);
+}
+
+void GlobeRegisterFlag(const CLBScreenComponentOnlineGlobe* globe, CLBGlobeCityFlag* flag) {
+    const_cast<CLBScreenComponentOnlineGlobe*>(globe)->Register(flag);
+}
+
+void GlobeUnRegisterFlag(const CLBScreenComponentOnlineGlobe* globe, CLBGlobeCityFlag* flag) {
+    const_cast<CLBScreenComponentOnlineGlobe*>(globe)->UnRegister(flag);
 }
 
 // The lobby's online globe screens (main app of SimTheme Park 2.04b3): the base class's constructor (0x100ac90c) and the
@@ -205,7 +218,6 @@ struct Word {
 
 }  // namespace
 
-// TPW_PORT_FIX framerate CLBScreenComponentOnlineGlobe::Tick | Mac: once a frame the edge of the screen or the right button pushes the globe's spin, which is then damped (times 0.5, or 0.25 zoomed in) | Port: the spin settles toward where that push and damping take it as far as the steps' times since the last frame take it (PortFrameScale: the rest is kept the damping to that power) | Why: the globe spins at one speed at any frame rate, should the online world come back
 namespace {
 PortFramePace gGlobeSpinPace;
 }  // namespace
@@ -315,9 +327,10 @@ void CLBScreenComponentOnlineGlobe::Tick() {
         }
         const float damping = mDamping;
         const float keep = std::pow(damping, PortFrameScale(gGlobeSpinPace));
-        const float settle = damping < 1.0f ? damping / (1.0f - damping) : 0.0f;
-        mSpinXSpeed = pushX * settle + (mSpinXSpeed - pushX * settle) * keep;
-        mSpinYSpeed = pushY * settle + (mSpinYSpeed - pushY * settle) * keep;
+        // (speed + push * share) * keep is that settling; at one step share is exactly 1, the Mac's (speed + push) * d
+        const float share = damping > 0.0f && damping < 1.0f ? (damping * (1.0f - keep)) / ((1.0f - damping) * keep) : 0.0f;
+        mSpinXSpeed = (mSpinXSpeed + pushX * share) * keep;
+        mSpinYSpeed = (mSpinYSpeed + pushY * share) * keep;
     }
     mSpinX = ppc_fmadds(mSpinXSpeed, lobby->mTickUnits, mSpinX);
     mSpinY = ppc_fmadds(mSpinYSpeed, lobby->mTickUnits, mSpinY);
@@ -682,6 +695,7 @@ void CLBScreenComponentDownloadGlobe::HandleOnlineBacktrack() {
 
 // 0x100aea58
 int32_t CLBScreenComponentDownloadGlobe::IsCityValid(const CFSOnlineCity* city) { return city->mValue > 0 ? 1 : 0; }
+int32_t CLBScreenComponentDownloadGlobe::IsCityWanted(CFSOnlineCity* city) { return IsCityValid(city); }   // the same slot 0x48
 
 void CLBScreenComponentPublishGlobe::Init() { mF70 = 0; }
 
@@ -774,6 +788,7 @@ int32_t CLBScreenComponentPublishGlobe::IsCityValid(const CFSOnlineCity* city) {
     if (city->mF60 != 0) return 0;
     return city->mValue < city->mF64 ? 1 : 0;
 }
+int32_t CLBScreenComponentPublishGlobe::IsCityWanted(CFSOnlineCity* city) { return IsCityValid(city); }   // the same slot 0x48
 
 // 0x100af1c8: the base destructor's text is inlined (both lists emptied, destroyed and cleared); CLBScreenComponent's destructor
 // follows (the compiler's, after this body).

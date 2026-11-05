@@ -235,7 +235,7 @@ void Ui::Tile(const std::string& id, const Rect& r, const TileView& v) {
     y += text_.DrawWrapped(style::kSmall, tx, y, tw, v.detail, colour::kInkSoft);
 
     // The bar repeats the badge's ring, so it gives way when the words need its room.
-    Rect bar{x, inner.Bottom() - pad - 8, w, 8};
+    Rect bar{x, inner.Bottom() - pad - 8 - v.footer, w, 8};
     if (v.badge == Badge::Partial && y + 4 <= bar.y) {
         canvas_.FillRound(bar, 4, colour::kYellowSoft);
         if (v.fraction > 0)
@@ -313,6 +313,46 @@ bool Ui::Toggle(const std::string& id, const Rect& r, bool& on, bool enabled) {
     canvas_.FillCircle(cx, r.CentreY(), knobR + 2.5f, line);
     canvas_.FillCircle(cx, r.CentreY(), knobR, colour::kPaper);
     return flipped;
+}
+
+bool Ui::TextField(const std::string& id, const Rect& r, std::string& value, size_t maxLength, std::string_view hint,
+                   bool& editing, bool enabled) {
+    const bool hot = interactive_ && enabled && Hovered(r);
+    if (input_.pressed) editing = hot;
+    if (!enabled) editing = false;
+    bool changed = false;
+    if (editing) {
+        for (int i = 0; i < input_.erased && !value.empty(); ++i) {
+            value.pop_back();
+            changed = true;
+        }
+        for (char c : input_.typed)
+            if (c >= 0x20 && c <= 0x7e && value.size() < maxLength) {
+                value += c;
+                changed = true;
+            }
+        if (input_.entered) editing = false;
+    }
+    const float focus = Spring(id + "#focus", editing ? 1.0f : 0.0f);
+    canvas_.Outlined(r, 10, 2.5f + focus, colour::kPaper, enabled ? Mix(colour::kInk, colour::kLimeDeep, Clamp01(focus))
+                                                                     : colour::kInkSoft);
+    const Style s = style::kSmall;
+    const float x = r.x + 12, ty = r.y + (r.h - text_.LineHeight(s)) * 0.5f, room = r.w - 24 - 4;
+    std::string shown;
+    if (value.empty()) {
+        if (!hint.empty()) text_.Draw(s, x, ty, text_.Fit(s, hint, room, false), Mix(colour::kInkSoft, colour::kPaper, 0.4f));
+    } else {
+        shown = text_.Fit(s, value, room, true);   // the end, where the typing is
+        text_.Draw(s, x, ty, shown, enabled ? colour::kInk : colour::kInkSoft);
+    }
+    if (editing) {
+        animating_ = true;   // the caret blinks
+        if (std::fmod(time_, 1.0) < 0.6) {
+            const float cx = x + (shown.empty() ? 0.0f : text_.Width(s, shown)) + 1;
+            canvas_.FillRound({cx, ty + 2, 2, text_.LineHeight(s) - 4}, 1, colour::kInk);
+        }
+    }
+    return changed;
 }
 
 bool Ui::Segmented(const std::string& id, const Rect& r, const std::vector<std::string>& options,

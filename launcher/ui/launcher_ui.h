@@ -1,6 +1,7 @@
 // launcher_ui.h: the launcher's screens (launcher-design REPORT section 5): the drop field with its Browse buttons and
 // the three edition tiles (once all three editions are confirmed, two large tiles to play from instead); the checking log with its counter and progress bar; the result; Play with the edition
-// switch and the Gold toggles; and the Settings and About boxes. Driven by SDL3 events: mouse, wheel, Escape and the
+// switch and the Gold toggles; the Settings and About boxes; and the Customized settings box of an edition whose .sam
+// settings files the player edited (its badge on the edition's tile). Driven by SDL3 events: mouse, wheel, Escape and the
 // drop events (DROP_BEGIN, DROP_POSITION, DROP_FILE, DROP_COMPLETE; DROP_TEXT is ignored). The window loop is
 // window.h's; the screenshot test drives this class on a software renderer with a scripted backend.
 #pragma once
@@ -53,7 +54,8 @@ inline constexpr bool kRendererRow = false;
 // (the maintainer, 2026-10-25: players who have the Gold data must be able to play without it).
 inline constexpr const char* kGoldUsKey = "gold_us";
 inline constexpr const char* kGoldEurKey = "gold_eur";
-inline const char* GoldKey(assets::Edition edition) { return edition == assets::kEditionUs ? kGoldUsKey : kGoldEurKey; }
+// A Windows edition shares its game's key (IsUsGame).
+inline const char* GoldKey(assets::Edition edition) { return assets::IsUsGame(edition) ? kGoldUsKey : kGoldEurKey; }
 // launcher.ini's keys for the Settings box's "Language", one an edition (a player may want American on the US edition and
 // Danish on the European one): the language of the game's text and the advisor's voice, as the original spells it
 // (FS_Registry.cpp's names: "French", "TraditionalChinese"). Absent: the edition's own, English for the European edition
@@ -62,10 +64,10 @@ inline const char* GoldKey(assets::Edition edition) { return edition == assets::
 inline constexpr const char* kLanguageUsKey = "language_us";
 inline constexpr const char* kLanguageEurKey = "language_eur";
 inline const char* LanguageKey(assets::Edition edition) {
-    return edition == assets::kEditionUs ? kLanguageUsKey : kLanguageEurKey;
+    return assets::IsUsGame(edition) ? kLanguageUsKey : kLanguageEurKey;
 }
 // The edition's own language, as the original spells it: "American" for the US edition, "English" for the European one.
-inline const char* OwnLanguage(assets::Edition edition) { return edition == assets::kEditionUs ? "American" : "English"; }
+inline const char* OwnLanguage(assets::Edition edition) { return assets::IsUsGame(edition) ? "American" : "English"; }
 
 // A choice of the Settings box's Language rows: the language as the original spells it and as the list shows it.
 struct LanguageChoice {
@@ -84,6 +86,16 @@ int LanguageChoiceIndex(const std::vector<LanguageChoice>& choices, const std::s
 // launcher.ini's key for the Settings box's "Stereo panning" ("1": a sound placed in the park plays louder in the speaker on
 // its side of the camera; absent or "0": every sound plays centred, as the original did). From tpw-port PR #19 by samueleagle91.
 inline constexpr const char* kSoundPanKey = "sound_panning";
+// launcher.ini's key for the Settings box's "Several keys at once" ("1": a key that goes down keeps the keys already down,
+// as on the PC, so two arrow keys walk and turn at once in first person; absent or "0": one key at a time, as the original
+// did, tpw::gPortSeveralKeys). Reported by Addable13.
+inline constexpr const char* kSeveralKeysKey = "several_keys";
+// launcher.ini's key for the Settings box's "Online server" ("HOST": the online screens connect to the online server at HOST,
+// which speaks the original protocol, include/platform/online_boss.h; absent or empty: the automatic one, updater.h
+// ChooseOnlineServer).
+inline constexpr const char* kOnlineServerKey = "online_server";
+// The longest host the Online server field takes (a DNS name's limit).
+inline constexpr size_t kOnlineServerMax = 253;
 // launcher.ini's key for the Settings box's "Frame rate limit": absent or "0", Monitor (a frame each refresh of the
 // monitor, as the original drew with no limit of its own); else the most frames a second the game draws,
 // kFrameRateLowest or more (gfx::gFrameLimit). The row's slider goes from kFrameRateLowest up to the refresh rate of the
@@ -124,6 +136,20 @@ using ShowLogsFn = bool (*)(const std::string& logsFolder);
 // folder (launcher/main.cpp supplies it).
 using ExportLogsFn = LogsExport (*)(const std::string& logsFolder);
 
+// A mod of the launcher's build (platform/mods.h's catalog, which launcher/main.cpp gives the window), as the Mods box
+// shows it. Its switch is launcher.ini's ModKey(id): "1" on, absent or "0" off (the original game).
+struct ModRow {
+    std::string id;
+    std::string name;
+    std::string version;
+    std::string author;
+    std::string text;              // what it does, for the player
+    bool editions[3] = {};         // the editions it supports: 0 US, 1 European, 2 Gold (the Gold bonus rides)
+    bool changesSaves = false;     // a game saved with it on differs from the original's
+    std::vector<std::string> conflicts;   // the ids of mods it cannot be on with
+};
+inline std::string ModKey(const std::string& id) { return "mod." + id; }
+
 // What the player chose to start.
 class Updater;   // updater.h
 
@@ -159,6 +185,9 @@ public:
     void SetShowLogs(ShowLogsFn showLogs) { showLogs_ = showLogs; }
     // What the About box's Export logs button calls (with a logs folder). Null: no such button.
     void SetExportLogs(ExportLogsFn exportLogs) { exportLogs_ = exportLogs; }
+    // The mods of the build (a build with the port's fixes, launcher/main.cpp): the header gets a Mods button, which
+    // opens the Mods box and, while any mod is on, says how many ("1 mod on"). Never called (a build without the fixes): no button.
+    void SetMods(const std::vector<ModRow>& mods);
     // The update check (updater.h), owned by the window: its banner on the homes, the Settings box's "Check for
     // updates". Null: none of these.
     void SetUpdater(Updater* updater);
@@ -191,6 +220,20 @@ public:
     // The About box's "Made with" rows (versions.h).
     std::vector<MadeWith> AboutRows() const { return MadeWithRows(text_); }
     void ShowSettings(bool open);
+    // Opens the Customized settings box of an edition (0 US, 1 European, 2 Gold; -1 closes it), as its badge does.
+    void ShowEdited(int index);
+    // The edition whose Customized settings box is open (0 US, 1 European, 2 Gold), -1 none.
+    int EditedOpen() const { return editedOpen_; }
+    // The Customized settings badge of an edition's tile (0 US, 1 European, 2 Gold) in the last frame, in points (empty
+    // when not shown: the edition has no edited .sam file, or no tile is shown).
+    Rect EditedBadgeRect(int index) const { return editedBadge_[index]; }
+    // The Restore original button of a row of the open Customized settings box in the last frame, in points (empty when
+    // the box is closed or has no such row).
+    Rect RestoreRect(int row) const {
+        return editedOpen_ >= 0 && row >= 0 && row < static_cast<int>(restoreRects_.size())
+                   ? restoreRects_[static_cast<size_t>(row)] : Rect{};
+    }
+    void ShowMods(bool open);
     void ArmRemove(assets::Edition edition);
     void ShowNotice(const std::string& message, bool problem);
     // Play's edition switch and Gold Edition toggle, as if clicked (the toggle's state is kept in launcher.ini, GoldKey).
@@ -232,6 +275,13 @@ public:
     Rect UpdateBannerRect() const { return updateBannerRect_; }
     // The Settings box's Stereo panning switch where the last frame drew it, in points (empty when the box is closed).
     Rect SoundPanRect() const { return settingsOpen_ ? soundPanRect_ : Rect{}; }
+    // The Settings box's Several keys at once switch where the last frame drew it, in points (empty when the box is closed).
+    Rect SeveralKeysRect() const { return settingsOpen_ ? severalKeysRect_ : Rect{}; }
+    // The Settings box's "Online server" field where the last frame drew it, in points (empty when the box is closed),
+    // whether it is being edited, and the greyed automatic server it shows while empty.
+    Rect OnlineServerRect() const { return settingsOpen_ ? onlineServerRect_ : Rect{}; }
+    bool OnlineServerEditing() const { return onlineServerEditing_; }
+    const std::string& OnlineServerHint() const { return onlineServerHint_; }
     // The Settings box's Renderer switch where the last frame drew it, in points (empty when the box is closed or has no
     // such row, kRendererRow), and the choice it shows: 0 OpenGL, 1 Vulkan.
     Rect RendererRect() const { return settingsOpen_ ? rendererRect_ : Rect{}; }
@@ -259,6 +309,20 @@ public:
     Rect TitleRect() const { return titleRect_; }
     Rect TitleVersionRect() const { return titleVersionRect_; }
     Rect HeaderButtonsRect() const { return headerButtonsRect_; }
+    // The header's Mods button in the last frame, and the same while it says "N mods on" (a mod is on), in points
+    // (empty when not shown).
+    Rect ModsButtonRect() const { return modsButtonRect_; }
+    Rect ModsOnRect() const { return modsOnRect_; }
+    // The Mods box and the switch of the mod of row `index` where the last frame drew them (scrolled with the box), in
+    // points (empty when the box is closed), and whether the box scrolled.
+    Rect ModsBoxRect() const { return modsOpen_ ? modsBoxRect_ : Rect{}; }
+    Rect ModSwitchRect(size_t index) const {
+        return modsOpen_ && index < modSwitchRects_.size() ? modSwitchRects_[index] : Rect{};
+    }
+    bool ModsScrolls() const { return modsOpen_ && modsScrolls_; }
+    // How many mods are on (launcher.ini's mod.<id> keys), and whether the switch of row `index` is.
+    int ModsOn() const;
+    bool ModOn(size_t index) const { return index < modOn_.size() && modOn_[index]; }
 
 private:
     struct DialogInbox;
@@ -278,6 +342,10 @@ private:
     // Flips an edition's Gold Edition switch (0 US, 1 European) and keeps it in launcher.ini (GoldKey).
     void SetGold(int index, bool on);
     TileView TileFor(int index) const;
+    // The small tiles' height: taller while one of them shows the Customized settings badge, which sits at its bottom.
+    float TileHeight() const;
+    // The Customized settings badge of an edition (status_ index) in `r`, when it has edited .sam files; opens its box.
+    void EditedBadge(int index, const Rect& r);
     // Reads the data folder's languages again (ImportBackend::Languages() reads the folder; not every frame): at the
     // start, after an import, a check or a remove, and when Settings opens.
     void RefreshLanguages();
@@ -294,6 +362,11 @@ private:
     void DrawPlay(const Rect& window);
     void DrawSettings(const Rect& window);
     void DrawAbout(const Rect& window);
+    void DrawEdited(const Rect& window);
+    void DrawMods(const Rect& window);
+    // Whether row `index`'s switch can be turned on: the mod supports an edition of the data folder and no mod it
+    // conflicts with is on. Empty `why` when it can, else what the box says.
+    bool ModAllowed(size_t index, std::string& why) const;
     void DrawStarting(const Rect& window);
 
     Canvas canvas_;
@@ -304,7 +377,11 @@ private:
 
     Input input_;              // gathered from events since the last frame
     Screen screen_ = Screen::Home;
-    bool aboutOpen_ = false, settingsOpen_ = false;
+    bool aboutOpen_ = false, settingsOpen_ = false, modsOpen_ = false;
+    int editedOpen_ = -1;      // the edition whose Customized settings box is open (status_ index), -1 none
+    std::vector<assets::EditedFile> editedFiles_;   // its edited .sam files, read when it opens and after a restore
+    Rect editedBadge_[3];      // last frame's (EditedBadgeRect)
+    std::vector<Rect> restoreRects_;   // last frame's (RestoreRect)
     bool skipIntro_ = false;   // the Settings box's "Skip the intro films", as launcher.ini keeps it
     bool backToLauncher_ = false;   // the Settings box's "Back to the launcher after playing", as launcher.ini keeps it
     bool pcSoundPicks_ = true;      // the Settings box's "Varied sounds", as launcher.ini keeps it (on when absent)
@@ -312,7 +389,11 @@ private:
     bool rendererRow_ = kRendererRow;   // whether the Settings box has the Renderer row
     int renderer_ = 0;              // the Settings box's "Renderer": 0 OpenGL (also when absent), 1 Vulkan
     bool soundPan_ = false;         // the Settings box's "Stereo panning", as launcher.ini keeps it
+    std::string onlineServer_;      // the Settings box's "Online server", as launcher.ini keeps it (empty: automatic)
+    bool onlineServerEditing_ = false;   // the field has the keyboard (text input is on while it does)
+    std::string onlineServerHint_;  // last frame's greyed automatic server
     bool smoothZoom_ = false;       // the Settings box's "Smooth wheel zoom", as launcher.ini keeps it
+    bool severalKeys_ = false;      // the Settings box's "Several keys at once", as launcher.ini keeps it
     int interfaceSize_ = 0;         // the Settings box's "Interface size": 0 100%, 1 85%, 2 70%
     std::vector<int> samChoices_;   // the Graphics section: for each of SamOptions(), 0 the detail level's own, else 1 + its choice
     int frameRate_ = 0;             // the Settings box's "Frame rate limit": 0 Monitor, else frames a second (FrameRateSetting)
@@ -347,7 +428,8 @@ private:
     ExportLogsFn exportLogs_ = nullptr;
     LogsExport exported_;      // the last Export logs that saved a copy (ok), shown in the About box until it closes
 
-    // The editions' states, refreshed every frame.
+    // The editions' states, refreshed every frame: all six (StatusIndex order), and what each tile shows (SlotStatus).
+    assets::EditionStatus all_[6];
     assets::EditionStatus status_[3];
 
     // The import: its log, counter, the queue of drops made while it runs, and the reports of this round.
@@ -355,7 +437,7 @@ private:
     assets::ImportProgress counter_;
     bool scanning_ = false;
     std::vector<std::vector<std::string>> queued_;
-    assets::EditionStatus before_[3];
+    assets::EditionStatus before_[6];   // all_ when the round started
     assets::ImportReport round_;
     bool roundStarted_ = false;
     ResultText result_;
@@ -382,9 +464,20 @@ private:
     std::vector<Rect> samRects_;   // last frame's (SamOptionRect), one for each of SamOptions()
     Rect frameRateRect_;       // last frame's (FrameRateRect)
     Rect soundPanRect_;        // last frame's (SoundPanRect)
+    Rect severalKeysRect_;     // last frame's (SeveralKeysRect)
+    Rect onlineServerRect_;    // last frame's (OnlineServerRect)
     Rect rendererRect_;        // last frame's (RendererRect)
     bool settingsScrolls_ = false;   // last frame's (SettingsScrolls)
     float settingsBodyCounted_ = 0, settingsBodyDrawn_ = 0;   // last frame's (SettingsBodyCounted, SettingsBodyDrawn)
+
+    // Mods (SetMods): the rows, their switches as launcher.ini keeps them, and the last frame's rects.
+    bool modsShown_ = false;
+    std::vector<ModRow> mods_;
+    std::vector<bool> modOn_;
+    std::string modsMessage_;
+    Rect modsButtonRect_, modsOnRect_, modsBoxRect_;
+    std::vector<Rect> modSwitchRects_;
+    bool modsScrolls_ = false;
 
     std::string notice_;
     bool noticeProblem_ = false;

@@ -6,6 +6,7 @@
 #include "InterfaceFont.h"
 #include "InterfaceScrollBar.h"
 #include "InterfaceWindow.h"
+// TPW_PORT_FIX framerate UI_DefaultWindowCallback | Mac: every frame (message 0x1e) a window's animation looks whether more than its step's milliseconds went by since its last step (doAnimFrame), so a step comes on the first frame after them: a step of 35 ms took 67 ms at 30 frames a second and 36 at 165 | Port: the window looks once each step's time (PortFrameSteps, a pace each window), as at one frame every 31 ms | Why: the windows' animations (the PAUSED sign's throb among them) keep one pace at any frame rate
 #include "LbTime.h"
 #include "lobby.h"
 #include "platform/arena.h"
@@ -1754,10 +1755,9 @@ void SlideStep(InterfaceWindow* window) {
 
 }  // namespace
 
-// TPW_PORT_FIX framerate UI_DefaultWindowCallback | Mac: every frame (message 0x1e) a window's animation looks whether more than its step's milliseconds went by since its last step (doAnimFrame), so a step comes on the first frame after them: a step of 35 ms took 67 ms at 30 frames a second and 36 at 165 | Port: the window looks once each step's time (PortFrameSteps, a pace each window), as at one frame every 31 ms | Why: the windows' animations (the PAUSED sign's throb among them) keep one pace at any frame rate
 namespace {
 PortFramePace& WindowAnimPace(InterfaceWindow* window) {
-    static std::unordered_map<InterfaceWindow*, PortFramePace> paces;
+    static PortFramePaces<InterfaceWindow*> paces;
     return paces[window];
 }
 }  // namespace

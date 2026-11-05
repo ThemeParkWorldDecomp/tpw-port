@@ -11,6 +11,7 @@
 #include "InterfaceFont.h"
 #include "InterfaceScrollBar.h"
 #include "InterfaceWindow.h"
+// TPW_PORT_FIX framerate AnimatingPumpMsg | Mac: a pump's counter moves on by twice its speed once a frame | Port: once each step's time (PortFrameSteps, a pace each pump window), and a frame without a step leaves the pump as it is | Why: the research pumps kept one pace at any frame rate
 #include "LbTime.h"
 #include "LLCellSystem.h"
 #include "MainWindowCallback.h"
@@ -362,10 +363,9 @@ int32_t AnimatingPumpMsg(InterfaceWindow* window, int32_t message, int32_t a, in
 static int32_t Word(void* p) { return static_cast<int32_t>(reinterpret_cast<intptr_t>(p)); }
 static void* Ptr(int32_t v) { return reinterpret_cast<void*>(static_cast<intptr_t>(v)); }
 
-// TPW_PORT_FIX framerate AnimatingPumpMsg | Mac: a pump's counter moves on by twice its speed once a frame | Port: once each step's time (PortFrameSteps, a pace each pump window), and a frame without a step leaves the pump as it is | Why: the research pumps kept one pace at any frame rate
 namespace {
 PortFramePace& PumpPace(InterfaceWindow* window) {
-    static std::unordered_map<InterfaceWindow*, PortFramePace> paces;
+    static PortFramePaces<InterfaceWindow*> paces;
     return paces[window];
 }
 }  // namespace

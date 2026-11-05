@@ -1,5 +1,6 @@
 // launcher_ui.cpp: the launcher's screens (launcher_ui.h).
 #include "launcher_ui.h"
+#include "net.h"
 #include "updater.h"
 #include "versions.h"
 
@@ -25,6 +26,8 @@ constexpr float kContentTop = 80;      // the screens start below the title
 constexpr Style kTitleVersionStyle = style::kBodyBold;
 constexpr float kTitleVersionGap = 10;
 constexpr float kTileHeight = 158;
+constexpr float kEditedBadgeH = 26;    // the Customized settings badge at a small tile's bottom (EditedBadge)
+constexpr const char* kEditedLabel = "Customized settings";
 constexpr size_t kLogLimit = 4000;     // rows kept in the checking log
 constexpr float kNoticeSeconds = 4.5f;
 constexpr float kStartupNoticeSeconds = 9.0f;   // the startup check's notice: the window may still be opening
@@ -126,6 +129,7 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     skipIntro_ = backend_.Setting(kSkipIntroKey) == "1";
     backToLauncher_ = backend_.Setting(kBackToLauncherKey) == "1";
     smoothZoom_ = backend_.Setting(kSmoothZoomKey) == "1";   // tpw-port PR #20 by samueleagle91
+    severalKeys_ = backend_.Setting(kSeveralKeysKey) == "1";
     for (const SamOption& option : SamOptions()) samChoices_.push_back(SamChoice(option, backend_.Setting(option.key)) + 1);
     samRects_.resize(SamOptions().size());
     frameRate_ = FrameRateSetting(backend_.Setting(kFrameRateKey));
@@ -134,6 +138,7 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     renderer_ = backend_.Setting(kRendererKey) == "vulkan" ? 1 : 0;   // OpenGL unless Vulkan was chosen
     checkUpdates_ = backend_.Setting(kCheckUpdatesKey) != "0";   // on by default (updater.h says why)
     soundPan_ = backend_.Setting(kSoundPanKey) == "1";   // tpw-port PR #19 by samueleagle91
+    onlineServer_ = backend_.Setting(kOnlineServerKey);
     {   // tpw-port PR #24 by samueleagle91
         const std::string size = backend_.Setting(kInterfaceSizeKey);
         interfaceSize_ = size == "85" ? 1 : size == "70" ? 2 : 0;
@@ -229,16 +234,34 @@ void LauncherUi::HandleEvent(const SDL_Event& e) {
         case SDL_EVENT_WINDOW_MOUSE_LEAVE:
             input_.mouseX = input_.mouseY = -1e6f;
             break;
+        case SDL_EVENT_TEXT_INPUT:
+            if (onlineServerEditing_ && e.text.text != nullptr) input_.typed += e.text.text;
+            break;
         case SDL_EVENT_WINDOW_DISPLAY_CHANGED:
         case SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED:
             frameRateTopStale_ = true;   // the Frame rate limit slider's top is read again (DrawSettings)
             break;
         case SDL_EVENT_KEY_DOWN:
+            if (onlineServerEditing_) {   // the Online server field has the keyboard
+                if (e.key.key == SDLK_BACKSPACE) {
+                    ++input_.erased;
+                } else if (e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER || e.key.key == SDLK_ESCAPE) {
+                    input_.entered = true;
+                } else if (e.key.key == SDLK_V && (e.key.mod & (SDL_KMOD_GUI | SDL_KMOD_CTRL)) != 0) {
+                    if (char* pasted = SDL_GetClipboardText()) {
+                        input_.typed += pasted;
+                        SDL_free(pasted);
+                    }
+                }
+                break;
+            }
             if (e.key.key == SDLK_ESCAPE) {
                 if (languageOpen_ >= 0) languageOpen_ = -1;
+                else if (editedOpen_ >= 0) editedOpen_ = -1;
                 else if (armedRemove_ >= 0) armedRemove_ = -1;
                 else if (aboutOpen_) aboutOpen_ = false;
                 else if (settingsOpen_) settingsOpen_ = false;
+                else if (modsOpen_) modsOpen_ = false;
                 else if (screen_ == Screen::Result || screen_ == Screen::Play) screen_ = Screen::Home;
             }
             break;
@@ -279,7 +302,8 @@ void LauncherUi::OfferPaths(const std::vector<std::string>& paths) {
         ShowNotice("Wait for the check of an edition to finish", true);
         return;
     }
-    aboutOpen_ = settingsOpen_ = false;
+    aboutOpen_ = settingsOpen_ = modsOpen_ = false;
+    editedOpen_ = -1;
     armedRemove_ = -1;
     if (backend_.Running()) {
         queued_.push_back(paths);
@@ -291,7 +315,7 @@ void LauncherUi::OfferPaths(const std::vector<std::string>& paths) {
 
 bool LauncherUi::StartImport(const std::vector<std::string>& paths) {
     if (!roundStarted_) {
-        for (int i = 0; i < 3; ++i) before_[i] = status_[i];
+        for (int i = 0; i < 6; ++i) before_[i] = all_[i];
         round_ = ImportReport();
         log_.clear();
     }
@@ -343,14 +367,17 @@ void LauncherUi::FinishImport(const ImportReport& report) {
     queued_.clear();
     RefreshStatus();
     RefreshLanguages();
-    for (int i = 0; i < 3; ++i) round_.status[i] = status_[i];
+    for (int i = 0; i < 6; ++i) round_.status[i] = all_[i];
     result_ = DescribeResult(round_, before_);
     roundStarted_ = false;
     screen_ = Screen::Result;
 }
 
 void LauncherUi::RefreshStatus() {
-    for (int i = 0; i < 3; ++i) status_[i] = backend_.Status(kEditions[i]);
+    for (Edition e : {assets::kEditionUs, assets::kEditionEur, assets::kEditionGold, assets::kEditionLanguages,
+                      assets::kEditionUsPc, assets::kEditionEurPc})
+        all_[StatusIndex(e)] = backend_.Status(e);
+    for (int i = 0; i < 3; ++i) status_[i] = SlotStatus(all_, i);
 }
 
 void LauncherUi::RefreshLanguages() {
@@ -378,7 +405,7 @@ void LauncherUi::PollVerify() {
     if (!verify_.valid()) return;
     if (verify_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
     VerifyResult r = verify_.get();
-    const char* title = EditionTitle(kEditions[verifyIndex_]);
+    const char* title = EditionTitle(status_[verifyIndex_].edition);
     if (r.removed < 0)
         settingsMessage_ = std::string("Checking the ") + title + " again failed: " + r.err;
     else if (r.removed == 0)
@@ -402,11 +429,21 @@ void LauncherUi::ShowAbout(bool open) {
     aboutOpen_ = open;
 }
 
+void LauncherUi::ShowEdited(int index) {
+    editedOpen_ = index >= 0 && index < 3 ? index : -1;
+    editedFiles_ = editedOpen_ >= 0 ? backend_.EditedFiles(kEditions[editedOpen_]) : std::vector<assets::EditedFile>{};
+}
+
 void LauncherUi::ShowSettings(bool open) {
     settingsOpen_ = open;
+    if (!open) onlineServerEditing_ = false;
     armedRemove_ = -1;
     languageOpen_ = -1;
     if (open) RefreshLanguages();
+}
+
+void LauncherUi::ShowMods(bool open) {
+    modsOpen_ = open && modsShown_;
 }
 
 void LauncherUi::ShowLanguageList(int index) {
@@ -430,6 +467,39 @@ void LauncherUi::ChoosePlay(Edition edition, bool gold) {
     if (i > 1) return;
     playIndex_ = i;
     SetGold(i, gold);
+}
+
+void LauncherUi::SetMods(const std::vector<ModRow>& mods) {
+    modsShown_ = true;
+    mods_ = mods;
+    modOn_.clear();
+    for (const ModRow& mod : mods_) modOn_.push_back(backend_.Setting(ModKey(mod.id)) == "1");
+}
+
+int LauncherUi::ModsOn() const {
+    return static_cast<int>(std::count(modOn_.begin(), modOn_.end(), true));
+}
+
+bool LauncherUi::ModAllowed(size_t index, std::string& why) const {
+    why.clear();
+    const ModRow& mod = mods_[index];
+    bool edition = false;
+    for (int i = 0; i < 3; ++i) edition = edition || (mod.editions[i] && status_[i].unlocked);
+    if (!edition) {
+        why = "None of the editions it is for is in the data folder yet.";
+        return false;
+    }
+    for (size_t j = 0; j < mods_.size(); ++j) {
+        if (j == index || !modOn_[j]) continue;
+        const ModRow& other = mods_[j];
+        const bool clash = std::find(mod.conflicts.begin(), mod.conflicts.end(), other.id) != mod.conflicts.end() ||
+                           std::find(other.conflicts.begin(), other.conflicts.end(), mod.id) != other.conflicts.end();
+        if (clash) {
+            why = "It cannot be on with " + other.name + ", which is on.";
+            return false;
+        }
+    }
+    return true;
 }
 
 void LauncherUi::SetGold(int index, bool on) {
@@ -465,10 +535,10 @@ bool LauncherUi::TakePlay(LaunchChoice& out) {
 
 TileView LauncherUi::TileFor(int i) const {
     const EditionStatus& s = status_[i];
-    TileText t = DescribeTile(s);
+    TileText t = DescribeSlot(all_, i);
     TileView v;
-    v.title = EditionTitle(kEditions[i]);
-    v.game = EditionGame(kEditions[i]);
+    v.title = EditionTitle(s.edition);
+    v.game = EditionGame(s.edition);
     v.state = t.state;
     v.detail = t.detail;
     v.accent = kAccents[i];
@@ -535,6 +605,18 @@ float LauncherUi::DrawHeader(const Rect& w, bool buttons) {
             armedRemove_ = -1;
             RefreshLanguages();
         }
+        if (modsShown_) {
+            // While a mod is on the button says how many ("1 mod on"), in the yellow of a choice made: the game is not
+            // the original then.
+            const int on = ModsOn();
+            const std::string label = on == 0 ? "Mods" : std::to_string(on) + (on == 1 ? " mod on" : " mods on");
+            float mw = ui_.ButtonWidth(label);
+            x -= mw + 10;
+            modsButtonRect_ = {x, y, mw, h};
+            if (on > 0) modsOnRect_ = modsButtonRect_;
+            if (ui_.Button("mods", modsButtonRect_, label, on == 0 ? ButtonKind::Quiet : ButtonKind::Plain))
+                modsOpen_ = true;
+        }
         // The header's Play only where it clears the title and its version (the tiles have their own Play buttons).
         float pw = ui_.ButtonWidth("Play") + 20;
         bool fits = x - pw - 10 > titleVersionRect_.Right() + 16;
@@ -542,7 +624,7 @@ float LauncherUi::DrawHeader(const Rect& w, bool buttons) {
             x -= pw + 10;
             if (ui_.Button("header-play", {x, y, pw, h}, "Play", ButtonKind::Go)) OpenPlay();
         }
-        headerButtonsRect_ = {x, y, w.Right() - metric::kMargin - x, h};
+        headerButtonsRect_ ={x, y, w.Right() - metric::kMargin - x, h};
     }
     return kContentTop;
 }
@@ -622,14 +704,33 @@ float LauncherUi::DrawUpdateBanner(const Rect& w, float top) {
     return r.Bottom() + metric::kGap;
 }
 
+float LauncherUi::TileHeight() const {
+    for (const EditionStatus& s : status_)
+        if (s.edited > 0) return kTileHeight + kEditedBadgeH + 8;
+    return kTileHeight;
+}
+
+// The edition keeps .sam settings files the player edited (tpw-port #94): a badge that says so and opens the list. It
+// only explains: the game reads the files as they are and Play works as normal.
+void LauncherUi::EditedBadge(int i, const Rect& r) {
+    if (status_[i].edited <= 0) return;
+    editedBadge_[i] = r;
+    if (ui_.Button(std::string("edited-") + assets::EditionName(kEditions[i]), r, kEditedLabel, ButtonKind::Plain, true,
+                   style::kSmallBold))
+        ShowEdited(i);
+}
+
 void LauncherUi::DrawTiles(const Rect& row, bool dropTargets) {
     float tw = (row.w - 2 * metric::kGap) / 3;
+    const float bw = text_.Width(style::kSmallBold, kEditedLabel) + 28;
     for (int i = 0; i < 3; ++i) {
         Rect r{row.x + i * (tw + metric::kGap), row.y, tw, row.h};
         tileRects_[i] = r;
         TileView v = TileFor(i);
         v.highlight = dropTargets && dragging_ && dropTarget_ == i;
+        if (status_[i].edited > 0) v.footer = kEditedBadgeH + 8;
         ui_.Tile(std::string("tile-") + assets::EditionName(kEditions[i]), r, v);
+        EditedBadge(i, {r.x + 16, r.Bottom() - 16 - kEditedBadgeH, std::min(bw, r.w - 32), kEditedBadgeH});
     }
     tilesShown_ = dropTargets;
 }
@@ -673,7 +774,7 @@ void LauncherUi::DrawHome(const Rect& w) {
     // The footer: the descriptive line and the disclaimer, word for word, and the version.
     const Rect footer = DrawFooter(w);
 
-    Rect tiles{m, footer.y - metric::kGap - kTileHeight, w.w - 2 * m, kTileHeight};
+    Rect tiles{m, footer.y - metric::kGap - TileHeight(), w.w - 2 * m, TileHeight()};
     Rect field{m, top, w.w - 2 * m, tiles.y - metric::kGap - top - 4};
     fieldRect_ = field;
     bool fieldHover = dragging_ && dropTarget_ == -1;
@@ -746,9 +847,12 @@ void LauncherUi::DrawReady(const Rect& w) {
         tileRects_[i] = r;
         TileView v;
         v.title = kGames[i];
-        v.game = EditionTitle(kEditions[i]);
+        v.game = std::string(EditionTitle(status_[i].edition)) +
+                 (assets::IsWindowsEdition(status_[i].edition) ? ", from the Windows disc" : "");
         v.state = "Ready to play";
         v.detail = Files(status_[i].filesPresent) + " confirmed";
+        const std::string note = WindowsEditionNote(status_[i].edition);
+        if (!note.empty()) v.detail += ". " + note + ".";
         v.accent = kAccents[i];
         v.badge = Badge::Check;
         v.fraction = 1;
@@ -771,11 +875,14 @@ void LauncherUi::DrawReady(const Rect& w) {
                    text_.Fit(style::kSmallBold, goldText, toggle.x - 10 - tx, false), colour::kInk);
         readyGold_[i] = toggle;
         if (ui_.Toggle(std::string("gold-") + assets::EditionName(kEditions[i]), toggle, goldOn)) SetGold(i, goldOn);
+        // Above the switch: the Customized settings badge, when the edition keeps edited .sam files.
+        const float badgeH = 30, bw = std::min(play.w, text_.Width(style::kSmallBold, kEditedLabel) + 32);
+        EditedBadge(i, {r.CentreX() - bw * 0.5f, pill.y - 12 - badgeH, bw, badgeH});
         readyPlay_[i] = play;
         if (ui_.Button(std::string("ready-play-") + assets::EditionName(kEditions[i]), play, "Play", ButtonKind::Go,
                        true, style::kHeadline)) {
             playIndex_ = i;
-            choice_.edition = kEditions[i];
+            choice_.edition = status_[i].edition;   // the tile's Mac edition, or its Windows one
             choice_.gold = goldOn;
             choice_.skipIntro = skipIntro_;
             choice_.backToLauncher = backToLauncher_;
@@ -842,7 +949,7 @@ void LauncherUi::DrawChecking(const Rect& w) {
 void LauncherUi::DrawResult(const Rect& w) {
     float top = DrawHeader(w, true);
     const float m = metric::kMargin, pad = 20;
-    Rect tiles{m, w.Bottom() - m - kTileHeight, w.w - 2 * m, kTileHeight};
+    Rect tiles{m, w.Bottom() - m - TileHeight(), w.w - 2 * m, TileHeight()};
     Rect panel{m, top, w.w - 2 * m, tiles.y - metric::kGap - 4 - top};
     ui_.Panel(panel, colour::kYellowSoft, colour::kYellow);
     Rect in = panel.Inset(pad);
@@ -898,8 +1005,12 @@ void LauncherUi::DrawPlay(const Rect& w) {
     ui_.Panel(panel, colour::kYellowSoft, colour::kYellow);
     float colW = std::min(panel.w - 48, 520.0f);
     const float cardH = 66, playH = 56;
+    // A Windows edition's line says what it lacks (WindowsEditionNote), wrapped under the edition's line.
+    const std::string note = WindowsEditionNote(status_[playIndex_].edition);
+    const std::vector<std::string> noteLines =
+        note.empty() ? std::vector<std::string>() : text_.Wrap(style::kSmall, note + ".", std::min(panel.w - 48, 520.0f));
     float contentH = text_.LineHeight(style::kHeadline) + 12 + 46 + 8 + 2 * text_.LineHeight(style::kSmall) + 4 + 14 +
-                     cardH + 18 + 6 + playH;
+                     cardH + 18 + 6 + playH + noteLines.size() * text_.LineHeight(style::kSmall);
     Rect col{panel.CentreX() - colW * 0.5f, panel.y + 20, colW, panel.h - 40};
     float y = col.y + std::max(0.0f, (col.h - 46 - contentH) * 0.5f);   // 46: the Back button's row
 
@@ -913,14 +1024,19 @@ void LauncherUi::DrawPlay(const Rect& w) {
     if (ui_.Segmented("edition", {col.x, y, col.w, 46}, options, enabled, selected)) playIndex_ = selected;
     y += 46 + 8;
     const EditionStatus& s = status_[playIndex_];
-    std::string line = std::string(EditionGame(kEditions[playIndex_])) + ": " +
+    std::string line = std::string(EditionGame(s.edition)) + ": " +
                        (s.unlocked ? Files(s.filesPresent) + " confirmed" : DescribeTile(s).detail);
     text_.DrawCentred(style::kSmall, {col.x, y, col.w, text_.LineHeight(style::kSmall)},
                       text_.Fit(style::kSmall, line, col.w, false), colour::kInk);
-    y += text_.LineHeight(style::kSmall) + 4;
+    y += text_.LineHeight(style::kSmall);
+    for (const std::string& l : noteLines) {
+        text_.DrawCentred(style::kSmall, {col.x, y, col.w, text_.LineHeight(style::kSmall)}, l, colour::kInkSoft);
+        y += text_.LineHeight(style::kSmall);
+    }
+    y += 4;
     int other = 1 - playIndex_;
     if (!status_[other].unlocked) {
-        std::string unlock = std::string("The ") + EditionTitle(kEditions[other]) + ": " + DescribeTile(status_[other]).detail;
+        std::string unlock = std::string("The ") + EditionTitle(kEditions[other]) + ": " + DescribeSlot(all_, other).detail;
         text_.DrawCentred(style::kSmall, {col.x, y, col.w, text_.LineHeight(style::kSmall)},
                           text_.Fit(style::kSmall, unlock, col.w, false), colour::kInkSoft);
     }
@@ -951,7 +1067,7 @@ void LauncherUi::DrawPlay(const Rect& w) {
     float bottom = std::max(y + playH, col.Bottom());
     Rect play{col.CentreX() - playW * 0.5f, std::min(y + 6, bottom - playH), playW, playH};
     if (ui_.Button("play", play, "Play", ButtonKind::Go, s.unlocked, style::kHeadline)) {
-        choice_.edition = kEditions[playIndex_];
+        choice_.edition = s.edition;
         choice_.gold = goldOn;
         choice_.skipIntro = skipIntro_;
         choice_.backToLauncher = backToLauncher_;
@@ -1046,13 +1162,13 @@ void LauncherUi::DrawSettings(const Rect& w) {
     const float rowH = 50;
     float pw = std::min(w.w - 2 * metric::kMargin, 640.0f);
     float titleH = text_.LineHeight(style::kHeadline) + 12;
-    // Everything below the title, as drawn below: the Game section's 7 rows, the Renderer row (counted last) when shown.
+    // Everything below the title, as drawn below: the Game section's 8 rows, the Renderer row (counted last) when shown.
     // A row added below is counted here too; the Settings scroll test checks the sum against what is drawn.
     float bodyH = 2 * (text_.LineHeight(style::kBodyBold) + 4) + 40 + text_.LineHeight(style::kSmall) + 14 + 3 * rowH +
-                  4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + 7 * rowH +
+                  4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + 8 * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + static_cast<float>(SamOptions().size() + 1) * rowH +
-                  text_.LineHeight(style::kBodyBold) + 4 + rowH + (rendererRow_ ? rowH : 0.0f);
+                  text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH + (rendererRow_ ? rowH : 0.0f);
     float ph = std::min(w.h - 2 * metric::kMargin, titleH + bodyH + 40);
     Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
     // An open Language list (drawn last, over the box) takes the pointer: the box below it draws but does not react,
@@ -1109,6 +1225,9 @@ void LauncherUi::DrawSettings(const Rect& w) {
         Rect row{in.x, y, in.w, rowH - 6};
         canvas_.FillRound(row, 10, i % 2 ? colour::kCream : colour::kYellowSoft.WithAlpha(120));
         const EditionStatus& s = status_[i];
+        // A tile's Mac and Windows editions are removed and checked again together.
+        const Edition both[2] = {kEditions[i], WindowsEdition(i)};
+        const bool present = s.present > 0 || all_[StatusIndex(both[1])].present > 0;
         float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
         text_.Draw(style::kBodyBold, row.x + 12, ty, EditionTitle(kEditions[i]), colour::kInk);
         text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold), DescribeTile(s).state,
@@ -1123,7 +1242,9 @@ void LauncherUi::DrawSettings(const Rect& w) {
             x -= yw + 8;
             if (ui_.Button("confirm-remove-" + id, {x, by, yw, bh}, "Yes, remove", ButtonKind::Danger, !busy)) {
                 std::string err;
-                if (backend_.RemoveEdition(kEditions[i], err))
+                bool removed = backend_.RemoveEdition(both[0], err);
+                if (removed && both[1] != both[0]) removed = backend_.RemoveEdition(both[1], err);
+                if (removed)
                     settingsMessage_ = std::string("The ") + EditionTitle(kEditions[i]) + " was removed.";
                 else
                     settingsMessage_ = "Cannot remove it: " + err;
@@ -1137,17 +1258,21 @@ void LauncherUi::DrawSettings(const Rect& w) {
         } else {
             float rw = ui_.ButtonWidth("Remove"), vw = ui_.ButtonWidth("Check again");
             x -= rw;
-            if (ui_.Button("remove-" + id, {x, by, rw, bh}, "Remove", ButtonKind::Danger, !busy && s.present > 0))
+            if (ui_.Button("remove-" + id, {x, by, rw, bh}, "Remove", ButtonKind::Danger, !busy && present))
                 armedRemove_ = i;
             x -= vw + 8;
-            if (ui_.Button("verify-" + id, {x, by, vw, bh}, "Check again", ButtonKind::Plain, !busy && s.present > 0)) {
+            if (ui_.Button("verify-" + id, {x, by, vw, bh}, "Check again", ButtonKind::Plain, !busy && present)) {
                 verifyIndex_ = i;
                 settingsMessage_.clear();
                 ImportBackend* backend = &backend_;
-                Edition edition = kEditions[i];
-                verify_ = std::async(std::launch::async, [backend, edition] {
+                const Edition mac = both[0], windows = both[1];
+                verify_ = std::async(std::launch::async, [backend, mac, windows] {
                     VerifyResult r;
-                    r.removed = backend->VerifyEdition(edition, r.err);
+                    r.removed = backend->VerifyEdition(mac, r.err);
+                    if (r.removed >= 0 && windows != mac) {
+                        const long more = backend->VerifyEdition(windows, r.err);
+                        r.removed = more < 0 ? more : r.removed + more;
+                    }
                     return r;
                 });
             }
@@ -1241,6 +1366,23 @@ void LauncherUi::DrawSettings(const Rect& w) {
         if (ui_.Toggle("smooth-zoom", {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32}, smoothZoom_)) {
             std::string err;
             if (!backend_.SaveSetting(kSmoothZoomKey, smoothZoom_ ? "1" : "0", err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
+        }
+        y += rowH;
+    }
+    {
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, "Several keys at once", colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, "Hold two arrow keys to walk and turn at once, as on the PC", row.w - 12 - 56 - 24,
+                             false),
+                   colour::kInkSoft);
+        severalKeysRect_ = {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32};
+        if (ui_.Toggle("several-keys", severalKeysRect_, severalKeys_)) {
+            std::string err;
+            if (!backend_.SaveSetting(kSeveralKeysKey, severalKeys_ ? "1" : "0", err))
                 settingsMessage_ = "Cannot keep the setting: " + err;
         }
         y += rowH;
@@ -1392,8 +1534,8 @@ void LauncherUi::DrawSettings(const Rect& w) {
         float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
         text_.Draw(style::kBodyBold, row.x + 12, ty, "Check for updates", colour::kInk);
         text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
-                   text_.Fit(style::kSmall, "Once a day, asks GitHub whether a new version is out", row.w - 12 - 56 - 24,
-                             false),
+                   text_.Fit(style::kSmall, "At each start, asks GitHub for a new version and the online server's address",
+                             row.w - 12 - 56 - 24, false),
                    colour::kInkSoft);
         checkUpdatesRect_ = {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32};
         if (ui_.Toggle("check-updates", checkUpdatesRect_, checkUpdates_)) {
@@ -1401,6 +1543,28 @@ void LauncherUi::DrawSettings(const Rect& w) {
             if (!backend_.SaveSetting(kCheckUpdatesKey, checkUpdates_ ? "1" : "0", err))
                 settingsMessage_ = "Cannot keep the setting: " + err;
             if (updater_ != nullptr) updater_->SetEnabled(checkUpdates_);
+        }
+        y += rowH;
+    }
+    {   // empty by default: the automatic server, the one tpw-port's online.txt names (updater.h ChooseOnlineServer)
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, colour::kCream);
+        const float fieldW = std::min(260.0f, row.w * 0.45f);
+        onlineServerRect_ = {row.Right() - 6 - fieldW, row.y + 4, fieldW, row.h - 8};
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, "Online server", colour::kInk);
+        std::string why;
+        const bool bad = !onlineServer_.empty() && !net::ValidHost(onlineServer_, &why);
+        const std::string line = bad ? "Not used: " + why : "Empty for automatic, or a server's address";
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, line, onlineServerRect_.x - row.x - 12 - 12, false),
+                   bad ? colour::kRed : colour::kInkSoft);
+        onlineServerHint_ = AutomaticOnlineServer(backend_);
+        if (ui_.TextField("online-server", onlineServerRect_, onlineServer_, kOnlineServerMax,
+                          "Automatic: " + onlineServerHint_, onlineServerEditing_)) {
+            std::string err;
+            if (!backend_.SaveSetting(kOnlineServerKey, onlineServer_, err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
         }
         y += rowH;
     }
@@ -1440,6 +1604,145 @@ void LauncherUi::DrawSettings(const Rect& w) {
         if (close) languageOpen_ = -1;
     } else {
         languageRows_.clear();
+    }
+}
+
+// The editions of a mod's row, as the player reads them: "For the US edition and the European edition", and those it
+// is not for.
+static std::string ModEditionsLine(const ModRow& mod) {
+    std::vector<std::string> on, off;
+    for (int i = 0; i < 3; ++i) (mod.editions[i] ? on : off).push_back(std::string("the ") + EditionTitle(kEditions[i]));
+    auto join = [](const std::vector<std::string>& names, const char* last) {
+        std::string s;
+        for (size_t i = 0; i < names.size(); ++i) s += (i == 0 ? "" : i + 1 == names.size() ? last : ", ") + names[i];
+        return s;
+    };
+    std::string line = "For " + join(on, " and ");
+    if (!off.empty()) line += ". Not for " + join(off, " or ");
+    return line;
+}
+
+void LauncherUi::DrawMods(const Rect& w) {
+    canvas_.FillRound(w, 0, colour::kDim);
+    float pw = std::min(w.w - 2 * metric::kMargin, 640.0f);
+    float titleH = text_.LineHeight(style::kHeadline) + 12;
+    // Each mod's row: its name and version, the player's text, the editions, saved games, conflicts and why its switch
+    // is off, beside the switch.
+    const float textW = pw - 40 - 12 - 56 - 36;
+    const float small = text_.LineHeight(style::kSmall), smallBold = text_.LineHeight(style::kSmallBold);
+    std::vector<std::vector<std::string>> texts;
+    std::vector<std::string> whys;
+    std::vector<float> rowHs;
+    for (size_t i = 0; i < mods_.size(); ++i) {
+        texts.push_back(text_.Wrap(style::kSmall, mods_[i].text, textW));
+        std::string why;
+        if (modOn_[i] || ModAllowed(i, why)) why.clear();
+        whys.push_back(why);
+        rowHs.push_back(24 + text_.LineHeight(style::kBodyBold) + 4 + static_cast<float>(texts.back().size()) * small + 4 +
+                        3 * small + (why.empty() ? 0.0f : smallBold));
+    }
+    float bodyH = 0;
+    for (float h : rowHs) bodyH += h + 6;
+    if (mods_.empty()) bodyH += 50;
+    bodyH += 4 + small + (modsMessage_.empty() ? 0.0f : 4 + smallBold);
+    float ph = std::min(w.h - 2 * metric::kMargin, titleH + bodyH + 40);
+    Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
+    modsBoxRect_ = panel;
+    ui_.Panel(panel, colour::kPaper, colour::kCream);
+    Rect in = panel.Inset(20);
+    float y = in.y;
+    text_.Draw(style::kHeadline, in.x, y, "Mods", colour::kInk);
+    float cw = ui_.ButtonWidth("Close");
+    if (ui_.Button("mods-close", {in.Right() - cw, y, cw, 36}, "Close", ButtonKind::Quiet)) modsOpen_ = false;
+    y += titleH;
+
+    // Scrolls as Settings does, in a window too short for the list.
+    const float bodyTop = y, shown = in.Bottom() - bodyTop;
+    modsScrolls_ = ph < titleH + bodyH + 40;
+    const float maxOffset = modsScrolls_ ? std::max(0.0f, bodyH - shown) : 0.0f;
+    float offset = 0;
+    if (modsScrolls_) {
+        offset = ui_.Scroll("mods", panel, 50, maxOffset);
+        ui_.Clip({panel.x + metric::kOutline, bodyTop, panel.w - 2 * metric::kOutline,
+                  panel.Bottom() - metric::kOutline - bodyTop});
+        y -= offset;
+    }
+    const bool busy = backend_.Running();
+
+    modSwitchRects_.assign(mods_.size(), Rect{});
+    if (mods_.empty()) {
+        Rect row{in.x, y, in.w, 44};
+        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+        text_.Draw(style::kBodyBold, row.x + 12, row.CentreY() - text_.LineHeight(style::kBodyBold) * 0.5f,
+                   "This build has no mods.", colour::kInk);
+        y += 50;
+    }
+    for (size_t i = 0; i < mods_.size(); ++i) {
+        const ModRow& mod = mods_[i];
+        Rect row{in.x, y, in.w, rowHs[i]};
+        canvas_.FillRound(row, 10, i % 2 ? colour::kCream : colour::kYellowSoft.WithAlpha(120));
+        float ty = row.y + 12;
+        const float nameW = text_.Draw(style::kBodyBold, row.x + 12, ty, mod.name, colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12 + nameW + 10, ty + text_.Ascent(style::kBodyBold) - text_.Ascent(style::kSmall),
+                   text_.Fit(style::kSmall, mod.version + ", by " + mod.author, textW - nameW - 10, false),
+                   colour::kInkSoft);
+        ty += text_.LineHeight(style::kBodyBold) + 4;
+        for (const std::string& line : texts[i]) {
+            text_.Draw(style::kSmall, row.x + 12, ty, line, colour::kInk);
+            ty += small;
+        }
+        ty += 4;
+        text_.Draw(style::kSmall, row.x + 12, ty, text_.Fit(style::kSmall, ModEditionsLine(mod), textW, false),
+                   colour::kInkSoft);
+        ty += small;
+        if (mod.changesSaves)
+            text_.Draw(style::kSmallBold, row.x + 12, ty,
+                       text_.Fit(style::kSmallBold, "Saved games: a park saved with it on differs from the original's",
+                                 textW, false),
+                       colour::kRed);
+        else
+            text_.Draw(style::kSmall, row.x + 12, ty, "Saved games: unchanged", colour::kInkSoft);
+        ty += small;
+        std::string conflicts = "Conflicts: none";
+        if (!mod.conflicts.empty()) {
+            conflicts = "Cannot be on with ";
+            for (size_t c = 0; c < mod.conflicts.size(); ++c) {
+                std::string name = mod.conflicts[c];
+                for (const ModRow& other : mods_)
+                    if (other.id == name) name = other.name;
+                conflicts += (c == 0 ? "" : ", ") + name;
+            }
+        }
+        text_.Draw(style::kSmall, row.x + 12, ty, text_.Fit(style::kSmall, conflicts, textW, false), colour::kInkSoft);
+        ty += small;
+        if (!whys[i].empty())
+            text_.Draw(style::kSmallBold, row.x + 12, ty, text_.Fit(style::kSmallBold, whys[i], textW, false), colour::kRed);
+
+        // A mod that is on can always be switched off; one that is off, only where it can be on.
+        bool on = modOn_[i];
+        modSwitchRects_[i] = {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32};
+        if (ui_.Toggle("mod-" + mod.id, modSwitchRects_[i], on, !busy && (on || whys[i].empty()))) {
+            std::string err;
+            if (backend_.SaveSetting(ModKey(mod.id), on ? "1" : "0", err)) {
+                modOn_[i] = on;
+                modsMessage_.clear();
+            } else {
+                modsMessage_ = "Cannot keep the setting: " + err;
+            }
+        }
+        y += rowHs[i] + 6;
+    }
+    y += 4;
+    text_.Draw(style::kSmall, in.x, y,
+               text_.Fit(style::kSmall, "Mods change how the game plays. Off is the original.", in.w, false),
+               colour::kInkSoft);
+    y += small;
+    if (!modsMessage_.empty()) text_.DrawWrapped(style::kSmallBold, in.x, y + 4, in.w, modsMessage_, colour::kInk);
+    if (modsScrolls_) {
+        ui_.Unclip();
+        const float barW = 6, margin = panel.Right() - metric::kOutline - in.Right();
+        ui_.ScrollBar({in.Right() + std::round((margin - barW) * 0.5f), bodyTop, barW, shown}, shown, bodyH, offset,
+                      colour::kYellowSoft);
     }
 }
 
@@ -1530,6 +1833,92 @@ void LauncherUi::DrawAbout(const Rect& w) {
     }
 }
 
+// The Customized settings box (tpw-port #94): the edition's .sam settings files the player changed after its disc was
+// checked. The game reads them as they are, any value its parser takes, and Play works as normal; the box says which
+// they are, warns of a line the game's parser stops at (assets/sam_check.h), and Restore original puts back the copy the
+// launcher kept of the disc's file when it checked it (assets/<edition>/originals in the data folder).
+void LauncherUi::DrawEdited(const Rect& w) {
+    restoreRects_.clear();
+    canvas_.FillRound(w, 0, colour::kDim);
+    const int index = editedOpen_;
+    const char* about = "These settings files were changed after the disc was checked. The game reads them as they "
+                        "are, so Play works as normal. Restore original puts back the file from the disc.";
+    const char* restoreLabel = "Restore original";
+    const float rowButtonH = 32, rw = ui_.ButtonWidth(restoreLabel);
+    float pw = std::min(w.w - 2 * metric::kMargin, 640.0f), inW = pw - 40, textW = inW - rw - 16;
+    const float boldH = text_.LineHeight(style::kSmallBold), smallH = text_.LineHeight(style::kSmall);
+    // Each row: the file, then what the check found, beside its Restore original button.
+    std::vector<std::vector<std::string>> notes;
+    std::vector<float> rowH;
+    for (const assets::EditedFile& f : editedFiles_) {
+        std::string note = f.unreadableLine > 0
+                               ? "Line " + std::to_string(f.unreadableLine) +
+                                     " can't be read; the game may crash or ignore later settings."
+                               : "The game reads all of it.";
+        if (!f.original) note += " No copy of the original is kept yet: drag the disc in again to make one.";
+        notes.push_back(text_.Wrap(style::kSmall, note, textW));
+        rowH.push_back(std::max(rowButtonH, boldH + 2 + smallH * notes.back().size()) + 12);
+    }
+    std::vector<std::string> aboutLines = text_.Wrap(style::kBody, about, inW);
+    float contentH = text_.LineHeight(style::kHeadline) + 10 + text_.LineHeight(style::kBody) * aboutLines.size() + 12;
+    for (float h : rowH) contentH += h;
+    if (editedFiles_.empty()) contentH += smallH;
+    float ph = std::min(w.h - 2 * metric::kMargin, contentH + 44);
+    Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
+    ui_.Panel(panel, colour::kPaper, colour::kCream);
+    Rect in = panel.Inset(20);
+    float y = in.y;
+    float cw = ui_.ButtonWidth("Close");
+    const std::string title = std::string(kEditedLabel) + ": " + EditionTitle(kEditions[index]);
+    text_.Draw(style::kHeadline, in.x, y, text_.Fit(style::kHeadline, title, in.w - cw - 12, false), colour::kInk);
+    if (ui_.Button("edited-close", {in.Right() - cw, y, cw, 36}, "Close", ButtonKind::Quiet)) editedOpen_ = -1;
+    y += text_.LineHeight(style::kHeadline) + 10;
+    for (const std::string& line : aboutLines) {
+        text_.Draw(style::kBody, in.x, y, line, colour::kInk);
+        y += text_.LineHeight(style::kBody);
+    }
+    y += 12;
+    if (editedFiles_.empty()) text_.Draw(style::kSmall, in.x, y, "No edited settings files are left.", colour::kInkSoft);
+
+    // A restore changes the list: it is read again after the rows are drawn.
+    int restore = -1;
+    const bool canRestore = !backend_.Running() && !verify_.valid();
+    for (size_t k = 0; k < editedFiles_.size(); ++k) {
+        const assets::EditedFile& f = editedFiles_[k];
+        if (y + rowH[k] > in.Bottom() + 12) {   // no room for the rest: say how many, the log names them all
+            text_.Draw(style::kSmallBold, in.x, y,
+                       "And " + std::to_string(editedFiles_.size() - k) + " more: the launcher's log names them all.",
+                       colour::kInkSoft);
+            break;
+        }
+        if (k % 2 == 0) canvas_.FillRound({in.x - 8, y - 2, in.w + 16, rowH[k] - 4}, 8, colour::kYellowSoft.WithAlpha(140));
+        float ty = y + 4;
+        text_.Draw(style::kSmallBold, in.x, ty, text_.Fit(style::kSmallBold, f.dest, textW, false), colour::kInk);
+        ty += boldH + 2;
+        const Rgba noteColour = f.unreadableLine > 0 ? Mix(colour::kRed, colour::kInk, 0.35f) : colour::kInkSoft;
+        for (const std::string& line : notes[k]) {
+            text_.Draw(style::kSmall, in.x, ty, line, noteColour);
+            ty += smallH;
+        }
+        Rect button{in.Right() - rw, y + (rowH[k] - 12 - rowButtonH) * 0.5f, rw, rowButtonH};
+        restoreRects_.push_back(button);
+        if (ui_.Button("edited-restore-" + f.dest, button, restoreLabel, ButtonKind::Plain, f.original && canRestore))
+            restore = static_cast<int>(k);
+        y += rowH[k];
+    }
+    if (restore >= 0) {
+        const std::string dest = editedFiles_[static_cast<size_t>(restore)].dest;
+        const std::string name = dest.substr(dest.find_last_of('/') + 1);
+        std::string err;
+        if (backend_.RestoreOriginal(kEditions[index], dest, err))
+            ShowNotice("Restored the original " + name, false);
+        else
+            ShowNotice("Could not restore " + name + ": " + err, true);
+        editedFiles_ = backend_.EditedFiles(kEditions[index]);
+        if (editedFiles_.empty()) editedOpen_ = -1;
+    }
+}
+
 void LauncherUi::Frame(float dt, float width, float height, float scale) {
     PollDialogs();
     PollVerify();
@@ -1547,14 +1936,20 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
     ui_.Begin(dt, input_);
     input_.pressed = input_.released = false;
     input_.wheel = 0;
+    input_.typed.clear();
+    input_.erased = 0;
+    input_.entered = false;
+    const bool wasEditing = onlineServerEditing_;
 
-    bool overlay = aboutOpen_ || settingsOpen_;
+    bool overlay = aboutOpen_ || settingsOpen_ || modsOpen_ || editedOpen_ >= 0;
     if (!settingsOpen_) languageOpen_ = -1;
     ui_.SetInteractive(!overlay && !dragging_);
     tilesShown_ = false;
     readyShown_ = false;
     versionRect_ = showLogsRect_ = titleRect_ = titleVersionRect_ = headerButtonsRect_ = updateBannerRect_ = Rect{};
-    exportLogsRect_ = openDownloadsRect_ = Rect{};
+    exportLogsRect_ = openDownloadsRect_ = modsButtonRect_ = modsOnRect_ = Rect{};
+    for (Rect& r : editedBadge_) r = Rect{};
+    if (editedOpen_ < 0) restoreRects_.clear();
     if (!aboutOpen_) exported_ = LogsExport{};
     DrawBackdrop(window);
     switch (screen_) {
@@ -1569,7 +1964,14 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
         readyShown_ = false;
         ui_.SetInteractive(!dragging_);
         if (settingsOpen_) DrawSettings(window);
+        if (modsOpen_) DrawMods(window);
         if (aboutOpen_) DrawAbout(window);
+        if (editedOpen_ >= 0) DrawEdited(window);
+    }
+    if (!settingsOpen_) onlineServerEditing_ = false;
+    if (onlineServerEditing_ != wasEditing && window_ != nullptr) {   // the system sends typed text only while it is on
+        if (onlineServerEditing_) SDL_StartTextInput(window_);
+        else SDL_StopTextInput(window_);
     }
     if (noticeLeft_ > 0 && !notice_.empty())
         ui_.Notice(window, notice_, noticeProblem_ ? Mix(colour::kRed, colour::kPaper, 0.55f) : colour::kYellowSoft);

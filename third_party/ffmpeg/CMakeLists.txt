@@ -4,8 +4,9 @@
 # hardware decoding, no external library but zlib, so the same C builds on macOS (arm64, x86_64), Linux and Windows.
 cmake_minimum_required(VERSION 3.20)
 
-# The films are QuickTime movies (the mov demuxer, read through the file protocol) with Sorenson Video 1 (svq1) pictures
-# and IMA4 (adpcm_ima_qt) sound; libswscale makes the RGB24 pictures platform/quicktime.cpp draws. Only the files a link
+# The Mac CD's films are QuickTime movies (the mov demuxer, read through the file protocol) with Sorenson Video 1 (svq1)
+# pictures and IMA4 (adpcm_ima_qt) sound; the PC CD's are EA files (.TGQ: the ea demuxer) with EA TQI (eatqi) pictures
+# and EA ADPCM (adpcm_ea) sound. libswscale makes the RGB24 pictures platform/quicktime.cpp draws. Only the files a link
 # of those pulls in are listed (and kept).
 add_library(tpw_ffmpeg STATIC
   libavutil/aes.c libavutil/aes_ctr.c libavutil/ambient_viewing_environment.c libavutil/avsscanf.c
@@ -20,20 +21,23 @@ add_library(tpw_ffmpeg STATIC
   libavutil/time.c libavutil/timecode.c libavutil/timecode_internal.c libavutil/timestamp.c libavutil/tree.c
   libavutil/utils.c
 
-  libavcodec/ac3_channel_layout_tab.c libavcodec/adpcm.c libavcodec/adpcm_data.c libavcodec/allcodecs.c
-  libavcodec/avcodec.c libavcodec/bitstream_filters.c libavcodec/bsf/null.c libavcodec/bsf.c libavcodec/codec_desc.c
-  libavcodec/codec_par.c libavcodec/decode.c libavcodec/encode.c libavcodec/exif.c libavcodec/get_buffer.c
-  libavcodec/h263data.c libavcodec/hpeldsp.c libavcodec/mpeg4audio.c libavcodec/mpeg4audio_sample_rates.c
-  libavcodec/mpegaudiotabs.c libavcodec/options.c libavcodec/packet.c libavcodec/parser.c libavcodec/parsers.c
-  libavcodec/profiles.c libavcodec/raw.c libavcodec/svq1.c libavcodec/svq1dec.c libavcodec/threadprogress.c
-  libavcodec/tiff_common.c libavcodec/to_upper4.c libavcodec/utils.c libavcodec/vlc.c
+  libavcodec/aandcttab.c libavcodec/ac3_channel_layout_tab.c libavcodec/adpcm.c libavcodec/adpcm_data.c
+  libavcodec/allcodecs.c libavcodec/avcodec.c libavcodec/bitstream_filters.c libavcodec/blockdsp.c libavcodec/bsf.c
+  libavcodec/bsf/null.c libavcodec/bswapdsp.c libavcodec/codec_desc.c libavcodec/codec_par.c libavcodec/decode.c
+  libavcodec/eaidct.c libavcodec/eatqi.c libavcodec/encode.c libavcodec/exif.c libavcodec/get_buffer.c
+  libavcodec/h263data.c libavcodec/hpeldsp.c libavcodec/mathtables.c libavcodec/mpeg12.c libavcodec/mpeg12data.c
+  libavcodec/mpeg4audio.c libavcodec/mpeg4audio_sample_rates.c libavcodec/mpegaudiotabs.c libavcodec/options.c
+  libavcodec/packet.c libavcodec/parser.c libavcodec/parsers.c libavcodec/profiles.c libavcodec/raw.c libavcodec/svq1.c
+  libavcodec/svq1dec.c libavcodec/threadprogress.c libavcodec/tiff_common.c libavcodec/to_upper4.c libavcodec/utils.c
+  libavcodec/vlc.c
 
   libavformat/allformats.c libavformat/avformat.c libavformat/avio.c libavformat/aviobuf.c libavformat/demux.c
-  libavformat/demux_utils.c libavformat/dovi_isom.c libavformat/dvdclut.c libavformat/file.c libavformat/format.c
-  libavformat/id3v1.c libavformat/id3v2.c libavformat/isom.c libavformat/isom_tags.c libavformat/metadata.c
-  libavformat/mov.c libavformat/mov_chan.c libavformat/mov_esds.c libavformat/options.c libavformat/packet_list.c
-  libavformat/protocols.c libavformat/qtpalette.c libavformat/replaygain.c libavformat/riff.c libavformat/riffdec.c
-  libavformat/seek.c libavformat/url.c libavformat/urldecode.c libavformat/utils.c
+  libavformat/demux_utils.c libavformat/dovi_isom.c libavformat/dvdclut.c libavformat/electronicarts.c
+  libavformat/file.c libavformat/format.c libavformat/id3v1.c libavformat/id3v2.c libavformat/isom.c
+  libavformat/isom_tags.c libavformat/metadata.c libavformat/mov.c libavformat/mov_chan.c libavformat/mov_esds.c
+  libavformat/options.c libavformat/packet_list.c libavformat/protocols.c libavformat/qtpalette.c
+  libavformat/replaygain.c libavformat/riff.c libavformat/riffdec.c libavformat/seek.c libavformat/url.c
+  libavformat/urldecode.c libavformat/utils.c
 
   libswscale/alphablend.c libswscale/cms.c libswscale/csputils.c libswscale/filters.c libswscale/format.c
   libswscale/framepool.c libswscale/gamma.c libswscale/graph.c libswscale/hscale.c libswscale/hscale_fast_bilinear.c

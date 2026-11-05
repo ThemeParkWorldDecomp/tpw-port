@@ -4,6 +4,13 @@
 // return, which no caller seen so far uses.
 #pragma once
 #include <cstdint>
+// TPW_PORT_FIX framerate kPortFrameStepTime/PortFrameSteps/PortFrameScale | Mac: (none: the game draws as fast as the machine lets it, and some of its animations, sounds and camera moves step once a frame drawn) | Port: the steps that count frames take their pace from the clock instead: one every kPortFrameStepTime (31 ms), the simulation's tick (PortFrameSteps, PortFrameScale) | Why: those steps ran faster the faster the machine (the water, the flags, the lobby's lightning and sounds, the camera's turn), most of all on a screen above 60 Hz; they keep one pace at any frame rate
+
+#include <cstddef>
+#include <cstdlib>
+#include <functional>
+#include <unordered_map>
+#include <utility>
 
 #include "platform/samsutils.h"
 
@@ -26,7 +33,6 @@ void LbTime_GetDate(TbDate* date);
 // The game clock in its own units (CVanillaTime saves and compares it).
 uint32_t LbTime_GetClock();   // 0x100469ec
 
-// TPW_PORT_FIX framerate kPortFrameStepTime/PortFrameSteps/PortFrameScale | Mac: (none: the game draws as fast as the machine lets it, and some of its animations, sounds and camera moves step once a frame drawn) | Port: the steps that count frames take their pace from the clock instead: one every kPortFrameStepTime (31 ms), the simulation's tick (PortFrameSteps, PortFrameScale) | Why: those steps ran faster the faster the machine (the water, the flags, the lobby's lightning and sounds, the camera's turn), most of all on a screen above 60 Hz; they keep one pace at any frame rate
 // The time of a frame the frame-counted steps are paced for, in microseconds: 31 ms, the tick of the simulation
 // (GAMESYSTEM_Tick) and the step of a screenshot movie's clock (UseFixedTime(0x20)), about 32 frames a second. The
 // original names no frame time (nothing in it waits for one), so this is the nearest it comes to one; at 60 frames a
@@ -69,3 +75,22 @@ inline float PortFrameScale(PortFramePace& pace) {
     const double elapsed = PortFrameElapsed(pace);
     return elapsed < 0 ? 1.0f : static_cast<float>(elapsed);
 }
+
+// A pace for each window or group. Their storage comes from malloc: a pace is none of the original's objects, and what
+// the game's operator new counts stays what the original's counts.
+template <class T>
+struct PortFramePaceAllocator {
+    using value_type = T;
+    PortFramePaceAllocator() = default;
+    template <class U>
+    PortFramePaceAllocator(const PortFramePaceAllocator<U>&) {}
+    T* allocate(std::size_t n) { return static_cast<T*>(std::malloc(n * sizeof(T))); }
+    void deallocate(T* block, std::size_t) { std::free(block); }
+    template <class U>
+    bool operator==(const PortFramePaceAllocator<U>&) const { return true; }
+    template <class U>
+    bool operator!=(const PortFramePaceAllocator<U>&) const { return false; }
+};
+template <class Key>
+using PortFramePaces = std::unordered_map<Key, PortFramePace, std::hash<Key>, std::equal_to<Key>,
+                                          PortFramePaceAllocator<std::pair<const Key, PortFramePace>>>;

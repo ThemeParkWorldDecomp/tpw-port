@@ -332,11 +332,18 @@ Test-Imports $Exe
 if ($Action -eq 'test') {
     Say 'Building the tests'
     Step 'build-tests' 40 $CMake @('--build', (Slash $Build))
-    # CTest's command list covers tests in subdirectories too; tools fetched under build\tools are never inspected.
+    # CTest's command list covers tests in subdirectories too; only what this build made is inspected, so a test run by
+    # the Python tool (own_dlsym) does not inspect python.exe, and tools fetched under build\tools are never inspected. A
+    # disabled test lists no command.
     $testList = & $CTest --test-dir $Build --show-only=json-v1 | ConvertFrom-Json
     if ($LASTEXITCODE -ne 0) { Fail 50 @('Could not read the CTest program list.') }
-    foreach ($program in @($testList.tests | ForEach-Object { $_.command[0] } | Sort-Object -Unique)) {
-        if ($program -and $program -like '*.exe') { Test-Imports $program }
+    $built = "$(Slash $Build)/"
+    $fetched = "$(Slash (Join-Path $Build 'tools'))/"
+    foreach ($program in @($testList.tests | Where-Object { $_.command } | ForEach-Object { $_.command[0] } | Sort-Object -Unique)) {
+        $path = Slash $program
+        if ($path -like '*.exe' -and $path.StartsWith($built, [StringComparison]::OrdinalIgnoreCase) -and -not $path.StartsWith($fetched, [StringComparison]::OrdinalIgnoreCase)) {
+            Test-Imports $program
+        }
     }
     Say 'Running the tests'
     Step 'test' 50 $CTest @('--test-dir', (Slash $Build), '--output-on-failure')

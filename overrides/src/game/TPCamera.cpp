@@ -14,6 +14,7 @@
 #include "keytable_actions.h"
 #include "LbFile.h"
 #include "LbSCBack.h"
+// TPW_PORT_FIX framerate Will_HandleCameraMessages | Mac: the middle-button turn moves the key yaw its amount once a frame | Port: that amount times the steps' times (kPortFrameStepTime) since the last (PortFrameScale) | Why: the turn kept one speed at any frame rate
 #include "LbTime.h"
 #include "Light.h"
 #include "lobby.h"
@@ -463,7 +464,6 @@ void Will_HandleCameraMessages(int32_t message, int32_t a, int32_t b) {
         if ((gCameraModeA & 2) != 0) {
             // TPW_PORT_FIX v5L26 Will_HandleCameraMessages | Mac: the middle of the screen is unit 1024 | Port: the middle of the unit space (1024 on a 4:3 screen) | Why: a widescreen port; on a wider screen the middle-button turn stands still with the pointer in the middle instead of drifting
             const float across = (2048.0f * gPointerScreenXY[0]) / FromInt(width) - static_cast<float>(gUIUnitWidth / 2);
-            // TPW_PORT_FIX framerate Will_HandleCameraMessages | Mac: the middle-button turn moves the key yaw its amount once a frame | Port: that amount times the steps' times (kPortFrameStepTime) since the last (PortFrameScale) | Why: the turn kept one speed at any frame rate
             gCameraF5BF4 = ppc_fmadds(gCameraYawDragScale * PortFrameScale(gCameraDragPace), across, gCameraF5BF4);
         }
         break;
@@ -1180,9 +1180,11 @@ void HandleCamera() {
         const float oldX = vel[0];
         const float oldZ = vel[2];
         {   // the halving settles on the push itself (f30 f3, f31 f3); the rest is halved `frames` times
+            // ((vel + push * share) * keep is that; at one step share is exactly 1, the Mac's (vel + push) * 0.5)
             const float keep = std::pow(0.5f, frames);
-            vel[0] = f30 * f3 + (vel[0] - f30 * f3) * keep;
-            vel[2] = f31 * f3 + (vel[2] - f31 * f3) * keep;
+            const float share = (1.0f - keep) / keep;
+            vel[0] = ppc_fmadds(f30 * share, f3, vel[0]) * keep;
+            vel[2] = ppc_fmadds(f31 * share, f3, vel[2]) * keep;
         }
         vel[1] = 0.0f;
         if ((bounds & 1) != 0 && vel[0] < 0.0f) vel[0] = oldX / ppc_fmadds(kK001, dt, 1.0f);
@@ -1283,7 +1285,8 @@ void HandleCamera() {
         // The ground under the target, averaged with the last frame's, lifts the view point.
         {   // as the velocity above: the rest of the way is halved `frames` times
             const float ground = DetermineHFieldHeight(gCameraTarget[0], gCameraTarget[2], 1);
-            gCameraGroundHeight = ground + (gCameraGroundHeight - ground) * std::pow(0.5f, frames);
+            const float keep = std::pow(0.5f, frames);
+            gCameraGroundHeight = (gCameraGroundHeight + ground * ((1.0f - keep) / keep)) * keep;
         }
         gCameraViewPoint.y = gCameraViewPoint.y + gCameraGroundHeight;
         // The tilt from the velocity: the square root of its size, scaled.

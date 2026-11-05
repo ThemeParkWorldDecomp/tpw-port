@@ -7,10 +7,9 @@
 // the bar moves without a number. The game's code is not touched: the file layer counts its reads, and the window's
 // ShowWindow (platform/window.cpp) says when the game's window is there.
 //
-// The preload starts when the launcher's window opens (not with --play or --no-preload), on a thread of its own at the
-// lowest priority: the game's data tables from the program (LoadGameTables, which writes only the tables' arrays, which
-// nothing reads before the game starts), then the first files of the edition last played, read in 1 MB pieces and thrown
-// away so that the system's file cache holds them when the game asks. Play waits for it behind the same bar.
+// The preload starts when the launcher's window opens (not with --play or --no-preload), on a thread of its own: the
+// first files of the edition last played, read in 1 MB pieces and thrown away so that the system's file cache holds them
+// when the game asks. Play waits for it behind the same bar.
 //
 // After the game's window is shown the file layer's reads on the main thread still let the system's events in, at most
 // every 100 ms, so that the game's window answers while it loads the lobby (a long stretch of reads that asks for no
@@ -18,7 +17,6 @@
 #pragma once
 #include <cstdint>
 #include <filesystem>
-#include <string>
 #include <vector>
 
 struct SDL_Window;
@@ -73,15 +71,13 @@ void OnGameWindowMade(SDL_Window* window);
 // ---- The preload
 
 struct PreloadPlan {
-    std::filesystem::path program;              // the program the tables come from; empty: no tables
-    bool (*loadTables)(const char* program, std::string* why) = nullptr;   // LoadGameTables (game_tables.h)
     std::vector<std::filesystem::path> files;   // read and thrown away, in this order (the ones not there are left out)
 };
-// The bytes a plan reads (the program's size, if it has one, and the files').
+// The bytes a plan reads (the files').
 uint64_t PreloadPlanBytes(const PreloadPlan& plan);
 // Starts the preload on its own thread. Once only: a second call does nothing.
 void StartPreload(const PreloadPlan& plan);
-// The files still to read are left alone (the tables, if they are being read, are finished).
+// The files still to read are left alone.
 void CancelPreload();
 // Waits for the preload to end, calling OnStartupProgress about every 20 ms while it does, then joins it. Returns at
 // once when there was none. (The thread runs at the user-initiated class throughout, so a busy computer does not starve
@@ -90,9 +86,8 @@ void WaitPreload();
 uint64_t PreloadBytesDone();    // any thread
 uint64_t PreloadBytesTotal();   // 0 when there is no preload
 
-// Whether the preload read the game's tables from `program` (after waiting for it, 1.5 s at most: past that the files
-// are left and the tables are read by the thread only when it has begun them, logging why): then *ok is what
-// LoadGameTables answered and *why its reason. False when it did not, and the tables are still to be read.
-bool PreloadedTables(const std::filesystem::path& program, bool* ok, std::string* why);
+// The game is starting: waits for the preload, 1.5 s at most (past that the files still to read are left, and the log
+// says so), then joins it. Returns at once when there was none.
+void FinishPreload();
 
 }  // namespace tpw

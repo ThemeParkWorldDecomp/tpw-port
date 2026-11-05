@@ -1,5 +1,6 @@
 // Rain.cpp: guessed name (the binary has no __sinit for this file): a contiguous range of free functions, named after what they do.
 
+// TPW_PORT_FIX framerate CRain::__RenderLightning/__RenderSnow/GeneratePoint/NewRenderLightning/HeldDraws/BoltRandom | Mac: every frame drawn the lightning's bolts take a new shape (Random) and a new flicker (msl_rand), the snow's flakes a new jitter (msl_rand), and a strike's flash turns the screen to its colour negative for that one frame | Port: they change once each step's time (PortFrameSteps): the frames between replay the random numbers the step's drawing drew (HeldDraws), and the flash stays up for a step's time | Why: the bolts' and the snow's flicker kept one pace at any frame rate, and the flash stays as visible on a fast screen as on a slow one
 #include "LbTime.h"
 #include "MapWho.h"
 #include "platform/d3d_types.h"
@@ -22,8 +23,6 @@
 #include <initializer_list>
 #include <new>
 #include <vector>
-
-// TPW_PORT_FIX framerate CRain::__RenderLightning/__RenderSnow/GeneratePoint/NewRenderLightning/HeldDraws/BoltRandom | Mac: every frame drawn the lightning's bolts take a new shape (Random) and a new flicker (msl_rand), the snow's flakes a new jitter (msl_rand), and a strike's white flash covers the screen for that one frame | Port: they change once each step's time (PortFrameSteps): the frames between replay the random numbers the step's drawing drew (HeldDraws), and the flash stays up for a step's time | Why: the bolts' and the snow's flicker kept one pace at any frame rate, and the flash stays as visible on a fast screen as on a slow one
 namespace {
 // The random numbers a step's drawing drew from one source, in order, for the frames until the next step.
 struct HeldDraws {
@@ -323,7 +322,7 @@ int32_t CRain::RenderLightning2(D3DVECTOR* from, D3DVECTOR* to) {
 //   0x10038b14 GetCycleCount             (40)
 //
 // CRain::Render (src/tb_rain_frame.cpp) calls the first three every frame. __RenderLightning
-// draws the white flash of a lightning strike (a sprite over the whole screen), ages the bolts
+// draws the flash of a lightning strike (a sprite over the whole screen), ages the bolts
 // and draws each live one through RenderLightning2. __RenderRain draws a streak for each drop
 // and __RenderSnow a small triangle with a quarter of the snow texture for each flake; both
 // move the drops into the camera's space first (the wrapped positions Render works out) and
@@ -433,7 +432,8 @@ D3DVECTOR SnowCubic(const CRain& rain, float t) {
 uint32_t GetCycleCount();
 
 // The flash of a strike: the flash flag is cleared and a white sprite covering the screen (corners
-// at +-1, depth 0.001, blending mode 0x9a1, no texture, colour -1) is drawn. Answers DrawSprite's.
+// at +-1, depth 0.001, blending mode 0x9a1, no texture, colour -1) is drawn. That blending multiplies it by one minus
+// what is on the screen, so the screen turns to its colour negative. Answers DrawSprite's.
 int32_t CRain::__LightningFlash() {
     mLightningFlash = 0;
     float corners[4][4] = {

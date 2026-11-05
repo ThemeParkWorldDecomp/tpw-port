@@ -30,6 +30,7 @@
 #include "ui_DrawObject.h"
 #include "TbVTag.h"
 #include "platform/msl.h"
+#include "platform/online_slots.h"
 #include "ui_controls.h"
 #include "ui_ime.h"
 #include "ui_textmanager.h"
@@ -192,15 +193,17 @@ LCString::LCString(const char16_t* text) {
 
 // online_callee::WStringDtor, the destructor 0x101468f8 (the list control's RemoveMe calls it with the flag 1 on each cell). The
 // Mac gives up the share (a count of 0 is taken as 1); the last owner frees the characters and the representation, and a flag above
-// 0 frees the string itself. Only the LCStrings made above are taken: the other callers hold strings the string library does not
-// build yet (their constructors are not wired, so those strings are zero words or pointers of other layouts), and an address that
-// is not one of these is left alone, as the stand-in did. Delete this when a string unit lands (the duplicate-symbol link error
-// says which).
+// 0 frees the string itself. Only the LCStrings made above are taken, and the online client's 32-bit slots
+// (include/platform/online_slots.h), which tpw::slots::Release gives up; any other address is left alone, as the stand-in did.
+// Delete this when a string unit lands (the duplicate-symbol link error says which).
 namespace online_callee {
 void WStringDtor(void* string, int16_t flag) {
     auto& live = LiveLCStrings();
     auto found = live.find(static_cast<LCString*>(string));
-    if (found == live.end()) return;
+    if (found == live.end()) {
+        tpw::slots::Release(string);
+        return;
+    }
     LCString* self = *found;
     LCStringRep* rep = self->mRep;
     if (rep != nullptr) {
