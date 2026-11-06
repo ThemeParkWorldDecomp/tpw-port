@@ -1,0 +1,137 @@
+# Tries to reproduce a player's report that 0.3.0 crashes on Windows 10 when the launcher's Play starts either edition, in
+# harder conditions than fresh-play: the launcher's default 2D renderer, old OpenGL drivers (Mesa told to offer 2.0, and 1.4
+# without framebuffer objects), this machine's own graphics with no Mesa, a folder path with spaces and an accent or
+# characters outside the code page, and the Windows discs alone. TEMPORARY: lives on the ci-030-repro branch only, never on
+# main. The discs' addresses are the repository secret TPW_FRESH_PC_DISCS, never printed; the last step deletes the files.
+name: fresh-repro
+
+on:
+  push:
+    branches: [ci-031-play4]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  RC_COMMIT: 91203792dfd079ba74566af15055ef1ea47946bf
+  BUNDLE_URL: ${{ secrets.TPW_FRESH_BUNDLE_URL }}
+  BUNDLE_SIZE: ${{ secrets.TPW_FRESH_BUNDLE_SIZE }}
+  BUNDLE_MD5: ${{ secrets.TPW_FRESH_BUNDLE_MD5 }}
+  PC_DISCS: ${{ secrets.TPW_FRESH_PC_DISCS }}
+  TPW_VSYNC_EVERY_REFRESH: '1'
+
+jobs:
+  windows-discs:
+    runs-on: windows-2022
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      # Fails at once while the maintainer has not set the secret; a rerun of this job picks it up.
+      - name: Check the discs' secret
+        run: |
+          if (-not $env:PC_DISCS) { Write-Host '::error::the secret TPW_FRESH_PC_DISCS is not set'; exit 1 }
+          Write-Host "the discs' secret is set"
+      - name: Keep line endings as stored
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: The tree is the release's
+        shell: bash
+        run: git diff --stat --exit-code "$RC_COMMIT" HEAD -- . ':!.github'
+      - name: Make the local release
+        run: '& .github\fresh-play\win.ps1 release; exit $LASTEXITCODE'
+      - name: Install with the players' line
+        timeout-minutes: 100
+        run: '& .github\fresh-play\win.ps1 install; exit $LASTEXITCODE'
+      - name: Set up the test desktop
+        run: '& .github\fresh-play\win.ps1 desktop; exit $LASTEXITCODE'
+      - name: Fetch the Windows discs
+        timeout-minutes: 90
+        run: '& .github\fresh-play\win.ps1 fetchpc; exit $LASTEXITCODE'
+      - name: Import the Windows discs
+        id: import
+        timeout-minutes: 45
+        run: '& .github\fresh-play\win.ps1 importpc; exit $LASTEXITCODE'
+      - name: Play pc-us
+        if: always() && steps.import.outcome == 'success'
+        timeout-minutes: 17
+        run: '& .github\fresh-play\win.ps1 play pc-us; exit $LASTEXITCODE'
+      - name: Play pc-eur
+        if: always() && steps.import.outcome == 'success'
+        timeout-minutes: 17
+        run: '& .github\fresh-play\win.ps1 play pc-eur; exit $LASTEXITCODE'
+      - name: Play pcnodev-us
+        if: always() && steps.import.outcome == 'success'
+        timeout-minutes: 17
+        run: '& .github\fresh-play\win.ps1 play pcnodev-us; exit $LASTEXITCODE'
+      - name: Play pcnomute-eur
+        if: always() && steps.import.outcome == 'success'
+        timeout-minutes: 17
+        run: '& .github\fresh-play\win.ps1 play pcnomute-eur; exit $LASTEXITCODE'
+      - name: Play ctlnomute-us
+        if: always() && steps.import.outcome == 'success'
+        timeout-minutes: 17
+        run: '& .github\fresh-play\win.ps1 play ctlnomute-us; exit $LASTEXITCODE'
+      - name: Play ctldriver-us
+        if: always() && steps.import.outcome == 'success'
+        timeout-minutes: 17
+        run: '& .github\fresh-play\win.ps1 play ctldriver-us; exit $LASTEXITCODE'
+      - name: Play ctldriver-eur
+        if: always() && steps.import.outcome == 'success'
+        timeout-minutes: 17
+        run: '& .github\fresh-play\win.ps1 play ctldriver-eur; exit $LASTEXITCODE'
+      - name: Import the Windows discs as accent
+        if: always() && steps.import.outcome == 'success'
+        timeout-minutes: 45
+        run: '& .github\fresh-play\win.ps1 importname accent; exit $LASTEXITCODE'
+      - name: Play pcaccent-us
+        if: always() && steps.import.outcome == 'success'
+        timeout-minutes: 17
+        run: '& .github\fresh-play\win.ps1 play pcaccent-us; exit $LASTEXITCODE'
+      - name: Play pcaccent-eur
+        if: always() && steps.import.outcome == 'success'
+        timeout-minutes: 17
+        run: '& .github\fresh-play\win.ps1 play pcaccent-eur; exit $LASTEXITCODE'
+      - name: Play parkaccent-us
+        if: always() && steps.import.outcome == 'success'
+        timeout-minutes: 17
+        run: '& .github\fresh-play\win.ps1 play parkaccent-us; exit $LASTEXITCODE'
+      - name: Import the Windows discs as cjk
+        if: always() && steps.import.outcome == 'success'
+        timeout-minutes: 45
+        run: '& .github\fresh-play\win.ps1 importname cjk; exit $LASTEXITCODE'
+      - name: Play pccjk-us
+        if: always() && steps.import.outcome == 'success'
+        timeout-minutes: 17
+        run: '& .github\fresh-play\win.ps1 play pccjk-us; exit $LASTEXITCODE'
+      - name: Play pccjk-eur
+        if: always() && steps.import.outcome == 'success'
+        timeout-minutes: 17
+        run: '& .github\fresh-play\win.ps1 play pccjk-eur; exit $LASTEXITCODE'
+      - name: Play parkcjk-us
+        if: always() && steps.import.outcome == 'success'
+        timeout-minutes: 17
+        run: '& .github\fresh-play\win.ps1 play parkcjk-us; exit $LASTEXITCODE'
+      - name: Convert the frames to png and keep the logs
+        if: always()
+        run: '& .github\fresh-play\win.ps1 frames; exit $LASTEXITCODE'
+      - name: Keep the frames and the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repro-windows-discs
+          path: ${{ runner.temp }}/play-out/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Delete the game files
+        if: always()
+        run: '& .github\fresh-play\win.ps1 clean; exit $LASTEXITCODE'
