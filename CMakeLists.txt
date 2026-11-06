@@ -460,6 +460,60 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
       add_test(NAME truncated_save COMMAND tpw_host_truncated_save)
     endif()
   endif()
+  # The options panel's Screen resolution slider in the launcher (the port's fix resslider): the real DoScroll,
+  # CPlayerSettings::SetResolution and PortApplyGameSize, the windows and the clock being the test's stand-ins. Made only with
+  # the port's fixes: the original has no such choice of sizes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_resolution_slider ${TPW_DECOMP_DIR}/tests/host_resolution_slider.cpp ${TPW_DECOMP_DIR}/src/game/ui/ui_parkStatus.cpp
+                   ${TPW_DECOMP_DIR}/src/game/TPSettings.cpp ${TPW_DECOMP_DIR}/src/game/ui/ui_gamesize.cpp ${TPW_DECOMP_DIR}/platform/msl.cpp)
+    target_include_directories(tpw_host_resolution_slider PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    tpw_slice(TARGET tpw_host_resolution_slider NAME resolution_slider KEEP
+      __ZN13options_panel8DoScrollEii   # options_panel::DoScroll(int, int)
+      __ZN15CPlayerSettings13SetResolutionENS_11eRESOLUTIONE   # CPlayerSettings::SetResolution(CPlayerSettings::eRESOLUTION)
+      __Z17PortApplyGameSizev   # PortApplyGameSize()
+      __Z13PortShowShapei)   # PortShowShape(int)
+    if(tpw_platform_tests_skipped)
+      set_target_properties(tpw_host_resolution_slider PROPERTIES EXCLUDE_FROM_ALL ON)
+    else()
+      add_test(NAME resolution_slider COMMAND tpw_host_resolution_slider)
+    endif()
+    # A live change of shape reaches the mesh and gradient draw objects (the port's fix resslider): the real objects with the real
+    # Change and GetUIMatrix; the engine's meshes and textures and the base class are the test's stand-ins.
+    add_executable(tpw_host_ui_follow ${TPW_DECOMP_DIR}/tests/host_ui_follow.cpp ${TPW_DECOMP_DIR}/src/game/ui/InterfaceDrawEngine.cpp
+                   ${TPW_DECOMP_DIR}/src/game/TPMesh.cpp ${TPW_DECOMP_DIR}/src/game/LMatrix.cpp ${TPW_DECOMP_DIR}/src/game/ui/CoolRect.cpp
+                   ${TPW_DECOMP_DIR}/src/game/ui/CoolRegion.cpp ${TPW_DECOMP_DIR}/platform/arena.cpp)
+    target_include_directories(tpw_host_ui_follow PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    tpw_slice(TARGET tpw_host_ui_follow NAME ui_follow KEEP
+      __Z15PortFollowUnitsv   # PortFollowUnits()
+      __Z11GetUIMatrixP7sMatrixssssffffsss   # GetUIMatrix(...)
+      __Z21UpdateMeshLocalMatrixP9tag_sMeshP7sMatrix   # UpdateMeshLocalMatrix(tag_sMesh*, sMatrix*)
+      __Z25CombineMatricesNoWDest1stP7sMatrixS0_   # CombineMatricesNoWDest1st(sMatrix*, sMatrix*)
+      __Z17SetMatrixIdentityP7sMatrix   # SetMatrixIdentity(sMatrix*)
+      __Z23VectorThroughLMatrixNoWP7sMatrixP8s3DPoint   # VectorThroughLMatrixNoW(sMatrix*, s3DPoint*)
+      __ZN23InterfaceDrawEngineMeshC1EPv __ZN23InterfaceDrawEngineMeshD1Ev __ZN23InterfaceDrawEngineMeshD0Ev
+      __ZN23InterfaceDrawEngineMesh4ShowEs __ZN23InterfaceDrawEngineMesh4DrawEsP8CoolRects __ZN23InterfaceDrawEngineMesh4DrawEsP8CoolRectsPDs
+      __ZN23InterfaceDrawEngineMesh6ChangeEjP8DOChange __ZN23InterfaceDrawEngineMesh14CalculateFrameEjP8DOChange __ZN23InterfaceDrawEngineMesh10InstanceMeEv
+      __ZN33InterfaceDrawEngineResizableFrameC1EPv __ZN33InterfaceDrawEngineResizableFrameD1Ev __ZN33InterfaceDrawEngineResizableFrameD0Ev
+      __ZN33InterfaceDrawEngineResizableFrame6ChangeEjP8DOChange __ZN33InterfaceDrawEngineResizableFrame10InstanceMeEv
+      __ZN34InterfaceDrawEngineResizableSliderC1EPv __ZN34InterfaceDrawEngineResizableSliderD1Ev __ZN34InterfaceDrawEngineResizableSliderD0Ev
+      __ZN34InterfaceDrawEngineResizableSlider6ChangeEjP8DOChange __ZN34InterfaceDrawEngineResizableSlider10InstanceMeEv
+      __ZN28InterfaceDrawEngineVGradientC1EPv __ZN28InterfaceDrawEngineVGradientD1Ev __ZN28InterfaceDrawEngineVGradientD0Ev
+      __ZN28InterfaceDrawEngineVGradient4ShowEs __ZN28InterfaceDrawEngineVGradient6ChangeEjP8DOChange
+      __ZN28InterfaceDrawEngineVGradient9CalcVertsEv __ZN28InterfaceDrawEngineVGradient7CalcUVsEv
+      __ZN28InterfaceDrawEngineHGradientC1EPv __ZN28InterfaceDrawEngineHGradientD1Ev __ZN28InterfaceDrawEngineHGradientD0Ev
+      __ZN28InterfaceDrawEngineHGradient4ShowEs __ZN28InterfaceDrawEngineHGradient6ChangeEjP8DOChange
+      __ZN28InterfaceDrawEngineHGradient9CalcVertsEv __ZN28InterfaceDrawEngineHGradient7CalcUVsEv
+      __ZN10CoolRegion5ShiftEss __ZN10CoolRegion6AdjustEssss __ZN10CoolRegion6MiddleEPsS0_ __ZN10CoolRegion7PointInEss
+      __ZN10CoolRegionD1Ev __ZN10CoolRegioneqERS_ __ZN8CoolRect14RectIntersectsEPS_ __ZN8CoolRect3GetEPsS0_S0_S0_
+      __ZN8CoolRect3SetEssss __ZN8CoolRect5ShiftEss __ZN8CoolRect6AdjustEssss __ZN8CoolRect6MiddleEPsS0_
+      __ZN8CoolRect7GetDimsEPsS0_ __ZN8CoolRect7PointInEss __ZN8CoolRectC1Essss __ZN8CoolRectC1Ev __ZN8CoolRectD1Ev
+      __ZN8CoolRectC1Ev __ZN8CoolRectD1Ev)
+    if(tpw_platform_tests_skipped)
+      set_target_properties(tpw_host_ui_follow PROPERTIES EXCLUDE_FROM_ALL ON)
+    else()
+      add_test(NAME ui_follow COMMAND tpw_host_ui_follow)
+    endif()
+  endif()
   # The launcher's log file (platform/log_file.cpp): one file that each run adds to, its run headers, the cut to its newest
   # 5 MB, the old files folded in, and Export logs (platform/log_export.cpp), in a temporary folder.
   add_executable(tpw_log_tests platform/tests/log_tests.cpp)
@@ -495,6 +549,35 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   add_test(NAME online_ftp COMMAND tpw_online_ftp_tests)
   # The same client against a running online server (decomp-onlinesrv's tpw-online) on this computer: skips (77) unless
   # TPW_ONLINE_SERVER names one.
+  # The numbers on the online globe's chat satellites through the real code (tests/host_chat_satellites.cpp), with only the
+  # connection a fake. It is linked as tpw_launcher is, with its own stand-ins, so a body that is empty or missing answers 0 here as
+  # it does in the game instead of being a link error or a test's fake.
+  if(TARGET tpw_launcher)
+    add_library(tpw_host_chat_satellites_objects OBJECT ${TPW_DECOMP_DIR}/tests/host_chat_satellites.cpp launcher/pending_manual.cpp)
+    target_include_directories(tpw_host_chat_satellites_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
+    set(TPW_CHAT_SATELLITES_STUBS ${CMAKE_CURRENT_BINARY_DIR}/stubs_chat_satellites.cpp)
+    add_custom_command(
+      OUTPUT ${TPW_CHAT_SATELLITES_STUBS}
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/launcher/gen_stubs.py
+              --out ${TPW_CHAT_SATELLITES_STUBS} --include-dir ${TPW_INCLUDE_DIR}
+              --nm ${CMAKE_NM} --provides $<TARGET_FILE:SDL3-static> --provides $<TARGET_FILE:tpw_zlib> --provides $<TARGET_FILE:tpw_libjpeg>
+              --provides $<TARGET_FILE:tpw_launcher_ui> --provides $<TARGET_FILE:tpw_assets> ${TPW_STUB_SYSLIBS} ${TPW_MOVIE_SYSLIBS}
+              $<TARGET_FILE:tpw> $<TARGET_FILE:tpw_platform> $<TARGET_OBJECTS:tpw_host_chat_satellites_objects>
+      DEPENDS tpw tpw_platform SDL3-static tpw_zlib tpw_libjpeg tpw_launcher_ui tpw_assets $<TARGET_OBJECTS:tpw_host_chat_satellites_objects>
+              launcher/gen_stubs.py
+      COMMAND_EXPAND_LISTS VERBATIM
+      COMMENT "Generating stand-ins for the chat satellites test")
+    add_executable(tpw_host_chat_satellites $<TARGET_OBJECTS:tpw_host_chat_satellites_objects> ${TPW_CHAT_SATELLITES_STUBS})
+    target_include_directories(tpw_host_chat_satellites PRIVATE ${TPW_INCLUDE_DIR} launcher)
+    target_link_libraries(tpw_host_chat_satellites PRIVATE tpw tpw_platform tpw_launcher_ui)
+    if(TPW_LINUX)
+      target_link_libraries(tpw_host_chat_satellites PRIVATE $<TARGET_FILE:tpw>)
+    endif()
+    if(WIN32)
+      target_link_options(tpw_host_chat_satellites PRIVATE -Wl,--export-all-symbols)
+    endif()
+    add_test(NAME chat_satellites COMMAND tpw_host_chat_satellites)
+  endif()
   add_executable(tpw_online_boss_e2e platform/tests/online_boss_e2e.cpp)
   target_include_directories(tpw_online_boss_e2e PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
   target_link_libraries(tpw_online_boss_e2e PRIVATE tpw_platform)
@@ -663,6 +746,33 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   endif()
   target_compile_definitions(tpw_launcher_ui_tests PRIVATE TPW_UI_SCREENS_DEFAULT="${CMAKE_CURRENT_BINARY_DIR}/ui-screens")
   add_test(NAME launcher_ui COMMAND tpw_launcher_ui_tests)
+  # The launcher's reads and writes of the game's settings files (launcher/ui/game_settings.h).
+  add_executable(tpw_game_settings_tests launcher/ui/tests/game_settings_tests.cpp)
+  target_link_libraries(tpw_game_settings_tests PRIVATE tpw_launcher_ui)
+  add_test(NAME game_settings COMMAND tpw_game_settings_tests)
+  # The same files against the game's own code: the real CPlayerSettings load and save, the file calls and the sound table being
+  # the test's stand-ins, and the real size lists (launcher/game_size_rules.h). Made only with the port's fixes, as the
+  # Settings box's Game options are.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_settings_sync_test launcher/ui/tests/settings_sync_game_test.cpp ${TPW_DECOMP_DIR}/src/game/TPSettings.cpp)
+    target_include_directories(tpw_settings_sync_test PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/launcher
+                               ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    target_link_libraries(tpw_settings_sync_test PRIVATE tpw_launcher_ui)
+    tpw_slice(TARGET tpw_settings_sync_test NAME settings_sync KEEP
+      __ZN15CPlayerSettings4InitEv   # CPlayerSettings::Init()
+      __ZN15CPlayerSettingsD1Ev   # CPlayerSettings::~CPlayerSettings()
+      __ZN15CPlayerSettingsD2Ev
+      __ZN15CPlayerSettings10LoadGlobalER23TbDynamicStringTemplateIcE   # CPlayerSettings::LoadGlobal
+      __ZN15CPlayerSettings10SaveGlobalER23TbDynamicStringTemplateIcE   # CPlayerSettings::SaveGlobal
+      __ZN15CPlayerSettings15SerialiseGlobalEPvij   # CPlayerSettings::SerialiseGlobal
+      __ZN15CPlayerSettings14SerialiseLocalEPvij   # CPlayerSettings::SerialiseLocal
+      __ZN15CPlayerSettings13SetResolutionENS_11eRESOLUTIONE)   # CPlayerSettings::SetResolution
+    if(tpw_platform_tests_skipped)
+      set_target_properties(tpw_settings_sync_test PROPERTIES EXCLUDE_FROM_ALL ON)
+    else()
+      add_test(NAME settings_sync COMMAND tpw_settings_sync_test)
+    endif()
+  endif()
   # The network module (launcher/net/) and the update check (launcher/ui/updater.h): no answer, fast, when nothing
   # answers; junk refused; the Update button's runs of the script. Its curl is the test program itself (TPW_NET_CURL), so
   # it needs no internet and runs where networking is blocked (the CI's offline runs).

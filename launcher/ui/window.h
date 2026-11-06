@@ -37,6 +37,12 @@ struct WindowPlacement {
         float x, y;
     };
     std::vector<Click> clicks;
+    // Scripted wheel turns (the launcher's --window-wheel X,Y,NOTCHES@F): the pointer at (x, y), before drawn frame F.
+    struct Wheel {
+        float x = 0, y = 0, notches = 0;
+        int frame = 0;
+    };
+    std::vector<Wheel> wheels;
     // The launcher's log (launcher/main.cpp: stderr and the log file, platform/log_file.h) for the window's own report
     // lines (a scripted click, a dumped frame, Play); null: stderr only. The line comes without a newline.
     void (*log)(const char* line) = nullptr;
@@ -62,6 +68,10 @@ struct WindowPlacement {
     // button shows; `mods` false: no such button.
     bool mods = false;
     std::vector<ModRow> modRows;
+    // The game's own settings (a build with the port's fixes: launcher/main.cpp), which the Settings box's Game options
+    // section shows and changes; `gameSettings` false: no such section.
+    bool gameSettings = false;
+    GameSettingsSource gameSource;
 };
 
 // Initialises SDL's video subsystem if it is not yet, and leaves it initialised. On Play the window is not closed: it

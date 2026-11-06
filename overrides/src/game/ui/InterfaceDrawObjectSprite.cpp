@@ -2,10 +2,28 @@
 
 #include "MapWho.h"
 #include "ui_DrawObject.h"
+// TPW_PORT_FIX resslider LiveSprites | Mac: (none) | Port: each surface made, with the size in units its first rectangle asked for and the last text drawn on it | Why: see include/ui_DrawObject.h
+#include "TPSettings.h"
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 // InterfaceDrawObjectSprite (main app, 0x1018c978..0x1018d0bc; the inventory files it under ui_textmanager.cpp): the draw object that is
 // a surface of the engine's sprite system. See include/ui_DrawObject.h for the class. The engine's sprite surfaces (SSpriteEngineData,
 // SSpriteGameData, CSpriteList) are in the engine library; the map's lists are CMapWho's.
+
+namespace {
+struct LiveSprite {
+    int32_t mUnitsWide;
+    int32_t mUnitsHigh;
+    bool mHasText;
+    std::u16string mText;
+};
+std::unordered_map<InterfaceDrawObjectSprite*, LiveSprite>& LiveSprites() {
+    static auto* live = new std::unordered_map<InterfaceDrawObjectSprite*, LiveSprite>;   // (never destroyed: windows outlive the statics at exit)
+    return *live;
+}
+}  // namespace
 
 // The list of the map the sprite lists of the interface are linked into while shown.
 namespace {
@@ -28,7 +46,8 @@ InterfaceDrawObjectSprite::InterfaceDrawObjectSprite(void* data) : InterfaceDraw
 }
 
 // (The list and the surface are destroyed by the members' destructors, in that order, before the base.)
-InterfaceDrawObjectSprite::~InterfaceDrawObjectSprite() {}
+// TPW_PORT_FIX resslider ~InterfaceDrawObjectSprite | Mac: nothing | Port: the surface leaves the list PortFollowScreen walks | Why: see include/ui_DrawObject.h
+InterfaceDrawObjectSprite::~InterfaceDrawObjectSprite() { if (gPortLiveResolution) LiveSprites().erase(this); }
 
 void InterfaceDrawObjectSprite::UpdateTextures(char16_t*) { mEngineData.RefreshPartialTexture(); }
 
@@ -84,6 +103,8 @@ void InterfaceDrawObjectSprite::Change(uint32_t flags, DOChange* change) {
         mPixelWidth = ScaledWidth(gUIRealScreenWidth, mRect.mRight - mRect.mLeft);
         mPixelHeight = ScaledHeight(gUIRealScreenHeight, mRect.mBottom - mRect.mTop);
         CreateTextures(nullptr);
+        // TPW_PORT_FIX resslider InterfaceDrawObjectSprite::Change | Mac: the first rectangle sizes the surface once | Port: it is kept for PortFollowScreen | Why: see include/ui_DrawObject.h
+        if (gPortLiveResolution) LiveSprites()[this] = LiveSprite{mRect.mRight - mRect.mLeft, mRect.mBottom - mRect.mTop, false, {}};
     } else if (mCreated == 0) {
         return;
     }
@@ -135,4 +156,43 @@ int32_t InterfaceDrawObjectSprite::GetWritableDataArea(int32_t* a, int32_t* b) {
     *a = mEngineData.mWords.mWidth;
     *b = mEngineData.mWords.mHeight;
     return static_cast<int32_t>(reinterpret_cast<intptr_t>(mEngineData.mWords.mPixels));
+}
+
+// TPW_PORT_FIX resslider InterfaceDrawObjectSprite::PortRememberText | Mac: (none) | Port: the text a text object has just been asked to draw | Why: see include/ui_DrawObject.h
+void InterfaceDrawObjectSprite::PortRememberText(const char16_t* text) {
+    if (!gPortLiveResolution) return;
+    const auto found = LiveSprites().find(this);
+    if (found == LiveSprites().end() || text == nullptr) return;
+    found->second.mHasText = true;
+    if (found->second.mText != text) found->second.mText = text;
+}
+// TPW_PORT_FIX resslider InterfaceDrawObjectSprite::PortFollowScreen | Mac: (none) | Port: see include/ui_DrawObject.h | Why: see include/ui_DrawObject.h
+void InterfaceDrawObjectSprite::PortFollowScreen() {
+    for (auto& [object, sprite] : LiveSprites()) {
+        const int32_t oldWide = object->mEngineData.mWidth;
+        const int32_t oldHigh = object->mEngineData.mHeight;
+        const int32_t usedWide = object->mSprite.mUsedWidth;
+        const int32_t usedHigh = object->mSprite.mUsedHeight;
+        const int32_t usedX = object->mSprite.mUsedX;
+        const int32_t usedY = object->mSprite.mUsedY;
+        // (a window that spans the unit space was just given its new width: UI_FollowUnits; the others keep their first size)
+        const int32_t across = object->mRect.mRight - object->mRect.mLeft;
+        if (across == gUIUnitWidth - 1) sprite.mUnitsWide = across;
+        const int32_t wide = ScaledWidth(gUIRealScreenWidth, sprite.mUnitsWide);
+        const int32_t high = ScaledHeight(gUIRealScreenHeight, sprite.mUnitsHigh);
+        if ((wide != oldWide || high != oldHigh) && object->mEngineData.PortResize(wide, high) != 0) {
+            object->mPixelWidth = static_cast<int16_t>(wide);
+            object->mPixelHeight = static_cast<int16_t>(high);
+            // (a part of the surface in use stays the same part of it)
+            object->mSprite.SetUsedPosition(oldWide > 0 ? usedX * wide / oldWide : 0, oldHigh > 0 ? usedY * high / oldHigh : 0);
+            object->mSprite.SetUsedSize(oldWide > 0 ? usedWide * wide / oldWide : wide, oldHigh > 0 ? usedHigh * high / oldHigh : high);
+        }
+        // (as Change does it: a window that did not move still stands somewhere else in the new unit space)
+        object->mSprite.mPosition.x = (2.0f * static_cast<float>(object->mRect.mLeft)) / static_cast<float>(gUIUnitWidth) - 1.0f;
+        object->mSprite.mPosition.y = 1.0f - (2.0f * static_cast<float>(object->mRect.mBottom)) / static_cast<float>(gUIUnitHeight);
+        if (sprite.mHasText) {
+            std::u16string text = sprite.mText;
+            object->UpdateTextures(text.data());
+        }
+    }
 }

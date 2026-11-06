@@ -101,7 +101,60 @@ extern TbDynamicStringTemplate<char> gTPSettingsLanguage;        // 0x103807c4
 void RestartDialog();                    // 0x101675b8
 int32_t RestartCallback_OK(void* data);  // 0x101674c0: the lobby quits, or the park saves the autosave
 int32_t RestartCallback_Cancel(void* data);   // 0x10167574: the change waits
-// TPW_PORT_FIX fix-video gPortScreenWidth | Mac: no such values; the options panel's resolution row is the saved setting | Port: the launcher points them at gScreenWidth and gScreenHeight (launcher/main.cpp); while they are set the options panel shows the size the game runs at and its resolution slider offers nothing else (CreateOptionsPanel, DoScroll) | Why: the launcher chooses the size through Resolution.sam's value, which outranks the setting in InitialiseGameStage3, so the setting never was the size on the screen
-// Null unless the launcher sets them, so a program that does not (the unit and differential tests) keeps the Mac's panel.
-inline const int32_t* gPortScreenWidth = nullptr;
-inline const int32_t* gPortScreenHeight = nullptr;
+// TPW_PORT_FIX resslider gPortLiveResolution | Mac: the slider offers 640 x 480, 800 x 600 and 1024 x 768, kept in Config.tcf as 1 to 3; OK asks for a restart and the next start opens at that size | Port: the launcher sets this: the slider offers every size the port has, whatever the screen, the game changes to it while running (PortApplyGameSize, src/game/ui/ui_gamesize.cpp), OK saves it in Config.tcf as 0x100 plus the preset and the next start opens at it | Why: the port renders offscreen and scales the picture to the window, so changing size takes no restart and no display mode, and the launcher's preset list is far longer than the setting's three
+// False unless the launcher sets it, so a program that does not (the unit and differential tests) keeps the Mac's panel.
+inline bool gPortLiveResolution = false;
+inline int32_t gPortLargestGameSize = 0;                 // this machine's framebuffer limit in pixels; 0 when unknown (not the screen)
+inline constexpr int32_t kPortResolutionChosen = 0x100;  // this plus the preset: that preset at the shape the launcher finds
+// The size the panel found running when it opened, and the size the slider asks for now (0 x 0: none yet).
+inline int32_t gPortPanelWide = 0;
+inline int32_t gPortPanelHigh = 0;
+inline int32_t gPortWantedWide = 0;
+inline int32_t gPortWantedHigh = 0;
+// The setting for a preset at a shape of kUISizeShapes (two steps of kPortResolutionChosen up, the shape's place above that).
+inline int32_t PortResolutionSetting(int32_t preset, int32_t shape) { return kPortResolutionChosen * (shape + 2) + preset; }
+// The preset a saved setting means: one chosen on the slider, or `otherwise` for what an older version saved.
+inline int32_t PortResolutionPreset(int32_t setting, int32_t otherwise) {
+    const int32_t chosen = setting & 0xff;
+    const int32_t step = setting >> 8;
+    return step >= 1 && step <= 4 && chosen >= 1 && chosen <= 10 ? chosen : otherwise;
+}
+// The shape a saved setting names, or -1 when it names none (the launcher's stands).
+inline int32_t PortResolutionShape(int32_t setting) {
+    const int32_t shape = (setting >> 8) - 2;
+    return PortResolutionPreset(setting, 0) != 0 && shape >= 0 && shape <= 2 ? shape : -1;
+}
+// The setting for an exact size, which is what the slider saves now (the two forms above still mean what they did): 15 bits
+// each, under a bit neither of them reaches, so a version that knows only those takes it for one it never saved.
+inline constexpr int32_t kPortResolutionExact = 0x40000000;
+inline int32_t PortResolutionExact(int32_t width, int32_t height) { return kPortResolutionExact | width << 15 | height; }
+// False when the setting is not one, or holds a size the game has no layout for (the launcher's size stands then).
+inline bool PortResolutionSize(int32_t setting, int32_t& width, int32_t& height) {
+    if (setting < 0 || (setting & kPortResolutionExact) == 0) return false;
+    const int32_t wide = (setting >> 15) & 0x7fff;
+    const int32_t high = setting & 0x7fff;
+    if (wide < 512 || high < 384 || wide > 8192 || high > 8192 || wide * 4 < high * 5) return false;
+    width = wide;
+    height = high;
+    return true;
+}
+// The options panel's three shape buttons (kUISizeShapes' order) and the text beside the slider.
+inline constexpr int32_t kPortShapeButton = 0x1d4e1;
+inline constexpr int32_t kPortSizeReadout = 0x1d4e4;
+// The screen's own size in pixels (0 x 0: not known), which the slider offers; a start's size when it is off the presets
+// (0 x 0: the preset's), from --resolution or a saved setting.
+inline int32_t gPortScreenWide = 0;
+inline int32_t gPortScreenHigh = 0;
+inline int32_t gPortStartWide = 0;
+inline int32_t gPortStartHigh = 0;
+inline bool PortSizeFits(int32_t width, int32_t height) {
+    return gPortLargestGameSize <= 0 || (width <= gPortLargestGameSize && height <= gPortLargestGameSize);
+}
+// At the top of the game's tick, between frames: once the thumb has stopped on a new size, changes to it (src/game/ui/ui_gamesize.cpp).
+void PortApplyGameSize();
+// Changes the running game's size. Everything that depends on it follows here.
+void PortChangeGameSize(int32_t width, int32_t height);
+// A shape button of the options panel (and the panel opening): the slider's stops at that shape.
+void PortShowShape(int32_t shape);
+class InterfaceFont;
+void PortMakeSizeRow(InterfaceFont* font, int32_t fontIndex, int16_t z);  // the size readout and the shape buttons (ui_gamesize.cpp)

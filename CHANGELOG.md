@@ -14,6 +14,7 @@
 - When the online server can't be reached (no internet connection, or the server is down), the game says so plainly: "Can't reach the online server. Please check your internet connection and try again." The reason is written to launcher.log. A wrong password or a full server still gets the game's own message.
 - Create an online account in the game: the online login panel has a Create account button. Choose a login name and a password (typed twice), give an e-mail address for password resets (kept private, never shown) and tick "I am 13 or older". OK puts the name and the password in the login boxes, so you only press Log in. Forgot password? e-mails you a 6-digit code to set a new password in the game.
 - The water, flags, lightning, lobby sounds, camera and menus now move at one steady pace on any monitor, and the launcher's new Frame rate limit sets how many frames the game draws. (Thanks Decidetto)
+- The launcher's Settings box shows every setting of the game's Options panel, and they stay in step: change the screen size, a volume or anything else in the game or in the launcher, and the other has it next time.
 
 ### Bug Fixes
 
@@ -25,6 +26,7 @@
 - Each in-game notification shows its own icon again (the red "!", the speech bubble, the golden ticket, a challenge's icon, the postcard's envelope), not always the yellow "i". (Thanks a pretty cool guy, Piro and @samueleagle91)
 - Fixed tired staff standing still for good when no path leads to a staff room: like in the original, they now keep working. (Thanks BMCTV and @samueleagle91)
 - Fixed the visitor list, the staff room panel and the hire panel keeping people who had already left, and the lists opened from a visitor, a member of staff, a ride or an item not selecting it. (Thanks @samueleagle91)
+- Fixed a crash when pressing Down or Home in the All Staff list after switching to a kind of staff you have none of. (Thanks @samueleagle91)
 - Fixed the Send Postcard preview looking dark and dotted at game sizes larger than 1024x768.
 - Coaster track pieces being placed show the see-through blue preview again. (Thanks Addable13, Piro)
 - Fixed the camera not scrolling left or right on a widescreen with the game's interface hidden (F3), or after closing the Bankrupt (game over) screen. (Thanks Addable13 and @samueleagle91)
@@ -37,11 +39,18 @@
 - Fixed lines missing, or drawn in the wrong colour, on the Park Information and Financial Information charts. (Thanks a pretty cool guy and @samueleagle91)
 - Fixed the park map not showing paths, queues, rides, shops or the park's land and its edge, and showing the map's other colours wrong.
 - Fixed the park map not highlighting the patrol area of the member of staff under the pointer. (Thanks @samueleagle91)
+- Fixed the park map scrolling by itself after it was closed during a right-button drag with the Ctrl-click scroll setting and then reopened. (Thanks @samueleagle91)
+- Fixed roller coaster track always being black on the park map with coasters shown: it has the original's blues and greens again.
+- Fixed being able to lay track across a ride after moving a coaster's support, which deleted the ride: the game refuses it, as in the original.
 - Fixed a rare crash in a busy park when a sound started just as another one ended.
 - Fixed a rare crash after long play when a set of sounds was freed while its sounds were still playing.
 - Fixed the advisor's warnings about unhappy or striking staff and about ride breakdowns having the wrong importance: most of them were never spoken, and a few always pushed ahead of everything else.
 - Fixed visitors' happiness changes using the wrong settings: a small disappointment took a visitor's happiness to 0 whatever it was, which often started them towards the exit, a medium one or a cheap entry fee changed nothing, a big one took too much, and rides that matched a visitor's taste perfectly or only loosely gave no happiness bonus.
 - Fixed coaster track through a loop support being too stretched after moving its slider: the curve always used the longest tangent instead of the one that depends on the support's angle and slider.
+- Fixed queues stopping for a few moments when a ride let on someone who wasn't at the front yet. (Thanks @samueleagle91)
+- Fixed the Screen resolution slider in the Options panel not moving: it now changes the game's size while it runs, with no restart, in about ten sizes people know (1920 x 1080 among them), shown beside it, with buttons next to it for 4:3, 16:10 and 16:9.
+- Fixed visitor status panels and the all-kids list not showing time in park, and the all-kids list not showing visitor numbers.
+- Fixed a possible crash, a little after loading, in a park saved by the original Mac game. Parks saved by earlier versions of the port still load. A park saved by this version can crash an earlier version of the port in the same way, so update before opening it.
 
 #### Launcher
 

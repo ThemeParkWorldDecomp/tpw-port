@@ -4,6 +4,7 @@
 // The UI works in a 2048 x 1536 virtual screen (ThemeParkWorld::GetUIMousePos).
 #pragma once
 #include <cstdint>
+#include <unordered_set>
 
 // A region of the UI's screen: the base answers "nothing" to everything. Mac: the vtable
 // pointer alone (4 bytes), vtable 0x102afcd8.
@@ -174,6 +175,28 @@ void UI_HideCursor();                                 // 0x101ca0b0: hides the c
 void UI_ShowCursor();                                 // 0x101ca110
 int16_t UI_GetButtonFlags();                          // 0x101ca944, nonzero while a mouse button is down
 
+// The sizes the launcher starts at, named by their 4:3 size: Resolution.sam's presets 1 to 7 and the launcher's 8 to 10, each
+// at each of the shapes the UI was laid out for. The launcher's --resolution and its choice of a shape, UI_PresetSize and a
+// saved setting of the older kind read it; the options panel's slider has kUISizeLists below.
+struct UISizePreset {
+    const char* mName;
+    int32_t mWidth;       // 4:3
+    int32_t mHeight;
+    int32_t mWideWidth;   // the width a wider screen keeps; 0: it keeps the height instead
+};
+inline constexpr int32_t kUISizePresetCount = 10;
+inline constexpr UISizePreset kUISizePresets[kUISizePresetCount] = {
+    {"512x384", 512, 384, 0},       {"640x480", 640, 480, 0},       {"800x600", 800, 600, 0},
+    {"1024x768", 1024, 768, 0},     {"1280x1024", 1280, 1024, 0},   {"1600x1200", 1600, 1200, 0},
+    {"2048x1536", 2048, 1536, 0},   {"2560x1920", 2560, 1920, 2560}, {"3200x2400", 3200, 2400, 3200},
+    {"4096x3072", 4096, 3072, 3840}};
+struct UISizeShape {
+    int32_t mWide;
+    int32_t mHigh;
+};
+inline constexpr int32_t kUISizeShapeCount = 3;
+inline constexpr UISizeShape kUISizeShapes[kUISizeShapeCount] = {{4, 3}, {16, 10}, {16, 9}};
+
 extern int16_t gUIRealScreenWidth;    // 0x10395bbc, original name unknown
 extern int16_t gUIRealScreenHeight;   // 0x10395bba
 // TPW_PORT_FIX v5L26 UI_SetRealScreenRez | Mac: the UI's 2048 x 1536 units always span the 4:3 screen | Port: a screen wider than 4:3 keeps the units square and widens the unit space to gUIUnitWidth | Why: a widescreen port, with the 2D art neither stretched nor cut off
@@ -181,6 +204,15 @@ extern float gUIWideAspect;    // width over height the launcher asks for; 0 kee
 extern int16_t gUIUnitWidth;   // the UI's width in units: 2048 on a 4:3 screen, more on a wider one
 extern int8_t gUIHighPresets;  // nonzero: Resolution.sam values 8 to 10 are the launcher's larger presets (src/game/TPConfig.cpp)
 bool UI_IsWideWindow(const InterfaceWindow* window);   // spans more than the 2048 units (the root and the game's view)
+// The windows made to span the whole unit space (the game's view, a menu's or a dialog's holder): at 4:3 they look like any
+// 2048-unit panel, so they are marked. Null unless the launcher makes it, so a program that never changes size keeps no list.
+inline std::unordered_set<const InterfaceWindow*>* gUIFullWindows = nullptr;
+inline void UI_MarkFullWindow(const InterfaceWindow* window) {
+    if (gUIFullWindows != nullptr) gUIFullWindows->insert(window);
+}
+// After the unit space has changed from `oldWide` x `oldHigh` units: the windows span it again and stand at the anchors it
+// gives them, as if made in it (src/game/ui/InterfaceWindow.cpp).
+void UI_FollowUnits(int32_t oldWide, int32_t oldHigh);
 int16_t UI_WideShift(const InterfaceWindow* window);   // how far the 2048-unit layout placed in `window` was moved across
 int16_t UI_WideShiftFor(const InterfaceWindow* window, bool relative);   // the same for a rectangle in its frame
 
@@ -197,18 +229,153 @@ inline int32_t UI_WideScreenHeight(int32_t width, float aspect) {
 // The size Resolution.sam's preset 1 to 7, or the launcher's 8 to 10, gives at an aspect (0: the 4:3 sizes). Presets 1
 // to 7 keep their height; 8 to 10 keep the width of their 16:9 size (3840 x 2160 at 16:9, 3840 x 2400 at 16:10).
 inline void UI_PresetSize(int32_t preset, float aspect, int32_t& width, int32_t& height) {
-    static const int32_t kSizes[10][3] = {{512, 384, 0},     {640, 480, 0},     {800, 600, 0},       {1024, 768, 0},
-                                          {1280, 1024, 0},   {1600, 1200, 0},   {2048, 1536, 0},     {2560, 1920, 2560},
-                                          {3200, 2400, 3200}, {4096, 3072, 3840}};   // 4:3 width, height; wide width
-    const int32_t* size = kSizes[preset < 1 ? 0 : preset > 10 ? 9 : preset - 1];
-    width = size[0];
-    height = size[1];
+    const UISizePreset& size = kUISizePresets[preset < 1 ? 0 : preset > kUISizePresetCount ? kUISizePresetCount - 1 : preset - 1];
+    width = size.mWidth;
+    height = size.mHeight;
     if (aspect <= 0.0f) return;
-    if (size[2] != 0) {
-        width = size[2];
-        height = UI_WideScreenHeight(size[2], aspect);
+    if (size.mWideWidth != 0) {
+        width = size.mWideWidth;
+        height = UI_WideScreenHeight(size.mWideWidth, aspect);
     } else {
-        width = UI_WideScreenWidth(size[1], aspect);
+        width = UI_WideScreenWidth(size.mHeight, aspect);
+    }
+}
+// A shape's aspect as gUIWideAspect holds it: 0 for 4:3, which keeps the presets' own sizes.
+inline float UI_ShapeAspect(int32_t shape) {
+    const UISizeShape& size = kUISizeShapes[shape < 0 ? 0 : shape >= kUISizeShapeCount ? kUISizeShapeCount - 1 : shape];
+    return size.mWide * 3 == size.mHigh * 4 ? 0.0f : static_cast<float>(size.mWide) / static_cast<float>(size.mHigh);
+}
+// A shape's aspect for a size as gUIWideAspect holds it (0 for 4:3 and narrower, which keep the 4:3 layout).
+inline float UI_SizeAspect(int32_t width, int32_t height) {
+    return width * 3 > height * 4 ? static_cast<float>(width) / static_cast<float>(height) : 0.0f;
+}
+// The size's place in kUISizeShapes: the nearest shape (1280 x 1024 is 4:3, 1366 x 768 is 16:9, a 3:2 screen is 16:10).
+inline int32_t UI_NearestShape(int32_t width, int32_t height) {
+    const float shape = static_cast<float>(width) / static_cast<float>(height);
+    int32_t nearest = 0;
+    float best = 1e9f;
+    for (int32_t i = 0; i < kUISizeShapeCount; ++i) {
+        float distance = shape - static_cast<float>(kUISizeShapes[i].mWide) / static_cast<float>(kUISizeShapes[i].mHigh);
+        if (distance < 0.0f) distance = -distance;
+        if (distance < best) {
+            best = distance;
+            nearest = i;
+        }
+    }
+    return nearest;
+}
+// What the options panel's size slider offers at each of kUISizeShapes, smallest first: the game's own heights down to 384
+// (its smallest, and the smallest it has fonts for) at that shape, then the sizes people know. 2730 x 1536 and the like are
+// still what --resolution and --aspect give; they get a stop only while they run.
+struct UISizeStop {
+    int32_t mWidth;
+    int32_t mHeight;
+};
+inline constexpr int32_t kUISizeListLength = 10;
+inline constexpr UISizeStop kUISizeLists[kUISizeShapeCount][kUISizeListLength] = {
+    {{512, 384}, {640, 480}, {800, 600}, {1024, 768}, {1280, 1024}, {1600, 1200}, {2048, 1536}, {2560, 1920}, {3200, 2400}, {4096, 3072}},
+    {{614, 384}, {768, 480}, {960, 600}, {1280, 800}, {1440, 900}, {1680, 1050}, {1920, 1200}, {2560, 1600}, {3200, 2000}, {3840, 2400}},
+    {{682, 384}, {854, 480}, {1066, 600}, {1280, 720}, {1366, 768}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3200, 1800}, {3840, 2160}}};
+// The stops at a shape: its list, the size the panel opened at when that is this shape, and the screen's own size when it is
+// this shape and one the UI was laid out for (5:4 to 16:9, not 21:9 or upright), each where it sorts by area. `stops` holds
+// kUISizeStopLimit; the answer is how many.
+inline constexpr int32_t kUISizeStopLimit = kUISizeListLength + 2;
+inline int32_t UI_SizeStops(int32_t shape, int32_t openWide, int32_t openHigh, int32_t screenWide, int32_t screenHigh, UISizeStop* stops) {
+    int32_t count = 0;
+    auto add = [&](int32_t width, int32_t height) {
+        for (int32_t i = 0; i < count; ++i)
+            if (stops[i].mWidth == width && stops[i].mHeight == height) return;
+        int32_t at = count++;
+        const int64_t area = static_cast<int64_t>(width) * height;
+        auto after = [&](const UISizeStop& stop) {
+            const int64_t other = static_cast<int64_t>(stop.mWidth) * stop.mHeight;
+            return other > area || (other == area && stop.mWidth > width);
+        };
+        for (; at > 0 && after(stops[at - 1]); --at) stops[at] = stops[at - 1];
+        stops[at] = {width, height};
+    };
+    for (const UISizeStop& size : kUISizeLists[shape]) add(size.mWidth, size.mHeight);
+    if (openWide > 0 && openHigh > 0 && UI_NearestShape(openWide, openHigh) == shape) add(openWide, openHigh);
+    if (screenWide > 0 && screenHigh > 0 && screenWide * 4 >= screenHigh * 5 && screenWide * 900 <= screenHigh * 1616 &&
+        UI_NearestShape(screenWide, screenHigh) == shape)
+        add(screenWide, screenHigh);
+    return count;
+}
+// How far apart two sizes are: the larger picture's area over the smaller's.
+inline float UI_SizeDistance(int32_t wide, int32_t high, int32_t otherWide, int32_t otherHigh) {
+    const float one = static_cast<float>(wide) * static_cast<float>(high);
+    const float other = static_cast<float>(otherWide) * static_cast<float>(otherHigh);
+    return one > other ? one / other : other / one;
+}
+// The stop closest to a size, itself when it is a stop, among those within `limit` pixels (0: all). The same height is the
+// closest (so a shape button and back returns to the size), then by area; the smaller of two as close.
+inline int32_t UI_ClosestStop(const UISizeStop* stops, int32_t count, int32_t wide, int32_t high, int32_t limit) {
+    int32_t closest = -1;
+    float best = 0.0f;
+    for (int32_t i = 0; i < count; ++i) {
+        if (limit > 0 && (stops[i].mWidth > limit || stops[i].mHeight > limit)) continue;
+        if (stops[i].mWidth == wide && stops[i].mHeight == high) return i;
+        const float distance = stops[i].mHeight == high ? 1.0f : UI_SizeDistance(wide, high, stops[i].mWidth, stops[i].mHeight);
+        if (closest < 0 || distance < best) {
+            closest = i;
+            best = distance;
+        }
+    }
+    return closest < 0 ? 0 : closest;
+}
+// The preset whose size at an aspect is closest to a size (a size off the presets starts from it).
+inline int32_t UI_ClosestPreset(int32_t wide, int32_t high, float aspect) {
+    int32_t closest = 1;
+    float best = 0.0f;
+    for (int32_t preset = 1; preset <= kUISizePresetCount; ++preset) {
+        int32_t width = 0;
+        int32_t height = 0;
+        UI_PresetSize(preset, aspect, width, height);
+        const float distance = UI_SizeDistance(wide, high, width, height);
+        if (preset == 1 || distance < best) {
+            closest = preset;
+            best = distance;
+        }
+    }
+    return closest;
+}
+inline UISizeStop gUISizeStops[kUISizeStopLimit] = {};
+inline int32_t gUISizeStopCount = 0;
+// Whether two sizes are one shape to within the 1% the even widths and heights of the presets leave (platform/window.cpp's
+// test for keeping the window as it is).
+inline bool UI_SameShape(int32_t wide, int32_t high, int32_t otherWide, int32_t otherHigh) {
+    const int64_t one = static_cast<int64_t>(wide) * otherHigh;
+    const int64_t other = static_cast<int64_t>(otherWide) * high;
+    return (one > other ? one - other : other - one) * 100 <= one;
+}
+// How long the thumb has to stand on a stop before the game changes size: the drag itself never stalls on a size it is only
+// passing through, and a click on the track changes it just as soon.
+inline constexpr uint32_t kUISizeStopMilliseconds = 150;
+struct UISizeWait {
+    int32_t mWidth = 0;
+    int32_t mHeight = 0;
+    uint32_t mSince = 0;
+};
+inline bool UI_SizeHasStopped(UISizeWait& wait, int32_t width, int32_t height, uint32_t now) {
+    if (wait.mWidth != width || wait.mHeight != height) {
+        wait.mWidth = width;
+        wait.mHeight = height;
+        wait.mSince = now;
+        return false;
+    }
+    return now - wait.mSince >= kUISizeStopMilliseconds;
+}
+// Nearest-neighbour copy of a picture of whole rows into a new size, for a surface whose pixels only its painter can make again.
+inline void UI_ResamplePixels(const uint8_t* from, int32_t fromWide, int32_t fromHigh, uint8_t* to, int32_t toWide, int32_t toHigh,
+                              int32_t bytesPerPixel) {
+    if (from == nullptr || to == nullptr || fromWide <= 0 || fromHigh <= 0) return;
+    for (int32_t y = 0; y < toHigh; ++y) {
+        const uint8_t* row = from + static_cast<int64_t>(y) * fromHigh / toHigh * fromWide * bytesPerPixel;
+        uint8_t* out = to + static_cast<int64_t>(y) * toWide * bytesPerPixel;
+        for (int32_t x = 0; x < toWide; ++x) {
+            const uint8_t* pixel = row + static_cast<int64_t>(x) * fromWide / toWide * bytesPerPixel;
+            for (int32_t i = 0; i < bytesPerPixel; ++i) *out++ = pixel[i];
+        }
     }
 }
 // The 4:3 box a screen's height gives, and where it starts on a screen of `width` (0 when the screen is not wider).

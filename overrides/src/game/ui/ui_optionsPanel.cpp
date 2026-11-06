@@ -24,6 +24,7 @@
 #include "tb_texturecache.h"
 #include "ThingReceivers.h"
 #include "TPCamera.h"
+#include "TPMain.h"
 #include "TPSettings.h"
 #include "TPSound.h"
 #include "UI_Base.h"
@@ -102,6 +103,11 @@ namespace options_panel {
 void DoButton(int32_t id, int32_t on) {
     CPlayerSettings::Settings& s = gPlayerSettings.mCurrent;
     bool flag = on != 1;
+    // TPW_PORT_FIX resslider DoButton | Mac: no such buttons | Port: a shape button shows that shape's sizes and keeps the closest to the running one | Why: the panel's shape buttons
+    if (gPortLiveResolution && id >= kPortShapeButton && id < kPortShapeButton + kUISizeShapeCount) {
+        PortShowShape(id - kPortShapeButton);
+        return;
+    }
     switch (static_cast<uint32_t>(id) - 0x1d4c1u) {
     case 0:
         s.mAdvisorOn = flag;
@@ -194,6 +200,11 @@ int32_t OptionsPanelMsg(InterfaceWindow* window, int32_t message, int32_t a, int
         }
         if (a == -2) {
             gPlayerSettings.ResetSettings();
+            // TPW_PORT_FIX resslider OptionsPanelMsg | Mac: Cancel puts the settings back and the size never changed | Port: the size the panel opened at comes back with them | Why: the slider changes the size live
+            if (gPortLiveResolution) {
+                gPortWantedWide = gPortPanelWide;
+                gPortWantedHigh = gPortPanelHigh;
+            }
             RemoveOptionsPanel();
             return 0;
         }
@@ -319,6 +330,8 @@ void CreateOptionsPanel() {
     for (int32_t id : kTexts) MakeTextWindow(id);
 
     int32_t resolution = settings.mCurrent.mResolution;
+    // TPW_PORT_FIX resslider CreateOptionsPanel | Mac: the setting places the thumb | Port: while gPortLiveResolution, the thumb starts at the first stop and the block below places it | Why: the setting holds a size now, and the sizes are not there yet
+    if (gPortLiveResolution) resolution = 1;
     MakeScrollWindow(0x1d4d5, (resolution - 1) * 100 / 2);
     int32_t detail = settings.mCurrent.mDetail;
     MakeScrollWindow(0x1d4d6, detail * 100 / 2);
@@ -358,10 +371,16 @@ void CreateOptionsPanel() {
         default: text = 0; break;
     }
     SetPairText(0x1d4d5, text, 0x13f);
-    // TPW_PORT_FIX fix-video CreateOptionsPanel | Mac: the resolution row and slider show the saved setting | Port: while gPortScreenWidth (TPSettings.h) is set, the slider is put at its top and DoScroll's port fix names the size the game runs at | Why: the launcher chooses the size, which outranks the setting, so the row named a size the screen did not have
-    if (gPortScreenWidth != nullptr && gPortScreenHeight != nullptr) {
-        gSetOnOffRoot->GetWindow(0x1d4d5)->SetValue(100);
-        options_panel::DoScroll(0x1d4d5, 100);
+    // TPW_PORT_FIX resslider CreateOptionsPanel | Mac: the slider stands at the saved setting, in three steps, and the row names the setting | Port: while gPortLiveResolution (TPSettings.h) is set, one step for each size of the running shape (UI_SizeStops), the size written beside the slider and three buttons for the shape, all in the row's free room | Why: the slider is live and keeps every size (FIXES.md, unit resslider)
+    if (gPortLiveResolution) {
+        gPortPanelWide = gScreenWidth;
+        gPortPanelHigh = gScreenHeight;
+        gPortWantedWide = gScreenWidth;
+        gPortWantedHigh = gScreenHeight;
+        UIMain_GetString(0x13f);
+        LabelOf(0x1d4d5)->SetText(gUIMainConvertBuffer);
+        PortMakeSizeRow(GetFontTableEntry(gOptionsPanelFontIndex), gOptionsPanelFontIndex, z);
+        PortShowShape(UI_NearestShape(gScreenWidth, gScreenHeight));
     }
     switch (settings.mCurrent.mDetail) {
         case 0: text = 0x150; break;

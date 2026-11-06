@@ -161,6 +161,23 @@ void PushClicks(SDL_Window* window, const WindowPlacement& placement, int frame)
         Report("launcher: scripted click %s at %.0f,%.0f (frame %d)", e.button.down ? "down" : "up", click.x, click.y,
                frame);
     }
+    for (const WindowPlacement::Wheel& wheel : placement.wheels) {
+        if (frame != wheel.frame) continue;
+        SDL_Event e{};
+        e.type = SDL_EVENT_MOUSE_MOTION;
+        e.motion.windowID = SDL_GetWindowID(window);
+        e.motion.x = wheel.x;
+        e.motion.y = wheel.y;
+        SDL_PushEvent(&e);
+        e = SDL_Event{};
+        e.type = SDL_EVENT_MOUSE_WHEEL;
+        e.wheel.windowID = SDL_GetWindowID(window);
+        e.wheel.y = wheel.notches;
+        e.wheel.mouse_x = wheel.x;
+        e.wheel.mouse_y = wheel.y;
+        SDL_PushEvent(&e);
+        Report("launcher: scripted wheel %.0f at %.0f,%.0f (frame %d)", wheel.notches, wheel.x, wheel.y, frame);
+    }
 }
 
 }  // namespace
@@ -221,6 +238,7 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
         ui.SetShowLogs(placement.showLogs);
         ui.SetExportLogs(placement.exportLogs);
         if (placement.mods) ui.SetMods(placement.modRows);
+        if (placement.gameSettings) ui.SetGameSettings(placement.gameSource);
         // The update check: at every start, on a thread of its own; closing the window stops it (or an update's build).
         const char* base = SDL_GetBasePath();
         Updater updater(backend, update::DescribeCurrent(kLauncherVersion, !placement.programFolder.empty() ? placement.programFolder : base ? base : ""),

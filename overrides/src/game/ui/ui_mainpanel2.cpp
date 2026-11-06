@@ -1022,6 +1022,7 @@ void ToggleGameWindow() {
             // TPW_PORT_FIX v5L26 ToggleGameWindow | Mac: the bumhole window (the view while the game window is hidden, and after the game over screen) is 2048 x 1536 units | Port: as wide and as high as the unit space, like the game window | Why: a widescreen port; the 4:3 window sat in the middle of a wide screen, so with the pointer at the left or right edge it was outside it and the camera did not scroll (Addable13)
             gBumholeWindow = gUIRootWindow->CreateObject(1, 1, 0xddf22, 0, 0, static_cast<int16_t>(gUIUnitWidth - 1),
                                                          static_cast<int16_t>(gUIUnitHeight - 1));
+            UI_MarkFullWindow(gBumholeWindow);
             if (gBumholeWindow != nullptr) {
                 gBumholeWindow->SetCallbackFunction(bumhole);
                 gBumholeWindow->CaptureKb(0);

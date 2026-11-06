@@ -237,6 +237,9 @@ void LauncherUi::HandleEvent(const SDL_Event& e) {
         case SDL_EVENT_TEXT_INPUT:
             if (onlineServerEditing_ && e.text.text != nullptr) input_.typed += e.text.text;
             break;
+        case SDL_EVENT_WINDOW_FOCUS_GAINED:
+            gameSettingsStale_ = true;   // the window is back: the game may have changed its files (RefreshGameSettings)
+            break;
         case SDL_EVENT_WINDOW_DISPLAY_CHANGED:
         case SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED:
             frameRateTopStale_ = true;   // the Frame rate limit slider's top is read again (DrawSettings)
@@ -257,6 +260,7 @@ void LauncherUi::HandleEvent(const SDL_Event& e) {
             }
             if (e.key.key == SDLK_ESCAPE) {
                 if (languageOpen_ >= 0) languageOpen_ = -1;
+                else if (gamePlayerOpen_) gamePlayerOpen_ = false;
                 else if (editedOpen_ >= 0) editedOpen_ = -1;
                 else if (armedRemove_ >= 0) armedRemove_ = -1;
                 else if (aboutOpen_) aboutOpen_ = false;
@@ -439,6 +443,7 @@ void LauncherUi::ShowSettings(bool open) {
     if (!open) onlineServerEditing_ = false;
     armedRemove_ = -1;
     languageOpen_ = -1;
+    gamePlayerOpen_ = false;
     if (open) RefreshLanguages();
 }
 
@@ -1168,14 +1173,16 @@ void LauncherUi::DrawSettings(const Rect& w) {
                   4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + 8 * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + static_cast<float>(SamOptions().size() + 1) * rowH +
-                  text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH + (rendererRow_ ? rowH : 0.0f);
+                  text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH + (rendererRow_ ? rowH : 0.0f) +
+                  (gameShown_ ? GameOptionsHeight(rowH) + text_.LineHeight(style::kSmall) + 6 : 0.0f);
     float ph = std::min(w.h - 2 * metric::kMargin, titleH + bodyH + 40);
     Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
     // An open Language list (drawn last, over the box) takes the pointer: the box below it draws but does not react,
     // and a press outside the list closes it. One opened in this frame shows from the next.
     const int listOpen = languageOpen_;
+    const bool playerListOpen = gamePlayerOpen_;
     const bool interactive = ui_.Interactive();
-    if (listOpen >= 0) ui_.SetInteractive(false);
+    if (listOpen >= 0 || playerListOpen) ui_.SetInteractive(false);
     ui_.Panel(panel, colour::kPaper, colour::kCream);
     Rect in = panel.Inset(20);
     float y = in.y;
@@ -1467,9 +1474,18 @@ void LauncherUi::DrawSettings(const Rect& w) {
         y += rowH;
     }
 
+    if (gameShown_) DrawGameOptions(in, y, rowH);
+
     // The original's options files' graphics options (SamOptions), each Default (the detail level's own) or a choice.
     text_.Draw(style::kBodyBold, in.x, y, "Graphics", colour::kInk);
     y += text_.LineHeight(style::kBodyBold) + 4;
+    if (gameShown_) {
+        text_.Draw(style::kSmall, in.x, y,
+                   text_.Fit(style::kSmall, "Default keeps what each edition's Graphics quality gives; a choice here replaces it",
+                             in.w, false),
+                   colour::kInkSoft);
+        y += text_.LineHeight(style::kSmall) + 6;
+    }
     for (size_t i = 0; i < SamOptions().size(); ++i) {
         const SamOption& option = SamOptions()[i];
         Rect row{in.x, y, in.w, rowH - 6};
@@ -1604,6 +1620,12 @@ void LauncherUi::DrawSettings(const Rect& w) {
         if (close) languageOpen_ = -1;
     } else {
         languageRows_.clear();
+    }
+    if (gameShown_ && playerListOpen && gamePlayerOpen_) {
+        ui_.SetInteractive(interactive);
+        DrawGamePlayerList(w);
+    } else {
+        gamePlayerRows_.clear();
     }
 }
 
@@ -1943,6 +1965,14 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
 
     bool overlay = aboutOpen_ || settingsOpen_ || modsOpen_ || editedOpen_ >= 0;
     if (!settingsOpen_) languageOpen_ = -1;
+    if (!settingsOpen_) gamePlayerOpen_ = false;
+    if (settingsOpen_ && !settingsWereOpen_) {   // opened: the edition chosen to play and its last player, as they are now
+        gameEdition_ = -1;
+        gamePlayer_.clear();
+    }
+    if (settingsOpen_ && (!settingsWereOpen_ || gameSettingsStale_)) RefreshGameSettings();
+    settingsWereOpen_ = settingsOpen_;
+    gameSettingsStale_ = false;
     ui_.SetInteractive(!overlay && !dragging_);
     tilesShown_ = false;
     readyShown_ = false;

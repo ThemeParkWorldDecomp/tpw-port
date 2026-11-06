@@ -1027,7 +1027,7 @@ void InterfaceListControl2::SetCurrent(int32_t position) {
         if (position < oldTop || position >= oldTop + mVisibleRows) {
             mTopEntry = position;
             if (mTopEntry + mVisibleRows > mItemCount) mTopEntry = mItemCount - mVisibleRows;
-            // TPW_PORT_FIX listtop InterfaceListControl2::SetCurrent | Mac: the first visible entry may go below 0 (an empty list, where the position becomes -1; or a list with fewer entries than rows whose current entry was out of view), and UpdateDisplay then takes every row from that negative top as in the list: past the last entry it draws the cells of entry -1, the block's free words, so a string cell is the word -2 | Port: the first visible entry is kept at 0 or above, so an empty list ends with no current entry and draws no rows | Why: the port read the free word -2 as a string's address and crashed (reading 0xfffffffe): pressing Down or Home in a list that had rows and has none now, such as the All Staff panel after its tab moved from staff to a kind with nobody
+            // TPW_PORT_FIX listtop InterfaceListControl2::SetCurrent | Mac: a list with fewer entries than rows (an empty one, or a short one scrolled further than it now reaches) takes a negative first visible entry, count - rows | Port: the first visible entry stops at 0 | Why: UpdateDisplay then starts an empty list at entry -1 and reads word -2 of the block as a row's string, a crash at 0xfffffffe on the host, as Down or Home does in the All Staff list after switching to a kind of staff you have none of; contributed by samueleagle91 (tpw-port PR #108)
             if (mTopEntry < 0) mTopEntry = 0;
         }
         ChangeCurEntry(position - mTopEntry);

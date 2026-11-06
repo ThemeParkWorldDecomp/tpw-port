@@ -3,8 +3,9 @@
 // top 10, the server list's upload host, a park published, then listed in its city, then downloaded from the server's FTP service
 // (platform/online_ftp.cpp) and compared with the file sent. Skips (77) unless TPW_ONLINE_SERVER names the server;
 // TPW_ONLINE_NAME and TPW_ONLINE_PASSWORD are an account on it, TPW_ONLINE_PARK a park file it accepts (tpw-online
-// make-test-park), TPW_ONLINE_RIDES the park's ride numbers ("1,2,3", hex as the request sends them), TPW_ONLINE_FTP_PORT the
-// FTP service's port (21; a local server's listen.ftp). Never run against a host that is not the tester's own.
+// make-test-park), TPW_ONLINE_RIDES the park's ride numbers ("1,2,3", hex as the request sends them), TPW_ONLINE_PARK_NAME and
+// TPW_ONLINE_PARK_DESC what it is published as, TPW_ONLINE_FTP_PORT the FTP service's port (21; a local server's listen.ftp).
+// Never run against a host that is not the tester's own.
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -168,6 +169,7 @@ int main() {
     const std::string password = Env("TPW_ONLINE_PASSWORD", "");
     const fs::path parkFile = Env("TPW_ONLINE_PARK", "");
     const std::string rides = Env("TPW_ONLINE_RIDES", "");
+    const std::string publishName = Env("TPW_ONLINE_PARK_NAME", "E2E Park");
     const uint16_t language = static_cast<uint16_t>(std::atoi(Env("TPW_ONLINE_LANGUAGE", "0")));
     boss::SetServer(server);
 
@@ -216,9 +218,16 @@ int main() {
     g = Query(&gCity, 1, "", 0x30);
     Check(g.code == 2 && g.count > 0, "city: the city list (" + std::to_string(g.count) + " cities)");
     if (g.count <= 0) return 1;
-    const int32_t city = static_cast<int32_t>(Word(g.infos.data()));
-    const std::string cityFtp = ArenaText(g.infos.data() + 0x1c);
-    std::printf("city %d: %s\n", city, ArenaText(g.infos.data() + 4).c_str());
+    // The first city that takes parks: a closed one (+0x28), like the chat rooms' city 1, refuses the publish below.
+    const uint8_t* row = g.infos.data();
+    for (int32_t i = 0; i < g.count && Word(row + 0x28) != 0; ++i) row = g.infos.data() + static_cast<size_t>(i + 1) * 0x30;
+    if (row >= g.infos.data() + static_cast<size_t>(g.count) * 0x30) {
+        Check(false, "city: an open city to publish to");
+        return 1;
+    }
+    const int32_t city = static_cast<int32_t>(Word(row));
+    const std::string cityFtp = ArenaText(row + 0x1c);
+    std::printf("city %d: %s\n", city, ArenaText(row + 4).c_str());
     char query[0x80];
     std::snprintf(query, sizeof query, "CITYID=%d", city);
     g = Query(&gCity, 2, query, 0x66);
@@ -254,7 +263,7 @@ int main() {
         info.mF00 = city;
         info.mThemeID = 1;
         info.mFlag = 1;
-        const std::u16string parkName = u"E2E Park", parkDesc = u"Published by the port's online client test";
+        const std::u16string parkName = Wide(publishName), parkDesc = Wide(Env("TPW_ONLINE_PARK_DESC", "Published by the port's online client test"));
         std::memcpy(info.mName, parkName.c_str(), (parkName.size() + 1) * 2);
         std::memcpy(info.mDescription, parkDesc.c_str(), (parkDesc.size() + 1) * 2);
         size_t n = 0;
@@ -278,7 +287,7 @@ int main() {
         std::string guid;
         for (int32_t i = 0; g.code == 3 && i < g.count; ++i) {
             const uint8_t* row = g.infos.data() + static_cast<size_t>(i) * 0x66;
-            if (ArenaText(row + 4) != "E2E Park") continue;
+            if (ArenaText(row + 4) != publishName) continue;
             listed = true;
             guid = ArenaNarrow(row + 0x44);   // the newest is listed first
             if (!guid.empty()) break;

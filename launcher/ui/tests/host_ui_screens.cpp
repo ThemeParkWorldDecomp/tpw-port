@@ -10,6 +10,7 @@
 #include <zlib.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -19,9 +20,11 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "backend.h"
+#include "game_settings.h"
 #include "launcher_ui.h"
 #include "manifest.h"
 #include "texts.h"
@@ -388,6 +391,90 @@ std::vector<ImportProgress> LogEvents(size_t count) {
 }
 
 // ---- drawing a state
+
+// Game options for the box: a folder of two editions' files under the system's temporary folder, with two players of the
+// first, and the game's real sizes' shape (launcher/game_size_rules.h gives the real ones; these need no game header).
+struct GameOptionsFolder {
+    std::filesystem::path root;
+    GameSettingsSource source;
+
+    explicit GameOptionsFolder(const std::string& name) {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        root = fs::temp_directory_path(ec) / ("tpw-ui-game-options-" + name + "-" + std::to_string(reinterpret_cast<uintptr_t>(this)));
+        fs::remove_all(root, ec);
+        fs::create_directories(root);
+        std::FILE* sam = std::fopen((root / "sound.sam").string().c_str(), "w");
+        std::fprintf(sam, "SoundInfo.DEFAULTQUALITY 50\nSoundInfo.SOUNDON 1\nDefaultVolume.SFX 75\nDefaultVolume.MUSIC 60\n"
+                          "DefaultVolume.SPEECH 75\nDefaultVolume.MOVIE 100\n");
+        std::fclose(sam);
+        source.sizes.shapes = {"4:3", "16:10", "16:9"};
+        // A hundred heights of 200 at three shapes, and any other size at its own, as a number that holds the size.
+        static const auto shapeOf = [](GameSize size) { return size.width * 100 < size.height * 145 ? 0 : size.width * 100 < size.height * 170 ? 1 : 2; };
+        source.sizes.chosen = [](int setting, int& shape) {
+            GameSize size{3200, 2000};
+            if (setting & 0x40000000) size = {(setting >> 15) & 0x7fff, setting & 0x7fff};
+            shape = shapeOf(size);
+            return size;
+        };
+        source.sizes.stops = [](int shape, GameSize opened) {
+            static const int kWide[] = {4, 16, 16}, kHigh[] = {3, 10, 9};
+            std::vector<GameSize> stops;
+            for (int i = 1; i <= 10; ++i) stops.push_back({i * 200 * kWide[shape] / kHigh[shape], i * 200});
+            if (shapeOf(opened) == shape && std::find(stops.begin(), stops.end(), opened) == stops.end()) {
+                stops.push_back(opened);
+                std::sort(stops.begin(), stops.end(), [](GameSize a, GameSize b) { return a.height < b.height; });
+            }
+            return stops;
+        };
+        source.sizes.closest = [](const std::vector<GameSize>& stops, GameSize size) {
+            int best = 0;
+            for (int i = 0; i < static_cast<int>(stops.size()); ++i)
+                if (std::abs(stops[static_cast<size_t>(i)].height - size.height) < std::abs(stops[static_cast<size_t>(best)].height - size.height))
+                    best = i;
+            return best;
+        };
+        source.sizes.setting = [](GameSize size) { return 0x40000000 | size.width << 15 | size.height; };
+        const fs::path rootCopy = root;
+        source.userFolder = [rootCopy](int edition) { return rootCopy / (edition == 0 ? "us" : "eur"); };
+        source.soundSam = [rootCopy](int) { return rootCopy / "sound.sam"; };
+    }
+    ~GameOptionsFolder() {
+        std::error_code ec;
+        std::filesystem::remove_all(root, ec);
+    }
+    std::filesystem::path Config(int edition) const { return source.userFolder(edition) / "save" / "Config.tcf"; }
+    std::filesystem::path Player(int edition, const std::string& folder) const {
+        return source.userFolder(edition) / "save" / "users" / folder / "gms.dat";
+    }
+    // A new player's gms.dat: 25 bytes before the 39 of the options, four after.
+    void AddPlayer(int edition, const std::string& folder) const {
+        std::vector<uint8_t> bytes(68, 0);
+        bytes[0] = 0x0c;
+        for (int block : {0, 8, 16, 24}) {
+            bytes[static_cast<size_t>(25 + block)] = 1;
+            bytes[static_cast<size_t>(25 + block + 4)] = 50;
+        }
+        for (int flag = 32; flag < 39; ++flag) bytes[static_cast<size_t>(25 + flag)] = 1;
+        Save(Player(edition, folder), bytes);
+    }
+    static void Save(const std::filesystem::path& file, const std::vector<uint8_t>& bytes) {
+        std::filesystem::create_directories(file.parent_path());
+        std::FILE* out = std::fopen(file.string().c_str(), "wb");
+        std::fwrite(bytes.data(), 1, bytes.size(), out);
+        std::fclose(out);
+    }
+    static std::vector<uint8_t> Load(const std::filesystem::path& file) {
+        std::vector<uint8_t> bytes;
+        std::FILE* in = std::fopen(file.string().c_str(), "rb");
+        if (!in) return bytes;
+        uint8_t buffer[4096];
+        size_t got = 0;
+        while ((got = std::fread(buffer, 1, sizeof buffer, in)) > 0) bytes.insert(bytes.end(), buffer, buffer + got);
+        std::fclose(in);
+        return bytes;
+    }
+};
 
 struct Shot {
     std::string name;
@@ -1024,6 +1111,33 @@ std::vector<Shot> Shots() {
     shots.push_back({"21-settings-smallest", metric::kMinWidth, metric::kMinHeight, PartialUsEur,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) { ui.ShowSettings(true); },
                      Screen::Home, {}});
+
+    // The Game options section, at the window's start size and in the smallest window, scrolled to it and to its player's rows.
+    static const GameOptionsFolder shotFolder("shots");
+    shotFolder.AddPlayer(0, "1Ann");
+    shotFolder.AddPlayer(1, "1Ann");
+    for (const auto& [name, w, h, past] : std::vector<std::tuple<std::string, float, float, GameOption>>{
+             {"36-settings-game-options", metric::kStartWidth, metric::kStartHeight, GameOption::Resolution},
+             {"36-settings-game-options-rendering", metric::kStartWidth, metric::kStartHeight, GameOption::MusicVolume},
+             {"37-settings-game-options-player", metric::kStartWidth, metric::kStartHeight, GameOption::Scroll},
+             {"38-settings-game-options-smallest", metric::kMinWidth, metric::kMinHeight, GameOption::Resolution},
+             {"39-settings-game-options-player-smallest", metric::kMinWidth, metric::kMinHeight, GameOption::Scroll}}) {
+        const float high = h;
+        const GameOption option = past;
+        const float wide = w;
+        shots.push_back({name, static_cast<int>(wide), static_cast<int>(high), PartialUsEur,
+                         [high, option](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                             ui.SetGameSettings(shotFolder.source);
+                             ui.ShowSettings(true);
+                             frames(2);
+                             ui.HandleEvent(MotionEvent(90, high * 0.5f));
+                             for (int notch = 0; notch < 80 && ui.GameOptionRect(option).Bottom() > high * 0.9f; ++notch) {
+                                 ui.HandleEvent(WheelEvent(-1));
+                                 frames(1);
+                             }
+                         },
+                         Screen::Home, {}});
+    }
 
     // The Language section (launcher_ui.h LanguageKey) with the European edition's list open, on the five-language disc's
     // data: scrolled until the rows are in view, the list below its field.
@@ -1933,6 +2047,216 @@ void CheckSoundPanSwitch(SDL_Renderer* renderer) {
     CheckEq(b.Setting(kSoundPanKey), "0", "sound panning: a launcher.ini with 1 shows it on, so one click turns it off");
 }
 
+// The Settings box's Game options section (settings_game.cpp): none without the game's settings, every row of the Options
+// panel with them, nothing written by opening it, a change in the file at once and in no launcher.ini key, the game's
+// change shown when the window comes back, and nothing changed while the game holds the folder or of a file that does not read.
+void CheckGameOptions(SDL_Renderer* renderer) {
+    namespace fs = std::filesystem;
+    const float width = 1100, height = 3400;   // tall enough for the whole box
+    auto number = [](int got, int want, const std::string& what) { CheckEq(std::to_string(got), std::to_string(want), what); };
+
+    {
+        FakeBackend b;
+        LauncherUi ui(renderer, b);
+        ui.ShowSettings(true);
+        ui.Frame(kDt, width, height, 1);
+        Check(ui.GameOptionRect(GameOption::Advisor).w == 0, "game options: none without the game's settings (the original)");
+        Check(ui.GameEditionRect().w == 0, "game options: no edition row without them");
+    }
+
+    GameOptionsFolder folder("box");
+    FakeBackend b;
+    LauncherUi ui(renderer, b);
+    ui.SetGameSettings(folder.source);
+    auto frames = [&](int n) {
+        for (int i = 0; i < n; ++i) ui.Frame(kDt, width, height, 1);
+    };
+    auto clickAt = [&](float x, float y) {
+        ui.HandleEvent(MotionEvent(x, y));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, x, y));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, x, y));
+        frames(1);
+    };
+    auto click = [&](GameOption option) {
+        const Rect r = ui.GameOptionRect(option);
+        clickAt(r.CentreX(), r.CentreY());
+    };
+    // The choice'th of `count` side by side choices.
+    auto choose = [&](const Rect& r, int choice, int count) {
+        clickAt(r.x + r.w * (static_cast<float>(choice) + 0.5f) / static_cast<float>(count), r.CentreY());
+    };
+    auto drag = [&](GameOption option, float toFraction) {
+        const Rect r = ui.GameOptionRect(option);
+        const float y = r.CentreY(), fromX = r.CentreX(), toX = r.x + r.w * toFraction;
+        ui.HandleEvent(MotionEvent(fromX, y));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, fromX, y));
+        frames(1);
+        ui.HandleEvent(MotionEvent(toX, y));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, toX, y));
+        frames(1);
+    };
+    auto windowBack = [&] {
+        SDL_Event event{};
+        event.type = SDL_EVENT_WINDOW_FOCUS_GAINED;
+        ui.HandleEvent(event);
+        frames(1);
+    };
+
+    // Opening: the defaults, and no file made.
+    folder.AddPlayer(1, "1Ann");
+    const std::vector<uint8_t> annBefore = GameOptionsFolder::Load(folder.Player(1, "1Ann"));
+    ui.ShowSettings(true);
+    frames(2);
+    for (int option = 0; option < static_cast<int>(GameOption::Count); ++option)
+        Check(ui.GameOptionRect(static_cast<GameOption>(option)).w > 0, "game options: row " + std::to_string(option) + " is in the box");
+    Check(ui.GameEditionRect().w > 0 && ui.GameShapeRect().w > 0 && ui.GamePlayerRect().w > 0, "game options: edition, shape and player rows");
+    number(ui.GameEdition(), 1, "game options: the edition chosen to play");
+    Check(ui.GameView().configState == GameFileState::Missing, "game options: no Config.tcf yet");
+    number(ui.GameView().config.soundQuality, 75, "game options: the game's first Audio quality");
+    number(ui.GameView().player, 0, "game options: the only player");
+    Check(!fs::exists(folder.Config(1)), "game options: opening the box makes no Config.tcf");
+    Check(GameOptionsFolder::Load(folder.Player(1, "1Ann")) == annBefore, "game options: opening the box changes no player");
+    Check(ui.SettingsBodyCounted() == ui.SettingsBodyDrawn(), "game options: the box's height is the rows drawn");
+    const size_t keptKeys = b.settings.size();
+
+    // A toggle of the player's: its byte, and only that; no Config.tcf for it.
+    click(GameOption::Advisor);
+    std::vector<uint8_t> ann = GameOptionsFolder::Load(folder.Player(1, "1Ann"));
+    number(ann[25 + 32], 0, "game options: a click turns Advisor off in gms.dat");
+    ann[25 + 32] = 1;
+    Check(ann == annBefore, "game options: nothing else of gms.dat changed");
+    Check(!ui.GameView().options.advisor, "game options: the box shows Advisor off");
+    Check(!fs::exists(folder.Config(1)), "game options: a player's option makes no Config.tcf");
+
+    // A choice of Config.tcf's: makes the game's file from its defaults, that one number changed.
+    choose(ui.GameOptionRect(GameOption::GraphicsQuality), 0, 3);
+    GameConfig config;
+    Check(ParseGameConfig(GameOptionsFolder::Load(folder.Config(1)), config), "game options: Graphics quality makes the file");
+    number(config.detail, 0, "game options: Low kept");
+    number(config.soundQuality, 75, "game options: the game's Audio quality in the new file");
+    number(config.movie.volume, 100, "game options: the game's Movie volume in the new file");
+
+    // The sliders: a volume, Audio quality, and the Screen resolution's stops and shapes.
+    drag(GameOption::SfxVolume, 0.25f);
+    const int sfx = ui.GameView().options.sfx.volume;
+    Check(sfx > 15 && sfx < 35, "game options: Sound effects volume dragged to a quarter");
+    PlayerOptions options;
+    Check(ParsePlayerOptions(GameOptionsFolder::Load(folder.Player(1, "1Ann")), options), "game options: gms.dat still reads");
+    number(options.sfx.volume, sfx, "game options: the file has it");
+    click(GameOption::SfxOn);
+    Check(ParsePlayerOptions(GameOptionsFolder::Load(folder.Player(1, "1Ann")), options) && !options.sfx.on, "game options: its switch");
+    number(options.sfx.volume, sfx, "game options: the switch leaves the volume");
+    drag(GameOption::AudioQuality, 1.5f);
+    Check(ParseGameConfig(GameOptionsFolder::Load(folder.Config(1)), config), "game options: reads");
+    number(config.soundQuality, 100, "game options: Audio quality dragged past the end is its top");
+    drag(GameOption::Resolution, -0.5f);
+    Check(ParseGameConfig(GameOptionsFolder::Load(folder.Config(1)), config), "game options: reads");
+    number(config.resolution, 0x40000000 | 320 << 15 | 200, "game options: the first size at the screen's shape, as the game's number");
+    choose(ui.GameShapeRect(), 2, 3);
+    Check(ParseGameConfig(GameOptionsFolder::Load(folder.Config(1)), config), "game options: reads");
+    number(config.resolution, 0x40000000 | 355 << 15 | 200, "game options: the shape button keeps the height and changes the shape");
+    choose(ui.GameShapeRect(), 1, 3);
+    Check(ParseGameConfig(GameOptionsFolder::Load(folder.Config(1)), config), "game options: reads");
+    number(config.resolution, 0x40000000 | 320 << 15 | 200, "game options: and back");
+    drag(GameOption::Resolution, 1.5f);
+    Check(ParseGameConfig(GameOptionsFolder::Load(folder.Config(1)), config), "game options: reads");
+    number(config.resolution, 2, "game options: back at the size it opened at, the number the file held");
+
+    // Rendering to Software: as the panel's button, Graphics quality comes down and High is off.
+    choose(ui.GameOptionRect(GameOption::GraphicsQuality), 2, 3);
+    choose(ui.GameOptionRect(GameOption::Rendering), 1, 2);
+    Check(ParseGameConfig(GameOptionsFolder::Load(folder.Config(1)), config), "game options: reads");
+    number(config.renderer, 0, "game options: Software rendering");
+    number(config.detail, 1, "game options: Graphics quality comes down with it");
+    choose(ui.GameOptionRect(GameOption::GraphicsQuality), 2, 3);
+    Check(ParseGameConfig(GameOptionsFolder::Load(folder.Config(1)), config), "game options: reads");
+    number(config.detail, 1, "game options: no High with Software rendering");
+    choose(ui.GameOptionRect(GameOption::Rendering), 0, 2);
+
+    // Videocard is shown, and cannot be changed (the system gives the game one device).
+    const std::vector<uint8_t> beforeCard = GameOptionsFolder::Load(folder.Config(1));
+    choose(ui.GameOptionRect(GameOption::Videocard), 1, 2);
+    Check(GameOptionsFolder::Load(folder.Config(1)) == beforeCard, "game options: Videocard does not change");
+    number(static_cast<int>(b.settings.size()), static_cast<int>(keptKeys), "game options: no launcher.ini key for any of them");
+
+    // The game writes its file while the window is away; the window coming back shows it.
+    config.soundQuality = 11;
+    GameOptionsFolder::Save(folder.Config(1), EncodeGameConfig(config));
+    number(ui.GameView().config.soundQuality, 100, "game options: the box has what it last read");
+    windowBack();
+    number(ui.GameView().config.soundQuality, 11, "game options: the window back, the box has the game's");
+
+    // A second player: the last one played first, the other chosen, its own values; a change goes to it alone.
+    folder.AddPlayer(1, "2Bob");
+    fs::last_write_time(folder.Player(1, "2Bob"), fs::file_time_type::clock::now() + std::chrono::hours(1));
+    windowBack();
+    number(static_cast<int>(ui.GameView().players.size()), 2, "game options: two players");
+    CheckEq(ui.GameView().players[static_cast<size_t>(ui.GameView().player)].name, "Bob", "game options: the last one played");
+    const Rect field = ui.GamePlayerRect();
+    clickAt(field.CentreX(), field.CentreY());
+    frames(1);
+    const Rect row = ui.GamePlayerRow(0);
+    Check(row.w > 0, "game options: the player list opens");
+    clickAt(row.CentreX(), row.CentreY());
+    CheckEq(ui.GameView().players[static_cast<size_t>(ui.GameView().player)].name, "Ann", "game options: the player chosen");
+    Check(!ui.GameView().options.advisor, "game options: that player's own values");
+    const std::vector<uint8_t> bobBefore = GameOptionsFolder::Load(folder.Player(1, "2Bob"));
+    click(GameOption::Tutorial);
+    Check(ParsePlayerOptions(GameOptionsFolder::Load(folder.Player(1, "1Ann")), options) && !options.tutorial, "game options: goes to that player");
+    Check(GameOptionsFolder::Load(folder.Player(1, "2Bob")) == bobBefore, "game options: and not the other");
+    windowBack();
+    CheckEq(ui.GameView().players[static_cast<size_t>(ui.GameView().player)].name, "Ann", "game options: a player chosen in the box stays chosen");
+    ui.ShowSettings(false);
+    frames(1);
+    ui.ShowSettings(true);
+    frames(2);
+    CheckEq(ui.GameView().players[static_cast<size_t>(ui.GameView().player)].name, "Bob", "game options: opened again, the last one played");
+    clickAt(field.CentreX(), field.CentreY());
+    frames(1);
+    clickAt(ui.GamePlayerRow(0).CentreX(), ui.GamePlayerRow(0).CentreY());
+
+    // While the game holds the folder: shown as running, and no row changes a file.
+    {
+        GameFileLock game;
+        Check(game.Take(folder.source.userFolder(1)), "game options: the game's lock");
+        windowBack();
+        Check(ui.GameView().running, "game options: the box knows the game is running");
+        const std::vector<uint8_t> annHeld = GameOptionsFolder::Load(folder.Player(1, "1Ann"));
+        const std::vector<uint8_t> configHeld = GameOptionsFolder::Load(folder.Config(1));
+        click(GameOption::Advisor);
+        drag(GameOption::MusicVolume, 0.1f);
+        drag(GameOption::AudioQuality, 0.1f);
+        drag(GameOption::Resolution, 0.5f);
+        choose(ui.GameOptionRect(GameOption::Rendering), 1, 2);
+        Check(GameOptionsFolder::Load(folder.Player(1, "1Ann")) == annHeld, "game options: no player's file written while the game runs");
+        Check(GameOptionsFolder::Load(folder.Config(1)) == configHeld, "game options: no Config.tcf written while the game runs");
+    }
+    windowBack();
+    Check(!ui.GameView().running, "game options: the game gone, the rows work again");
+
+    // A file that does not read: left as it is, and said so.
+    std::vector<uint8_t> cut = GameOptionsFolder::Load(folder.Config(1));
+    cut.resize(10);
+    GameOptionsFolder::Save(folder.Config(1), cut);
+    windowBack();
+    Check(ui.GameView().configState == GameFileState::Damaged, "game options: a cut Config.tcf is seen");
+    choose(ui.GameOptionRect(GameOption::GraphicsQuality), 0, 3);
+    drag(GameOption::AudioQuality, 0.5f);
+    Check(GameOptionsFolder::Load(folder.Config(1)) == cut, "game options: and left as it was");
+
+    // The other edition: its own folder, its own defaults, its only state.
+    choose(ui.GameEditionRect(), 0, 2);
+    number(ui.GameEdition(), 0, "game options: the other edition");
+    Check(ui.GameView().configState == GameFileState::Missing && ui.GameView().player == -1, "game options: its own files, none yet");
+    click(GameOption::Advisor);
+    Check(!fs::exists(folder.source.userFolder(0)), "game options: no player, so a player's option writes nothing");
+    Check(ui.SettingsBodyCounted() == ui.SettingsBodyDrawn(), "game options: the height again");
+}
+
 // The Settings box's Several keys at once switch (reported by Addable13): off when launcher.ini has no key (the original's
 // one key at a time), a click keeps "1", a second click "0", and a launcher.ini with "1" shows it on.
 void CheckSeveralKeysSwitch(SDL_Renderer* renderer) {
@@ -2707,6 +3031,7 @@ int main(int argc, char** argv) {
         CheckLanguages(renderer);
         CheckVisitorLooks(renderer);
         CheckSoundPanSwitch(renderer);
+        CheckGameOptions(renderer);
         CheckSeveralKeysSwitch(renderer);
         CheckOnlineServerField(renderer);
         CheckFrameRateSlider(renderer);

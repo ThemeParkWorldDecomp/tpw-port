@@ -540,6 +540,8 @@ inline const CFSOnlinePark* PortParkOfRow(int32_t data) {
     if (it != PortParkRows().end()) return it->second;
     return reinterpret_cast<const CFSOnlinePark*>(static_cast<uintptr_t>(static_cast<uint32_t>(data)));
 }
+// TPW_PORT_FIX unlistedcity PortParkCityListed | Mac: ReturnCityInfo answers NULL for a park whose city is not on the server's city list and every caller reads through it | Port: the callers that a click or a goto can reach ask this first (FS_OnlineList.cpp) | Why: a server whose config dropped a city while parks remain in it crashed the client on a click at a NULL city
+bool PortParkCityListed(const CFSOnlinePark* park);
 extern char16_t gOnlineLoginPassword[33];              // 0x10395d30 (size from the next global)
 extern char16_t gOnlineLoginName[33];                  // 0x10395d72 (size invented)
 extern int16_t gCityInfoOverlayScript[];               // 0x102b0288, initialised data of the window script (not defined by this unit)
@@ -675,11 +677,11 @@ extern uint8_t gOnlineParkListStringA[];     // 0x10396258
 extern uint8_t gOnlineParkListNodeA[];       // 0x1039626c
 extern uint8_t gOnlineParkListStringB[];     // 0x10396238
 extern uint8_t gOnlineParkListNodeB[];       // 0x1039624c
-// Virtual calls on lobby screens the host cannot make as the Mac does (weak definitions in src/game/ui/ui_onlineParkInfoPanel.cpp, fakes in the
-// test library).
+// Virtual calls on lobby screens the host cannot make as the Mac does (the real ones in src/game/GameShimGlue.cpp; weak empty ones in
+// src/game/ui/ui_onlineParkInfoPanel.cpp for the unit libraries, some with fakes).
 namespace parkinfo_callee {
-void OnlineIslandsSlot30(void* screen);                      // slot 0x30 of the online islands screen (identity unknown; untranslated)
-void DownloadGlobeSlot4c(void* screen);                      // slot 0x4c of the download globe screen (identity unknown; untranslated)
+void OnlineIslandsSlot30(void* screen);                      // slot 0x30 of the online islands screen: ShowPanels 0x100b42d4
+void DownloadGlobeSlot4c(void* screen);                      // slot 0x4c of the download globe screen: ShowPanels 0x100ae7b0
 }  // namespace parkinfo_callee
 
 // Unit v5227: the hostent as gethostbyname answers it (the host's native layout; on the Mac the address list pointer is at 0xc and the

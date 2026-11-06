@@ -62,8 +62,16 @@ The Settings box has these rows:
   recordings fill in. The choice sets the game's text and the advisor's voice. Japanese, Korean, both Chinese and
   Hebrew are listed by their English names, as the launcher's fonts cannot draw their own. If a chosen language leaves the data
   folder, the game plays in the edition's own and the row says so.
+- Game options: every setting of the game's Options panel, under the names the panel gives them, and the same settings:
+  a change here is what the game starts with next time, and a change in the panel shows here the next time this box
+  opens or this window comes back. Nothing is copied: they stay in the game's own files, Config.tcf for the edition
+  (Screen resolution, Screen shape, Graphics quality, Rendering, Videocard, Audio quality) and each player's gms.dat
+  (Sound effects, Music, Speech and Movie volume with their on and off, Advisor, Tutorial, Popup help, Confirmations,
+  RMB cancel, Rotation, Scroll). So the section has an Edition choice, starting on the edition you last played, and
+  a Player list, starting on the player whose file was last written; with no player yet, the player rows are off
+  until you make one in the game. While the game runs these rows are greyed, so the two cannot write over each other.
 - Graphics: eight options of the original's options files (low.sam, med.sam, high.sam), each Default by default, which
-  keeps the value of the game's own graphics quality: view distance (Short, Medium, Long, Max), sky layers (1, 2, 4),
+  keeps the value of the game's own graphics quality (Graphics quality in Game options above): view distance (Short, Medium, Long, Max), sky layers (1, 2, 4),
   cloud shadows, ground blending (Off, 16, 32, 64), texture quality (Low, High), lighting and visitor shadows (Off, On),
   and visitor looks (2, 4, 6, 8: how many kinds of visitor walk around the park).
   Below them, Frame rate limit: Monitor by default, a frame for every refresh of the monitor.
@@ -295,7 +303,7 @@ on the Mac, bugs included. This repository adds what it takes to play:
   game's window: OpenGL (platform/gl_backend.cpp, platform/offscreen.cpp), or on Linux the port's own Vulkan renderer
   (platform/vulkan/), which draws the OpenGL 1.1 calls the game makes. On Linux those calls are the platform layer's own
   (platform/gl_entry.cpp), handed to the Vulkan renderer or to the system's OpenGL.
-- overrides/: the port's fixes, 329 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
+- overrides/: the port's fixes, 367 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
   the port does and why. Each file there is built in place of the tpw-decomp file of the same path. Headers are read
   from a copy of tpw-decomp's headers in the build folder with the overridden ones laid over it.
 - mods/: the [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) submodule, for optional changes to how the game plays (Mods, above). Its
@@ -534,10 +542,24 @@ its shape in the middle of the screen with black bars at the sides. The window f
 gets the largest preset that fits, and the log says so once (TPW_LARGEST_GAME_SIZE=3000 in the environment tries that
 on a machine that has room).
 
+The Options panel's Screen resolution row changes the size while the game runs, with no restart. The slider is sizes only:
+about ten at the shape on show, smallest to largest, written beside it as the thumb moves. Three buttons in the row choose
+the shape, 4:3, 16:10 or 16:9, and keep the closest size at the new shape; the shape on show is the running size's, which on
+a default start is the screen's. All of it whatever the screen; the screen's own size and the size the panel opened at have
+stops too. The game changes once the thumb has stood on a stop for 150 ms (and, for another shape, once the mouse button is
+up). A size of the same shape leaves the window where and as big as it is. Another shape re-shapes and re-centres a window,
+with no bars, and is letterboxed in real full screen. A size bigger than the screen is rendered in full and shown smaller.
+OK keeps the size in Config.tcf and the next start opens at it; Cancel goes back to the size the panel opened at. --resolution
+names the size one start opens at and leaves the saved one alone. Only a size past this machine's framebuffers is refused:
+the thumb goes back (FIXES.md, unit resslider).
+
     tpw_launcher --resolution 2048x1536   a smaller size, named by its 4:3 size (the game's own presets from 512x384 to
                                           2048x1536, which keep their height when widened: 2730 x 1536 at 16:9; or
                                           the port's 2560x1920, 3200x2400 and 4096x3072, which keep the width of their
                                           16:9 size: 2560 x 1440, 3200 x 1800, 3840 x 2160)
+    tpw_launcher --resolution 1920x1080   any other size the slider lists, exactly that size and its shape, whatever
+                                          --aspect says (1280x720, 1366x768, 1600x900, 1920x1080, 1280x800, 1440x900,
+                                          1680x1050, 1920x1200, 3840x2160 and so on)
     tpw_launcher --aspect 16:10           another shape (anything from 4:3 wider: 3840 x 2400 at the default size);
                                           without it the screen's own shape is used
     tpw_launcher --aspect 4:3             the original layout, exactly as the Mac draws it (4096 x 3072 by default)

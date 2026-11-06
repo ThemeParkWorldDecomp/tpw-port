@@ -24,6 +24,7 @@
 #include "Text.h"
 #include "ThingReceivers.h"
 #include "TPCamera.h"
+#include "TPMain.h"
 #include "TPSettings.h"
 #include "TPSound.h"
 #include "UI_Base.h"
@@ -533,16 +534,25 @@ void DoScroll(int32_t id, int32_t value) {
     if (index > 11) return;
     switch (index) {
     case 0: {
-        // TPW_PORT_FIX fix-video DoScroll | Mac: the resolution slider picks one of the setting's fixed sizes and the row names it | Port: while gPortScreenWidth (TPSettings.h) is set, the setting is left alone, the row names the size the game runs at and the slider goes back to its top | Why: the launcher chooses the size, so another choice here never reached the screen: it only wrote Config.tcf and asked for a restart that changed nothing
-        if (gPortScreenWidth != nullptr && gPortScreenHeight != nullptr) {
-            char16_t size[32];
-            swprintf(size, 32, u" %d x %d", *gPortScreenWidth, *gPortScreenHeight);
-            UIMain_GetString(0x13f);
-            wcscat(gUIMainConvertBuffer, size);
+        // TPW_PORT_FIX resslider DoScroll | Mac: the slider picks one of the setting's three sizes and the row names it from the game's strings | Port: while gPortLiveResolution (TPSettings.h) is set, it picks one of gUISizeStops, the row names that size, and the game changes to it once the thumb stops (PortApplyGameSize); the setting goes back to what was saved when the slider is back on the size the panel opened at, so a look at the panel saves nothing | Why: the port's own sizes, chosen live
+        if (gPortLiveResolution) {
+            const int32_t stop = value < 0 ? 0 : value >= gUISizeStopCount ? gUISizeStopCount - 1 : value;
+            const UISizeStop& size = gUISizeStops[stop];
             InterfaceWindow* window = gSetOnOffRoot->GetWindow(0x1d4d5);
-            options_callee::WindowSetText(window->GetWindow(0x1d4c9), gUIMainConvertBuffer);
-            // (a scroll bar that moves tells the panel at once, so this comes back here with 100 and stops)
-            if (value != 100) options_callee::WindowSetValue(window, 100);
+            if (!PortSizeFits(size.mWidth, size.mHeight)) {
+                // (more than this machine's framebuffers can hold: the thumb goes back; a scroll bar that moves tells the panel, so this comes back here)
+                options_callee::WindowSetValue(window, UI_ClosestStop(gUISizeStops, gUISizeStopCount, gScreenWidth, gScreenHeight, gPortLargestGameSize));
+                break;
+            }
+            if (size.mWidth == gPortPanelWide && size.mHeight == gPortPanelHigh)
+                gPlayerSettings.SetResolution(gPlayerSettings.mStored.mResolution);
+            else
+                gPlayerSettings.SetResolution(static_cast<CPlayerSettings::eRESOLUTION>(PortResolutionExact(size.mWidth, size.mHeight)));
+            gPortWantedWide = size.mWidth;
+            gPortWantedHigh = size.mHeight;
+            char16_t text[32];
+            swprintf(text, 32, u"%d x %d", size.mWidth, size.mHeight);
+            options_callee::WindowSetText(window->GetWindow(kPortSizeReadout), text);
             break;
         }
         gPlayerSettings.SetResolution(static_cast<CPlayerSettings::eRESOLUTION>(

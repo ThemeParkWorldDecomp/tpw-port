@@ -33,6 +33,7 @@
 // TPW_PORT_FIX v5L26 InterfaceWindow | Mac: windows sit where the 2048-unit layout puts them | Port: on a wide screen a window placed on a wide one (the root, the game's view) is anchored: one in the left third of the layout stays at the left edge, one in the right third moves to the right edge, the rest (and full-screen art) move to the middle; the windows inside follow | Why: a widescreen port, with the panels at the screen's edges and the 4:3 screens pillarboxed rather than stretched
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 // The window classes' WhatAmI members, the base window's CalcClientArea and CallDefaultWindowHandler (main app, UI toolkit; unit w36).
 // WhatAmI is the interface's run time type: each class answers its own kind number, the one InterfaceWindow::CreateObject
@@ -135,6 +136,74 @@ int16_t UI_TallShiftFor(const InterfaceWindow* window, bool relative) {
     if (shift == 0 || !relative) return static_cast<int16_t>(shift);
     return static_cast<int16_t>(shift - ShiftedAbove(window) * shift);
 }
+// TPW_PORT_FIX resslider UI_FollowUnits | Mac: (none: the unit space is one size for the game's life) | Port: when the size chosen on the options panel changes the unit space, what the constructors did for the old one is done again for the new one: the windows made to span it span it, and each window placed straight on one of them moves, with everything in it, by the difference between its anchor in the new space and in the old | Why: a change of shape must not need a restart, and the windows cannot be rebuilt in a running park
+namespace {
+void ShiftOriginalRects(InterfaceWindow* window, int16_t dx, int16_t dy) {
+    window->mOriginalRect.Shift(dx, dy);
+    for (InterfaceWindow* child = window->mChild; child != nullptr; child = child->mNext) ShiftOriginalRects(child, dx, dy);
+}
+
+void FollowChildren(InterfaceWindow* window, int32_t oldWide, int32_t oldHigh);
+
+void FollowSpanning(InterfaceWindow* window, int32_t oldWide, int32_t oldHigh) {
+    window->mRect.mRight = static_cast<int16_t>(gUIUnitWidth - 1);
+    window->mRect.mBottom = static_cast<int16_t>(gUIUnitHeight - 1);
+    window->mOriginalRect.mRight = window->mRect.mRight;
+    window->mOriginalRect.mBottom = window->mRect.mBottom;
+    window->mPivotX = static_cast<int16_t>(window->mRect.mLeft + ((window->mRect.mRight - window->mRect.mLeft) >> 1));
+    window->mPivotY = static_cast<int16_t>(window->mRect.mTop + ((window->mRect.mBottom - window->mRect.mTop) >> 1));
+    window->CalcClientArea();
+    DOChange change{};
+    change.mRect = &window->mRect;
+    if (window->mDrawObject != nullptr) window->mDrawObject->Change(0x10, &change);
+    change.mRect = &window->mClientRect;
+    if (window->mClientDrawObject != nullptr) window->mClientDrawObject->Change(0x10, &change);
+    FollowChildren(window, oldWide, oldHigh);
+}
+
+void FollowChildren(InterfaceWindow* window, int32_t oldWide, int32_t oldHigh) {
+    for (InterfaceWindow* child = window->mChild; child != nullptr; child = child->mNext) {
+        const int32_t across = child->mRect.mRight - child->mRect.mLeft;
+        if (gUIFullWindows->count(child) != 0 || (oldWide > 0x800 && across == oldWide - 1)) {
+            FollowSpanning(child, oldWide, oldHigh);
+        } else if (across >= 0x800 && !FourThreePanel(child->mId, across)) {
+            FollowChildren(child, oldWide, oldHigh);
+        } else {
+            const auto found = gWideShifts.find(child);
+            const AnchorShift old = found == gWideShifts.end() ? AnchorShift{0, 0} : found->second;
+            const int32_t left = child->mRect.mLeft - old.across;
+            const int32_t right = child->mRect.mRight - old.across;
+            const int32_t top = child->mRect.mTop - old.down;
+            const int32_t bottom = child->mRect.mBottom - old.down;
+            AnchorShift now{0, 0};
+            if (gUIUnitWidth > 0x800) {
+                now.across = UI_WideAnchor(left, right, gUIUnitWidth);
+                if (bottom - top < gUIUnitHeight - 1)
+                    now.down = gCentredDown.count(window) != 0 ? static_cast<int16_t>((gUIUnitHeight - 0x600) / 2)
+                                                               : UI_TallAnchor(top, bottom, gUIUnitHeight);
+            }
+            const int16_t dx = static_cast<int16_t>(now.across - old.across);
+            const int16_t dy = static_cast<int16_t>(now.down - old.down);
+            if (dx != 0 || dy != 0) {
+                child->ShiftPosition(dx, dy);
+                ShiftOriginalRects(child, dx, dy);
+            }
+            if (gUIUnitWidth > 0x800) gWideShifts[child] = now;
+            else gWideShifts.erase(child);
+        }
+    }
+}
+}  // namespace
+
+void UI_FollowUnits(int32_t oldWide, int32_t oldHigh) {
+    if (gUIFullWindows == nullptr || (gUIUnitWidth == oldWide && gUIUnitHeight == oldHigh)) return;
+    FollowSpanning(gUIRootWindow, oldWide, oldHigh);
+    // (a menu's holder out of the tree while the menu is not up: UIMenu::Show links it in)
+    std::vector<InterfaceWindow*> apart;
+    for (const InterfaceWindow* window : *gUIFullWindows)
+        if (window->mParent == nullptr && window != gUIRootWindow) apart.push_back(const_cast<InterfaceWindow*>(window));
+    for (InterfaceWindow* window : apart) FollowSpanning(window, oldWide, oldHigh);
+}
 
 // The window's state is the Mac's field by field. The members that are not set here
 // (0x68..0x87, 0xec, 0xf0 and 0x100..0x10f) are left as the allocation had them. The
@@ -169,6 +238,10 @@ InterfaceWindow::InterfaceWindow(InterfaceWindow* parent, int32_t attributes, in
     mId = id;
     mButtonsHeld = 0;
     gCentredDown.erase(this);
+    if (gUIFullWindows != nullptr) {
+        gUIFullWindows->erase(this);
+        gWideShifts.erase(this);
+    }
     // (the anchoring: a window on a wide one is given its shift; one further in takes its anchor's)
     if (gUIUnitWidth > 0x800 && parent != nullptr) {
         int16_t shift = 0;
@@ -249,6 +322,8 @@ bool GivesUp(InterfaceDrawObject* object) {
 // members are destroyed (the compiler's, in the reverse of their order: +0x34, +0x28, +0x1c, +0x10, +4). QUIRK: the window's own
 // next and previous links are left as they were (only the parent link is cleared).
 InterfaceWindow::~InterfaceWindow() {
+    // TPW_PORT_FIX resslider ~InterfaceWindow | Mac: nothing | Port: the window leaves the list UI_FollowUnits walks | Why: see UI_FollowUnits
+    if (gUIFullWindows != nullptr) gUIFullWindows->erase(this);
     if (mDestroying == 0) PropagateDestruction();
     gUIHelpText->OnHideOrDelete(this);
     if (mDrawObject != nullptr) {
@@ -1893,11 +1968,3 @@ int32_t InterfaceWindow::GetValue() { return 0; }
 //
 // The word at 0 (mF00) holds the item handler (a function pointer on the Mac). The host's pointers are wider than the word, so the
 // word holds a handle that UIMenuHandlerHandle makes of the pointer (0 for NULL), see the end of this file.
-// The callees that the host cannot call as the Mac does are the menu_callee functions below (weak: the test library defines its own).
-
-// The callees the host cannot call as the Mac does: the program's versions here (weak), the test library's fakes in
-// tests/unit_UIMenu_AddItem.cpp replace them.
-namespace menu_callee {
-// 0x101d7b60: InterfaceStringHeap::GetAndCopy (a stand-in on the Mac side, no translation yet: the program's stand-in answers the text).
-__attribute__((weak)) void* GetAndCopy(const char16_t* text) { return const_cast<char16_t*>(text); }
-}  // namespace menu_callee

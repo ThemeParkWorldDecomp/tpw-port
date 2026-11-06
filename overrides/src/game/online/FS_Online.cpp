@@ -1194,6 +1194,8 @@ void SatelliteOnlineParkInfoPanelCancelCallback() { parkinfo_callee::DownloadGlo
 void CFSOnlineSystem::EnterChatSatellite(int32_t index) {
     if (index < mParksInCity2->mList->mCount) {
         CFSOnlinePark* park = mParksInCity2->ReturnParkInfo(index);
+        // TPW_PORT_FIX unlistedcity EnterChatSatellite | Mac: hides the globe's panels and opens the info panel, which reads the park's city unchecked (0x101eabb4) and crashes on a city not on the list | Port: the click does nothing, before the panels are hidden | Why: the panel would refuse the park with the panels already hidden and nothing left to show them again
+        if (!PortParkCityListed(park)) return;
         gLobbyScreens->mDownloadGlobe->Slot50();
         CreateOnlineParkInfoPanel(park, nullptr, SatelliteOnlineParkInfoPanelCancelCallback, GeneralParkDownloadCompleteCallback, nullptr);
     }
@@ -1278,7 +1280,7 @@ void CFSOnlineSystem::RequestUpload(const char* file, int32_t f344, const char16
         CreateOnlineLoginPanel(FSOnlineLoginRASFailureCallback);
     } else {
         if (gOnlineSystem == nullptr) {
-            CFSOnlineSystem* system = static_cast<CFSOnlineSystem*>(::operator new(0x404));
+            CFSOnlineSystem* system = static_cast<CFSOnlineSystem*>(::operator new(sizeof(CFSOnlineSystem)));
             if (system != nullptr) new (system) CFSOnlineSystem();
             gOnlineSystem = system;
         }
@@ -1401,7 +1403,7 @@ void CFSOnlineSystem::UploadServerConnectionCallback(int32_t result, int32_t unu
 TbDynamicStringTemplate<char16_t> CFSOnlineSystem::ReturnUploadFilename() {
     TbDynamicStringTemplate<char16_t> name;
     if (gUserInfo == nullptr) {
-        CFSUserInfo* info = static_cast<CFSUserInfo*>(::operator new(0xd4));
+        CFSUserInfo* info = static_cast<CFSUserInfo*>(::operator new(sizeof(CFSUserInfo)));
         if (info != nullptr) new (info) CFSUserInfo();
         gUserInfo = info;
     }
@@ -1602,6 +1604,11 @@ void GotoPlayerFTPPostGetParkInfoCallbackFn(int32_t error, const void* context, 
 // 0x101762e8. The context is not used.
 void CFSOnlineSystem::GotoPlayerFTPPostGetParkInfoCallback(int32_t result, const void* context, const CFSOnlinePark* park) {
     (void)context;
+    // TPW_PORT_FIX unlistedcity GotoPlayerFTPPostGetParkInfoCallback | Mac: starts the download, whose FTP step reads the park's city unchecked (0x101772ec) and crashes on a city not on the list | Port: the goto ends as a failed one, before the park is kept | Why: a park id can answer with a park of a city the server's config dropped, and the goto's own failure path already handles the rest
+    if (result == 0 && park != nullptr && !PortParkCityListed(park)) {
+        CompleteFTPDownload(1);
+        return;
+    }
     if (result == 0 && park != nullptr)
         LoggedInRequestFTPDownload(park);
     else

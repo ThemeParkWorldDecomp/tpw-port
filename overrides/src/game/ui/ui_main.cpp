@@ -171,9 +171,9 @@ CMouse* MakeMouse() {
 }
 }  // namespace
 
-// 0x101802cc, 64 bytes.
-void UIMain_UISound(int32_t code) {
-    SOUND_SendEvent(0, gSoundBanks[3], code, 0, 0, 0);
+// 0x101802cc, 64 bytes. Mac 0x101802f4: r3 stays as SOUND_SendEvent left it, the sound's handle (the research panel keeps it).
+int32_t UIMain_UISound(int32_t code) {
+    return SOUND_SendEvent(0, gSoundBanks[3], code, 0, 0, 0);
 }
 
 // ui_main.cpp (main app of SimTheme Park 2.04b3). PARTIAL: UIMain_ConvertMulti
@@ -1857,6 +1857,7 @@ void InitGameUI() {
     // TPW_PORT_FIX uiscale InitGameUI | Mac: the game's view and first-person windows are 1536 units high | Port: as high as the unit space | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
     InterfaceWindow* window = gUIRootWindow->CreateObject(1, 0, 0, 0, 0, static_cast<int16_t>(gUIUnitWidth - 1),
                                                           static_cast<int16_t>(gUIUnitHeight - 1));
+    UI_MarkFullWindow(window);
     if (window != nullptr) {
         window->Show(1);
         window->SetCallbackFunction(Engine_GameWinMsg);
@@ -1878,6 +1879,7 @@ void InitGameUI() {
     }
     window = gUIRootWindow->CreateObject(1, 0, 1, 0, 0, static_cast<int16_t>(gUIUnitWidth - 1),
                                          static_cast<int16_t>(gUIUnitHeight - 1));
+    UI_MarkFullWindow(window);
     if (window != nullptr) {
         window->SetCallbackFunction(Engine_GameFirstPersonMsg);
         gFirstPersonWindow = window;
@@ -2203,6 +2205,7 @@ void UI_Bankrupt(CObject* object) {
     // TPW_PORT_FIX v5L26 UI_Bankrupt | Mac: the Bankrupt screen's window, which takes the right click that closes it, is 2048 x 1536 units | Port: as wide and as high as the unit space | Why: a widescreen port; the 4:3 window sat in the middle of a wide screen, so a right click at the left or right of the screen did not close it
     InterfaceWindow* created = gUIRootWindow->CreateObject(1, 1, 0x7472, 0, 0, static_cast<int16_t>(gUIUnitWidth - 1),
                                                            static_cast<int16_t>(gUIUnitHeight - 1));
+    UI_MarkFullWindow(created);
     created->SetCallbackFunction(BankruptWindowMsg);
     InterfaceWindow* window = created->Build(gBankruptScript, nullptr);
     CoolRect rect;
@@ -2248,6 +2251,7 @@ void UI_Congratulations(CObject* object) {
     // TPW_PORT_FIX v5L26 UI_Congratulations | Mac: the Congratulations screen's window, which takes the right click that closes it, is 2048 x 1536 units | Port: as wide and as high as the unit space | Why: a widescreen port; the 4:3 window sat in the middle of a wide screen, so a right click at the left or right of the screen did not close it
     InterfaceWindow* created = gUIRootWindow->CreateObject(1, 1, 0x7472, 0, 0, static_cast<int16_t>(gUIUnitWidth - 1),
                                                            static_cast<int16_t>(gUIUnitHeight - 1));
+    UI_MarkFullWindow(created);
     InterfaceWindow* window = created->Build(gCongratsScript, nullptr);
     window->Enable(0);   // the virtual at table offset 0x1c
     CoolRect rect;

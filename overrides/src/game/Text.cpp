@@ -133,6 +133,17 @@ int32_t CText::Init() {
             return 0;
         }
     }
+    // TPW_PORT_FIX resslider CText::Init | Mac: only the fonts of the size the game starts at | Port: while gPortLiveResolution is set, all four groups: SetRez changes group when the options panel's slider changes the size, and a group left out draws no text | Why: the slider changes the size live; here, while the language's files are open as they were for the first group
+    if (gPortLiveResolution)
+        for (int32_t other = 0; other < 4; ++other)
+            for (int32_t i = 0; other != group && i < 13; ++i) {
+                if (oldIndex && OldTextFont(mResources, &mFonts[other * 13 + i].mFont, kFonts[other][i])) continue;
+                if (!mResources.GetResource(&mFonts[other * 13 + i].mFont, kFonts[other][i]).Succeeded()) {
+                    LoadError("Font");
+                    TRACE(" Error: Unable to load font\n");
+                    return 0;
+                }
+            }
     OldTextDone();   // oldtables: the edition's own language closed; what was taken from it keeps its references
     mRenderParams.UseAlphaWriteMode(); // the result is ignored
     mInitialised = 1;

@@ -31,6 +31,8 @@ void LoadAdvisor(char* path, char* folder, char* variant, uint32_t which);   // 
 // TPW_PORT_FIX advisor gPortAdvisorAspect | Mac: no such flag (the screen is 4:3) | Port: a flag the launcher sets (launcher/main.cpp); while it is set LoadAdvisor scales the advisor's x by the screen's own height over width | Why: on a 16:9 screen the advisor was a third too wide; contributed by samueleagle91 (tpw-port PR #7)
 // False unless the launcher sets it, so a program that does not (the differential tests) keeps the Mac's 0.75.
 inline bool gPortAdvisorAspect = false;
+inline int16_t gAdvisorUnitWidth[4] = {};   // the unit space's width each advisor was scaled for, by LoadAdvisor
+void PortAdvisorFollowUnits();   // a change of the unit space's width while an advisor is loaded (src/game/advisor/TPAdvisor.cpp)
 void DisableAdvisorDisplay(uint32_t which);                       // 0x10031de8
 void TickAdvisor(uint32_t which);                                 // 0x10031ed0
 void DestroyAdvisor(uint32_t which);                              // 0x10031f38

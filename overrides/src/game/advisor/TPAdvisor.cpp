@@ -68,6 +68,22 @@ void LoadAdvisor(char* path, char* folder, char* variant, uint32_t which) {
         scale.x = scale.x * 0.75f * (gPortAdvisorAspect && unitWidth > 0 ? 2048.0f / static_cast<float>(unitWidth) : 1.0f);
         scale.z = scale.z * size;
         ScaleLMatrixNoTrans(&slot.mInstance->mHeads->mHeader->mF78->mMatrix, &scale);
+        // TPW_PORT_FIX resslider LoadAdvisor | Mac: nothing | Port: the unit space the width was scaled for is kept for PortAdvisorFollowUnits | Why: see PortAdvisorFollowUnits
+        gAdvisorUnitWidth[which] = unitWidth;
+    }
+}
+// TPW_PORT_FIX resslider PortAdvisorFollowUnits | Mac: (none) | Port: a change of the unit space's width (a new shape on the options panel) scales the width of a loaded advisor by what LoadAdvisor would give now over what it gave | Why: the mesh is scaled once at load and would stand too wide or too narrow
+void PortAdvisorFollowUnits() {
+    if (!gPortAdvisorAspect) return;
+    for (uint32_t which = 0; which < 4; ++which) {
+        sAdvisorStore& slot = gAdvisorStore[which];
+        if (slot.mInstance == nullptr || gAdvisorUnitWidth[which] <= 0) continue;
+        int16_t realWidth = 0, realHeight = 0, unitWidth = 0, unitHeight = 0;
+        UI_InterfaceUnits(gGameSystemState != 1, realWidth, realHeight, unitWidth, unitHeight);
+        if (unitWidth == gAdvisorUnitWidth[which] || unitWidth <= 0) continue;
+        s3DPoint scale = {static_cast<float>(gAdvisorUnitWidth[which]) / static_cast<float>(unitWidth), 1.0f, 1.0f};
+        ScaleLMatrixNoTrans(&slot.mInstance->mHeads->mHeader->mF78->mMatrix, &scale);
+        gAdvisorUnitWidth[which] = unitWidth;
     }
 }
 
