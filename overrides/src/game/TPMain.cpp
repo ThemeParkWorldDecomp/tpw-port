@@ -228,7 +228,14 @@ void ThemeParkWorld::HandleTyping(char character, char keyCode, uint32_t modifie
         UI_Keyup(key, (mods << 16) | 0x1000000);
         gKeyTable->KeyUp(key, static_cast<int16_t>(mods));
     } else {
+#ifdef TPW_PORT_FIX
+        // TPW_PORT_FIX typedletters HandleTyping | Mac: UI_KeyChar(ch), the signed char, so a character past 0x7f reached the
+        // edit box as 0xff80 and up | Port: the unsigned byte, a Latin-1 letter's own UTF-16 code (the platform gives no other
+        // byte past 0x7f: platform/gamework.cpp MacCharacter) | Why: typing letters such as an a with umlaut (tpw-port issue #111)
+        UI_KeyChar(static_cast<int16_t>(static_cast<uint8_t>(ch)), 0x1000000);
+#else
         UI_KeyChar(ch, 0x1000000);
+#endif
         UI_Keyup(tableKey(), (mods << 16) | 0x1000000);
         gKeyTable->KeyUp(tableKey(), static_cast<int16_t>(mods));
     }
