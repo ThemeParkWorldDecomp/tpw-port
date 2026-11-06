@@ -1,8 +1,7 @@
 # tpw-port
 
 An unofficial port of Sim Theme Park (AKA Theme Park World, 1999) for Macs (Apple Silicon and Intel), 64-bit Windows
-and Linux. You need your own copy of the game. Nothing from the game is in here but seven data tables of the original
-program, which tpw-decomp holds and every build compiles in.
+and Linux. You need your own copy of the game.
 
 ## Quick start
 
