@@ -1716,8 +1716,8 @@ void CheckWindowsReady(SDL_Renderer* renderer) {
 }
 
 // Scrolling: the wheel over the area moves the offset a step a line and stops at both ends, the wheel elsewhere does
-// nothing, small steps add up, and content not drawn for a frame starts at its top again. A clip keeps the pointer too:
-// a button outside it is not clicked.
+// nothing, small steps add up, and content not drawn for a frame starts at its top again. Its bar is dragged by the
+// thumb or pressed on its track. A clip keeps the pointer too: a button outside it is not clicked.
 void CheckScroll(SDL_Renderer* renderer) {
     Canvas canvas(renderer);
     Text text(canvas);
@@ -1753,6 +1753,38 @@ void CheckScroll(SDL_Renderer* renderer) {
     in.wheel = 0;
     frame(in, false);
     Check(frame(in) == 0, "scroll: drawn again after a frame without it, it starts at the top");
+
+    // The bar beside it, 100 of 220 in view: its thumb is 100 * 100 / 220 high, and travels the rest of the track.
+    const Rect bar{310, 100, 6, 100};
+    const float thumbH = 100.0f * 100.0f / 220.0f, travel = 100.0f - thumbH;
+    auto barFrame = [&](float x, float y, bool down, bool pressed, bool released) {
+        Input b;
+        b.mouseX = x;
+        b.mouseY = y;
+        b.down = down;
+        b.pressed = pressed;
+        b.released = released;
+        canvas.Begin(1);
+        ui.Begin(kDt, b);
+        const float offset = ui.Scroll("b", area, 50, 120, bar, 100);
+        ui.End();
+        return offset;
+    };
+    Check(barFrame(313, 110, false, false, false) == 0, "scroll bar: starts at the top");
+    Check(barFrame(313, 110, true, true, false) == 0, "scroll bar: pressed on the thumb, the view stays");
+    Check(barFrame(313, 110 + travel * 0.5f, true, false, false) == 60, "scroll bar: the thumb dragged half way");
+    Check(barFrame(400, 900, true, false, false) == 120, "scroll bar: dragged past the end, off the bar, it stops there");
+    Check(barFrame(400, 900, false, false, true) == 120, "scroll bar: let go");
+    Check(barFrame(313, 110, false, false, false) == 120, "scroll bar: the pointer moved without the button: no drag");
+    Check(barFrame(313, 101, true, true, false) == 0, "scroll bar: pressed on the track above the thumb, it comes there");
+    barFrame(313, 101, false, false, true);
+    Check(barFrame(313, 100 + thumbH * 0.5f + travel * 0.75f, true, true, false) == 90,
+          "scroll bar: pressed on the track below, the thumb's middle comes to the pointer");
+    barFrame(313, 150, false, false, true);
+    Check(barFrame(306, 199, true, true, false) == 120, "scroll bar: a press just beside the bar takes it");
+    barFrame(306, 199, false, false, true);
+    Check(barFrame(300, 101, true, true, false) == 120, "scroll bar: a press further away does not");
+    barFrame(300, 101, false, false, true);
 
     const Rect button{100, 100, 120, 40};
     auto click = [&](const Rect& clip) {

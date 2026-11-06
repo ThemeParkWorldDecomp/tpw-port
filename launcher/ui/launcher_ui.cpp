@@ -1195,15 +1195,17 @@ void LauncherUi::DrawSettings(const Rect& w) {
     y += titleH;
 
     // A window too short for the rest scrolls it under the title: the wheel anywhere over the box moves it a row a
-    // line, and a bar in the right margin shows where it is. It is clipped below the Close button and at the box's
-    // outline, so the row below the view shows its top. Whether it scrolls is whether the box was capped, an exact
-    // comparison: `bodyH - shown` can come out a hair above 0 in a box that fits.
+    // line, and a bar in the right margin shows where it is and can be dragged. It is clipped below the Close button and
+    // at the box's outline, so the row below the view shows its top. Whether it scrolls is whether the box was capped, an
+    // exact comparison: `bodyH - shown` can come out a hair above 0 in a box that fits.
     const float bodyTop = y, shown = in.Bottom() - bodyTop;
     settingsScrolls_ = ph < titleH + bodyH + 40;
     const float maxOffset = settingsScrolls_ ? std::max(0.0f, bodyH - shown) : 0.0f;
+    const float barW = 6, barMargin = panel.Right() - metric::kOutline - in.Right();
+    const Rect bar{in.Right() + std::round((barMargin - barW) * 0.5f), bodyTop, barW, shown};
     float offset = 0;
     if (settingsScrolls_) {
-        offset = ui_.Scroll("settings", panel, rowH, maxOffset);
+        offset = ui_.Scroll("settings", panel, rowH, maxOffset, bar, shown);
         ui_.Clip({panel.x + metric::kOutline, bodyTop, panel.w - 2 * metric::kOutline,
                   panel.Bottom() - metric::kOutline - bodyTop});
         y -= offset;
@@ -1597,9 +1599,7 @@ void LauncherUi::DrawSettings(const Rect& w) {
     }
     if (settingsScrolls_) {
         ui_.Unclip();
-        const float barW = 6, margin = panel.Right() - metric::kOutline - in.Right();
-        ui_.ScrollBar({in.Right() + std::round((margin - barW) * 0.5f), bodyTop, barW, shown}, shown, bodyH, offset,
-                      colour::kYellowSoft);
+        ui_.ScrollBar(bar, shown, bodyH, offset, colour::kYellowSoft);
     }
 
     if (listOpen >= 0 && languageOpen_ == listOpen) {
@@ -1682,9 +1682,11 @@ void LauncherUi::DrawMods(const Rect& w) {
     const float bodyTop = y, shown = in.Bottom() - bodyTop;
     modsScrolls_ = ph < titleH + bodyH + 40;
     const float maxOffset = modsScrolls_ ? std::max(0.0f, bodyH - shown) : 0.0f;
+    const float barW = 6, barMargin = panel.Right() - metric::kOutline - in.Right();
+    const Rect bar{in.Right() + std::round((barMargin - barW) * 0.5f), bodyTop, barW, shown};
     float offset = 0;
     if (modsScrolls_) {
-        offset = ui_.Scroll("mods", panel, 50, maxOffset);
+        offset = ui_.Scroll("mods", panel, 50, maxOffset, bar, shown);
         ui_.Clip({panel.x + metric::kOutline, bodyTop, panel.w - 2 * metric::kOutline,
                   panel.Bottom() - metric::kOutline - bodyTop});
         y -= offset;
@@ -1762,9 +1764,7 @@ void LauncherUi::DrawMods(const Rect& w) {
     if (!modsMessage_.empty()) text_.DrawWrapped(style::kSmallBold, in.x, y + 4, in.w, modsMessage_, colour::kInk);
     if (modsScrolls_) {
         ui_.Unclip();
-        const float barW = 6, margin = panel.Right() - metric::kOutline - in.Right();
-        ui_.ScrollBar({in.Right() + std::round((margin - barW) * 0.5f), bodyTop, barW, shown}, shown, bodyH, offset,
-                      colour::kYellowSoft);
+        ui_.ScrollBar(bar, shown, bodyH, offset, colour::kYellowSoft);
     }
 }
 
