@@ -125,6 +125,65 @@ jobs:
           Write-Host "Windows reads it as $($loaded.Width)x$($loaded.Height)"
           if ($loaded.Width -lt 16) { throw 'Windows could not read the icon' }
           $loaded.Dispose()
+      # UTF-8 is the process's code page (launcher/win/tpw_launcher.manifest; platform/path_text.h), in the launcher and in the
+      # game's program, which is a copy of it. Both files hold the manifest, and both processes say 65001 in the log of a data
+      # folder named in two alphabets, with no second folder beside it. Fails when the manifest goes, or when a resource
+      # compiler is missing. --game-app-test needs no game, as in installer-ci/win.ps1.
+      - name: The launcher's code page
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          Add-Type -Namespace Tpw -Name Resources -MemberDefinition @'
+          [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+          public static extern IntPtr LoadLibraryExW(string file, IntPtr none, uint flags);
+          [DllImport("kernel32.dll", SetLastError = true)]
+          public static extern IntPtr FindResourceW(IntPtr module, IntPtr name, IntPtr type);
+          [DllImport("kernel32.dll")]
+          public static extern uint SizeofResource(IntPtr module, IntPtr resource);
+          [DllImport("kernel32.dll")]
+          public static extern IntPtr LoadResource(IntPtr module, IntPtr resource);
+          [DllImport("kernel32.dll")]
+          public static extern IntPtr LockResource(IntPtr loaded);
+          [DllImport("kernel32.dll")]
+          public static extern bool FreeLibrary(IntPtr module);
+          '@
+          function Assert-Utf8Manifest([string]$file) {
+            $module = [Tpw.Resources]::LoadLibraryExW($file, [IntPtr]::Zero, 0x22)   # as a data file and an image resource
+            if ($module -eq [IntPtr]::Zero) { throw "cannot read the resources of $file" }
+            $found = [Tpw.Resources]::FindResourceW($module, [IntPtr]1, [IntPtr]24)   # id 1, RT_MANIFEST
+            if ($found -eq [IntPtr]::Zero) { throw "$file has no manifest" }
+            $size = [Tpw.Resources]::SizeofResource($module, $found)
+            $bytes = New-Object byte[] $size
+            [Runtime.InteropServices.Marshal]::Copy([Tpw.Resources]::LockResource([Tpw.Resources]::LoadResource($module, $found)), $bytes, 0, $size)
+            [void][Tpw.Resources]::FreeLibrary($module)
+            $text = [Text.Encoding]::UTF8.GetString($bytes)
+            if ($text -notmatch '<activeCodePage[^>]*>\s*UTF-8\s*</activeCodePage>') { throw "$file has a manifest without the UTF-8 code page: $text" }
+            Write-Host "$file`: the manifest sets UTF-8"
+          }
+          $exe = (Resolve-Path build\tpw_launcher.exe).Path
+          Assert-Utf8Manifest $exe
+          $parent = Join-Path $env:RUNNER_TEMP 'code-page'
+          $name = "Jos$([char]0xE9) $([char]0x65E5)$([char]0x672C)"
+          $data = Join-Path $parent $name
+          [void](New-Item -ItemType Directory -Force -Path $data)
+          $p = Start-Process -FilePath $exe -ArgumentList '--data', "`"$data`"", '--game-app-test', 'us', '--frames', '30' -WorkingDirectory (Split-Path -Parent $exe) -PassThru
+          $log = Join-Path $data 'logs\launcher.log'
+          $lines = @()
+          foreach ($i in 1..60) {
+            if (Test-Path -LiteralPath $log) { $lines = @(Select-String -LiteralPath $log -Encoding utf8 -Pattern 'windows: process code page \d+') }
+            if ($lines.Count -ge 2) { break }
+            Start-Sleep -Seconds 1
+          }
+          if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Encoding utf8 }
+          Get-Process -Name 'Sim Theme Park' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          if (-not $p.WaitForExit(30000)) { Stop-Process -Id $p.Id -Force; Write-Host 'the launcher was still running' }
+          if ($lines.Count -lt 2) { throw "the launcher's and the game's code page lines are not both in $log ($($lines.Count) found)" }
+          foreach ($line in $lines) { if ($line.Line -notmatch 'process code page 65001\s*$') { throw "not the UTF-8 code page: $($line.Line)" } }
+          $beside = @(Get-ChildItem -LiteralPath $parent -Force)
+          if ($beside.Count -ne 1) { throw "a second data folder beside the real one: $($beside.Name -join ', ')" }
+          $gameExe = Join-Path (Split-Path -Parent $exe) 'Sim Theme Park.exe'
+          Assert-Utf8Manifest $gameExe
+          Remove-Item -LiteralPath $gameExe -ErrorAction SilentlyContinue
       - name: Build and run the tests (PowerShell)
         shell: pwsh
         run: .\build.cmd TOOLS=fetch test
@@ -204,6 +263,65 @@ jobs:
           Write-Host "Windows reads it as $($loaded.Width)x$($loaded.Height)"
           if ($loaded.Width -lt 16) { throw 'Windows could not read the icon' }
           $loaded.Dispose()
+      # UTF-8 is the process's code page (launcher/win/tpw_launcher.manifest; platform/path_text.h), in the launcher and in the
+      # game's program, which is a copy of it. Both files hold the manifest, and both processes say 65001 in the log of a data
+      # folder named in two alphabets, with no second folder beside it. Fails when the manifest goes, or when a resource
+      # compiler is missing. --game-app-test needs no game, as in installer-ci/win.ps1.
+      - name: The launcher's code page
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          Add-Type -Namespace Tpw -Name Resources -MemberDefinition @'
+          [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+          public static extern IntPtr LoadLibraryExW(string file, IntPtr none, uint flags);
+          [DllImport("kernel32.dll", SetLastError = true)]
+          public static extern IntPtr FindResourceW(IntPtr module, IntPtr name, IntPtr type);
+          [DllImport("kernel32.dll")]
+          public static extern uint SizeofResource(IntPtr module, IntPtr resource);
+          [DllImport("kernel32.dll")]
+          public static extern IntPtr LoadResource(IntPtr module, IntPtr resource);
+          [DllImport("kernel32.dll")]
+          public static extern IntPtr LockResource(IntPtr loaded);
+          [DllImport("kernel32.dll")]
+          public static extern bool FreeLibrary(IntPtr module);
+          '@
+          function Assert-Utf8Manifest([string]$file) {
+            $module = [Tpw.Resources]::LoadLibraryExW($file, [IntPtr]::Zero, 0x22)   # as a data file and an image resource
+            if ($module -eq [IntPtr]::Zero) { throw "cannot read the resources of $file" }
+            $found = [Tpw.Resources]::FindResourceW($module, [IntPtr]1, [IntPtr]24)   # id 1, RT_MANIFEST
+            if ($found -eq [IntPtr]::Zero) { throw "$file has no manifest" }
+            $size = [Tpw.Resources]::SizeofResource($module, $found)
+            $bytes = New-Object byte[] $size
+            [Runtime.InteropServices.Marshal]::Copy([Tpw.Resources]::LockResource([Tpw.Resources]::LoadResource($module, $found)), $bytes, 0, $size)
+            [void][Tpw.Resources]::FreeLibrary($module)
+            $text = [Text.Encoding]::UTF8.GetString($bytes)
+            if ($text -notmatch '<activeCodePage[^>]*>\s*UTF-8\s*</activeCodePage>') { throw "$file has a manifest without the UTF-8 code page: $text" }
+            Write-Host "$file`: the manifest sets UTF-8"
+          }
+          $exe = (Resolve-Path build\tpw_launcher.exe).Path
+          Assert-Utf8Manifest $exe
+          $parent = Join-Path $env:RUNNER_TEMP 'code-page'
+          $name = "Jos$([char]0xE9) $([char]0x65E5)$([char]0x672C)"
+          $data = Join-Path $parent $name
+          [void](New-Item -ItemType Directory -Force -Path $data)
+          $p = Start-Process -FilePath $exe -ArgumentList '--data', "`"$data`"", '--game-app-test', 'us', '--frames', '30' -WorkingDirectory (Split-Path -Parent $exe) -PassThru
+          $log = Join-Path $data 'logs\launcher.log'
+          $lines = @()
+          foreach ($i in 1..60) {
+            if (Test-Path -LiteralPath $log) { $lines = @(Select-String -LiteralPath $log -Encoding utf8 -Pattern 'windows: process code page \d+') }
+            if ($lines.Count -ge 2) { break }
+            Start-Sleep -Seconds 1
+          }
+          if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Encoding utf8 }
+          Get-Process -Name 'Sim Theme Park' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          if (-not $p.WaitForExit(30000)) { Stop-Process -Id $p.Id -Force; Write-Host 'the launcher was still running' }
+          if ($lines.Count -lt 2) { throw "the launcher's and the game's code page lines are not both in $log ($($lines.Count) found)" }
+          foreach ($line in $lines) { if ($line.Line -notmatch 'process code page 65001\s*$') { throw "not the UTF-8 code page: $($line.Line)" } }
+          $beside = @(Get-ChildItem -LiteralPath $parent -Force)
+          if ($beside.Count -ne 1) { throw "a second data folder beside the real one: $($beside.Name -join ', ')" }
+          $gameExe = Join-Path (Split-Path -Parent $exe) 'Sim Theme Park.exe'
+          Assert-Utf8Manifest $gameExe
+          Remove-Item -LiteralPath $gameExe -ErrorAction SilentlyContinue
       - name: Build and run the tests (PowerShell)
         shell: pwsh
         run: .\build.cmd TOOLS=fetch test

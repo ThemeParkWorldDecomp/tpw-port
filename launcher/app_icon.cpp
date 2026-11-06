@@ -15,6 +15,7 @@
 #include "importer.h"
 #include "installed_icon.h"
 #include "ui/theme.h"
+#include "path_text.h"
 
 // platform.h is not included: it brings the game's own headers, whose Rect and DebugStr clash with Apple's MacTypes.h
 // (platform/gdi_text.cpp keeps clear of it the same way). The one thing wanted from it is the log line.
@@ -47,7 +48,7 @@ std::string ExistingDataFolder() {
     else if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0')
         guess = std::filesystem::path(home) / ".local" / "share" / tpw::ui::kDataFolderName;
 #endif
-    if (!guess.empty()) return std::filesystem::is_directory(guess, ec) ? guess.string() : std::string();
+    if (!guess.empty()) return std::filesystem::is_directory(guess, ec) ? tpw::PathText(guess) : std::string();
     std::string folder;
     if (char* pref = SDL_GetPrefPath("", tpw::ui::kDataFolderName)) {
         folder = pref;
@@ -152,7 +153,7 @@ void RefreshInstalledIcon(const std::string& dataFolder) {
     // the launcher's build folder: the one holding its bundle (build/STP:TPW Launcher.app), or its program
     const std::string exe = ExecutablePath();
     const std::string bundle = BundleOf(exe);
-    const std::string build = exe.empty() ? "" : std::filesystem::path(bundle.empty() ? exe : bundle).parent_path().string();
+    const std::string build = exe.empty() ? "" : tpw::PathText(std::filesystem::path(bundle.empty() ? exe : bundle).parent_path());
     std::vector<std::string> folders;   // where install.sh puts the application (apps_folder)
     const char* apps = std::getenv("TPW_INSTALL_APPS");
     const char* home = std::getenv("HOME");
@@ -164,7 +165,7 @@ void RefreshInstalledIcon(const std::string& dataFolder) {
     const IconImage icon = LoadIcon(dataFolder, own, source);
     // the launcher's own bundle beside the program (app_bundle.h KeepLauncherBundle), installed or not
     if (!build.empty()) {
-        const std::string app = (std::filesystem::path(build) / kLauncherBundleName).string();
+        const std::string app = tpw::PathText(std::filesystem::path(build) / kLauncherBundleName);
         const IconRefresh kept = KeepBundleIcon(app, icon, why);
         if (kept == IconRefresh::Written) tpw::Log("app bundle: %s now shows %s", app.c_str(), own ? "the game's icon" : "the launcher's stand-in");
         else if (kept == IconRefresh::Failed) tpw::Log("app bundle: %s's icon not written (%s)", app.c_str(), why.c_str());

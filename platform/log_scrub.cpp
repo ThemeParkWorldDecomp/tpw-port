@@ -1,5 +1,6 @@
 // log_scrub.cpp: what identifies this computer and its player, gathered for log_scrub.h.
 #include "log_scrub.h"
+#include "path_text.h"
 
 #include <cstdlib>
 #include <filesystem>
@@ -119,7 +120,7 @@ ScrubInputs CollectScrubInputs() {
     for (size_t k = in.homes.size(); k-- > 0;) {
         std::error_code ec;
         const fs::path real = fs::canonical(in.homes[k], ec);
-        if (!ec) in.homes.push_back(real.string());
+        if (!ec) in.homes.push_back(tpw::PathText(real));
     }
     char host[256] = {0};
     if (gethostname(host, sizeof host - 1) == 0) in.hosts.push_back(host);

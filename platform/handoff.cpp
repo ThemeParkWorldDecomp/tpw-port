@@ -17,6 +17,7 @@
 #include <SDL3/SDL.h>
 
 #include "platform.h"
+#include "path_text.h"
 
 namespace fs = std::filesystem;
 
@@ -92,7 +93,7 @@ void RunPreload(Preload* p) {
     std::vector<char> piece(size_t(1) << 20);
     for (const fs::path& path : p->plan.files) {
         if (p->cancel.load()) break;
-        std::FILE* file = std::fopen(path.string().c_str(), "rb");
+        std::FILE* file = std::fopen(tpw::PathText(path).c_str(), "rb");
         if (file == nullptr) continue;
         std::setvbuf(file, nullptr, _IONBF, 0);
         size_t got;

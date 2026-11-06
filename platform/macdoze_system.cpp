@@ -18,6 +18,7 @@
 #include "platform.h"
 #include "platform/macdoze.h"
 #include "platform/macdoze_system.h"
+#include "path_text.h"
 
 namespace fs = std::filesystem;
 
@@ -288,7 +289,7 @@ int32_t GetDiskFreeSpace(const char*, uint32_t* sectorsPerCluster, uint32_t* byt
 // it fits (length < size). The game appends a file name straight on, so the path ends in '/'.
 uint32_t GetTempPath(uint32_t size, char* path) {
     std::error_code ec;
-    std::string folder = fs::temp_directory_path(ec).string();
+    std::string folder = tpw::PathText(fs::temp_directory_path(ec));
     if (ec || folder.empty()) folder = "/tmp";
     if (folder.back() != '/') folder += '/';
     const uint32_t length = static_cast<uint32_t>(folder.size());

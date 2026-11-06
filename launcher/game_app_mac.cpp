@@ -120,7 +120,7 @@ std::string WorkingFolder() {
 
 }  // namespace
 
-bool StartGameApp(int argc, char** argv, bool us, const std::string& dataFolder, bool activate, GameApp& app, std::string& why) {
+bool StartGameApp(int argc, char** argv, bool us, const std::string& edition, const std::string& dataFolder, bool activate, GameApp& app, std::string& why) {
     const std::string exe = ExecutablePath();
     const std::string own = BundleOf(exe);
     if (own.empty() && LauncherApp().empty()) {
@@ -142,7 +142,7 @@ bool StartGameApp(int argc, char** argv, bool us, const std::string& dataFolder,
     if (!KeepBundle(exe, bundle.string(), GamePlist(us, plist), icns, program, app.made, why)) return false;
     app.made += icns.empty() ? ", no icon" : ownIcon ? ", the game's icon" : ", the stand-in icon";
     app.bundle = bundle.string();
-    return OpenApplication(app.bundle, GameArguments(argc, argv, us, WorkingFolder()), activate, app.running, app.pid, why);
+    return OpenApplication(app.bundle, GameArguments(argc, argv, edition, WorkingFolder()), activate, app.running, app.pid, why);
 }
 
 bool GameAppFinishedLaunching(const GameApp& app) {

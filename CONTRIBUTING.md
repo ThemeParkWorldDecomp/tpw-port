@@ -4,7 +4,7 @@ The project is three repositories, and every change belongs in exactly one of th
 
 | Repository | What it holds | Pull requests |
 | --- | --- | --- |
-| [tpw-decomp](https://github.com/ThemeParkWorldDecomp/tpw-decomp) | The translation: the Mac program's own functions in C++, each behaving exactly as the Mac build does, bugs included, with the differential tests that check it and the seven data tables of the Mac program that it compiles in. | None. A function that behaves differently from the Mac is reported as an issue on tpw-port. |
+| [tpw-decomp](https://github.com/ThemeParkWorldDecomp/tpw-decomp) | The translation: the Mac program's own functions in C++, each behaving exactly as the Mac build does, bugs included, with the differential tests that check it. | None. A function that behaves differently from the Mac is reported as an issue on tpw-port. |
 | [tpw-port](https://github.com/ThemeParkWorldDecomp/tpw-port) | The original game on today's Macs, Windows PCs and Linux machines: the launcher, the platform layer, the builds, and the fixes that make it run as it did on the Mac. | Welcome, by its CONTRIBUTING.md. |
 | [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) | Optional changes to how the game plays, each one off until the player turns it on. tpw-port carries it as a submodule at mods/. | Welcome, by its CONTRIBUTING.md. |
 
@@ -60,8 +60,7 @@ EA's website, which is gone. It belongs in tpw-port, and with the port's fixes o
 
 The game's files are the retail discs' (the US Mac CD, the US Windows CD, the European PC CD and the Gold bonus CD), and
 you need your own copy of them in the launcher's data folder to test a change. This repository never holds them, a link
-to them, or the place a copy came from, and a pull request never shows where yours are. The one exception is the seven
-game tables built into the tpw-decomp submodule's tables/ and include/ (2026-11-02).
+to them, or the place a copy came from, and a pull request never shows where yours are.
 
 A pull request that changes the game or the launcher (anything the game or the launcher runs: overrides/, platform/,
 launcher/, the build, the installers) is made only after both of these, on your own computer:
@@ -124,7 +123,7 @@ with the launcher's icon, the game the launcher started as "Sim Theme Park" or "
 (the icon.png of the player's imported disc, or the stand-in until then). Code for another system does the same:
 
 - The launcher window's Play starts the game as a process of its own, from a program named after the game beside the
-  launcher's, with the launcher's arguments and `--play us|eur --from-launcher DIR` (launcher/game_app.h). The launcher
+  launcher's, with the launcher's arguments and `--play EDITION --from-launcher DIR` (launcher/game_app.h). The launcher
   keeps its Starting screen up until the game's window is shown, then exits. Only when the game's program cannot be
   made or started does the game play in the launcher's process, and the log says why.
 - The game's window has the game's name as its title and the game's icon.

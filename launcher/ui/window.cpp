@@ -15,6 +15,7 @@
 
 #include "theme.h"
 #include "updater.h"
+#include "path_text.h"
 
 namespace tpw::ui {
 
@@ -58,7 +59,7 @@ public:
             std::snprintf(name, sizeof name, "launcher-frame-%04d.bmp", count_++);
             std::error_code ec;
             std::filesystem::create_directories(dir_, ec);
-            if (SDL_SaveBMP(rgb, (std::filesystem::path(dir_) / name).string().c_str()))
+            if (SDL_SaveBMP(rgb, tpw::PathText(std::filesystem::path(dir_) / name).c_str()))
                 Report("launcher: dumped %s (frame %d)", name, frames_);
             else
                 Report("launcher: could not save %s: %s", name, SDL_GetError());

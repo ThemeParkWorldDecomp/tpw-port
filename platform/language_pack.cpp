@@ -1,5 +1,6 @@
 // language_pack.cpp: the chosen language laid over the game folder (language_pack.h).
 #include "language_pack.h"
+#include "path_text.h"
 
 #include <cctype>
 #include <system_error>
@@ -46,7 +47,7 @@ bool UseLanguagePack(const fs::path& root, const std::string& name) {
     const fs::path lang = root / "lang";
     for (fs::directory_iterator it(lang, ec), end; !ec && it != end; it.increment(ec)) {
         std::error_code kind;
-        if (it->is_directory(kind) && Lower(it->path().filename().string()) == Lower(spelled)) {
+        if (it->is_directory(kind) && Lower(tpw::PathText(it->path().filename())) == Lower(spelled)) {
             folder = it->path();
             break;
         }

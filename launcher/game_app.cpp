@@ -102,7 +102,7 @@ std::string IconKey(const IconImage& icon) {
     return text;
 }
 
-std::vector<std::string> GameArguments(int argc, char** argv, bool us, const std::string& workingFolder) {
+std::vector<std::string> GameArguments(int argc, char** argv, const std::string& edition, const std::string& workingFolder) {
     std::vector<std::string> args = LauncherArguments(argc, argv);
     for (int i = 1; i + 1 < argc; ++i)
         if (std::strcmp(argv[i], kGameAppTestOption) == 0) {
@@ -111,7 +111,7 @@ std::vector<std::string> GameArguments(int argc, char** argv, bool us, const std
             break;
         }
     args.push_back("--play");
-    args.push_back(us ? "us" : "eur");
+    args.push_back(edition);
     args.push_back(kFromLauncherOption);
     args.push_back(workingFolder);
     return args;

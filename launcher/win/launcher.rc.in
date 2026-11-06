@@ -2,8 +2,12 @@
 // these) and the icon of tpw_launcher.exe (Explorer, the taskbar, the Start menu shortcut install.ps1 makes), the
 // launcher's stand-in as a multi-size .ico that tpw_make_ico draws into the build folder (launcher/win/make_ico.cpp).
 // CMakeLists.txt fills the @...@ names (under if(WIN32)): the version from launcher/VERSION.txt, the name from the same
-// words as launcher/ui/theme.h, the .ico's path (forward slashes: a backslash would be an escape here).
+// words as launcher/ui/theme.h, the .ico's and the manifest's paths (forward slashes: a backslash would be an escape here).
 #include <winver.h>
+
+// The application manifest (type 24, RT_MANIFEST; id 1, a program's own), tpw_launcher.manifest beside this file. The game's
+// program is a copy of this one and keeps it (launcher/game_app_win.cpp PutResources).
+1 24 "@TPW_LAUNCHER_MANIFEST@"
 
 // The first icon of the file is the one Windows shows for it.
 1 ICON "@TPW_LAUNCHER_ICO@"

@@ -327,7 +327,13 @@ bool SoundDevice::Open(uint32_t rate, uint32_t streams) {
     spec.format = SDL_AUDIO_S16;
     spec.channels = 2;
     spec.freq = static_cast<int>(rate);
-    mDevice = SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec);
+    // TPW_SOUND_NO_DEVICE: this step fails as it does on a computer whose sound device will not open, which SDL's dummy driver
+    // never does (tests/host_no_sound_device.cpp, and a play through run_launcher.sh, which has --mute).
+    if (SDL_getenv("TPW_SOUND_NO_DEVICE") != nullptr) {
+        SDL_SetError("TPW_SOUND_NO_DEVICE is set");
+    } else {
+        mDevice = SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec);
+    }
     if (mDevice == 0) {
         tpw::Log("sound: no audio device (%s)", SDL_GetError());
         return false;

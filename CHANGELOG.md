@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1 (2026-11-06)
+
+### Bug Fixes
+
+- `--version` and the logs now show the right build number. On 0.3.0 they said `v0.2.0-19-gd0b2f9f`
+- The launcher's home now has a Play button on each playable edition, even without every disc
+- Pressing Play with only a Windows disc imported no longer closes the launcher without starting the game
+- Windows: a user name with accents or non-Latin letters no longer breaks the launcher
+- Fixed a crash when starting the game with no working sound device; it now plays silently
+
 ## 0.3.0 (2026-11-06)
 
 ### New Features
@@ -46,7 +56,7 @@
 - Every copy of the launcher on a computer shows the game's own icon once the game is imported, even with a different game data folder.
 - Fixed the bottom of the Settings box being cut off. (Thanks @samueleagle91)
 - The launcher checks for a new version each time it starts, not once a day.
-- The game's data tables are built in, so the launcher no longer needs the Mac program from a disc.
+- The launcher no longer needs the Mac program from a disc.
 
 ## 0.2.0 (2026-10-29)
 

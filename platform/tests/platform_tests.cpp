@@ -1436,10 +1436,23 @@ static void TestTableKeys() {
     SDL_QuitKeyboard();
 }
 
+#ifdef _WIN32
+unsigned tpw_win_game_code_page();   // platform/win/posix_win.h, ahead of tpw_platform's files only
+#endif
+
 // Player names in a Hebrew, Japanese, Korean or Chinese game (code_page.cpp): the shim converts the game's narrow text in that
 // language's code page, the name comes back the same, and its folder on the host has the name in UTF-8 (UTF-16 on Windows). Every
 // other language (code page 0) keeps Latin-1 and today's bytes and folder names.
 static void TestCodePages(const fs::path& scratch) {
+#ifdef _WIN32
+    // A Latin name's accented byte is its letter in the system's code page, whatever the process's says (platform/path_text.h).
+    tpw::SetGameCodePage(0);
+    if (tpw_win_game_code_page() == 1252) {
+        CHECK(tpw::HostNameOf("Jos\xe9").native() == std::wstring(L"Jos\u00e9"));
+        CHECK(tpw::GameNameOf(fs::path(std::wstring(L"Jos\u00e9"))) == "Jos\xe9");
+    }
+    CHECK(tpw::GameNameOf(tpw::HostNameOf("plain")) == "plain");
+#endif
     tpw::Config& config = tpw::config();
     const fs::path oldGame = config.gameDir, oldUser = config.userDir;
     config.gameDir = scratch / "game";

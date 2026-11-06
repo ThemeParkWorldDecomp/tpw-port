@@ -5,24 +5,29 @@ and Linux. You need your own copy of the game.
 
 ## Quick start
 
-To install, follow these instructions. To update, run the same command again or run `themepark update`.
+To install, run the command for your platform below. To update, rerun the installer or use `themepark update`.
 
-- Mac (macOS 11 or newer, Apple Silicon or Intel), in Terminal:
+### Windows
+Windows 10 or 11 (64-bit). Run in PowerShell:
 
-      curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh
+```powershell
+irm https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.ps1 | iex
+```
 
-  The launcher goes in `~/Applications/STP-TPW-Launcher/build/tpw_launcher`.
-- Windows 10 (version 1803 or newer) or 11, 64-bit, in PowerShell:
+Launcher: `%LOCALAPPDATA%\STP-TPW-Launcher\build\tpw_launcher.exe`
 
-      irm https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.ps1 | iex
+### macOS / Linux
+macOS 11+ (Apple Silicon or Intel) or Linux (64-bit). Run in Terminal:
 
-  The launcher goes in `%LOCALAPPDATA%\STP-TPW-Launcher\build\tpw_launcher.exe`.
-- Linux (64-bit x86-64, from 0.2.0), in a terminal:
+```bash
+curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh
+```
 
-      curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh
+Launcher locations:
+- **macOS:** `~/Applications/STP-TPW-Launcher/build/tpw_launcher`
+- **Linux:** `~/.local/share/STP-TPW-Launcher/build/tpw_launcher`
 
-  The launcher goes in `~/.local/share/STP-TPW-Launcher/build/tpw_launcher`. For the Flatpak instead, end the command
-  with `sh -s -- --flatpak`.
+For Linux Flatpak, append `-s -- --flatpak` after `sh`.
 
 ### Play after install
 
@@ -302,7 +307,7 @@ on the Mac, bugs included. This repository adds what it takes to play:
   game's window: OpenGL (platform/gl_backend.cpp, platform/offscreen.cpp), or on Linux the port's own Vulkan renderer
   (platform/vulkan/), which draws the OpenGL 1.1 calls the game makes. On Linux those calls are the platform layer's own
   (platform/gl_entry.cpp), handed to the Vulkan renderer or to the system's OpenGL.
-- overrides/: the port's fixes, 367 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
+- overrides/: the port's fixes, 368 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
   the port does and why. Each file there is built in place of the tpw-decomp file of the same path. Headers are read
   from a copy of tpw-decomp's headers in the build folder with the overridden ones laid over it.
 - mods/: the [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) submodule, for optional changes to how the game plays (Mods, above). Its
@@ -404,9 +409,7 @@ own toolchain (llvm-mingw extracted to C:\llvm-mingw, CMake, Ninja and Python 3 
     cmake --build build --target tpw_launcher
     build\tpw_launcher.exe
 
--DTPW_MOVIES=OFF builds without the films. The original program's seven data tables (the advisor's tables, the save
-file's legal texts, the panels' window scripts, the ride templates) are in tpw-decomp and compiled into every build,
-so neither the build nor the launcher needs a program of the game (tpw-decomp's README says more).
+-DTPW_MOVIES=OFF builds without the films. Neither the build nor the launcher needs a program of the game.
 
 The submodule's URL is relative (../tpw-decomp), so it resolves to tpw-decomp beside tpw-port, on the same server or in
 the same folder. A clone of a local folder needs `git -c protocol.file.allow=always submodule update --init`.
@@ -597,7 +600,7 @@ The project is three repositories, and every change belongs in exactly one of th
 
 | Repository | What it holds | Pull requests |
 | --- | --- | --- |
-| [tpw-decomp](https://github.com/ThemeParkWorldDecomp/tpw-decomp) | The translation: the Mac program's own functions in C++, each behaving exactly as the Mac build does, bugs included, with the differential tests that check it and the seven data tables of the Mac program that it compiles in. | None. A function that behaves differently from the Mac is reported as an issue on tpw-port. |
+| [tpw-decomp](https://github.com/ThemeParkWorldDecomp/tpw-decomp) | The translation: the Mac program's own functions in C++, each behaving exactly as the Mac build does, bugs included, with the differential tests that check it. | None. A function that behaves differently from the Mac is reported as an issue on tpw-port. |
 | [tpw-port](https://github.com/ThemeParkWorldDecomp/tpw-port) | The original game on today's Macs, Windows PCs and Linux machines: the launcher, the platform layer, the builds, and the fixes that make it run as it did on the Mac. | Welcome, by its CONTRIBUTING.md. |
 | [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) | Optional changes to how the game plays, each one off until the player turns it on. tpw-port carries it as a submodule at mods/. | Welcome, by its CONTRIBUTING.md. |
 

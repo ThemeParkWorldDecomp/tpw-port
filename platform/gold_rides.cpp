@@ -1,5 +1,6 @@
 // gold_rides.cpp: the Gold Edition rides laid over the game folder (gold_rides.h).
 #include "gold_rides.h"
+#include "path_text.h"
 
 #include <algorithm>
 #include <cctype>
@@ -78,7 +79,7 @@ static fs::path ChildNoCase(const fs::path& folder, const std::string& name) {
     const std::string lower = Lower(name);
     for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec)) {
         std::error_code kind;
-        if (it->is_regular_file(kind) && Lower(it->path().filename().string()) == lower) return it->path();
+        if (it->is_regular_file(kind) && Lower(tpw::PathText(it->path().filename())) == lower) return it->path();
     }
     return {};
 }
