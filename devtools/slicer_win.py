@@ -10,6 +10,12 @@ runs the slicer itself, unchanged, with what differs on Windows put around it:
 - The target and headers: a MinGW driver takes its target from a config file beside it (llvm-mingw's
   x86_64-w64-windows-gnu.cfg) and its headers from the toolchain's root; libclang reads neither and would look for
   MSVC's, so the parse gets them as flags.
+- zlib.h: macOS and Linux have a copy on the system, MinGW has none. A target that links ZLIB::ZLIB compiles with the
+  bundled zlib's folder (tpw-decomp/third_party/zlib), but the index is made with the target's own include folders
+  only, so the parse gets that folder last, as a system one.
+- Spelling locations: the slicer tells a definition a macro writes by its spelling location, which the libclang of the
+  Linux build (18) gives as the file location; LLVM 23's gives the place inside the #define, so here the file
+  location is asked for (Library.clang_getSpellingLocation).
 - Symbol names: the keep and drop lists, and the slicer's own probes, spell symbols as Mach-O does, with one leading
   underscore more than 64-bit COFF; the names libclang gives are spelled that way.
 - The copy's #line directive: a Windows path's backslashes would be escapes in its string; '/' works there too.
@@ -23,6 +29,7 @@ import subprocess
 import sys
 
 SLICER = pathlib.Path(__file__).resolve().parent.parent / "tpw-decomp" / "devtools" / "slicer.py"
+ZLIB = pathlib.Path(__file__).resolve().parent.parent / "tpw-decomp" / "third_party" / "zlib"
 
 
 def macho(name):
@@ -80,6 +87,16 @@ class Library:
         if not isinstance(ss, NameSet):
             self._cl.clang_disposeStringSet(ss)
 
+    def clang_getSpellingLocation(self, location, *out):
+        # The file location: where a macro was expanded, or where a macro's argument was written. The slicer compares the
+        # spelling location with the expansion location to find the definitions a macro writes; LLVM 23's libclang gives
+        # the place inside the #define, so a definition that only starts with an attribute macro (ui_main.cpp's
+        # TPW_WEAK) would count as one a macro writes.
+        f = self._cl.clang_getFileLocation
+        if f.argtypes is None:
+            f.argtypes, f.restype = self._cl.clang_getSpellingLocation.argtypes, None
+        return f(location, *out)
+
 
 def main():
     libclang = os.environ.get("TPW_LIBCLANG", "")
@@ -111,7 +128,7 @@ def main():
 
     def parser_parse(self, src, flags, contents=None):
         if not any(f.startswith(("--target", "-target")) for f in flags):
-            flags = self.mingw_flags + list(flags)
+            flags = self.mingw_flags + list(flags) + ["-isystem", ZLIB.as_posix()]
         return parse(self, src, flags, contents)
 
     slicer.Parser.__init__, slicer.Parser.parse = parser_init, parser_parse
