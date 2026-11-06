@@ -1430,6 +1430,18 @@ static void TestTableKeys() {
                {SDL_SCANCODE_R, SDL_KMOD_NONE, 0x43a}});
     report("russian r", PressWith({}, SDL_SCANCODE_R), "typed 00 table 52 mods 0");
     report("russian alt-r", PressWith({lalt}, SDL_SCANCODE_R), "typed 72 table 52 mods 800");
+#ifdef TPW_PORT_FIX
+    // German (TPW_PORT_FIX typedletters): a key whose character is a Latin-1 letter types it as that byte, its UTF-16 code,
+    // with Shift its capital; the tables get the same byte (no plain key). With Option or Alt it types none, as above.
+    SetLayout({{SDL_SCANCODE_APOSTROPHE, SDL_KMOD_NONE, 0xe4}, {SDL_SCANCODE_APOSTROPHE, shift, 0xc4},
+               {SDL_SCANCODE_SEMICOLON, SDL_KMOD_NONE, 0xf6}, {SDL_SCANCODE_MINUS, SDL_KMOD_NONE, 0xdf},
+               {SDL_SCANCODE_LEFTBRACKET, SDL_KMOD_NONE, 0xfc}, {SDL_SCANCODE_APOSTROPHE, alt, 0xe6}});
+    report("german a-umlaut", PressWith({}, SDL_SCANCODE_APOSTROPHE), "typed e4 table e4 mods 0");
+    report("german shift-a-umlaut", PressWith({lshift}, SDL_SCANCODE_APOSTROPHE), "typed c4 table c4 mods 200");
+    report("german o-umlaut", PressWith({}, SDL_SCANCODE_SEMICOLON), "typed f6 table f6 mods 0");
+    report("german sharp-s", PressWith({}, SDL_SCANCODE_MINUS), "typed df table df mods 0");
+    report("german option-a-umlaut", PressWith({lalt}, SDL_SCANCODE_APOSTROPHE), "typed 00 table 00 mods 800");
+#endif
     // Keys with no character: the arrows and F12 are the tables' own virtual keys (HandleTyping never asks).
     CHECK(tpw::PlainKeyCharacter(0x7e) == 0 && tpw::PlainKeyCharacter(0x6f) == 0 && tpw::PlainKeyCharacter(0xff) == 0);
     SDL_SetKeymap(nullptr, false);

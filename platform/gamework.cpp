@@ -118,6 +118,14 @@ char MacCharacter(const SDL_KeyboardEvent& key) {
     }
     const SDL_Keycode code = SDL_GetKeyFromScancode(key.scancode, key.mod, false);
     if (code >= 0x20 && code < 0x7f) return static_cast<char>(code);
+#ifdef TPW_PORT_FIX
+    // TPW_PORT_FIX typedletters MacCharacter | Mac: the Event Manager's character, in Mac Roman | Port: a key whose character
+    // is a Latin-1 letter or sign (0xa0 to 0xff: an a, o or u with umlaut, a sharp s, an e with acute, an n with tilde) gives
+    // that byte, its own UTF-16 code, as the PC's WM_CHAR gave the character of its code page 1252; with Option or Alt held
+    // it stays none, as the Mac's Option characters are (Option-1 is a cheat key, not a character) | Why: the edit boxes keep
+    // the character as UTF-16 (InterfaceEditBox::Edit, through TPMain.cpp's HandleTyping); before, such a key typed nothing
+    if (code >= 0xa0 && code <= 0xff && (key.mod & SDL_KMOD_ALT) == 0) return static_cast<char>(code);
+#endif
     if (key.scancode >= SDL_SCANCODE_F1 && key.scancode <= SDL_SCANCODE_F12) return 0x10;
     return 0;
 }
