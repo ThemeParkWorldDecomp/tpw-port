@@ -14,10 +14,16 @@
 // not safe, so then the unbind is only noted (unbindPending) and the stream, already marked unbound
 // and without a pull function, simply stops asking for data; the next command from another thread
 // (or a bind) settles it.
+//
+// With no device the watcher is the audio thread. SDL_UnbindAudioStream still waits for a pull in progress (it takes the stream's
+// lock, which SDL_GetAudioStreamData holds across the callback), and a pull that starts after a Pause or a Stop finds the stream
+// paused or without its pull function and asks the game for nothing. `bound` then says only that the stream is meant to play;
+// nothing is bound in SDL until Adopt, which runs on the watcher when no pull can be in progress.
 #include "sound_device.h"
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -33,7 +39,56 @@ namespace tpw {
 namespace {
 
 std::atomic<int> gLiveStreams{0};
-bool gAudioInitialised = false;   // SDL_InitSubSystem(SDL_INIT_AUDIO) ran once; never undone
+bool gAudioInitialised = false;   // SDL_InitSubSystem(SDL_INIT_AUDIO) ran once; never undone. On the main thread only.
+std::atomic<bool> gDriverUp{false};   // gAudioInitialised, for the watcher
+
+// How often the watcher pulls with no device, tries for one, and looks at whether SDL has followed the default.
+constexpr std::chrono::milliseconds kPumpStep{20};
+constexpr std::chrono::milliseconds kRetryDevice{2000};
+constexpr std::chrono::milliseconds kRetryDriver{10000};
+constexpr std::chrono::milliseconds kCheckDefault{2000};
+constexpr uint32_t kPumpLongest = 250;   // the milliseconds one round makes up for, after the computer has slept
+
+std::mutex gWatchingLock;
+std::vector<SoundDevice*> gWatching;
+
+// SDL_InitSubSystem is for the main thread, so a driver that did not start is tried again there: SDL runs this at its next
+// event pump. A rare case (Windows has two drivers to try), and the only retry the game's own thread ever does.
+void SDLCALL StartDriverOnMainThread(void*) {
+    if (gAudioInitialised) return;
+    if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) return;
+    gAudioInitialised = true;
+    gDriverUp = true;
+}
+
+// The default device opened. TPW_SOUND_NO_DEVICE: this fails as it does on a computer whose sound device will not open, which
+// SDL's dummy driver never does (tests/host_no_sound_device.cpp, and a play through run_launcher.sh). "after:N" ends that N
+// seconds after the first try, for a device that arrives during a play.
+SDL_AudioDeviceID OpenDefault(uint32_t rate) {
+    SDL_AudioSpec spec;
+    SDL_zero(spec);
+    spec.format = SDL_AUDIO_S16;
+    spec.channels = 2;
+    spec.freq = static_cast<int>(rate);
+    if (const char* hook = SDL_getenv("TPW_SOUND_NO_DEVICE")) {
+        static const std::chrono::steady_clock::time_point first = std::chrono::steady_clock::now();
+        const bool after = std::strncmp(hook, "after:", 6) == 0;
+        if (!after || std::chrono::steady_clock::now() - first < std::chrono::seconds(std::atoi(hook + 6))) {
+            SDL_SetError("TPW_SOUND_NO_DEVICE is set");
+            return 0;
+        }
+    }
+    return SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec);
+}
+
+void LogDevice(SDL_AudioDeviceID device, uint32_t rate) {
+    SDL_AudioSpec actual;
+    int frames = 0;
+    if (SDL_GetAudioDeviceFormat(device, &actual, &frames)) {
+        tpw::Log("sound: %s, %d Hz, %d channels, %d frames per buffer, streams of 16-bit stereo at %u Hz",
+                 SDL_GetAudioDeviceName(device), actual.freq, actual.channels, frames, rate);
+    }
+}
 
 // The stream whose pull the calling thread is inside, if any.
 thread_local const void* gPulling = nullptr;
@@ -275,16 +330,46 @@ struct SoundDevice::Stream {
         unbindPending = false;
     }
 
-    // The stream joins the device (`bound` is already true, no lock held). A stream that never left SDL has nothing to do.
+    // The stream joins the device (`bound` is already true, no lock held). A stream that never left SDL has nothing to do, nor
+    // has one with no device yet: the watcher pulls it, and Settle binds it when the device comes.
     bool Attach(SDL_AudioDeviceID device) {
         {
             std::lock_guard<std::mutex> guard(lock);
-            if (unbindPending) {
-                unbindPending = false;
-                return true;
+            unbindPending = false;
+        }
+        if (device == 0) return true;
+        const SDL_AudioDeviceID at = SDL_GetAudioStreamDevice(sdl);
+        if (at != device) {
+            if (at != 0) {
+                if (gPulling == this) return true;   // left on a device given up, in its own callback: Settle has it
+                SDL_UnbindAudioStream(sdl);
+            }
+            if (!SDL_BindAudioStream(device, sdl)) {
+                const SDL_AudioDeviceID won = SDL_GetAudioStreamDevice(sdl);
+                if (won == 0) return false;
+                if (won != device) return Attach(owner->mDevice.load());   // the watcher's Settle got there first, with a newer device
             }
         }
-        return SDL_BindAudioStream(device, sdl);
+        const SDL_AudioDeviceID now = owner->mDevice.load();   // the watcher gave that device up as this came to it
+        return now == 0 || now == device || Attach(now);
+    }
+
+    // The watcher, with a new device: the stream is bound to it if it is meant to play, and to nothing if not. A command from the game's thread can
+    // cross this, so what SDL has is compared with what is meant until they agree.
+    void Settle(SDL_AudioDeviceID device) {
+        bool refused = false;
+        for (int tries = 0; tries < 4; ++tries) {
+            bool meant;
+            {
+                std::lock_guard<std::mutex> guard(lock);
+                meant = bound;
+            }
+            const SDL_AudioDeviceID at = SDL_GetAudioStreamDevice(sdl);
+            if (at == (meant ? device : 0)) return;
+            if (at != 0) SDL_UnbindAudioStream(sdl);
+            refused = meant && !SDL_BindAudioStream(device, sdl) && SDL_GetAudioStreamDevice(sdl) != device;
+        }
+        if (refused) tpw::Log("sound: stream %u cannot be bound to the new device (%s)", index, SDL_GetError());
     }
 };
 
@@ -312,32 +397,35 @@ bool SoundDevice::CaptureActive() {
 }
 
 bool SoundDevice::Open(uint32_t rate, uint32_t streams) {
-    if (mDevice != 0) return true;
+    if (mOpen) return true;
+    const bool mute = tpw::config().mute;
     if (!gAudioInitialised) {
         // --mute: SDL's dummy driver takes the samples at the speed of a real device and drops them.
-        if (tpw::config().mute && !SDL_WasInit(SDL_INIT_AUDIO)) SDL_SetHint(SDL_HINT_AUDIO_DRIVER, "dummy");
-        if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
+        if (mute && !SDL_WasInit(SDL_INIT_AUDIO)) SDL_SetHint(SDL_HINT_AUDIO_DRIVER, "dummy");
+        if (SDL_InitSubSystem(SDL_INIT_AUDIO)) {
+            gAudioInitialised = true;
+            gDriverUp = true;
+        } else {
             tpw::Log("sound: SDL audio failed to start (%s)", SDL_GetError());
-            return false;
+            if (mute) return false;
         }
-        gAudioInitialised = true;
     }
+    if (gAudioInitialised) {
+        const SDL_AudioDeviceID device = OpenDefault(rate);
+        mDevice = device;
+        if (device == 0) {
+            tpw::Log("sound: no audio device (%s)", SDL_GetError());
+            if (mute) return false;
+        } else {
+            LogDevice(device, rate);
+        }
+    }
+    if (mDevice.load() == 0) tpw::Log("sound: the game plays silently until a sound device opens");
     SDL_AudioSpec spec;
     SDL_zero(spec);
     spec.format = SDL_AUDIO_S16;
     spec.channels = 2;
     spec.freq = static_cast<int>(rate);
-    mDevice = SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec);
-    if (mDevice == 0) {
-        tpw::Log("sound: no audio device (%s)", SDL_GetError());
-        return false;
-    }
-    SDL_AudioSpec actual;
-    int frames = 0;
-    if (SDL_GetAudioDeviceFormat(mDevice, &actual, &frames)) {
-        tpw::Log("sound: %s, %d Hz, %d channels, %d frames per buffer, streams of 16-bit stereo at %u Hz",
-                 SDL_GetAudioDeviceName(mDevice), actual.freq, actual.channels, frames, rate);
-    }
     for (uint32_t i = 0; i < streams; ++i) {
         std::unique_ptr<Stream> stream(new Stream);
         stream->owner = this;
@@ -353,10 +441,145 @@ bool SoundDevice::Open(uint32_t rate, uint32_t streams) {
         mStreams.push_back(std::move(stream));
     }
     CaptureOpen();
+    mOpen = true;
+    if (!mute) {
+        mStopWatching = false;
+        mWatcher = std::thread([this, rate] { Watch(rate); });
+        std::lock_guard<std::mutex> guard(gWatchingLock);
+        gWatching.push_back(this);
+    }
     return true;
 }
 
+void SoundDevice::StopWatcher() {
+    if (!mWatcher.joinable()) return;
+    {
+        std::lock_guard<std::mutex> guard(mWatchLock);
+        mStopWatching = true;
+    }
+    mWatchWake.notify_all();
+    mWatcher.join();
+    std::lock_guard<std::mutex> guard(gWatchingLock);
+    gWatching.erase(std::remove(gWatching.begin(), gWatching.end(), this), gWatching.end());
+}
+
+void SoundDevice::StopWatchers() {
+    std::vector<SoundDevice*> devices;
+    {
+        std::lock_guard<std::mutex> guard(gWatchingLock);
+        devices = gWatching;
+    }
+    for (SoundDevice* device : devices) device->StopWatcher();
+}
+
+// The watcher's thread. No log line of its own while nothing changes: "no audio device" has been said once by Open.
+void SoundDevice::Watch(uint32_t rate) {
+    using Clock = std::chrono::steady_clock;
+    Clock::time_point lastPump = Clock::now();
+    Clock::time_point nextDevice = lastPump + kRetryDevice;
+    Clock::time_point nextDriver = lastPump + kRetryDriver;
+    uint32_t framesOver = 0;
+    int staleChecks = 0;
+    bool staleLogged = false;
+    std::unique_lock<std::mutex> lock(mWatchLock);
+    while (!mStopWatching) {
+        const bool silent = mDevice.load() == 0;
+        if (silent) {
+            mWatchWake.wait_for(lock, kPumpStep);
+        } else {
+            mWatchWake.wait_for(lock, kCheckDefault);
+        }
+        if (mStopWatching) break;
+        lock.unlock();
+        const Clock::time_point now = Clock::now();
+        if (silent) {
+            // SDL's get callback, as a device would run it: what has been played since the last round is taken and dropped.
+            const uint64_t ms = std::min<uint64_t>(
+                kPumpLongest, std::chrono::duration_cast<std::chrono::milliseconds>(now - lastPump).count());
+            lastPump = now;
+            const uint64_t scaled = ms * rate + framesOver;
+            framesOver = static_cast<uint32_t>(scaled % 1000);
+            if (!mDevicePaused.load()) Pump(static_cast<uint32_t>(scaled / 1000) * kStereoFrameBytes);
+            if (gDriverUp.load()) {
+                if (now >= nextDevice) {
+                    nextDevice = now + kRetryDevice;
+                    const SDL_AudioDeviceID device = OpenDefault(rate);
+                    if (device != 0) {
+                        tpw::Log("sound: a sound device has opened");
+                        Adopt(device);
+                        LogDevice(device, rate);
+                        lastPump = Clock::now();
+                    }
+                }
+            } else if (now >= nextDriver) {
+                nextDriver = now + kRetryDriver;
+                // SDL_RunOnMainThread runs it here, on this thread, when SDL's events are not up yet: then it waits.
+                if (SDL_WasInit(SDL_INIT_EVENTS)) SDL_RunOnMainThread(StartDriverOnMainThread, nullptr, false);
+            }
+        } else {
+            FollowDefault(rate, staleChecks, staleLogged);
+        }
+        lock.lock();
+    }
+}
+
+void SoundDevice::Pump(uint32_t bytes) {
+    if (bytes == 0) return;
+    thread_local std::vector<uint8_t> drain;
+    drain.resize(bytes);
+    for (auto& stream : mStreams) {
+        {
+            std::lock_guard<std::mutex> guard(stream->lock);
+            if (!stream->bound) continue;
+        }
+        SDL_GetAudioStreamData(stream->sdl, drain.data(), static_cast<int>(bytes));
+    }
+}
+
+// The watcher, with the streams on no device: from here they play on this one. Their gains and pauses stay as the game set them.
+void SoundDevice::Adopt(uint32_t device) {
+    if (mDevicePaused.load()) SDL_PauseAudioDevice(device);
+    mDevice = device;
+    if (!mDevicePaused.load()) SDL_ResumeAudioDevice(device);   // a resume that crossed the store found no device to resume
+    for (auto& stream : mStreams) stream->Settle(device);
+}
+
+// SDL moves a device opened as the default to the new default itself, but when the new one refuses to open it leaves it on the
+// old (SDL_DefaultAudioDeviceChanged), which may be gone, with no second try: silence for the rest of the play. A difference of
+// names on two looks in a row is that (a move in progress is over by the second); the default is then opened afresh. The same
+// name on a device that came back is not noticed. TPW_SOUND_DEFAULT_NAME stands in for the default's name in the test.
+void SoundDevice::FollowDefault(uint32_t rate, int& staleChecks, bool& staleLogged) {
+    const SDL_AudioDeviceID device = mDevice.load();
+    const char* mine = SDL_GetAudioDeviceName(device);
+    const char* hook = SDL_getenv("TPW_SOUND_DEFAULT_NAME");
+    const char* current = hook != nullptr ? hook : SDL_GetAudioDeviceName(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK);
+    if (mine == nullptr || current == nullptr || std::strcmp(mine, current) == 0) {
+        staleChecks = 0;
+        staleLogged = false;
+        return;
+    }
+    if (++staleChecks < 2) return;
+    const SDL_AudioDeviceID fresh = OpenDefault(rate);
+    if (fresh == 0) {
+        if (!staleLogged) tpw::Log("sound: the default device changed and will not open yet (%s)", SDL_GetError());
+        staleLogged = true;
+        return;
+    }
+    tpw::Log("sound: the default device changed, and is opened afresh");
+    staleChecks = 0;
+    staleLogged = false;
+    // The old one is only paused, so that no pulls run on it, and stays open until Close: a command on the game's thread may be
+    // calling SDL with its id right now, and SDL frees a logical device under a call that is waiting for it (a crash in
+    // ObtainLogicalAudioDevice, seen with the "stress" test). So few are given up in a play that the cost is nothing.
+    mDevice = 0;
+    SDL_PauseAudioDevice(device);
+    mGivenUp.push_back(device);
+    Adopt(fresh);
+    LogDevice(fresh, rate);
+}
+
 void SoundDevice::Close() {
+    StopWatcher();
     for (auto& stream : mStreams) {
         {
             std::lock_guard<std::mutex> guard(stream->lock);
@@ -371,11 +594,12 @@ void SoundDevice::Close() {
         --gLiveStreams;
     }
     mStreams.clear();
-    if (mDevice != 0) {
-        SDL_CloseAudioDevice(mDevice);
-        mDevice = 0;
-        CaptureClose();
-    }
+    for (const uint32_t givenUp : mGivenUp) SDL_CloseAudioDevice(givenUp);
+    mGivenUp.clear();
+    const SDL_AudioDeviceID device = mDevice.exchange(0);
+    if (device != 0) SDL_CloseAudioDevice(device);
+    if (mOpen || device != 0) CaptureClose();
+    mOpen = false;
 }
 
 bool SoundDevice::SetSource(uint32_t index, const SoundSource& source, uint32_t chunk) {
@@ -451,7 +675,7 @@ bool SoundDevice::Play(uint32_t index, SoundPull pull) {
             attach = true;
         }
     }
-    if (attach && !stream.Attach(mDevice)) {
+    if (attach && !stream.Attach(mDevice.load())) {
         tpw::Log("sound: stream %u cannot be bound (%s)", index, SDL_GetError());
         std::lock_guard<std::mutex> guard(stream.lock);
         stream.bound = false;
@@ -502,7 +726,7 @@ void SoundDevice::Restart(uint32_t index) {
             attach = true;
         }
     }
-    if (attach && !stream.Attach(mDevice)) {
+    if (attach && !stream.Attach(mDevice.load())) {
         tpw::Log("sound: stream %u cannot be bound again (%s)", index, SDL_GetError());
         std::lock_guard<std::mutex> guard(stream.lock);
         stream.bound = false;
@@ -590,12 +814,19 @@ uint32_t SoundDevice::Feed(uint32_t index, int bytes) {
     return mStreams[index]->Feed(frames * static_cast<int>(kStereoFrameBytes));
 }
 
+uint32_t SoundDevice::StreamDevice(uint32_t index) const {
+    if (index >= mStreams.size()) return 0;
+    return SDL_GetAudioStreamDevice(mStreams[index]->sdl);
+}
+
 void SoundDevice::SetDevicePaused(bool paused) {
-    if (mDevice == 0) return;
+    mDevicePaused = paused;
+    const SDL_AudioDeviceID device = mDevice.load();
+    if (device == 0) return;
     if (paused) {
-        SDL_PauseAudioDevice(mDevice);
+        SDL_PauseAudioDevice(device);
     } else {
-        SDL_ResumeAudioDevice(mDevice);
+        SDL_ResumeAudioDevice(device);
     }
 }
 

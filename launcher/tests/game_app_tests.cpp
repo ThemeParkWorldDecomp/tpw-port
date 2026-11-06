@@ -10,10 +10,12 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "game_app.h"
 #include "icon.h"
+#include "manifest.h"
 
 using namespace tpw::launcher;
 using tpw::assets::IconImage;
@@ -98,12 +100,26 @@ void Arguments() {
                           "--window-click", "205,373@60", "--display", "builtin"};
     const int argc = static_cast<int>(sizeof argv / sizeof argv[0]);
     char** args = const_cast<char**>(argv);
-    const std::vector<std::string> game = GameArguments(argc, args, false, "/x");
+    const std::vector<std::string> game = GameArguments(argc, args, "eur", "/x");
     const std::vector<std::string> want = {"--user", "B/user-a", "--mute", "--display", "builtin",
                                            "--play", "eur", "--from-launcher", "/x"};
     Check(game == want, "the game's arguments: the launcher's without its scripted click, then --play eur --from-launcher DIR");
-    Check(GameArguments(argc, args, true, "/y").back() == "/y" && GameArguments(argc, args, true, "/y")[6] == "us",
+    Check(GameArguments(argc, args, "us", "/y").back() == "/y" && GameArguments(argc, args, "us", "/y")[6] == "us",
           "the game's arguments: --play us, the folder given");
+    // each edition the window's Play can choose goes to the game by its own name: a Windows disc's is not its game's Mac
+    // edition, whose files the player may not have, and --play would refuse that
+    const std::pair<tpw::assets::Edition, const char*> playable[] = {{tpw::assets::kEditionUs, "us"},
+                                                                     {tpw::assets::kEditionEur, "eur"},
+                                                                     {tpw::assets::kEditionUsPc, "us-pc"},
+                                                                     {tpw::assets::kEditionEurPc, "eur-pc"}};
+    for (const auto& [edition, name] : playable) {
+        const std::vector<std::string> played = GameArguments(argc, args, tpw::assets::EditionName(edition), "/x");
+        Check(played.size() == want.size() && played[5] == "--play" && played[6] == name,
+              std::string("the game's arguments: --play ") + name);
+        tpw::assets::Edition read = tpw::assets::kEditionGold;
+        Check(played.size() == want.size() && tpw::assets::EditionFromName(played[6].c_str(), read) && read == edition,
+              std::string("the game's process reads the edition again: ") + name);
+    }
     Check(FromLauncherFolder(argc, args).empty(), "the launcher's own run is not from the launcher");
     // the game's process sees them with its own program first; the launcher gets its own back
     std::vector<std::string> gameRun = {"/x/build/Sim Theme Park.app/Contents/MacOS/tpw_launcher"};
@@ -120,7 +136,7 @@ void Arguments() {
     Check(std::string(kFromLauncherOption) == "--from-launcher", "the marker's name");
     // the hand-over's test: its game gets the option, and the launcher opened again after it does not
     const char* test[] = {"tpw_launcher.exe", "--data", "D", "--game-app-test", "us", "--frames", "90"};
-    const std::vector<std::string> testGame = GameArguments(7, const_cast<char**>(test), true, "C:\\w");
+    const std::vector<std::string> testGame = GameArguments(7, const_cast<char**>(test), "us", "C:\\w");
     Check(testGame == std::vector<std::string>{"--data", "D", "--frames", "90", "--game-app-test", "us", "--play", "us",
                                                "--from-launcher", "C:\\w"},
           "the test's game: --game-app-test kept, before --play");

@@ -16,6 +16,7 @@
 #include "packs.h"
 #include "platform.h"
 #include "source.h"
+#include "path_text.h"
 
 namespace tpw::launcher {
 namespace {
@@ -85,7 +86,7 @@ bool UsableStem(const std::string& stem) {
 
 // Empties and removes `folder` only when it is a pack's own folder, directly inside `unpacked`.
 void RemovePackFolder(const fs::path& unpacked, const fs::path& folder) {
-    if (folder.parent_path() != unpacked || !UsableStem(folder.filename().string())) return;
+    if (folder.parent_path() != unpacked || !UsableStem(tpw::PathText(folder.filename()))) return;
     std::error_code ec;
     fs::remove_all(folder, ec);
 }
@@ -136,7 +137,7 @@ size_t SharedFolderLength(const std::vector<Item>& items) {
 
 // Unpacks the zip into `out` (emptied first) and writes the stamp last, so a folder without one is never used.
 bool Unpack(const fs::path& zip, const fs::path& unpacked, const fs::path& out, size_t& files, std::string& err) {
-    std::shared_ptr<assets::Blob> blob = assets::OpenFileBlob(zip.string(), err);
+    std::shared_ptr<assets::Blob> blob = assets::OpenFileBlob(tpw::PathText(zip), err);
     if (!blob) return false;
     std::unique_ptr<assets::Source> source = assets::OpenZip(blob, err);
     if (!source) return false;
@@ -146,7 +147,7 @@ bool Unpack(const fs::path& zip, const fs::path& unpacked, const fs::path& out, 
         if (!path.empty() && !IsDesktopClutter(path)) items.push_back({&entry, std::move(path)});
     }
     const size_t skip = SharedFolderLength(items);
-    const std::string name = zip.filename().string();
+    const std::string name = tpw::PathText(zip.filename());
     uint64_t total = 0;
     for (const Item& item : items) {
         if (item.entry->size > kMaxPackBytes - total) {
@@ -178,9 +179,9 @@ bool Unpack(const fs::path& zip, const fs::path& unpacked, const fs::path& out, 
         fs::create_directories(target.parent_path(), ec);
         std::unique_ptr<assets::Stream> stream = source->Open(*entry, err);
         if (!stream) return false;
-        std::FILE* file = std::fopen(target.string().c_str(), "wb");
+        std::FILE* file = std::fopen(tpw::PathText(target).c_str(), "wb");
         if (file == nullptr) {
-            err = "cannot write " + target.string();
+            err = "cannot write " + tpw::PathText(target);
             return false;
         }
         int64_t read;
@@ -193,13 +194,13 @@ bool Unpack(const fs::path& zip, const fs::path& unpacked, const fs::path& out, 
             }
             if (std::fwrite(buffer.data(), 1, static_cast<size_t>(read), file) != static_cast<size_t>(read)) {
                 read = -1;
-                err = "cannot write " + target.string();
+                err = "cannot write " + tpw::PathText(target);
                 break;
             }
         }
         if (std::fclose(file) != 0 && read == 0) {
             read = -1;
-            err = "cannot write " + target.string();
+            err = "cannot write " + tpw::PathText(target);
         }
         if (read < 0) return false;
         ++files;
@@ -216,9 +217,9 @@ void UsePacks(const fs::path& folder) {
     std::vector<fs::path> zips;
     for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec)) {
         std::error_code kind;
-        if (!it->is_regular_file(kind) || Lower(it->path().extension().string()) != ".zip") continue;
-        if (UsableStem(it->path().stem().string())) zips.push_back(it->path());
-        else tpw::Log("asset pack: %s left out, as its name starts with a dot", it->path().filename().string().c_str());
+        if (!it->is_regular_file(kind) || Lower(tpw::PathText(it->path().extension())) != ".zip") continue;
+        if (UsableStem(tpw::PathText(it->path().stem()))) zips.push_back(it->path());
+        else tpw::Log("asset pack: %s left out, as its name starts with a dot", tpw::PathText(it->path().filename()).c_str());
     }
     std::sort(zips.begin(), zips.end());
 
@@ -236,7 +237,7 @@ void UsePacks(const fs::path& folder) {
     dirs.clear();
     for (const fs::path& zip : zips) {
         const fs::path out = unpacked / zip.stem();
-        const std::string name = zip.filename().string();
+        const std::string name = tpw::PathText(zip.filename());
         if (ReadStamp(out) != StampOf(zip)) {
             size_t files = 0;
             std::string err;

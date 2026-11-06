@@ -37,6 +37,7 @@
 #include "platform.h"
 #include "platform/indirectx.h"
 #include "platform/macdoze.h"
+#include "path_text.h"
 
 namespace {
 tpw::Window gWindow;
@@ -118,7 +119,7 @@ void DumpFrame() {
     std::snprintf(name, sizeof name, "frame-%04d.bmp", count++);
     std::error_code ec;
     std::filesystem::create_directories(tpw::config().dumpFramesDir, ec);
-    if (!SDL_SaveBMP(surface, (tpw::config().dumpFramesDir / name).string().c_str())) {
+    if (!SDL_SaveBMP(surface, tpw::PathText(tpw::config().dumpFramesDir / name).c_str())) {
         tpw::Log("could not save %s: %s", name, SDL_GetError());
     } else {
         tpw::Log("dumped %s at %llu ms (pass %d)", name, static_cast<unsigned long long>(SDL_GetTicks()), tpw::CurrentPass());

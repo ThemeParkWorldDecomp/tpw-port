@@ -1,5 +1,6 @@
 // log_file.cpp: the launcher's log file (log_file.h).
 #include "log_file.h"
+#include "path_text.h"
 
 #include <SDL3/SDL.h>
 
@@ -488,13 +489,13 @@ std::vector<fs::path> OldLogFiles(const fs::path& logsFolder) {
     };
     std::error_code ec;
     for (fs::directory_iterator it(logsFolder, ec), end; !ec && it != end; it.increment(ec))
-        if (IsOldRunLogName(it->path().filename().string())) add(it->path());
+        if (IsOldRunLogName(tpw::PathText(it->path().filename()))) add(it->path());
     // Windows' launcher.log and game.log, beside launcher.ini in the folder the logs folder is in.
     if (logsFolder.has_parent_path() && logsFolder.has_filename())
         for (const char* name : {"launcher.log", "game.log"}) add(logsFolder.parent_path() / name);
     std::sort(found.begin(), found.end(), [](const Found& a, const Found& b) {
         if (a.time != b.time) return a.time < b.time;
-        return a.path.filename().string() < b.path.filename().string();
+        return tpw::PathText(a.path.filename()) < tpw::PathText(b.path.filename());
     });
     std::vector<fs::path> paths;
     for (const Found& file : found) paths.push_back(file.path);
@@ -521,7 +522,7 @@ std::string FoldedOldLog(const fs::path& file, int run, size_t keep, const Scrub
         }
     }
     text = Scrub(identity, text);
-    const std::string name = file.filename().string();
+    const std::string name = tpw::PathText(file.filename());
     std::string when, what;
     if (name == "launcher.log" || name == "game.log") {
         what = name == "game.log" ? "what the game's own process printed on Windows" : "what the launcher printed on Windows";
@@ -555,7 +556,7 @@ bool OpenLogFile(const fs::path& folder, const std::string& firstLine, int argc,
     std::error_code ec;
     fs::create_directories(folder, ec);
     if (!fs::is_directory(folder, ec)) {
-        err = "cannot make the folder \"" + folder.string() + "\"" + (ec ? ": " + ec.message() : "");
+        err = "cannot make the folder \"" + tpw::PathText(folder) + "\"" + (ec ? ": " + ec.message() : "");
         return false;
     }
     const fs::path path = folder / kLogFileName;
@@ -571,7 +572,7 @@ bool OpenLogFile(const fs::path& folder, const std::string& firstLine, int argc,
     const HANDLE lock = CreateFileW(wide.c_str(), GENERIC_READ | GENERIC_WRITE, share, nullptr, OPEN_ALWAYS,
                                     FILE_ATTRIBUTE_NORMAL, nullptr);
     if (lock == INVALID_HANDLE_VALUE) {
-        err = "cannot open \"" + path.string() + "\": " + SystemError(GetLastError());
+        err = "cannot open \"" + tpw::PathText(path) + "\": " + SystemError(GetLastError());
         return false;
     }
     const HANDLE append = CreateFileW(wide.c_str(), FILE_APPEND_DATA | SYNCHRONIZE, share, nullptr, OPEN_ALWAYS,
@@ -579,7 +580,7 @@ bool OpenLogFile(const fs::path& folder, const std::string& firstLine, int argc,
     const DWORD appendError = GetLastError();
     const int fd = append != INVALID_HANDLE_VALUE ? _open_osfhandle(reinterpret_cast<intptr_t>(append), _O_WRONLY | _O_BINARY) : -1;
     if (fd < 0) {
-        err = "cannot open \"" + path.string() + "\" for appending: " +
+        err = "cannot open \"" + tpw::PathText(path) + "\" for appending: " +
               (append != INVALID_HANDLE_VALUE ? std::string("no C runtime descriptor for it") : SystemError(appendError));
         if (append != INVALID_HANDLE_VALUE) CloseHandle(append);
         CloseHandle(lock);
@@ -591,7 +592,7 @@ bool OpenLogFile(const fs::path& folder, const std::string& firstLine, int argc,
     // flock's, on it, and goes with it.
     const int fd = open(path.c_str(), O_RDWR | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
     if (fd < 0) {
-        err = "cannot open \"" + path.string() + "\": " + std::strerror(errno);
+        err = "cannot open \"" + tpw::PathText(path) + "\": " + std::strerror(errno);
         return false;
     }
     const int lock = fd;
@@ -635,7 +636,7 @@ bool OpenLogFile(const fs::path& folder, const std::string& firstLine, int argc,
                     std::string removed, stayed;
                     for (const fs::path& file : old) {
                         std::string& names = fs::remove(file, ec) ? removed : stayed;
-                        names += (names.empty() ? "" : ", ") + file.filename().string();
+                        names += (names.empty() ? "" : ", ") + tpw::PathText(file.filename());
                     }
                     if (!removed.empty())
                         notes += "log: the old log files were put in this one, oldest first, and removed: " + removed + "\n";
@@ -657,7 +658,7 @@ bool OpenLogFile(const fs::path& folder, const std::string& firstLine, int argc,
     if (got == Lock::kExclusive) HoldShared(lock, true);
     gRun = highest + 1;
     std::snprintf(gRunTag, sizeof gRunTag, " [run %d]", gRun);
-    gPath = path.string();
+    gPath = tpw::PathText(path);
     const std::string play = ArgValue(argc, argv, "--play");
     const std::string edition = play == "us" ? "Sim Theme Park" : play == "eur" ? "Theme Park World" : "";
     std::string system = OsLine();

@@ -246,6 +246,9 @@ public:
     // Where the last frame drew the drop targets, in points (an empty rect when not shown). Index 0 US, 1 European,
     // 2 Gold (empty on the all-confirmed home, whose two tiles are the US and European ones).
     Rect TileRect(int index) const { return tilesShown_ ? tileRects_[index] : Rect{}; }
+    // The home with the drop field's Play button of a small tile (0 US, 1 European; never 2 Gold) in the last frame, in points
+    // (empty when not shown: that edition is not playable, or this is another screen).
+    Rect TilePlayRect(int index) const { return tilesShown_ ? tilePlay_[index] : Rect{}; }
     // The all-confirmed home's Play button of a tile (0 US, 1 European) in the last frame, in points (empty when not shown).
     Rect ReadyPlayRect(int index) const { return readyShown_ ? readyPlay_[index] : Rect{}; }
     // The all-confirmed home's Gold Edition switch of a tile (0 US, 1 European) in the last frame, in points (empty when
@@ -359,6 +362,8 @@ private:
     bool AnyPlayable() const;
     bool AllConfirmed() const;   // US, European and Gold all unlocked: the home becomes two tiles to play from
     void OpenPlay();
+    // Every Play button's start: the game of a tile (status_ index), with the Gold rides or without.
+    void StartPlay(int index, bool gold);
     // Flips an edition's Gold Edition switch (0 US, 1 European) and keeps it in launcher.ini (GoldKey).
     void SetGold(int index, bool on);
     TileView TileFor(int index) const;
@@ -439,6 +444,7 @@ private:
     Rect fieldRect_;           // last frame's drop targets
     Rect tileRects_[3];
     bool tilesShown_ = false;
+    Rect tilePlay_[3];         // last frame's (TilePlayRect)
     Rect readyPlay_[2];
     Rect readyGold_[2];        // the all-confirmed home's Gold Edition switches
     bool readyShown_ = false;

@@ -128,9 +128,18 @@ static std::string GameName(const fs::path& hostName) {
     }
     return GameNameOf(fs::path(name));
 }
+
+// The name's own bytes as a host name, empty when they are no text. Not path's own narrow reading: under the UTF-8 process
+// code page (path_text.h) a Latin name's accented byte makes it throw.
+static fs::path NameOfBytes(const std::string& name) {
+    std::u16string text;
+    if (!tpw_win_decode(tpw_win_game_code_page(), name, text)) return {};
+    return fs::path(std::wstring(text.begin(), text.end()));
+}
 #else
 static fs::path HostName(const std::string& name) { return HostNameOf(name); }
 static std::string GameName(const fs::path& hostName) { return GameNameOf(hostName); }
+static fs::path NameOfBytes(const std::string& name) { return fs::path(name); }
 #endif
 
 // `name` inside `folder`, matched ignoring case: the exact name if it exists, else the
@@ -141,7 +150,8 @@ static fs::path FindChild(const fs::path& folder, const std::string& name) {
     const fs::path host = HostName(name);
     const fs::path exact = folder / host;
     if (fs::exists(exact, ec)) return exact;
-    if (host.native() != fs::path(name).native() && fs::exists(folder / name, ec)) return folder / name;
+    const fs::path bytes = NameOfBytes(name);
+    if (!bytes.empty() && host.native() != bytes.native() && fs::exists(folder / bytes, ec)) return folder / bytes;
     for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
         if (EqualNoCase(GameName(it->path().filename()), name)) return it->path();
     return {};

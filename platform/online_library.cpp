@@ -48,6 +48,7 @@
 #include "platform/online_backend.h"
 #include "platform/online_boss.h"
 #include "platform/online_ftp.h"
+#include "path_text.h"
 
 namespace fs = std::filesystem;
 
@@ -660,7 +661,7 @@ bool PortFTPConnect(FTPClient* self, const char* user, const char* password) {
 
 bool PortFTPDownload(FTPClient* self, const char* remote, const char* local) {
     if (!FtpTakes(self)) return false;
-    boss::ftp::Download(self, remote != nullptr ? remote : "", local != nullptr ? tpw::HostPathForWriting(local).string() : "");
+    boss::ftp::Download(self, remote != nullptr ? remote : "", local != nullptr ? tpw::PathText(tpw::HostPathForWriting(local)) : "");
     return true;
 }
 

@@ -71,7 +71,6 @@ mkdir -p "$build/user-$name"
 # ad-hoc signature stays.
 codesign -f -s "${TPW_SIGN_IDENTITY:-Apple Development}" "$build/tpw_launcher" >/dev/null 2>&1 || true
 cd "$root" || exit 1
-# The game's data tables are built in, so no run names a program of the game.
 if [ -n "$from_data" ]; then
   "$build/tpw_launcher" --user "$build/user-$name" $windowed $display $aspect $resolution $background "$@" > "$build/launch-$name.log" 2>&1 &
 else

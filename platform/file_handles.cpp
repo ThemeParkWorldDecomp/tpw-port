@@ -16,6 +16,7 @@
 #include "platform.h"
 #include "platform/macdoze.h"
 #include "platform/macdoze_system.h"
+#include "path_text.h"
 
 namespace fs = std::filesystem;
 
@@ -304,7 +305,7 @@ static std::string NarrowHostPath(const fs::path& path) {
     std::string narrow;
     if (tpw_win_narrow_path(path.c_str(), narrow)) return narrow;
 #endif
-    return path.string();
+    return tpw::PathText(path);
 }
 
 std::string GamePathForWriting(const char* gamePath) { return NarrowHostPath(HostPathForWriting(gamePath)); }

@@ -39,6 +39,7 @@ extern char** environ;
 #endif
 
 #include "log_file.h"
+#include "path_text.h"
 
 namespace fs = std::filesystem;
 
@@ -83,7 +84,7 @@ bool RevealFile(const fs::path& file) {
     return reinterpret_cast<INT_PTR>(started) > 32;
 #elif defined(__APPLE__)
     // /usr/bin/open -R reveals the file in the Finder with it selected. It returns at once, so it is waited for (no zombie).
-    const std::string path = file.string();
+    const std::string path = tpw::PathText(file);
     char* const arguments[] = {const_cast<char*>("open"), const_cast<char*>("-R"), const_cast<char*>(path.c_str()), nullptr};
     pid_t child = 0;
     if (posix_spawn(&child, "/usr/bin/open", nullptr, nullptr, arguments, environ) != 0) return false;

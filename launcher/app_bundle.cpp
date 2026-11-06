@@ -25,6 +25,7 @@
 #if defined(__APPLE__) || defined(_WIN32)
 #include "app_icon.h"
 #include "game_app.h"
+#include "path_text.h"
 
 extern "C" void* objc_autoreleasePoolPush(void);
 extern "C" void objc_autoreleasePoolPop(void* pool);
@@ -72,17 +73,17 @@ std::string ReadWhole(const fs::path& path) {
 bool KeepFile(const fs::path& path, const std::string& text, std::string& why) {
     std::error_code ec;
     if (fs::is_regular_file(path, ec) && ReadWhole(path) == text) return true;
-    const fs::path part = path.string() + ".part";
+    const fs::path part = tpw::PathText(path) + ".part";
     {
         std::ofstream out(part, std::ios::binary | std::ios::trunc);
         if (!out || !(out << text) || !out.flush()) {
-            why = "cannot write " + part.string() + ": " + std::strerror(errno);
+            why = "cannot write " + tpw::PathText(part) + ": " + std::strerror(errno);
             return false;
         }
     }
     fs::rename(part, path, ec);
     if (ec) {
-        why = "cannot rename " + part.string() + ": " + ec.message();
+        why = "cannot rename " + tpw::PathText(part) + ": " + ec.message();
         fs::remove(part, ec);
         return false;
     }
@@ -100,7 +101,7 @@ bool SameFile(const fs::path& a, const fs::path& b) {
 bool ExecFromBundle(const fs::path& exe, const fs::path& app, const std::string& plist, const std::string& dataFolder, int argc, char** argv,
                     const char* dockName, std::string& note) {
     std::string program, made, why;
-    if (!KeepLauncherBundle(exe.string(), app.string(), plist, dataFolder, program, made, why)) {
+    if (!KeepLauncherBundle(tpw::PathText(exe), tpw::PathText(app), plist, dataFolder, program, made, why)) {
         note = "not from the bundle (" + why + "); the Dock names this run after the program's folder";
         return false;
     }
@@ -108,7 +109,7 @@ bool ExecFromBundle(const fs::path& exe, const fs::path& app, const std::string&
     args.push_back(program.data());
     for (int i = 1; i < argc; ++i) args.push_back(argv[i]);
     args.push_back(nullptr);
-    const std::string left = "running from " + app.string() + " (" + made + "; the Dock names it " + dockName + ")";
+    const std::string left = "running from " + tpw::PathText(app) + " (" + made + "; the Dock names it " + dockName + ")";
     setenv(kNoteVariable, left.c_str(), 1);
     execv(program.c_str(), args.data());
     unsetenv(kNoteVariable);
@@ -172,7 +173,7 @@ bool KeepBundle(const std::string& exePath, const std::string& appPath, const st
     const bool existed = fs::is_directory(macos, ec);
     fs::create_directories(macos, ec);
     if (ec) {
-        why = "cannot make " + macos.string() + ": " + ec.message();
+        why = "cannot make " + tpw::PathText(macos) + ": " + ec.message();
         return false;
     }
     if (!KeepFile(contents / "Info.plist", plist, why)) return false;
@@ -180,7 +181,7 @@ bool KeepBundle(const std::string& exePath, const std::string& appPath, const st
     if (!icns.empty()) {
         fs::create_directories(contents / "Resources", ec);
         if (ec) {
-            why = "cannot make " + (contents / "Resources").string() + ": " + ec.message();
+            why = "cannot make " + tpw::PathText(contents / "Resources") + ": " + ec.message();
             return false;
         }
         if (!KeepFile(contents / "Resources" / "icon.icns", std::string(icns.begin(), icns.end()), why)) return false;
@@ -189,8 +190,8 @@ bool KeepBundle(const std::string& exePath, const std::string& appPath, const st
     // launcher's own, the game's name in the game's (game_app.h), so that ps, Activity Monitor and System Events, which
     // name a process after its program, name the game too.
     const std::string named = PlistString(plist, "CFBundleExecutable");
-    const fs::path linked = macos / (named.empty() ? exe.filename().string() : named);
-    program = linked.string();
+    const fs::path linked = macos / (named.empty() ? tpw::PathText(exe.filename()) : named);
+    program = tpw::PathText(linked);
     if (SameFile(exe, linked)) {
         made = existed ? "kept" : "made";
         return true;
@@ -203,7 +204,7 @@ bool KeepBundle(const std::string& exePath, const std::string& appPath, const st
     // no hard links on this volume: a copy of the program instead
     fs::copy_file(exe, linked, fs::copy_options::overwrite_existing, ec);
     if (ec) {
-        why = "cannot link or copy the program into " + macos.string() + ": " + ec.message();
+        why = "cannot link or copy the program into " + tpw::PathText(macos) + ": " + ec.message();
         return false;
     }
     made = existed ? "brought up to date (a copy of the program: no hard links here)" : "made (a copy of the program: no hard links here)";
@@ -219,10 +220,10 @@ IconRefresh KeepBundleIcon(const std::string& appPath, const tpw::assets::IconIm
     if (fs::is_regular_file(resources / "icon.icns", ec) && ReadWhole(resources / "icon.key") == key) return IconRefresh::Kept;
     fs::create_directories(resources, ec);
     if (ec) {
-        why = "cannot make " + resources.string() + ": " + ec.message();
+        why = "cannot make " + tpw::PathText(resources) + ": " + ec.message();
         return IconRefresh::Failed;
     }
-    const IconRefresh done = KeepIconFile((resources / "icon.icns").string(), EncodeIcns(icon), why);
+    const IconRefresh done = KeepIconFile(tpw::PathText(resources / "icon.icns"), EncodeIcns(icon), why);
     if (done == IconRefresh::Failed) return done;
     if (!KeepFile(resources / "icon.key", key, why)) return IconRefresh::Failed;
     if (done != IconRefresh::Written) return done;

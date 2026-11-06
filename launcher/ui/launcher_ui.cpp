@@ -405,6 +405,18 @@ void LauncherUi::OpenPlay() {
     screen_ = Screen::Play;
 }
 
+void LauncherUi::StartPlay(int index, bool gold) {
+    playIndex_ = index;
+    choice_.edition = status_[index].edition;   // the tile's Mac edition, or its Windows one
+    choice_.gold = gold;
+    choice_.skipIntro = skipIntro_;
+    choice_.backToLauncher = backToLauncher_;
+    choice_.language = PlayLanguage(kEditions[index], languages_, language_[index]);
+    playChosen_ = true;
+    std::string err;
+    backend_.SetLastChoice(assets::EditionName(choice_.edition), err);
+}
+
 void LauncherUi::PollVerify() {
     if (!verify_.valid()) return;
     if (verify_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
@@ -812,6 +824,18 @@ void LauncherUi::DrawHome(const Rect& w) {
         Browse(true, DialogPurpose::Import);
 
     DrawTiles(tiles, true);
+
+    // A playable edition's own Play, in its tile's header band: there at every window size, where the header's gives way
+    // to Mods, Settings and About, and without taking height from the drop field. This home has no Gold Edition switch, so
+    // the Gold rides go by the edition's kept switch once their data is in, as on the Play screen.
+    const float playW = text_.Width(style::kButton, "Play") + 24, playH = 30;
+    for (int i = 0; i < 2; ++i) {
+        if (!status_[i].unlocked) continue;
+        const Rect& t = tileRects_[i];
+        tilePlay_[i] = {t.Right() - metric::kOutline - 6 - playW, t.y + metric::kOutline + 4, playW, playH};
+        if (ui_.Button(std::string("tile-play-") + assets::EditionName(kEditions[i]), tilePlay_[i], "Play", ButtonKind::Go))
+            StartPlay(i, status_[2].unlocked && gold_[i]);
+    }
 }
 
 // The home once every edition is confirmed: no drop field, two large tiles (the US edition, then the European one), each
@@ -885,17 +909,8 @@ void LauncherUi::DrawReady(const Rect& w) {
         EditedBadge(i, {r.CentreX() - bw * 0.5f, pill.y - 12 - badgeH, bw, badgeH});
         readyPlay_[i] = play;
         if (ui_.Button(std::string("ready-play-") + assets::EditionName(kEditions[i]), play, "Play", ButtonKind::Go,
-                       true, style::kHeadline)) {
-            playIndex_ = i;
-            choice_.edition = status_[i].edition;   // the tile's Mac edition, or its Windows one
-            choice_.gold = goldOn;
-            choice_.skipIntro = skipIntro_;
-            choice_.backToLauncher = backToLauncher_;
-            choice_.language = PlayLanguage(kEditions[i], languages_, language_[i]);
-            playChosen_ = true;
-            std::string err;
-            backend_.SetLastChoice(assets::EditionName(choice_.edition), err);
-        }
+                       true, style::kHeadline))
+            StartPlay(i, goldOn);
     }
     tilesShown_ = true;
     readyShown_ = true;
@@ -1071,16 +1086,7 @@ void LauncherUi::DrawPlay(const Rect& w) {
     float playW = 220;
     float bottom = std::max(y + playH, col.Bottom());
     Rect play{col.CentreX() - playW * 0.5f, std::min(y + 6, bottom - playH), playW, playH};
-    if (ui_.Button("play", play, "Play", ButtonKind::Go, s.unlocked, style::kHeadline)) {
-        choice_.edition = s.edition;
-        choice_.gold = goldOn;
-        choice_.skipIntro = skipIntro_;
-        choice_.backToLauncher = backToLauncher_;
-        choice_.language = PlayLanguage(kEditions[playIndex_], languages_, language_[playIndex_]);
-        playChosen_ = true;
-        std::string err;
-        backend_.SetLastChoice(assets::EditionName(choice_.edition), err);
-    }
+    if (ui_.Button("play", play, "Play", ButtonKind::Go, s.unlocked, style::kHeadline)) StartPlay(playIndex_, goldOn);
     float backW = ui_.ButtonWidth("Back");
     if (ui_.Button("play-back", {panel.x + 20, panel.Bottom() - 20 - 38, backW, 38}, "Back", ButtonKind::Quiet))
         screen_ = Screen::Home;
@@ -1979,6 +1985,7 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
     versionRect_ = showLogsRect_ = titleRect_ = titleVersionRect_ = headerButtonsRect_ = updateBannerRect_ = Rect{};
     exportLogsRect_ = openDownloadsRect_ = modsButtonRect_ = modsOnRect_ = Rect{};
     for (Rect& r : editedBadge_) r = Rect{};
+    for (Rect& r : tilePlay_) r = Rect{};
     if (editedOpen_ < 0) restoreRects_.clear();
     if (!aboutOpen_) exported_ = LogsExport{};
     DrawBackdrop(window);

@@ -11,7 +11,7 @@ What a game folder must hold, one record per file, found by CONTENT (size and SH
                        TrueType fonts out of them, the data forks are empty) and the program's data fork, with BOTH
                        accepted builds (CD 2.0.1 and patch 2.04b3) as SHA-256 values of one record; and the PC CD's
                        nine films (data/Movies/*.tgq, the European records: film_rules). The program is optional (kept
-                       when a drop has it): the game's data tables are built into the port.
+                       when a drop has it).
   EUR (editions eur)   import_eur.py EXPECTED, all of the European folder (PC disc files, Mac files, tuning files,
                        resource forks and Finder info files); the sizes come from tree-ee54d817.json and the content
                        source (pc or mac) from draft-manifests.json, both written by the launcher-design study.
@@ -223,7 +223,7 @@ def us_set(cs, c):
         fail("CHECKSUMS has no CD program with the expected size and SHA-256 (%r)" % (cd,))
     if pt != (PROGRAM_PATCH[2], PROGRAM_PATCH[1]):
         fail("CHECKSUMS has no patch program with the expected size and SHA-256 (%r)" % (pt,))
-    out.append((PROGRAM_DEST, [cd, pt], "program", "us", "mac", 0))   # optional: the tables are built in
+    out.append((PROGRAM_DEST, [cd, pt], "program", "us", "mac", 0))   # optional
     return out
 
 
@@ -809,7 +809,7 @@ def from_base(path, keep_languages, keep_pc):
     records, languages = parse_inc(path)
     for dest, hs, group, bits, source, flags in records:
         if group == "program":
-            flags &= ~FLAG_REQUIRED   # an output from before the tables were built in had it required
+            flags &= ~FLAG_REQUIRED   # an older output had it required
         for e in EDITION_BIT:
             if bits & EDITION_BIT[e] and (keep_languages or e != "lang") and (keep_pc or e not in PC_EDITIONS):
                 out.append((dest, hs, group, e, source, flags))

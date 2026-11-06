@@ -35,6 +35,7 @@
 #include "gdi_text.h"
 #include "platform.h"
 #include "platform/macdoze.h"
+#include "path_text.h"
 
 namespace fs = std::filesystem;
 
@@ -232,7 +233,7 @@ int32_t AddFontResource(const char* path) {
         LogOnce(std::string("nofont:") + path, std::string("AddFontResource: cannot open ") + path);
         return 0;
     }
-    return tpw::gdi_text::AddFontFile(host.string());
+    return tpw::gdi_text::AddFontFile(tpw::PathText(host));
 }
 
 InternalHandle* CreateFontIndirect(const tagLOGFONTA* font) {

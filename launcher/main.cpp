@@ -62,6 +62,7 @@
 #include "gfx.h"
 #include "handoff.h"
 #include "log_export.h"
+#include "path_text.h"
 #ifdef TPW_PORT_FIX
 #include "mods.h"
 #endif
@@ -636,8 +637,8 @@ void AdoptOldSaves(const std::filesystem::path& prefPath, const std::filesystem:
         if (!std::filesystem::is_directory(old, ec)) continue;
         std::filesystem::create_directories(saves.parent_path(), ec);
         std::filesystem::copy(old, saves, std::filesystem::copy_options::recursive, ec);
-        if (ec) tpw::Log("saves: could not copy \"%s\" to \"%s\": %s", old.string().c_str(), saves.string().c_str(), ec.message().c_str());
-        else tpw::Log("saves: copied from \"%s\" (the folder earlier builds used; it is left as it was)", old.string().c_str());
+        if (ec) tpw::Log("saves: could not copy \"%s\" to \"%s\": %s", tpw::PathText(old).c_str(), tpw::PathText(saves).c_str(), ec.message().c_str());
+        else tpw::Log("saves: copied from \"%s\" (the folder earlier builds used; it is left as it was)", tpw::PathText(old).c_str());
         return;
     }
 }
@@ -761,7 +762,7 @@ int GameAppTest(const tpw::Config& config, const std::string& dataDir, const std
     if (gFromLauncher.empty()) {
         tpw::launcher::GameApp app;
         std::string why;
-        if (!tpw::launcher::StartGameApp(gArgc, gArgv, us, backend.DataFolder(), !config.background, app, why)) {
+        if (!tpw::launcher::StartGameApp(gArgc, gArgv, us, edition, backend.DataFolder(), !config.background, app, why)) {
             tpw::Log("game app test: %s not started (%s)", tpw::launcher::GameAppName(us), why.c_str());
             return 1;
         }
@@ -938,7 +939,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
         tpw::ui::WindowPlacement placement;
         placement.background = config.background;
         placement.maxFrames = config.maxFrames;   // --frames, --dump-frames, --dump-every, --dump-limit: the window's too
-        placement.dumpDir = config.dumpFramesDir.string();
+        placement.dumpDir = tpw::PathText(config.dumpFramesDir);
         placement.dumpEvery = config.dumpEvery;
         placement.dumpLimit = config.dumpLimit;
         placement.clicks = tpw::launcher::gWindowClicks;   // --window-click
@@ -1067,7 +1068,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
         const bool usApp = tpw::assets::IsUsGame(choice.edition);
         tpw::launcher::GameApp app;
         std::string why;
-        if (tpw::launcher::StartGameApp(gArgc, gArgv, usApp, backend.DataFolder(), !config.background, app, why)) {
+        if (tpw::launcher::StartGameApp(gArgc, gArgv, usApp, tpw::assets::EditionName(choice.edition), backend.DataFolder(), !config.background, app, why)) {
             tpw::Log("data folder: %s", backend.DataFolder().c_str());
             tpw::LogFileF("play: %s (%s), from the launcher window's Play, handed to %s (process %d; %s); game folder %s",
                           usApp ? "Sim Theme Park, the US edition" : "Theme Park World, the European edition",
@@ -1207,7 +1208,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
                   play.empty()                ? "the launcher window's Play"
                   : !gFromLauncher.empty()    ? "the launcher window's Play, as the game's own application"
                                               : "--play",
-                  config.gameDir.string().c_str());
+                  tpw::PathText(config.gameDir).c_str());
     // The Gold Edition switch (launcher_ui.h GoldKey). The Gold data is kept in assets/gold, apart from the game folder
     // chosen above; with the switch on, its rides are laid over the game folder (platform/gold_rides.h), each at the
     // place the PC Gold installer copied it to, and the game finds them as it scans the ride folders.
@@ -1409,7 +1410,7 @@ void ReopenLauncher(int argc, char** argv) {
         const std::string program = (std::filesystem::u8path(gameBundle).parent_path() / "tpw_launcher.exe").u8string();
 #else
         // the bare program, beside the game's bundle (this process's program is the hard link under the game's name)
-        const std::string program = (std::filesystem::path(gameBundle).parent_path() / "tpw_launcher").string();
+        const std::string program = tpw::PathText(std::filesystem::path(gameBundle).parent_path() / "tpw_launcher");
 #endif
         kept.insert(kept.begin(), program);
         for (const std::string& arg : kept) args.push_back(arg.c_str());
@@ -1525,9 +1526,8 @@ int LauncherMain(int argc, char** argv) {
             while (i + 1 < argc && argv[i + 1][0] != '-') imports.push_back(argv[++i]);   // the paths after it
         }
         else if (arg == "--verify") verify = true;
-        // The game's data tables are built in (tables/ and include/ in tpw-decomp): an older script's --program is
-        // taken and left unused.
-        else if (arg == "--program") tpw::Log("launcher: --program %s is not used (the game's data tables are built in)", value());
+        // An older script's --program is taken and left unused.
+        else if (arg == "--program") tpw::Log("launcher: --program %s is not used", value());
         else if (arg == "--no-preload") tpw::launcher::gNoPreload = true;
         else if (arg == "--window-click") {
             const char* spec = value();
@@ -1747,7 +1747,7 @@ int LauncherMain(int argc, char** argv) {
     std::error_code ec;
     if (!std::filesystem::is_directory(config.gameDir / "data", ec)) {
         tpw::LogRawF("launcher: no game found in \"%s\" (it must hold the game's \"data\" folder)\n",
-                     config.gameDir.string().c_str());
+                     tpw::PathText(config.gameDir).c_str());
         return 1;
     }
     if (config.edition.empty()) config.edition = tpw::EditionOf(config.gameDir);
@@ -1761,9 +1761,9 @@ int LauncherMain(int argc, char** argv) {
         }
     }
     std::filesystem::create_directories(config.userDir, ec);
-    tpw::Log("game folder: %s", config.gameDir.string().c_str());
+    tpw::Log("game folder: %s", tpw::PathText(config.gameDir).c_str());
     tpw::Log("edition: %s", config.edition == "stp" ? "SimTheme Park (stp)" : "Theme Park World (tpw)");
-    tpw::Log("user folder: %s", config.userDir.string().c_str());
+    tpw::Log("user folder: %s", tpw::PathText(config.userDir).c_str());
 #ifdef TPW_PORT_FIX
     // TPW_PORT_FIX online-server: the online screens against a revived online server (platform/online_boss.cpp, the
     // original protocol): the connection made on its own thread and the answers given on the game's (UGamework::Run), every reply
@@ -1792,12 +1792,12 @@ int LauncherMain(int argc, char** argv) {
     if (!language.empty()) {
         const std::string own = config.edition == "stp" ? "American" : "English";
         if (tpw::UseLanguagePack(languageRoot, language))
-            tpw::Log("language: %s, from %s", language.c_str(), tpw::LanguagePackFolder().string().c_str());
+            tpw::Log("language: %s, from %s", language.c_str(), tpw::PathText(tpw::LanguagePackFolder()).c_str());
         else if (language == own)
             tpw::Log("language: %s, the edition's own", language.c_str());
         else {
             tpw::LogRawF("launcher: --language %s: no folder lang/%s in the language root \"%s\" (--language-root)\n",
-                         language.c_str(), language.c_str(), languageRoot.string().c_str());
+                         language.c_str(), language.c_str(), tpw::PathText(languageRoot).c_str());
             return 1;
         }
     }
@@ -1901,6 +1901,7 @@ int LauncherMain(int argc, char** argv) {
 #endif
     Report();
     gReopenLauncher = gBackToLauncher;
+    tpw::SoundDevice::StopWatchers();   // a module still alive here: SDL_Quit destroys the streams its watcher pulls
     SDL_Quit();
     return result;
 }
@@ -1923,6 +1924,10 @@ int main(int argc, char** argv) {
     std::string bundleNote;
     tpw::launcher::RunFromAppBundle(argc, argv, IconDataFolder(dataDir), bundleNote);
     OpenLog(argc, argv, dataDir);
+#ifdef _WIN32
+    // UTF-8 (65001) from Windows 10 1903 (launcher/win/tpw_launcher.manifest); any other is an older Windows or a lost manifest.
+    tpw::Log("windows: process code page %u", GetACP());
+#endif
     std::atexit(LogExitAtExit);
     RegisterSamTables();
     // The arena starts on a 4 GB boundary (platform/arena.cpp): its offsets are then the low halves of its addresses, and the

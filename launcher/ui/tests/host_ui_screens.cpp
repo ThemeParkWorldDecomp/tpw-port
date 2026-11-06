@@ -1086,6 +1086,60 @@ std::vector<Shot> Shots() {
                      },
                      nullptr, Screen::Home, {}});
 
+    // Some of the discs: each playable edition's small tile has its own Play, in the smallest window, with the Customized
+    // settings badge, with Mods in the header, under the update banner and in a large window.
+    auto usMac = [](FakeBackend& b) { b.FillAll(assets::kEditionUs); };
+    auto eurMac = [](FakeBackend& b) { b.FillAll(assets::kEditionEur); };
+    auto usWin = [](FakeBackend& b) { b.FillAll(assets::kEditionUsPc); };
+    auto eurWin = [](FakeBackend& b) { b.FillAll(assets::kEditionEurPc); };
+    auto bothMods = [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
+        ui.SetMods({EnableStrikes(), StaffCrossBridges()});
+    };
+    shots.push_back({"40-tile-play-us", metric::kStartWidth, metric::kStartHeight, usMac, nullptr, Screen::Home, {}});
+    shots.push_back({"40-tile-play-eur", metric::kStartWidth, metric::kStartHeight, eurMac, nullptr, Screen::Home, {}});
+    shots.push_back({"40-tile-play-us-pc", metric::kStartWidth, metric::kStartHeight, usWin, nullptr, Screen::Home, {}});
+    shots.push_back({"40-tile-play-eur-pc", metric::kStartWidth, metric::kStartHeight, eurWin, nullptr, Screen::Home, {}});
+    shots.push_back({"41-tile-play-both-smallest", metric::kMinWidth, metric::kMinHeight, FillWindows, nullptr, Screen::Home, {}});
+    shots.push_back({"41-tile-play-mods", metric::kStartWidth, metric::kStartHeight, PartialUsEur, bothMods, Screen::Home, {}});
+    shots.push_back({"41-tile-play-mods-smallest", metric::kMinWidth, metric::kMinHeight, FillWindows, bothMods,
+                     Screen::Home, {}});
+    shots.push_back({"42-tile-play-customized-smallest", metric::kMinWidth, metric::kMinHeight,
+                     [](FakeBackend& b) {
+                         b.FillAll(assets::kEditionUs);
+                         b.FillAll(assets::kEditionEur);
+                         EditUsSettings(b);
+                         b.edited[assets::kEditionEur] = {{"data/med.sam", "/x/data/med.sam", true, 0}};
+                     },
+                     bothMods, Screen::Home, {}});
+    shots.push_back({"42-tile-play-banner-smallest", metric::kMinWidth, metric::kMinHeight, PartialUsEur, bothMods,
+                     Screen::Home, "found"});
+    shots.push_back({"42-tile-play-banner-customized", metric::kStartWidth, metric::kStartHeight,
+                     [](FakeBackend& b) {
+                         PartialUsEur(b);
+                         EditUsSettings(b);
+                     },
+                     bothMods, Screen::Home, "found"});
+    shots.push_back({"44-tile-play-hover-smallest", metric::kMinWidth, metric::kMinHeight, FillWindows,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
+                         const Rect r = ui.TilePlayRect(1);
+                         ui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"44-tile-play-drag-over", metric::kStartWidth, metric::kStartHeight, usMac,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
+                         const Rect t = ui.TileRect(0);
+                         ui.HandleEvent(DropEvent(SDL_EVENT_DROP_BEGIN));
+                         ui.HandleEvent(DropEvent(SDL_EVENT_DROP_POSITION, t.CentreX(), t.CentreY()));
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"43-tile-play-large", 1600, 1000, FillWindows, bothMods, Screen::Home, {}});
+    shots.push_back({"43-tile-play-gold-and-one", metric::kStartWidth, metric::kStartHeight,
+                     [](FakeBackend& b) {
+                         b.FillAll(assets::kEditionEur);
+                         b.FillAll(assets::kEditionGold);
+                     },
+                     nullptr, Screen::Home, {}});
+
     // Every edition confirmed: two large tiles with their Gold badges and Play buttons, no drop field.
     shots.push_back({"12-home-all-confirmed", metric::kStartWidth, metric::kStartHeight, FillEverything, nullptr,
                      Screen::Home, {}});
@@ -1713,6 +1767,185 @@ void CheckWindowsReady(SDL_Renderer* renderer) {
     click(ui.ReadyPlayRect(0));
     Check(ui.TakePlay(choice) && choice.edition == assets::kEditionUs && !choice.gold,
           "Mac CD added: the US Play starts the Mac edition, the switch kept");
+}
+
+// The home with the drop field: a playable edition's tile has its own Play at every window size, whatever the header has
+// room for, and it starts that tile's edition as the all-confirmed home's does. A locked tile and the Gold one have none.
+void CheckTilePlay(SDL_Renderer* renderer) {
+    const float sizes[4][2] = {{metric::kMinWidth, metric::kMinHeight}, {metric::kStartWidth, metric::kStartHeight},
+                               {1600, 1000}, {2560, 1440}};
+    auto click = [](LauncherUi& ui, const Rect& r, float w, float h) {
+        ui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+        ui.Frame(kDt, w, h, 1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+        ui.Frame(kDt, w, h, 1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+        ui.Frame(kDt, w, h, 1);
+    };
+    Canvas canvas(renderer);
+    Text text(canvas);
+    const float titleW = text.Width(style::kHeading, EditionTitle(assets::kEditionEur));
+
+    // One disc alone: its tile's Play starts its edition, in every size, with Mods in the header and without, with the
+    // Customized settings badge on the tile and without.
+    const struct {
+        Edition edition;
+        int slot;
+        const char* name;
+    } alone[4] = {{assets::kEditionUs, 0, "us"}, {assets::kEditionEur, 1, "eur"},
+                  {assets::kEditionUsPc, 0, "us-pc"}, {assets::kEditionEurPc, 1, "eur-pc"}};
+    for (const auto& one : alone)
+        for (const auto& size : sizes)
+            for (const bool mods : {false, true})
+                for (const bool edited : {false, true}) {
+                    const float w = size[0], h = size[1];
+                    const std::string what = std::string("tile Play, ") + one.name + " alone at " +
+                                             std::to_string(static_cast<int>(w)) + "x" +
+                                             std::to_string(static_cast<int>(h)) + (mods ? " with Mods" : "") +
+                                             (edited ? " customized" : "");
+                    FakeBackend b;
+                    b.FillAll(one.edition);
+                    if (edited) b.edited[one.edition] = {{"data/med.sam", "/x/data/med.sam", true, 0}};
+                    LauncherUi ui(renderer, b);
+                    if (mods) ui.SetMods({EnableStrikes(), StaffCrossBridges()});
+                    ui.Frame(kDt, w, h, 1);
+                    const Rect tile = ui.TileRect(one.slot), play = ui.TilePlayRect(one.slot);
+                    Check(play.w > 0, what + ": the tile has a Play");
+                    Check(play.x >= tile.x && play.Right() <= tile.Right() && play.y >= tile.y && play.Bottom() <= tile.y + 42,
+                          what + ": it is in the tile's header band");
+                    Check(tile.x + metric::kOutline + 14 + titleW + 2 <= play.x, what + ": it is clear of the tile's title");
+                    Check(ui.TilePlayRect(1 - one.slot).w == 0 && ui.TileRect(1 - one.slot).w > 0,
+                          what + ": the locked tile has no Play");
+                    Check(ui.TilePlayRect(2).w == 0, what + ": the Gold tile has no Play");
+                    Check(ui.ReadyPlayRect(one.slot).w == 0, what + ": this is the home with the drop field");
+                    const Rect badge = ui.EditedBadgeRect(one.slot);
+                    Check((badge.w > 0) == edited, what + ": the badge is there only with edits");
+                    if (edited)
+                        Check(play.Bottom() < badge.y && badge.Bottom() <= tile.Bottom(),
+                              what + ": Play and the badge do not touch, both in the tile");
+                    LaunchChoice choice;
+                    Check(!ui.TakePlay(choice), what + ": no play before a click");
+                    click(ui, play, w, h);
+                    Check(ui.TakePlay(choice) && choice.edition == one.edition, what + ": a click starts that edition");
+                    Check(!choice.gold, what + ": without the Gold data no Gold rides");
+                    CheckEq(b.LastChoice(), one.name, what + ": the choice is kept");
+                    Check(ui.CurrentScreen() == LauncherUi::Screen::Home, what + ": the click stays on the home");
+                }
+
+    // The case of the bug: at the start width the header has no room for its Play beside Mods, Settings and About.
+    {
+        FakeBackend b;
+        b.FillAll(assets::kEditionUs);
+        LauncherUi ui(renderer, b);
+        ui.SetMods({EnableStrikes(), StaffCrossBridges()});
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(ui.HeaderButtonsRect().x == ui.ModsButtonRect().x, "tile Play: no header Play beside Mods at the start width");
+        Check(ui.TilePlayRect(0).w > 0, "tile Play: there all the same on the tile");
+    }
+
+    // Both editions without the Gold rides, one from each kind of disc: each tile starts its own.
+    {
+        FakeBackend b;
+        b.FillAll(assets::kEditionUs);
+        b.FillAll(assets::kEditionEurPc);
+        LauncherUi ui(renderer, b);
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        LaunchChoice choice;
+        click(ui, ui.TilePlayRect(0), metric::kStartWidth, metric::kStartHeight);
+        Check(ui.TakePlay(choice) && choice.edition == assets::kEditionUs, "tile Play: the US tile's starts the US edition");
+        click(ui, ui.TilePlayRect(1), metric::kStartWidth, metric::kStartHeight);
+        Check(ui.TakePlay(choice) && choice.edition == assets::kEditionEurPc,
+              "tile Play: the European tile's starts the European Windows edition");
+    }
+
+    // A disc only partly there: no Play on that tile.
+    {
+        FakeBackend b;
+        PartialUsEur(b);
+        LauncherUi ui(renderer, b);
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(ui.TilePlayRect(0).w > 0 && ui.TilePlayRect(1).w == 0, "tile Play: none on a partial tile");
+    }
+
+    // Nothing there: no Play at all.
+    {
+        FakeBackend b;
+        LauncherUi ui(renderer, b);
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(ui.TilePlayRect(0).w == 0 && ui.TilePlayRect(1).w == 0 && ui.TilePlayRect(2).w == 0,
+              "tile Play: none with no disc");
+    }
+
+    // One edition and the Gold rides: not the all-confirmed home, the Gold tile has no Play, the edition's kept switch
+    // decides the rides, and the rest of the choice is what the other Play buttons hand on.
+    {
+        FakeBackend b;
+        b.FillAll(assets::kEditionEur);
+        b.FillAll(assets::kEditionGold);
+        b.languages = {Language("English"), Language("French")};
+        b.settings[kSkipIntroKey] = "1";
+        b.settings[kBackToLauncherKey] = "1";
+        b.settings[LanguageKey(assets::kEditionEur)] = "French";
+        LaunchChoice choice;
+        for (const bool on : {true, false}) {
+            b.settings["gold_eur"] = on ? "1" : "0";
+            LauncherUi ui(renderer, b);
+            ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+            Check(ui.TilePlayRect(1).w > 0 && ui.TilePlayRect(0).w == 0 && ui.TilePlayRect(2).w == 0 &&
+                      ui.TileRect(2).w > 0,
+                  "tile Play, Gold data: on the European tile only");
+            click(ui, ui.TilePlayRect(1), metric::kStartWidth, metric::kStartHeight);
+            Check(ui.TakePlay(choice) && choice.edition == assets::kEditionEur && choice.gold == on,
+                  "tile Play, Gold data: the kept switch decides the Gold rides");
+            Check(choice.skipIntro && choice.backToLauncher, "tile Play: hands on Skip the intro and Back to the launcher");
+            CheckEq(choice.language, "French", "tile Play: hands on the edition's language");
+        }
+    }
+
+    // Under an open box the button is gone and takes no click; a drag over the window does not press it either.
+    {
+        FakeBackend b;
+        b.FillAll(assets::kEditionUs);
+        LauncherUi ui(renderer, b);
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        const Rect play = ui.TilePlayRect(0);
+        ui.ShowAbout(true);
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(ui.TilePlayRect(0).w == 0, "tile Play: not offered under the About box");
+        click(ui, play, metric::kStartWidth, metric::kStartHeight);
+        LaunchChoice choice;
+        Check(!ui.TakePlay(choice), "tile Play: a click on the About box does not start the game");
+    }
+
+    // The result screen has its own Play and keeps it; the tiles there have none.
+    {
+        FakeBackend b;
+        b.FillAll(assets::kEditionUs);
+        b.Queue(FakeBackend::Script());
+        LauncherUi ui(renderer, b);
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        ui.HandleEvent(DropEvent(SDL_EVENT_DROP_BEGIN));
+        ui.HandleEvent(DropEvent(SDL_EVENT_DROP_FILE, 300, 200, "/a/one.iso"));
+        ui.HandleEvent(DropEvent(SDL_EVENT_DROP_COMPLETE));
+        for (int i = 0; i < 3; ++i) ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(ui.CurrentScreen() == LauncherUi::Screen::Result && ui.TileRect(0).w > 0 && ui.TilePlayRect(0).w == 0,
+              "tile Play: none on the result screen's tiles");
+    }
+
+    // The all-confirmed home is as it was: no small tiles' Play, the large ones where the play test clicks them.
+    for (const bool windows : {false, true}) {
+        FakeBackend b;
+        if (windows) FillWindowsAndGold(b);
+        else FillEverything(b);
+        LauncherUi ui(renderer, b);
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(ui.TilePlayRect(0).w == 0 && ui.TilePlayRect(1).w == 0 && ui.TilePlayRect(2).w == 0,
+              "all confirmed: no small tile's Play");
+        const Rect us = ui.ReadyPlayRect(0), eu = ui.ReadyPlayRect(1);
+        Check(us.Contains(205, 373) && eu.Contains(595, 373), "all confirmed: the large Play buttons where the play test clicks");
+        std::printf("all confirmed: Play buttons %.0f,%.0f %.0fx%.0f and %.0f,%.0f %.0fx%.0f\n", us.x, us.y, us.w, us.h, eu.x,
+                    eu.y, eu.w, eu.h);
+    }
 }
 
 // Scrolling: the wheel over the area moves the offset a step a line and stops at both ends, the wheel elsewhere does
@@ -2972,9 +3205,9 @@ void CheckUpdateBanner(SDL_Renderer* renderer) {
     }
 }
 
-// The real backend over an empty data folder: neither edition asks for a program of the game (its data tables are
-// built in), so each edition is counted exactly as the importer counts it and the program's record is optional. The
-// folder is made under the screens folder and removed again.
+// The real backend over an empty data folder: neither edition asks for a program of the game, so each edition is
+// counted exactly as the importer counts it and the program's record is optional. The folder is made under the screens
+// folder and removed again.
 void CheckNoProgram(const std::string& screens) {
     namespace fs = std::filesystem;
     const fs::path pref = fs::path(screens) / "no-program";
@@ -3026,6 +3259,7 @@ int main(int argc, char** argv) {
         CheckDrops(renderer);
         CheckReady(renderer);
         CheckWindowsReady(renderer);
+        CheckTilePlay(renderer);
         CheckScroll(renderer);
         CheckSettingsScroll(renderer);
         CheckLanguages(renderer);

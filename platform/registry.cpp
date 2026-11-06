@@ -20,6 +20,7 @@
 
 #include "platform.h"
 #include "platform/macdoze.h"
+#include "path_text.h"
 
 namespace fs = std::filesystem;
 
@@ -87,7 +88,7 @@ fs::path FindEntry(const fs::path& folder, const std::string& file) {
     const fs::path exact = folder / file;
     if (fs::exists(exact, ec)) return exact;
     for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
-        if (EqualNoCase(it->path().filename().string(), file)) return it->path();
+        if (EqualNoCase(tpw::PathText(it->path().filename()), file)) return it->path();
     return {};
 }
 
@@ -163,7 +164,7 @@ std::vector<std::string> ListNames(const fs::path& folder, bool keys) {
     std::vector<std::string> names;
     std::error_code ec;
     for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec)) {
-        std::string file = it->path().filename().string();
+        std::string file = tpw::PathText(it->path().filename());
         std::error_code kindError;
         const bool isFolder = it->is_directory(kindError);
         if (keys) {

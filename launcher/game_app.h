@@ -74,8 +74,9 @@ std::string LauncherBundlePlist(const std::string& embeddedPlist);
 std::string IconKey(const tpw::assets::IconImage& icon);
 
 // The game process's arguments (without the program): this run's (LauncherArguments), its --game-app-test pair when it
-// has one, then --play us|eur and --from-launcher `workingFolder`.
-std::vector<std::string> GameArguments(int argc, char** argv, bool us, const std::string& workingFolder);
+// has one, then --play `edition` (assets::EditionName: us, eur, us-pc or eur-pc, the very edition the player chose) and
+// --from-launcher `workingFolder`.
+std::vector<std::string> GameArguments(int argc, char** argv, const std::string& edition, const std::string& workingFolder);
 // The launcher's arguments again from a game process's: the --play and --from-launcher pairs taken out, and the
 // --window-click ones (a scripted click in the launcher's window was for the run that pressed Play; the launcher opened
 // again after the game would press it again, and the game has no use for it), and --game-app-test's (the launcher opened
@@ -138,9 +139,10 @@ struct GameApp {
 };
 // Makes or refreshes the game's bundle beside this program's own bundle (this program must run from inside a bundle,
 // or as the installer's application, whose program is the bare one in build/: then beside that), or the game's program
-// beside tpw_launcher.exe, and starts it with GameArguments and this process's environment; `activate` fronts it (not
-// for --background). False, with why, when it could not: the game then plays in this process.
-bool StartGameApp(int argc, char** argv, bool us, const std::string& dataFolder, bool activate, GameApp& app, std::string& why);
+// beside tpw_launcher.exe, and starts it with GameArguments and this process's environment; `us` says which game's it
+// is, `edition` what it plays; `activate` fronts it (not for --background). False, with why, when it could not: the
+// game then plays in this process.
+bool StartGameApp(int argc, char** argv, bool us, const std::string& edition, const std::string& dataFolder, bool activate, GameApp& app, std::string& why);
 // Whether the opened application has finished launching (macOS: its NSApplication is up, SDL's video has started;
 // Windows: the process shows a window), or has ended already.
 bool GameAppFinishedLaunching(const GameApp& app);

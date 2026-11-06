@@ -29,8 +29,6 @@ set(TPW_DECOMP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tpw-decomp)
 if(NOT EXISTS ${TPW_DECOMP_DIR}/CMakeLists.txt)
   message(FATAL_ERROR "tpw-decomp is missing: git submodule update --init")
 endif()
-# The game's seven data tables are in tpw-decomp (tables/ and include/, see its README) and compiled into the game library,
-# so the build and the launcher need no program of the game.
 set(TPW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 # The Linux build (the TPW_LINUX parts of this file): the platform layer's host code is in platform/host_linux.cpp and
 # platform/linux, and the game is drawn by the system's OpenGL or, when the player chooses it, by the port's own Vulkan
@@ -247,7 +245,7 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   set(TPW_LAUNCHER_BUILD unknown)
   find_package(Git QUIET)
   if(GIT_FOUND)
-    execute_process(COMMAND ${GIT_EXECUTABLE} describe --always --dirty WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    execute_process(COMMAND ${GIT_EXECUTABLE} describe --tags --always --dirty WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
                     OUTPUT_VARIABLE tpw_describe OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE tpw_describe_result ERROR_QUIET)
     if(tpw_describe_result EQUAL 0 AND tpw_describe MATCHES "^[A-Za-z0-9._+-]+$")
       set(TPW_LAUNCHER_BUILD ${tpw_describe})
@@ -578,6 +576,43 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     endif()
     add_test(NAME chat_satellites COMMAND tpw_host_chat_satellites)
   endif()
+  # Starting the game when no sound device opens (tests/host_no_sound_device.cpp): the real SOUND_Init down to SoundDevice, linked
+  # as tpw_launcher is, with its own stand-ins. It needs no slicer, so Windows CI runs it. The original crashes there, so ctest
+  # runs it only with the port's fixes; a build without them makes it, and it fails.
+  if(TARGET tpw_launcher)
+    add_library(tpw_host_no_sound_device_objects OBJECT ${TPW_DECOMP_DIR}/tests/host_no_sound_device.cpp launcher/pending_manual.cpp)
+    target_include_directories(tpw_host_no_sound_device_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
+    target_link_libraries(tpw_host_no_sound_device_objects PRIVATE SDL3::SDL3)
+    set(TPW_NO_SOUND_DEVICE_STUBS ${CMAKE_CURRENT_BINARY_DIR}/stubs_no_sound_device.cpp)
+    add_custom_command(
+      OUTPUT ${TPW_NO_SOUND_DEVICE_STUBS}
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/launcher/gen_stubs.py
+              --out ${TPW_NO_SOUND_DEVICE_STUBS} --include-dir ${TPW_INCLUDE_DIR}
+              --nm ${CMAKE_NM} --provides $<TARGET_FILE:SDL3-static> --provides $<TARGET_FILE:tpw_zlib> --provides $<TARGET_FILE:tpw_libjpeg>
+              --provides $<TARGET_FILE:tpw_launcher_ui> --provides $<TARGET_FILE:tpw_assets> ${TPW_STUB_SYSLIBS} ${TPW_MOVIE_SYSLIBS}
+              $<TARGET_FILE:tpw> $<TARGET_FILE:tpw_platform> $<TARGET_OBJECTS:tpw_host_no_sound_device_objects>
+      DEPENDS tpw tpw_platform SDL3-static tpw_zlib tpw_libjpeg tpw_launcher_ui tpw_assets $<TARGET_OBJECTS:tpw_host_no_sound_device_objects>
+              launcher/gen_stubs.py
+      COMMAND_EXPAND_LISTS VERBATIM
+      COMMENT "Generating stand-ins for the no sound device test")
+    add_executable(tpw_host_no_sound_device $<TARGET_OBJECTS:tpw_host_no_sound_device_objects> ${TPW_NO_SOUND_DEVICE_STUBS})
+    target_include_directories(tpw_host_no_sound_device PRIVATE ${TPW_INCLUDE_DIR} launcher)
+    target_link_libraries(tpw_host_no_sound_device PRIVATE tpw tpw_platform tpw_launcher_ui)
+    if(TPW_LINUX)
+      target_link_libraries(tpw_host_no_sound_device PRIVATE $<TARGET_FILE:tpw>)
+    endif()
+    if(WIN32)
+      target_link_options(tpw_host_no_sound_device PRIVATE -Wl,--export-all-symbols)
+    endif()
+    if(TPW_PORT_FIX)
+      add_test(NAME no_sound_driver COMMAND tpw_host_no_sound_device driver)
+      add_test(NAME no_sound_device COMMAND tpw_host_no_sound_device open)
+    endif()
+    foreach(mode silent arrive late lost stale mute stress)
+      add_test(NAME no_sound_${mode} COMMAND tpw_host_no_sound_device ${mode})
+      set_tests_properties(no_sound_${mode} PROPERTIES TIMEOUT 120)
+    endforeach()
+  endif()
   add_executable(tpw_online_boss_e2e platform/tests/online_boss_e2e.cpp)
   target_include_directories(tpw_online_boss_e2e PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
   target_link_libraries(tpw_online_boss_e2e PRIVATE tpw_platform)
@@ -650,7 +685,7 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   # may talk to the internet: devtools/check_offline.py holds the tree to that (port_CONTRIBUTING.md, "Playable offline").
   add_library(tpw_launcher_ui STATIC ${TPW_LAUNCHER_UI_SOURCES} launcher/net/net.cpp ${TPW_UI_FONTS_CPP})
   target_include_directories(tpw_launcher_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/launcher/ui ${CMAKE_CURRENT_SOURCE_DIR}/launcher/net)
-  target_include_directories(tpw_launcher_ui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
+  target_include_directories(tpw_launcher_ui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb ${TPW_DECOMP_DIR}/platform)   # path_text.h
   target_link_libraries(tpw_launcher_ui PUBLIC SDL3::SDL3 tpw_assets ZLIB::ZLIB)
   # The launcher's version: launcher/VERSION.txt is the one place it is written (not launcher/VERSION: launcher/ is an
   # include folder, and on a case-blind disk that name would stand in for the C++ header <version>). The window's corner,
@@ -679,8 +714,9 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     # and the icon Explorer, the taskbar and the Start menu shortcut show for tpw_launcher.exe. The icon is the launcher's
     # stand-in (launcher/app_icon_standin.cpp, the same code the window shows before a game is imported), written as a
     # multi-size .ico into the build folder by tpw_make_ico (launcher/win/make_ico.cpp) at build time: no picture file is
-    # in the tree. Compiled by the toolchain's resource compiler (llvm-mingw's windres, or MSVC's rc); without one the
-    # build goes on without the resources, as before.
+    # in the tree. The manifest (launcher/win/tpw_launcher.manifest) makes UTF-8 the process's code page, for the paths of a
+    # player's name outside plain ASCII (platform/path_text.h). Compiled by the toolchain's resource compiler (llvm-mingw's
+    # windres, or MSVC's rc); without one the build goes on without the resources, as before, and build.yml's check fails.
     include(CheckLanguage)
     check_language(RC)
     if(CMAKE_RC_COMPILER)
@@ -695,9 +731,11 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
         DEPENDS tpw_make_ico
         VERBATIM
         COMMENT "Drawing the launcher's icon")
+      set(TPW_LAUNCHER_MANIFEST ${CMAKE_CURRENT_SOURCE_DIR}/launcher/win/tpw_launcher.manifest)
       configure_file(launcher/win/launcher.rc.in ${CMAKE_CURRENT_BINARY_DIR}/launcher.rc @ONLY)
-      # the .ico is listed as a source so that its command belongs to the target; the .rc is compiled again when it changes
-      set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/launcher.rc PROPERTIES OBJECT_DEPENDS ${TPW_LAUNCHER_ICO})
+      # the .ico is listed as a source so that its command belongs to the target; the .rc is compiled again when it or the
+      # manifest changes
+      set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/launcher.rc PROPERTIES OBJECT_DEPENDS "${TPW_LAUNCHER_ICO};${TPW_LAUNCHER_MANIFEST}")
       target_sources(tpw_launcher PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/launcher.rc ${TPW_LAUNCHER_ICO})
     else()
       message(STATUS "tpw: no resource compiler, tpw_launcher.exe has no version resource and no icon")
@@ -806,6 +844,8 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   # No function of the game or the launcher is looked up by its symbol at run time (a Linux launcher exports none of its
   # own, so the lookup finds nothing there and Save crashed; Discord, xoob, 2026-11-01): devtools/check_own_dlsym.py.
   add_test(NAME own_dlsym COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/devtools/check_own_dlsym.py)
+  # A path's string() may throw on Windows under the UTF-8 process code page: tpw::PathText in its place (platform/path_text.h).
+  add_test(NAME path_text COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/devtools/check_path_text.py)
 else()
   message(STATUS "tpw: launcher not built (needs OpenGL and Python 3)")
 endif()
