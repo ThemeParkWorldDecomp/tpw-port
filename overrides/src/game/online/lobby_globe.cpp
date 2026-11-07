@@ -239,10 +239,13 @@ void CLBScreenComponentOnlineGlobe::Tick() {
     Word<float> mHitZ{mF44 + 0x20};         // Mac 0x64
     Word<int32_t> mPicking{mF44 + 0x24};    // Mac 0x68
     CLBLobby* lobby = gLobby;
+    // TPW_PORT_FIX globewide CLBScreenComponentOnlineGlobe::Tick | Mac: the pointer's place is over 2048 x 1536 units and its pick ray spans a 4:3 view; the edge push and the right button's drag take the middle at 1024, 768 | Port: over the unit space (gUIUnitWidth by gUIUnitHeight), the ray's across reach scaled by how much wider than 4:3 the view is, as the park's pick (UI_PickAcrossScale); the same bits on a 4:3 screen at full size | Why: the globe's view keeps its height's angle and widens with the screen, so on a wide screen the ray missed the city flag under the pointer (a city could only be clicked once zoomed in, if at all) and the right third of the screen pushed the spin
+    const float unitW = static_cast<float>(gUIUnitWidth), unitH = static_cast<float>(gUIUnitHeight);
+    const float across = 0.75f * unitW / unitH;
     if (mPicking != 0) {
         float in[3];
-        in[0] = 0.3862f * ((2.0f * static_cast<float>(lobby->mWidth)) / 2048.0f - 1.0f);
-        in[1] = 0.3862f * (gei_Display.mF04 * ((2.0f * static_cast<float>(0x600 - lobby->mHeight)) / 1536.0f - 1.0f));
+        in[0] = 0.3862f * (((2.0f * static_cast<float>(lobby->mWidth)) / unitW - 1.0f) * across);
+        in[1] = 0.3862f * ((gei_Display.mF04 * across) * ((2.0f * (unitH - static_cast<float>(lobby->mHeight))) / unitH - 1.0f));
         in[2] = 1.0f;
         float out[3];
         gei_ViewMatrix->TransformVertex(out, in, 2);
@@ -313,8 +316,9 @@ void CLBScreenComponentOnlineGlobe::Tick() {
     {
         float pushX = 0.0f, pushY = 0.0f;
         if (!gPlayerSettings.mCurrent.mRMBScrollOn) {
-            float fx = Clamp01(static_cast<float>(lobby->mWidth) / 2048.0f);
-            float fy = Clamp01(static_cast<float>(lobby->mHeight) / 1536.0f);
+            // TPW_PORT_FIX globewide CLBScreenComponentOnlineGlobe::Tick | Mac: the pointer's place is over 2048 x 1536 units and its pick ray spans a 4:3 view; the edge push and the right button's drag take the middle at 1024, 768 | Port: over the unit space (gUIUnitWidth by gUIUnitHeight), the ray's across reach scaled by how much wider than 4:3 the view is, as the park's pick (UI_PickAcrossScale); the same bits on a 4:3 screen at full size | Why: the globe's view keeps its height's angle and widens with the screen, so on a wide screen the ray missed the city flag under the pointer (a city could only be clicked once zoomed in, if at all) and the right third of the screen pushed the spin
+            float fx = Clamp01(static_cast<float>(lobby->mWidth) / unitW);
+            float fy = Clamp01(static_cast<float>(lobby->mHeight) / unitH);
             float step = 50.0f * mTickScale;
             if (fx < 0.009999999776482582f) pushX = -step * (0.009999999776482582f - fx);
             else if (fx > 0.9900000095367432f) pushX = step * (fx - 0.9900000095367432f);
@@ -322,8 +326,8 @@ void CLBScreenComponentOnlineGlobe::Tick() {
             else if (fy > 0.9900000095367432f) pushY = -step * (fy - 0.9900000095367432f);
         }
         if (gPlayerSettings.mCurrent.mRMBScrollOn && lobby->IsKeyDown(2) != 0) {
-            pushX = mTickScale * (static_cast<float>(lobby->mWidth - 0x400) * 0.0009765625f);
-            pushY = -mTickScale * (static_cast<float>(lobby->mHeight - 0x300) / 768.0f);
+            pushX = mTickScale * ((static_cast<float>(lobby->mWidth) - 0.5f * unitW) * (2.0f / unitW));
+            pushY = -mTickScale * ((static_cast<float>(lobby->mHeight) - 0.5f * unitH) / (0.5f * unitH));
         }
         const float damping = mDamping;
         const float keep = std::pow(damping, PortFrameScale(gGlobeSpinPace));
