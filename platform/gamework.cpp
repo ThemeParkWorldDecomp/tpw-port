@@ -312,6 +312,16 @@ void UGamework::Run() {
             case SDL_EVENT_WINDOW_FOCUS_LOST:
                 HandleActivateWindow(tpw::MainWindow(), false);
                 break;
+#ifdef TPW_PORT_FIX
+            case SDL_EVENT_WINDOW_MOUSE_LEAVE:
+                // The pointer left the window (the game in a window, or full screen with another screen beside it; SDL
+                // says so only with no button held): the game is told it is at the pixel above and left of its screen,
+                // which it takes as out of all of its windows until the pointer moves over it again (pointerleave,
+                // ThemeParkWorld::HandleMouseMoved). On the Mac the game filled the screen, and the pointer never left it.
+                // A scripted click keeps its place.
+                if (!gScripted.active) HandleMouseMoved(MakeGameEvent(-1, -1));
+                break;
+#endif
             default:
                 break;
             }

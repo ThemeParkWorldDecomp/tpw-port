@@ -252,6 +252,20 @@ void ThemeParkWorld::GetUIMousePos(const UEvent& event, int16_t& x, int16_t& y) 
 }
 
 void ThemeParkWorld::HandleMouseMoved(const UEvent& event) {   // 0x10000cb0
+#ifdef TPW_PORT_FIX
+    // TPW_PORT_FIX pointerleave ThemeParkWorld::HandleMouseMoved | Mac: the pointer's place is clamped to the screen (GetUIMousePos), wherever it is | Port: a place outside the game's screen with no button held (the host gives one when the pointer leaves the game's window) takes the pointer out of the UI's windows (UI_DevicePointerOut) until it moves over the game again; with a button held (a drag) it is clamped as on the Mac | Why: in a window, or onto another screen, the pointer can leave the game, and its last place, clamped to the screen's edge, kept the camera's edge scroll going toward that side until the pointer came back or the window lost the focus (reported by slappyhead)
+    {
+        UPointMac local;
+        local.x = event.GetPosition().x;
+        local.y = event.GetPosition().y;
+        local.ToLocal(nullptr);
+        const bool outside = local.x < 0 || local.y < 0 || local.x >= gei_Display.mWidth || local.y >= gei_Display.mHeight;
+        if (outside && gUIButtonFlags == 0) {
+            UI_DevicePointerOut();
+            return;
+        }
+    }
+#endif
     int16_t x, y;
     GetUIMousePos(event, x, y);
     UI_DevicePointerMove(x, y);
