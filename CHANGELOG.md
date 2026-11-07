@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.2 (2026-11-07)
+
+### Bug Fixes
+
+- Fixed a crash while watching some online parks that have a roller coaster
+- Fixed a crash when publishing a park that has certain rides (Thanks slappyhead and Addable13)
+- Fixed the camera not scrolling left or right at the screen's edges while visiting a park online on a widescreen (Thanks Addable13)
+- On a widescreen, the online globe now turns left at the screen's left edge, and the city under the pointer is the one that lights up (Thanks Addable13)
+- While visiting a park online on a widescreen, the contacts and chat now sit against the screen's left edge instead of in a 4:3 box in the middle (Thanks slappyhead)
+
 ## 0.3.1 (2026-11-06)
 
 ### Bug Fixes

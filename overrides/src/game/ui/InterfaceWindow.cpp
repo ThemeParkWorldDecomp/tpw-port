@@ -177,7 +177,7 @@ void FollowChildren(InterfaceWindow* window, int32_t oldWide, int32_t oldHigh) {
             const int32_t bottom = child->mRect.mBottom - old.down;
             AnchorShift now{0, 0};
             if (gUIUnitWidth > 0x800) {
-                now.across = UI_WideAnchor(left, right, gUIUnitWidth);
+                now.across = UI_PanelAnchor(child->mId, left, right, gUIUnitWidth);   // (the online panel keeps to the left edge)
                 if (bottom - top < gUIUnitHeight - 1)
                     now.down = gCentredDown.count(window) != 0 ? static_cast<int16_t>((gUIUnitHeight - 0x600) / 2)
                                                                : UI_TallAnchor(top, bottom, gUIUnitHeight);
@@ -248,7 +248,7 @@ InterfaceWindow::InterfaceWindow(InterfaceWindow* parent, int32_t attributes, in
         int16_t drop = 0;   // (the tall anchor: UI_TallAnchor, or the middle on a menu or a dialog's holder)
         if (UI_IsWideWindow(parent)) {
             // TPW_PORT_FIX widepanel InterfaceWindow | Mac: (no wide windows: the 2048-unit layout spans the 4:3 screen) | Port: while gPortWidePanel (UI_Base.h) is set, a window exactly 0x800 units across is a 4:3 panel like the other full-screen ones (0..2047): anchored to the middle, and not wide (UI_IsWideWindow); the login panel's root (0x7a13, the player menu) stays wide | Why: the Options panel's root window is 0..2048, 2049 units against the other full-screen panels' 2048, so its right less its left is 0x800, which UI_IsWideWindow's old test (at least 0x800) called wide, and on a screen wider than 4:3 the panel stayed at the left and its rows were anchored to the screen's edges one by one, apart from their panel (the right column at the right edge, the volume buttons over their sliders); the login panel's root is 0..2048 too, but its windows belong at the screen's edges, and as a 4:3 panel its players' rows stopped short of the right edge while the longer quit row reached it; contributed by samueleagle91 (tpw-port PRs #12 and #35)
-            if (right - left < 0x800 || FourThreePanel(id, right - left)) shift = UI_WideAnchor(left, right, gUIUnitWidth);
+            if (right - left < 0x800 || FourThreePanel(id, right - left)) shift = UI_PanelAnchor(id, left, right, gUIUnitWidth);
             if (bottom - top < gUIUnitHeight - 1)
                 drop = gCentredDown.count(parent) != 0 ? static_cast<int16_t>((gUIUnitHeight - 0x600) / 2)
                                                        : UI_TallAnchor(top, bottom, gUIUnitHeight);
@@ -1776,6 +1776,11 @@ InterfaceWindow* InterfaceWindow::Build(int16_t* description, InterfaceWindowCal
 }
 
 InterfaceWindow* InterfaceWindow::ProcessScript(int16_t* script) { return ProcessLevel(this, script); }
+
+// TPW_PORT_FIX globewide UI_HearWholeScreen | Mac: (none: a window's region is its rectangle or the script's shape) | Port: the window's region is a rectangle far larger than any unit space, so PointIn finds it anywhere its children are not, and a move of the window (ShiftPosition, UI_FollowUnits) still leaves it over the whole screen | Why: the lobby's panel is the 4:3 screen's 2048 x 1536 units and takes the pointer for the globe; on a widescreen it stands in the middle (widepanel), so the pointer left or right of it never reached the lobby and the globe would not spin left (Addable13)
+void UI_HearWholeScreen(InterfaceWindow* window) {
+    if (window != nullptr) ReplaceRegion(window, new (std::nothrow) CoolRect(-0x4000, -0x4000, 0x3fff, 0x3fff));
+}
 
 // ---- value
 

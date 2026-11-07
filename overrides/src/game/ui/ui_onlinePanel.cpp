@@ -1063,8 +1063,14 @@ void CreateOnlinePanel() {
     gOnlineWindowE8c->Show(0);
     gOnlineWindowE8c->unlink();
     gOnlineWindowE8c->GetWindow(0x3003)->SetCallbackFunction(ButtonsMenuMsg);
+    // TPW_PORT_FIX v5L26 CreateOnlinePanel | Mac: a contact's buttons menu lies on an underlay of the whole 4:3 screen, so a click anywhere off the menu closes it | Port: the two underlays hear the whole screen on a wider one too (UI_HearWholeScreen) | Why: a widescreen port; the 4:3 underlay stood in the middle of a wide screen, so a click left or right of it left the menu open
+    UI_HearWholeScreen(gOnlineWindowE90);
+    UI_HearWholeScreen(gOnlineWindowE8c);
     gOnlineWord88 = 0;
-    gOnlineWindow = gUIRootWindow->CreateObject(1, 0, static_cast<int32_t>(0xfff04d2a), 0, 0, 0x7ff, 0x5ff);
+    // TPW_PORT_FIX v5L26 CreateOnlinePanel | Mac: the online view's window, which takes the pointer for the camera, is 2048 x 1536 units | Port: as wide and as high as the unit space, like the game window | Why: a widescreen port; the 4:3 window sat in the middle of a wide screen while the camera measures the pointer against the whole screen, so the pointer inside it never reached the left or right scroll edge and outside it the camera stopped hearing it, and a park visited online did not scroll left or right (Addable13)
+    gOnlineWindow = gUIRootWindow->CreateObject(1, 0, static_cast<int32_t>(0xfff04d2a), 0, 0, static_cast<int16_t>(gUIUnitWidth - 1),
+                                                static_cast<int16_t>(gUIUnitHeight - 1));
+    UI_MarkFullWindow(gOnlineWindow);
     gOnlineWindow->SetCallbackFunction(OnlinePanelMsg);
     MoveHelpText(-1, 10);
     gOnlineCursorState = 0;

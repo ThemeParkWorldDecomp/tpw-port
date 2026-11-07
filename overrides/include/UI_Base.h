@@ -213,6 +213,9 @@ inline void UI_MarkFullWindow(const InterfaceWindow* window) {
 // After the unit space has changed from `oldWide` x `oldHigh` units: the windows span it again and stand at the anchors it
 // gives them, as if made in it (src/game/ui/InterfaceWindow.cpp).
 void UI_FollowUnits(int32_t oldWide, int32_t oldHigh);
+// The window hears the pointer over the whole screen, wherever its rectangle is: for a 2048-unit panel the original laid over
+// the whole 4:3 screen to hear the pointer, which on a wider one stands in the middle (src/game/ui/InterfaceWindow.cpp).
+void UI_HearWholeScreen(InterfaceWindow* window);
 int16_t UI_WideShift(const InterfaceWindow* window);   // how far the 2048-unit layout placed in `window` was moved across
 int16_t UI_WideShiftFor(const InterfaceWindow* window, bool relative);   // the same for a rectangle in its frame
 
@@ -398,6 +401,11 @@ inline int16_t UI_WideAnchor(int32_t left, int32_t right, int32_t unitWidth) {
     if (middle < 0x800 / 3) return 0;
     if (middle > 0x800 * 2 / 3) return static_cast<int16_t>(extra);
     return static_cast<int16_t>(extra / 2);
+}
+// TPW_PORT_FIX v5L26 UI_PanelAnchor | Mac: (no wide screens: the online panel spans the 4:3 screen) | Port: on a wide screen the online panel's root (CreateOnlinePanel's gOnlinePanel, 0..2048, a 4:3 panel under widepanel) stays at the left edge, where its contacts column belongs; any other 4:3 panel goes to the middle (UI_WideAnchor) | Why: the panel's L-shaped frame (the contacts down the left, the chat along the bottom) is one mesh laid over the park, and in the middle of a wide screen the park showed in a strip left of the contacts as well as right of the chat (slappyhead)
+inline constexpr int32_t kUIOnlinePanelId = 0xc3122;
+inline int16_t UI_PanelAnchor(int32_t id, int32_t left, int32_t right, int32_t unitWidth) {
+    return id == kUIOnlinePanelId ? static_cast<int16_t>(0) : UI_WideAnchor(left, right, unitWidth);
 }
 // TPW_PORT_FIX uiscale gUIScale/gUIUnitHeight/UI_TallAnchor/UI_CentreDown | Mac: the UI's 1536 units span the screen's height | Port: they span gUIScale of it (the launcher's Interface size, 1 for all of it) and the unit space grows to gUIUnitHeight units; a window on it moves down as on a wide screen it moves across: one wholly in the lower half to the bottom edge, one wholly in the upper half not at all, the rest (and the windows on a menu or a dialog's holder) to the middle | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
 extern float gUIScale;         // the share of the screen's height the UI's 1536 units span: 1, or less for a smaller interface

@@ -2596,6 +2596,16 @@ static void TestWideScreen() {
     // 16:10 (2458 units, 410 more).
     CHECK(UI_WideAnchor(0, 0x7ff, 2458) == 205);
     CHECK(UI_WideAnchor(1700, 0x7ff, 2458) == 410);
+    // The online panel's root keeps to the left edge at any width; any other window takes UI_WideAnchor, and at 4:3
+    // nothing moves.
+    CHECK(UI_PanelAnchor(kUIOnlinePanelId, 0, 0x800, 0x800) == 0);
+    CHECK(UI_PanelAnchor(kUIOnlinePanelId, 0, 0x800, 2458) == 0);
+    CHECK(UI_PanelAnchor(kUIOnlinePanelId, 0, 0x800, 2730) == 0);
+    CHECK(UI_PanelAnchor(kUIOnlinePanelId, 0, 0x800, 3584) == 0);
+    CHECK(UI_PanelAnchor(0x7a12, 0, 0x800, 2730) == 341);
+    CHECK(UI_PanelAnchor(0x1788, 0, 0x800, 2730) == UI_WideAnchor(0, 0x800, 2730));
+    CHECK(UI_PanelAnchor(0x1788, 0, 0x800, 0x800) == 0);
+    CHECK(UI_PanelAnchor(0, 1700, 0x7ff, 2730) == 682);
 
     // The window of a 16:9 game on a 16:9 screen has no bars: the box fills it to the pixel.
     for (int wide : {1920, 2560, 3840}) {

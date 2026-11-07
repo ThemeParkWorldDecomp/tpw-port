@@ -1975,7 +1975,10 @@ void InitOnlineUI() {
     gUILight.mNormal.z = 0.8f;
     gei_MapWho->Link(static_cast<CMapLinkBase*>(&gUILight), 0x20);
     CreateOnlinePanel();
-    InterfaceWindow* window = gUIRootWindow->CreateObject(1, 0, 1, 0, 0, 0x7ff, 0x5ff);
+    // TPW_PORT_FIX v5L26 InitOnlineUI | Mac: the online first-person window is 2048 x 1536 units | Port: as wide and as high as the unit space, like the game's (InitGameUI) | Why: a widescreen port; it takes the pointer for the camera too, which measures it against the whole screen
+    InterfaceWindow* window = gUIRootWindow->CreateObject(1, 0, 1, 0, 0, static_cast<int16_t>(gUIUnitWidth - 1),
+                                                          static_cast<int16_t>(gUIUnitHeight - 1));
+    UI_MarkFullWindow(window);
     if (window != nullptr) {
         window->SetCallbackFunction(Engine_GameFirstPersonMsg);
         gFirstPersonWindow = window;

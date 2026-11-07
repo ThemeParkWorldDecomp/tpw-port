@@ -241,8 +241,14 @@ void CLBScreenComponentOnlineGlobe::Tick() {
     CLBLobby* lobby = gLobby;
     if (mPicking != 0) {
         float in[3];
-        in[0] = 0.3862f * ((2.0f * static_cast<float>(lobby->mWidth)) / 2048.0f - 1.0f);
-        in[1] = 0.3862f * (gei_Display.mF04 * ((2.0f * static_cast<float>(0x600 - lobby->mHeight)) / 1536.0f - 1.0f));
+        // TPW_PORT_FIX globewide CLBScreenComponentOnlineGlobe::Tick | Mac: the ray under the pointer runs through the 2048 x 1536 units of the 4:3 screen, its sides at 0.3862 across (the view's half width at 4:3) and 0.3862 times the display's height over its width up and down | Port: through the unit space, as wide as the screen: its sides at 0.3862 times the screen's width over a 4:3 width of the unit height, up and down the same 0.3862 * 0.75 at every width | Why: the lobby is drawn across the whole wide screen with the 4:3 view's height (CGamut::Init widens it, Hor+), so on a widescreen the Mac's ray fell right of the pointer, further the further right, and was squeezed up and down: the globe's cities lit up away from the pointer (Addable13)
+        {
+            const float across = static_cast<float>(gUIUnitHeight * 4 / 3);   // the 4:3 width of the unit height: 2048 at full size
+            const float wide = static_cast<float>(gUIUnitWidth) / across;      // 1 on a 4:3 screen
+            const float high = static_cast<float>(gUIUnitHeight);
+            in[0] = 0.3862f * ((2.0f * static_cast<float>(lobby->mWidth)) / across - wide);
+            in[1] = 0.3862f * ((gei_Display.mF04 * wide) * ((2.0f * static_cast<float>(gUIUnitHeight - lobby->mHeight)) / high - 1.0f));
+        }
         in[2] = 1.0f;
         float out[3];
         gei_ViewMatrix->TransformVertex(out, in, 2);
@@ -313,8 +319,9 @@ void CLBScreenComponentOnlineGlobe::Tick() {
     {
         float pushX = 0.0f, pushY = 0.0f;
         if (!gPlayerSettings.mCurrent.mRMBScrollOn) {
-            float fx = Clamp01(static_cast<float>(lobby->mWidth) / 2048.0f);
-            float fy = Clamp01(static_cast<float>(lobby->mHeight) / 1536.0f);
+            // TPW_PORT_FIX globewide CLBScreenComponentOnlineGlobe::Tick | Mac: the pointer's share of 2048 units across and 1536 down, the edges below 0.01 and above 0.99 | Port: its share of the unit space's width and height | Why: on a widescreen the pointer's units run past 2048, so the globe spun right from three quarters of the way across, and the lobby's window (CLBLobby::Init) now hears the pointer at the left edge (Addable13)
+            float fx = Clamp01(static_cast<float>(lobby->mWidth) / static_cast<float>(gUIUnitWidth));
+            float fy = Clamp01(static_cast<float>(lobby->mHeight) / static_cast<float>(gUIUnitHeight));
             float step = 50.0f * mTickScale;
             if (fx < 0.009999999776482582f) pushX = -step * (0.009999999776482582f - fx);
             else if (fx > 0.9900000095367432f) pushX = step * (fx - 0.9900000095367432f);
@@ -322,8 +329,9 @@ void CLBScreenComponentOnlineGlobe::Tick() {
             else if (fy > 0.9900000095367432f) pushY = -step * (fy - 0.9900000095367432f);
         }
         if (gPlayerSettings.mCurrent.mRMBScrollOn && lobby->IsKeyDown(2) != 0) {
-            pushX = mTickScale * (static_cast<float>(lobby->mWidth - 0x400) * 0.0009765625f);
-            pushY = -mTickScale * (static_cast<float>(lobby->mHeight - 0x300) / 768.0f);
+            // TPW_PORT_FIX globewide CLBScreenComponentOnlineGlobe::Tick | Mac: the right button spins the globe by the pointer's distance from (1024, 768) | Port: from the middle of the unit space, in the same units | Why: on a widescreen 1024 is left of the middle, so with the pointer in the middle the globe spun right (Addable13)
+            pushX = mTickScale * (static_cast<float>(lobby->mWidth - gUIUnitWidth / 2) * 0.0009765625f);
+            pushY = -mTickScale * (static_cast<float>(lobby->mHeight - gUIUnitHeight / 2) / 768.0f);
         }
         const float damping = mDamping;
         const float keep = std::pow(damping, PortFrameScale(gGlobeSpinPace));
