@@ -1436,6 +1436,11 @@ const char16_t kWideLiteral[] = u"p";
 
 int32_t CFSOnlineSystem::ConnectUploadServer() {
     ReleaseUploadServerConnection();
+    // TPW_PORT_FIX uploadserver ConnectUploadServer | Mac: reads the host and port of the server list's upload server (type 0x64) unchecked, and crashes when the list names none | Port: with none listed, no connection is made and 0 is returned, so the upload ends with the game's own "can't connect to the upload server" error (0x4f, LoggedInRequestUpload) | Why: EA's servers always listed one; a server, or a list that never arrived, without one crashed the game on every Publish
+    if (mServerList == nullptr || mServerList->mList == nullptr || ftpreq_callee::ReturnUploadServer(mServerList) == nullptr) {
+        SamsUtilities::UDebug("ONLINE UPLOAD: the server list names no upload server\n");
+        return 0;
+    }
     mUpload = new Upload();
     SamsUtilities::UDebug("ONLINE UPLOAD: About to connect\n");
     TbDynamicStringTemplate<char16_t> wide(ftpreq_callee::ReturnUploadServer(mServerList)->mText24.mData);
