@@ -1082,12 +1082,28 @@ void CLBScreenComponentOnlineIslands::GotoPreviousIsland() {
 // 0x100b4828
 void CLBScreenComponentOnlineIslands::ShowInfoOverlayPanel() { SetShownOnline(this, 1); }
 
+namespace {
+// Whether ParseThemeDescriptor can read the theme's description: the theme is on the server's list and the lobby folder has its
+// "<theme>.txt" (the Mac's parser opens it unchecked).
+bool PortThemeDescriptorFound(const char* theme) {
+    if (theme == nullptr) return false;
+    TbDynamicStringTemplate<char> path(gLobbyFolder);
+    path += theme;
+    path += ".txt";
+    bfl::FileSystem::CFile* file = TPFile_Open(path.mData, "r");
+    if (file == nullptr) return false;
+    TPFile_Close(file);
+    return true;
+}
+}  // namespace
+
 // 0x100b4880: one ParseThemeDescriptor per online park (its theme's name and gate names), then the camera goes to the first island.
-// An empty island list would crash the Mac's last lines (the head is read unchecked); so does this.
 void CLBScreenComponentOnlineIslands::CreateParks(TbPtrList<CFSOnlinePark>* parks) {
     int32_t order = 0;
     for (POSITION position = parks->GetHeadPosition(); position != nullptr;) {
         CFSOnlinePark* park = parks->GetNext(position);
+        // TPW_PORT_FIX onlineislands CreateParks | Mac: reads every park's theme description, its name the server's theme list gives for the park's theme (NULL for a theme not on the list), and the parser opens "<lobby folder><name>.txt" unchecked | Port: a park whose theme has no description is left off the islands, and the next park takes its place | Why: a park with a theme the server's list does not have crashed the client when its city was opened, and the city's other parks could not be seen
+        if (!PortThemeDescriptorFound(OnlineSystem()->mThemeList->ReturnOnlineThemeName(park->mF4C))) continue;
         TbDynamicStringTemplate<char16_t> themeName;
         {
             TbDynamicStringTemplate<char> narrow(OnlineSystem()->mThemeList->ReturnOnlineThemeName(park->mF4C));
@@ -1101,6 +1117,11 @@ void CLBScreenComponentOnlineIslands::CreateParks(TbPtrList<CFSOnlinePark>* park
         char* theme = OnlineSystem()->mThemeList->ReturnOnlineThemeName(park->mF4C);
         ParseThemeDescriptor(theme, park, order, gateText1, gateText2);
         order++;
+    }
+    // TPW_PORT_FIX onlineislands CreateParks | Mac: the camera goes to the head of the island list, read unchecked | Port: with no island made, the screen backs out to the globe as when the park list fails (PostGetTop10ParksListCallbackFunction) | Why: a city the server's city list counts parks in can answer with an empty park list (its last park removed after the list was read, or every park left off above), and the client crashed when the city was opened
+    if (mIslands->mHead == nullptr) {
+        HandleOnlineBacktrack();
+        return;
     }
     mCurrent = mIslands->mHead->mData;
     mFE4 = 1;
