@@ -703,25 +703,14 @@ void NameAppMenu(const char* name) {
 #endif
 }
 
-// The launcher's settings, written to launcher.ini again after the importer's last write of the file (the choice it saved
-// on Play, an import in the window), which kept the importer's older copy of the keys: on Play and when the window
-// closes. From tpw-port PRs #10, #19, #20, #22 and #24 by samueleagle91; the update check's keys (updater.h) too.
-void KeepSettings(const tpw::ui::ImporterBackend& backend, const std::string& prefPath) {
-    for (const char* key : {tpw::ui::kSkipIntroKey, tpw::ui::kBackToLauncherKey, tpw::ui::kSmoothZoomKey,
-                            tpw::ui::kInterfaceSizeKey, tpw::ui::kPcSoundPicksKey, tpw::ui::kSoundPanKey,
-                            tpw::ui::kSeveralKeysKey, tpw::ui::kFullScreenKey, tpw::ui::kRendererKey, tpw::ui::kFrameRateKey,
-                            tpw::ui::kCheckUpdatesKey, tpw::ui::kLanguageUsKey, tpw::ui::kLanguageEurKey,
-                            tpw::ui::kOnlineServerKey,
-                            tpw::ui::kUpdateLastCheckKey, tpw::ui::kUpdateFoundKey}) {
-        const std::string value = backend.Setting(key);
-        std::string ignored;
-        if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, key, value, ignored);
-    }
-    for (const tpw::ui::SamOption& option : tpw::ui::SamOptions()) {   // the Graphics section's keys, as above
-        const std::string value = backend.Setting(option.key);
-        std::string ignored;
-        if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, option.key, value, ignored);
-    }
+// The launcher's settings kept on Play and when the window closes (launcher_ui.h KeepSettings), with the Mods box's
+// switches: "0" (off) is kept too.
+void KeepLauncherSettings(const tpw::ui::ImporterBackend& backend, const std::string& prefPath) {
+    std::vector<std::string> more;
+#ifdef TPW_PORT_FIX
+    for (const tpw::mods::Mod& mod : tpw::mods::Catalog()) more.push_back(tpw::mods::Key(mod));
+#endif
+    tpw::ui::KeepSettings(backend, prefPath, more);
 }
 
 // The game's window, made (platform/handoff.h SetGameWindowMadeHook): the game's icon (icon.png in the data folder, or the
@@ -1044,7 +1033,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
             }
         }
         const tpw::ui::WindowOutcome outcome = tpw::launcher::OpenLauncherWindow(backend, choice, err, placement);
-        if (outcome == tpw::ui::WindowOutcome::Quit) KeepSettings(backend, prefPath);
+        if (outcome == tpw::ui::WindowOutcome::Quit) KeepLauncherSettings(backend, prefPath);
         switch (outcome) {
             case tpw::ui::WindowOutcome::Quit: return 0;
             case tpw::ui::WindowOutcome::Failed:
@@ -1057,7 +1046,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
     }
     // "Skip the intro films" is as --no-movies; "Back to the launcher after playing" opens the launcher again when a
     // game started from its window quits (ReopenLauncher).
-    KeepSettings(backend, prefPath);
+    KeepLauncherSettings(backend, prefPath);
 #if defined(__APPLE__) || defined(_WIN32)
     // The window's Play: the game plays as an application of its own, "Sim Theme Park" or "Theme Park World"
     // (launcher/game_app.h; port_CONTRIBUTING.md, "The game's own process"), so the Dock, Cmd-Tab and Force Quit (the

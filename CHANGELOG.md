@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.3 (not released yet)
+
+### Bug Fixes
+
+- Fixed another crash while visiting some online parks that have a roller coaster (Thanks slappyhead and Addable13)
+- The launcher now remembers which mods are switched on or off after a game is played
+- Fixed a crash when publishing a park to an online server that offers no upload server (Thanks @samueleagle91)
+- The launcher's Settings and Mods scroll bars can now be dragged, so their lower rows can be reached without a mouse wheel (Thanks slappyhead and @samueleagle91)
+
 ## 0.3.2 (2026-11-07)
 
 ### Bug Fixes

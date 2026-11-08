@@ -3267,6 +3267,44 @@ void CheckNoProgram(const std::string& screens) {
     fs::remove_all(pref, ec);
 }
 
+// The launcher's settings kept over the importer's write of launcher.ini on Play (KeepSettings): the Play saves the
+// edition chosen with the importer's older copy of the file, which drops what the window saved since it opened (the
+// Mods box's switches came back off after a game, 0.3.2). The real backend over an empty data folder, made under the
+// screens folder and removed again.
+void CheckKeepSettings(const std::string& screens) {
+    namespace fs = std::filesystem;
+    const fs::path pref = fs::path(screens) / "keep-settings";
+    std::error_code ec;
+    fs::remove_all(pref, ec);
+    fs::create_directories(pref, ec);
+    const auto saved = [&](const std::string& key) {
+        assets::LauncherIni ini;
+        std::string err;
+        if (!assets::LoadLauncherIni((pref / "launcher.ini").string(), ini, err)) return std::string("(no file)");
+        for (const auto& kv : ini.extra)
+            if (kv.first == key) return kv.second;
+        return std::string("(absent)");
+    };
+    {
+        ImporterBackend backend(pref.string());
+        std::string err;
+        Check(backend.Open(err), "keep settings: the data folder opens: " + err);
+        Check(backend.SaveSetting("mod.test-on", "1", err), "keep settings: a mod switched on is saved: " + err);
+        Check(backend.SaveSetting("mod.test-off", "0", err), "keep settings: a mod switched off is saved: " + err);
+        Check(backend.SaveSetting(kSkipIntroKey, "1", err), "keep settings: Skip the intro films is saved: " + err);
+        Check(backend.SaveSetting("mod.test-unlisted", "1", err), "keep settings: another key is saved: " + err);
+        CheckEq(saved("mod.test-on"), "1", "keep settings: the switch is in the file before Play");
+        backend.SetLastChoice(assets::EditionName(assets::kEditionUs), err);   // what Play does
+        KeepSettings(backend, pref.string(), {"mod.test-on", "mod.test-off"});
+        CheckEq(saved("mod.test-on"), "1", "keep settings: a mod switched on stays on after Play");
+        CheckEq(saved("mod.test-off"), "0", "keep settings: a mod switched off stays off after Play");
+        CheckEq(saved(kSkipIntroKey), "1", "keep settings: Skip the intro films stays after Play");
+        CheckEq(saved("mod.test-unlisted"), "(absent)", "keep settings: only the keys named are written again");
+        CheckEq(saved("mod.test-never"), "(absent)", "keep settings: a key never saved is not written");
+    }
+    fs::remove_all(pref, ec);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -3282,6 +3320,7 @@ int main(int argc, char** argv) {
 
     CheckTexts();
     CheckNoProgram(dir);
+    CheckKeepSettings(dir);
 
     SDL_Surface* scratch = SDL_CreateSurface(320, 240, SDL_PIXELFORMAT_XRGB8888);
     SDL_Renderer* renderer = scratch ? SDL_CreateSoftwareRenderer(scratch) : nullptr;

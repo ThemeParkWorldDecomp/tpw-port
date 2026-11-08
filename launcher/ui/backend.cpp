@@ -3,6 +3,9 @@
 
 #include <utility>
 
+#include "launcher_ui.h"
+#include "updater.h"
+
 namespace tpw::ui {
 
 using assets::Edition;
@@ -169,6 +172,20 @@ bool ImporterBackend::SetLastChoice(const std::string& choice, std::string& err)
         return false;
     }
     return importer_->SetLastChoice(choice, err);
+}
+
+void KeepSettings(const ImporterBackend& backend, const std::string& prefPath, const std::vector<std::string>& more) {
+    std::vector<std::string> keys = {kSkipIntroKey, kBackToLauncherKey, kSmoothZoomKey, kInterfaceSizeKey, kPcSoundPicksKey,
+                                     kSoundPanKey, kSeveralKeysKey, kFullScreenKey, kRendererKey, kFrameRateKey,
+                                     kCheckUpdatesKey, kLanguageUsKey, kLanguageEurKey, kOnlineServerKey,
+                                     kUpdateLastCheckKey, kUpdateFoundKey};
+    for (const SamOption& option : SamOptions()) keys.push_back(option.key);   // the Graphics section's keys
+    keys.insert(keys.end(), more.begin(), more.end());
+    for (const std::string& key : keys) {
+        const std::string value = backend.Setting(key);
+        std::string ignored;
+        if (!value.empty()) ImporterBackend::SaveIniExtra(prefPath, key, value, ignored);
+    }
 }
 
 }  // namespace tpw::ui

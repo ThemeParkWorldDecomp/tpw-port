@@ -123,6 +123,12 @@ const std::vector<SamOption>& SamOptions();
 // The index in `values` launcher.ini's value names, or -1 for the detail level's own (default, absent or not a choice).
 int SamChoice(const SamOption& option, const std::string& value);
 
+// The launcher's settings, written to the launcher.ini of `prefPath` again after the importer's last write of the file (the
+// choice it saved on Play, an import in the window), which kept the importer's older copy of the keys: the keys above,
+// the update check's (updater.h), each of SamOptions(), and `more` (the Mods box's switches, launcher/main.cpp). A key
+// with no value is left as the file has it. From tpw-port PRs #10, #19, #20, #22 and #24 by samueleagle91.
+void KeepSettings(const ImporterBackend& backend, const std::string& prefPath, const std::vector<std::string>& more = {});
+
 // What the About box's Export logs button did (the launcher's platform/log_export.h): `message` is for the player ("Saved to
 // Downloads: <name>", or why nothing was saved) and `folder` is where the copy is, to show (empty: none was made).
 struct LogsExport {
