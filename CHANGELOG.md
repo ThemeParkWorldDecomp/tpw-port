@@ -9,6 +9,8 @@
 - Fixed a crash when publishing a park to an online server that offers no upload server (Thanks @samueleagle91)
 - The launcher's Settings and Mods scroll bars can now be dragged, so their lower rows can be reached without a mouse wheel (Thanks slappyhead and @samueleagle91)
 - The Gold Edition now unlocks from downloads that have its 35 rides but not the installer's ride list (Thanks OncleSam and a pretty cool guy)
+- Ride signs now draw accented letters such as ä, ö, ü, ß and é correctly in the German, French and other PC languages (Thanks @johhnyjefferson34133 and @samueleagle91)
+- Fixed a crash when a member of staff walked along one edge of the map, for example after being placed there with the cheat keys (Thanks @samueleagle91)
 
 ## 0.3.2 (2026-11-07)
 

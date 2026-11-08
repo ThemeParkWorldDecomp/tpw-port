@@ -422,6 +422,11 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   # stand-ins). The original asks the null world, so ctest runs it only with the port's fixes; a build without them fails.
   add_executable(tpw_host_map_quit ${TPW_DECOMP_DIR}/tests/host_map_quit.cpp ${TPW_DECOMP_DIR}/src/game/ui/ui_main.cpp)
   target_include_directories(tpw_host_map_quit PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+  if(WIN32)
+    # ui_main.cpp includes dlfcn.h, which MinGW has no copy of: platform/win's, as the game library gets it (the slicer
+    # indexes the file with this target's own include folders).
+    target_include_directories(tpw_host_map_quit PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/platform/win)
+  endif()
   if(TPW_PORT_FIX)
     target_compile_definitions(tpw_host_map_quit PRIVATE TPW_HOST_MAP_QUIT_GUARD)   # the test sets the fix's flag
   endif()
