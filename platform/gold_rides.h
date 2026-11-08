@@ -25,13 +25,18 @@ struct GoldRide {
 };
 
 // Read `folder`'s RideConfig.txt (the Gold installer's list: lines in threes, a flag, the .wad's name, its destination
-// folder) and lay its rides over the game folder; an empty `folder` takes the overlay away. Returns how many rides are
-// now overlaid: those the list names whose file the folder holds (a listed file that is missing is skipped, and
-// `missing`, when given, counts them).
+// folder) and lay its rides over the game folder; an empty `folder` takes the overlay away. A folder without the list
+// takes the built-in table (BuiltInGoldRides), the same 35 rides. Returns how many rides are now overlaid: those the
+// list names whose file the folder holds (a listed file that is missing is skipped, and `missing`, when given, counts
+// them). A folder that does not exist gives none.
 size_t UseGoldRides(const std::filesystem::path& folder, size_t* missing = nullptr);
 
 // The rides overlaid, in RideConfig.txt order.
 const std::vector<GoldRide>& GoldRides();
+
+// The 35 rides' places as the Gold installer's RideConfig.txt gives them, built in (assets/gold_ride_table.h; the maintainer's
+// approved exception, 2026-11-07), in the list's order, `host` empty.
+std::vector<GoldRide> BuiltInGoldRides();
 
 // Parse the text of a RideConfig.txt: each ride's name and destination folder (as GoldRide, `host` empty). Tolerant of
 // CR LF, blank lines and either separator in the folder.

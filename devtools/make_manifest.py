@@ -15,7 +15,7 @@ What a game folder must hold, one record per file, found by CONTENT (size and SH
   EUR (editions eur)   import_eur.py EXPECTED, all of the European folder (PC disc files, Mac files, tuning files,
                        resource forks and Finder info files); the sizes come from tree-ee54d817.json and the content
                        source (pc or mac) from draft-manifests.json, both written by the launcher-design study.
-  Gold (editions gold) gold-wads.sha256 (the 35 ride wads) and the ride configuration text, sizes from gold-cab/.
+  Gold (editions gold) gold-wads.sha256 (the 35 ride wads) and the ride configuration text (optional), sizes from gold-cab/.
   US-PC, EUR-PC (editions us-pc, eur-pc)  the Windows discs (version 2.0) alone, from the lists in --pc: us-pc.tsv and
                        eur-pc.tsv, "SHA-256<TAB>size<TAB>path" for every file of the disc's Data folder, the language files
                        the installer copies into data/Language (USEnglish/Filter/American, USEnglish/Meshes/American;
@@ -291,8 +291,9 @@ def gold_set(scratch, shalist):
     if len(out) != EXPECTED_WADS:
         fail("gold-wads.sha256 lists %d wads, expected %d" % (len(out), EXPECTED_WADS))
     p = os.path.join(folder, GOLD_CONFIG)
-    out.append((GOLD_DEST_FOLDER + "/" + GOLD_CONFIG, [(os.path.getsize(p), sha256_file(p))], "gold", "gold", "gold",
-                FLAG_REQUIRED))
+    # The ride list is the installer's own and is optional: downloads of the rides alone lack it, and the launcher's
+    # built-in table (platform/gold_rides.cpp) places the wads then.
+    out.append((GOLD_DEST_FOLDER + "/" + GOLD_CONFIG, [(os.path.getsize(p), sha256_file(p))], "gold", "gold", "gold", 0))
     return out
 
 
@@ -810,6 +811,8 @@ def from_base(path, keep_languages, keep_pc):
     for dest, hs, group, bits, source, flags in records:
         if group == "program":
             flags &= ~FLAG_REQUIRED   # an older output had it required
+        if dest == GOLD_DEST_FOLDER + "/" + GOLD_CONFIG:
+            flags &= ~FLAG_REQUIRED   # likewise
         for e in EDITION_BIT:
             if bits & EDITION_BIT[e] and (keep_languages or e != "lang") and (keep_pc or e not in PC_EDITIONS):
                 out.append((dest, hs, group, e, source, flags))

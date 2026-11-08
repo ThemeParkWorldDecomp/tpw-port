@@ -160,6 +160,7 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   list(REMOVE_DUPLICATES TPW_PLATFORM_SOURCES)
   add_library(tpw_platform STATIC ${TPW_PLATFORM_SOURCES})
   target_include_directories(tpw_platform PUBLIC ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+  target_include_directories(tpw_platform PRIVATE ${TPW_DECOMP_DIR}/assets)   # gold_rides.cpp's gold_ride_table.h
   target_link_libraries(tpw_platform PUBLIC SDL3::SDL3)
   target_link_libraries(tpw_platform PRIVATE ZLIB::ZLIB)   # platform/online_ftp.cpp's park checks
   if(NOT TPW_LINUX)

@@ -390,9 +390,38 @@ static void TestGoldRides(const fs::path& scratch) {
     CHECK(tpw::FindHostPath("data:levels:space:rides:_newride_40.wad").empty());
     CHECK(names(tpw::ListGameFolder("data:levels:space:rides")) == "_alpha_50.wad _wormhol_33.wad _zeta_51.wad ");
     CHECK(names(tpw::ListGameFolder("data:levels")) == "space/ ");
-    // A folder without the list, or no folder, is no overlay either.
+    // No folder is no overlay either, and a folder that holds none of the rides lays none.
     CHECK(tpw::UseGoldRides(scratch / "nowhere", &missing) == 0 && missing == 0);
     CHECK(tpw::UseGoldRides(config.gameDir) == 0);
+
+    // The built-in table: the same 35 rows RideConfig.txt gives (assets/gold_ride_table.h), unique, in the folders the
+    // installer used. A folder with the rides but no RideConfig.txt (a download of the rides alone) is placed by it.
+    const auto table = tpw::BuiltInGoldRides();
+    CHECK(table.size() == 35);
+    for (size_t i = 0; i < table.size(); ++i) {
+        CHECK(table[i].host.empty());
+        for (size_t j = 0; j < i; ++j) CHECK(table[i].name != table[j].name);
+    }
+    CHECK(table[0].name == "_cards_19.wad" && table[0].folder == "data/levels/fantasy/features");
+    CHECK(table[32].name == "_wormhol_33.wad" && table[32].folder == "data/levels/space/rides");
+    CHECK(table[34].name == "_strengt_34.wad" && table[34].folder == "data/levels/space/sideshow");
+    const fs::path rideless = scratch / "gold-no-list";
+    Touch(rideless / "_WORMHOL_33.WAD", "gold wormhole, longer");
+    Touch(rideless / "_pulsar_29.wad", "gold pulsar");
+    Touch(rideless / "_shooter_13.wad", "gold shooter");
+    Touch(rideless / "Helvetica.ttf", "not a ride");
+    CHECK(tpw::UseGoldRides(rideless, &missing) == 3);
+    CHECK(missing == 32);
+    CHECK(tpw::GoldRides().size() == 3 && tpw::GoldRides()[0].name == "_shooter_13.wad");
+    CHECK(Same(tpw::FindHostPath("data:levels:space:rides:_wormhol_33.wad"), rideless / "_WORMHOL_33.WAD"));
+    CHECK(Same(tpw::FindHostPath("data:levels:hallow:sideshow:_shooter_13.wad"), rideless / "_shooter_13.wad"));
+    CHECK(Same(tpw::FindHostPath("data:levels:space:features:_pulsar_29.wad"), config.userDir / features / "_pulsar_29.wad"));
+    CHECK(tpw::FindHostPath("data:levels:space:rides:Helvetica.ttf").empty());
+    CHECK(names(tpw::ListGameFolder("data:levels:space:rides")) == "_alpha_50.wad _wormhol_33.wad _zeta_51.wad ");
+    CHECK(names(tpw::ListGameFolder("data:levels:hallow:sideshow")) == "_shooter_13.wad ");
+    // With the list there, the list rules and the table is not mixed in.
+    CHECK(tpw::UseGoldRides(gold, &missing) == 4);
+    CHECK(tpw::UseGoldRides(fs::path()) == 0);
     config.gameDir = gameDir;
     config.userDir = userDir;
 }

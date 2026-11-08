@@ -8,6 +8,7 @@
 - The launcher now remembers which mods are switched on or off after a game is played
 - Fixed a crash when publishing a park to an online server that offers no upload server (Thanks @samueleagle91)
 - The launcher's Settings and Mods scroll bars can now be dragged, so their lower rows can be reached without a mouse wheel (Thanks slappyhead and @samueleagle91)
+- The Gold Edition now unlocks from downloads that have its 35 rides but not the installer's ride list (Thanks OncleSam and a pretty cool guy)
 
 ## 0.3.2 (2026-11-07)
 

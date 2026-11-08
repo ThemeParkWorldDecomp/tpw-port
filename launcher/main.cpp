@@ -1206,7 +1206,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
         size_t missing = 0;
         const size_t rides = tpw::UseGoldRides(gold, &missing);
         if (missing == 0) tpw::Log("Gold rides: on, %zu rides overlaid from assets/gold", rides);
-        else tpw::Log("Gold rides: on, %zu rides overlaid from assets/gold (%zu listed in RideConfig.txt are missing)", rides, missing);
+        else tpw::Log("Gold rides: on, %zu rides overlaid from assets/gold (%zu of the listed rides are missing)", rides, missing);
     }
     else if (backend.Status(tpw::assets::kEditionGold).unlocked) tpw::Log("Gold rides: off (data present, switched off)");
     else tpw::Log("Gold rides: no data");
