@@ -7,6 +7,8 @@
 // Usage: tpw_launcher_ui_tests [output folder]   (default: TPW_UI_SCREENS_DIR from the environment, else the build's
 // ui-screens/ folder). ctest runs it as "launcher_ui".
 #include <SDL3/SDL.h>
+#include <archive.h>
+#include <lzma.h>
 #include <zlib.h>
 
 #include <algorithm>
@@ -835,6 +837,12 @@ void CheckAboutRows(LauncherUi& ui) {
     row = find("libjpeg");
     Check(row != nullptr, "About lists libjpeg");
     if (row) CheckEq(row->license, "IJG License", "About: libjpeg's licence");
+    row = find("libarchive");
+    Check(row != nullptr, "About lists libarchive");
+    if (row) CheckEq(row->version, ARCHIVE_VERSION_ONLY_STRING, "About: libarchive's version is the headers'");
+    row = find("liblzma");
+    Check(row != nullptr, "About lists liblzma");
+    if (row) CheckEq(row->version, LZMA_VERSION_STRING, "About: liblzma's version is the headers'");
     Check(find("stb_truetype") != nullptr, "About lists stb");
     Check(find("Fredoka") != nullptr && find("Nunito") != nullptr, "About lists both fonts");
 #if TPW_TEST_FFMPEG

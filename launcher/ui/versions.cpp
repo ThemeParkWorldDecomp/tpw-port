@@ -6,6 +6,8 @@
 #include <cstdio>
 
 #include <SDL3/SDL.h>
+#include <archive.h>
+#include <lzma.h>
 #include <zlib.h>
 extern "C" {
 #include <jpeglib.h>
@@ -43,6 +45,8 @@ std::vector<MadeWith> MadeWithRows(const Text& text) {
         {"SDL", Dotted(SDL_VERSIONNUM_MAJOR(sdl), SDL_VERSIONNUM_MINOR(sdl), SDL_VERSIONNUM_MICRO(sdl)), "zlib License"},
         {"zlib", zlibVersion(), "zlib License"},
         {"libjpeg (the game's pictures)", JpegRelease(JPEG_LIB_VERSION), "IJG License"},
+        {"libarchive (7-Zip and RAR archives)", ARCHIVE_VERSION_ONLY_STRING, "BSD 2-Clause License"},
+        {"liblzma (XZ Utils)", LZMA_VERSION_STRING, "Zero-Clause BSD"},
         {"stb_truetype, stb_rect_pack", std::string(TPW_STB_TRUETYPE_VERSION) + ", " + TPW_STB_RECT_PACK_VERSION,
          "MIT License or public domain"},
         {"Fredoka (headings)", text.FontVersion(Face::Heading), "SIL Open Font License 1.1"},

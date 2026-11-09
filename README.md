@@ -40,7 +40,8 @@ pass through as usual (`themepark --windowed`).
 ### Playing
 
 `themepark` (built by hand, `build/tpw_launcher`) opens the launcher. Drop your game disc on its window: the Mac CD, the
-PC CD, or a zip or disc image of either. The launcher checks every file and ticks off the editions it finds. Press Play:
+PC CD, or a zip, 7-Zip or RAR archive or disc image of either (an archive in several parts: drop all the parts, or the
+first). The launcher checks every file and ticks off the editions it finds. Press Play:
 a progress bar shows while the game starts, and the launcher's window closes when the game's window appears. Once the
 US, European and Gold discs are all checked, the window shows just two tiles, Sim Theme Park and Theme Park World, each
 with its own Play button. At every start the launcher compares each file's size and date with what it recorded,
@@ -398,8 +399,8 @@ and the build:
 ### Building by hand
 
 `make` takes BUILD=, CMAKE= and JOBS= (the Makefile's header says how). `make clean` deletes build/, with the CMake it
-fetched. To run the steps yourself you need CMake 3.20 or newer, a C++17 compiler and Python 3. SDL3, zlib, libjpeg and
-a trimmed FFmpeg are built from source with the port (third_party/).
+fetched. To run the steps yourself you need CMake 3.20 or newer, a C++17 compiler and Python 3. SDL3, zlib, libjpeg,
+libarchive, liblzma and a trimmed FFmpeg are built from source with the port (third_party/).
 
     git clone --recurse-submodules https://github.com/ThemeParkWorldDecomp/tpw-port.git
     cd tpw-port
@@ -661,6 +662,36 @@ No license has been chosen yet for the port's own code. third_party/ffmpeg is FF
 version 2.1 or later (third_party/ffmpeg/COPYING.LGPLv2.1); it is built from that source with the game, so you can change
 it and rebuild. Details in third_party/ffmpeg/NOTE.md.
 
-The port also builds SDL3 3.2.30 and zlib 1.3.2 (zlib License) and the IJG's libjpeg 6b (IJG License). The launcher's
-text uses Fredoka and Nunito (SIL Open Font License 1.1, third_party/fonts) and is drawn with stb_truetype and
-stb_rect_pack (MIT or public domain, third_party/stb). The launcher's About box lists the versions it was built with.
+The port also builds SDL3 3.2.30 and zlib 1.3.2 (zlib License), the IJG's libjpeg 6b (IJG License), and, for the
+launcher's 7-Zip and RAR readers, libarchive 3.8.11 (BSD 2-Clause License, tpw-decomp/third_party/libarchive/COPYING)
+and liblzma from XZ Utils 5.8.4 (Zero-Clause BSD, tpw-decomp/third_party/xz/COPYING.0BSD). The launcher's text uses
+Fredoka and Nunito (SIL Open Font License 1.1, third_party/fonts) and is drawn with stb_truetype and stb_rect_pack (MIT
+or public domain, third_party/stb). The launcher's About box lists the versions it was built with.
+
+libarchive's licence, as its COPYING gives it (each of its files names its own authors):
+
+```
+Copyright (c) 2003-2018 <author(s)>
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer
+   in this position and unchanged.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
