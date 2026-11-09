@@ -132,9 +132,9 @@ function Invoke-Run([string]$Name) {
     Add-Text (Join-Path $Out 'summary.txt') ("$sl`n" + (($summary | ForEach-Object { "  $_" }) -join "`n") + "`n")
 }
 
-# The scripted input for the real game (the runner is a throwaway VM): move the pointer and click, and press a key. The game is
-# windowed at 0,0 (dialog.tcf below), so screen positions are the window's own. Only the dummy account is ever typed; no real
-# password is sent to the field, so a screenshot can never show one.
+# The scripted input for the real game (the runner is a throwaway VM): move the pointer and click, press a key, type. The game's
+# window lands at a different place each run, so clicks are given in its own 640x480 coordinates and placed from its client area
+# at the time. Only the dummy account is ever typed; no real password is sent to the field, so a screenshot can never show one.
 $script:InputReady = $false
 function Ensure-Input {
     if ($script:InputReady) { return }
@@ -160,6 +160,38 @@ public static void Key(byte vk) {
     keybd_event(vk, 0, 0, System.UIntPtr.Zero); System.Threading.Thread.Sleep(50);
     keybd_event(vk, 0, 2, System.UIntPtr.Zero);
 }
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool SetForegroundWindow(System.IntPtr h);
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool SetWindowPos(System.IntPtr h, System.IntPtr after, int x, int y, int cx, int cy, uint f);
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern short VkKeyScan(char c);
+// Run 4: the runner's own console window sat over the game, so the screenshots missed it and the keys went to the console.
+// The game window is put on top (topmost) and given the keyboard. A key press of our own first (F24, which nothing uses; not Alt,
+// which would open the window's menu) lets this background process do that.
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();
+public static void Focus(System.IntPtr h) {
+    SetWindowPos(h, new System.IntPtr(-1), 0, 0, 0, 0, 0x0043);
+    if (GetForegroundWindow() == h) { return; }
+    Key(0x87);
+    SetForegroundWindow(h); System.Threading.Thread.Sleep(100);
+}
+// A point given in the game's own 640x480 coordinates, clicked wherever the window's client area is now and however it is scaled.
+public static string ClickGame(System.IntPtr h, int x, int y) {
+    PT p = new PT(); RC r;
+    if (!GetClientRect(h, out r) || !ClientToScreen(h, ref p) || r.R <= 0 || r.B <= 0) { return "client area unknown, no click"; }
+    int sx = p.X + x * r.R / 640, sy = p.Y + y * r.B / 480;
+    Focus(h); Click(sx, sy);
+    return "clicked game " + x + "," + y + " at screen " + sx + "," + sy;
+}
+public static void Type(string s) {
+    foreach (char c in s) {
+        short v = VkKeyScan(c);
+        if (v == -1) { continue; }
+        bool shift = (v & 0x100) != 0;
+        if (shift) { keybd_event(0x10, 0, 0, System.UIntPtr.Zero); }
+        Key((byte)(v & 0xff));
+        if (shift) { keybd_event(0x10, 0, 2, System.UIntPtr.Zero); }
+        System.Threading.Thread.Sleep(60);
+    }
+}
 '@
     $script:InputReady = $true
 }
@@ -173,8 +205,10 @@ public static void Key(byte vk) {
 # Every TP.EXE from the copied game (C:\TPW): only the game this script started, never another process.
 function Get-GameCopies { @(Get-CimInstance Win32_Process -Filter "Name = 'TP.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -like 'C:\TPW\*' }) }
 
-function Invoke-Game([string]$Tag, [int]$Affinity, [string]$Game, [string[]]$GameArgs = @()) {
-    Write-Host "==== game run $Tag (affinity $Affinity; arguments '$($GameArgs -join ' ')')"
+# SHIM is the compatibility layer list for this child process only. It returns how many seconds the game's window was seen alive
+# (0 if no window ever came up).
+function Invoke-Game([string]$Tag, [int]$Affinity, [string]$Game, [string[]]$GameArgs = @(), [string]$Shim = 'DWM8And16BitMitigation 16BitColor') {
+    Write-Host "==== game run $Tag (affinity $Affinity; arguments '$($GameArgs -join ' ')'; layers '$Shim')"
     Ensure-Input
     # Run 3: a crashed game stayed listed for a minute (Windows Error Reporting), and the next run's TP.EXE ended at once with
     # no window. Wait for the last one to be gone first.
@@ -202,8 +236,8 @@ function Invoke-Game([string]$Tag, [int]$Affinity, [string]$Game, [string[]]$Gam
     New-ItemProperty -Path $wer -Name DumpFolder -Value $dumps -PropertyType ExpandString -Force | Out-Null
     New-ItemProperty -Path $wer -Name DumpType -Value 1 -PropertyType DWord -Force | Out-Null
     New-ItemProperty -Path $wer -Name DumpCount -Value 5 -PropertyType DWord -Force | Out-Null
-    $env:__COMPAT_LAYER = 'DWM8And16BitMitigation 16BitColor'
-    Add-Text $log "compatibility layers: $env:__COMPAT_LAYER`n"
+    $env:__COMPAT_LAYER = $Shim
+    Add-Text $log "compatibility layers: '$Shim'; ddraw.dll beside TP.EXE: $(Test-Path -LiteralPath (Join-Path $Game 'ddraw.dll'))`n"
     $g = $null
     $sp = @{ FilePath = $gameExe; WorkingDirectory = $Game; PassThru = $true; ErrorAction = 'Stop' }
     if ($GameArgs.Count) { $sp.ArgumentList = $GameArgs }
@@ -226,19 +260,35 @@ function Invoke-Game([string]$Tag, [int]$Affinity, [string]$Game, [string[]]$Gam
         } while ($ids.Count -ne $n)
         return @($all | Where-Object { $ids -contains $_.ProcessId })
     }
-    # time (s) -> what to do. Keys skip the EA and intro movies; the clicks are placeholders to fill in from the screenshots
-    # (the JP UI is navigated by position). Escape is virtual-key 0x1B, Return 0x0D, Space 0x20.
-    $keyAt = @{ 3 = 0x1B; 5 = 0x1B; 8 = 0x1B; 11 = 0x0D; 20 = 0x1B }
-    $shotAt = 4, 8, 10, 12, 13, 14, 16, 18, 22, 32, 45, 60
+    # time (s) -> what to do. Keys skip the EA and intro movies (Escape is virtual-key 0x1B, Return 0x0D). The clicks are in the
+    # game's own 640x480 coordinates (the JP front end is navigated by position) and are filled in from the screenshots; the
+    # typed text is only ever the dummy account (origpc_auth.cpp's defaults), never a secret.
+    $keyAt = @{ 3 = 0x1B; 5 = 0x1B; 8 = 0x1B; 11 = 0x0D }
+    $clickAt = @{}
+    $typeAt = @{}
+    $shotAt = @(4, 6, 8, 10, 12, 14, 16, 18, 20, 23, 26, 30, 35, 40, 45, 50, 55, 60, 70, 80, 90)
     $net = Join-Path $Out "game-netstat-$Tag.txt"
     $lastNet = ''
     $sawWindow = $false
+    $alive = 0
+    $hwnd = [IntPtr]::Zero
     $start = Get-Date
-    for ($t = 1; $t -le 62; $t++) {
+    for ($t = 1; $t -le 92; $t++) {
         Start-Sleep -Seconds 1
         $elapsed = [int]((Get-Date) - $start).TotalSeconds
+        if ($hwnd -eq [IntPtr]::Zero -and $null -ne $g -and -not $g.HasExited) {
+            $g.Refresh()
+            if ($g.MainWindowHandle -ne [IntPtr]::Zero) { $hwnd = $g.MainWindowHandle; Add-Text $log "t${t}s game window found`n" }
+        }
+        if ($hwnd -ne [IntPtr]::Zero -and ($keyAt.ContainsKey($t) -or $shotAt -contains $t)) { try { [Origpc.Input]::Focus($hwnd) } catch {} }
         if ($keyAt.ContainsKey($t)) {
             try { [Origpc.Input]::Key([byte]$keyAt[$t]); Add-Text $log "t${t}s key 0x$('{0:x}' -f $keyAt[$t])`n" } catch {}
+        }
+        if ($clickAt.ContainsKey($t) -and $hwnd -ne [IntPtr]::Zero) {
+            try { Add-Text $log "t${t}s $([Origpc.Input]::ClickGame($hwnd, $clickAt[$t][0], $clickAt[$t][1]))`n" } catch {}
+        }
+        if ($typeAt.ContainsKey($t)) {
+            try { [Origpc.Input]::Type([string]$typeAt[$t]); Add-Text $log "t${t}s typed $(([string]$typeAt[$t]).Length) characters`n" } catch {}
         }
         if ($shotAt -contains $t) { Save-Screen (Join-Path $Out "game-$Tag-${t}s.png") }
         $lines = @(Get-PortLines 7598 | ForEach-Object { Hide-Addresses (($_.Trim() -split '\s+') -join ' ') })
@@ -254,6 +304,7 @@ function Invoke-Game([string]$Tag, [int]$Affinity, [string]$Game, [string[]]$Gam
                 $w = Get-Process -Id $q.ProcessId -ErrorAction SilentlyContinue
                 if ($w -and $w.MainWindowTitle) {
                     $sawWindow = $true
+                    $alive = $t
                     $titleLine = "t${t}s window of $($q.Name): '$($w.MainWindowTitle)', $([Origpc.Input]::Client($w.MainWindowHandle))"
                     Add-Text $log "$titleLine`n"; Write-Host "  $titleLine"
                 }
@@ -293,8 +344,8 @@ function Invoke-Game([string]$Tag, [int]$Affinity, [string]$Game, [string[]]$Gam
     $dbt = @(Get-Content -LiteralPath $dbwLog -ErrorAction SilentlyContinue)
     $comms = @($dbt | Where-Object { $_ -match 'commsThread|Started|Ended|WSAE|login|Login|connect|Connect' })
     if ($comms.Count) { Write-Host "  dbwin lines of note:"; $comms | Select-Object -First 30 | ForEach-Object { Write-Host "    $_" } }
-    Add-Text (Join-Path $Out 'summary.txt') "game $Tag`: $exitInfo; window seen $sawWindow; dbwin lines of note: $($comms.Count)`n"
-    return $sawWindow
+    Add-Text (Join-Path $Out 'summary.txt') "game $Tag`: $exitInfo; window seen $sawWindow, last at ${alive}s; dbwin lines of note: $($comms.Count)`n"
+    return $alive
 }
 
 switch ($Step) {
@@ -473,25 +524,50 @@ switch ($Step) {
         Write-Host "sound devices: $($snd -join '; ')"
 
         Save-Screen (Join-Path $Out 'game-before.png')
-        # Windowed run. If no window ever appears (dialog mode may misbehave, or GDI capture of DirectDraw comes back black),
-        # fall back to a fullscreen run without dialog.tcf.
-        # Run 3 (with a sound device): the title screen came up, then about 2 s after Return the game crashed in ddraw's heap,
-        # in its asynchronous pointer thread (Surface IsLost -> ddraw resets all objects after a mode change). The game's own
-        # command-line switch -flmouse stops that thread (it is what the game does by itself on 3dfx cards); it is a switch of
-        # the original TP.EXE, which is run unchanged.
-        $sawWindow = Invoke-Game 'windowed' 0 $game @('-flmouse')
-        if (-not $sawWindow) {
-            Write-Host 'no window in the windowed run; retrying fullscreen (no dialog.tcf)'
-            Add-Text $summaryFile "windowed run showed no window; retrying fullscreen without dialog.tcf`n"
-            Remove-Item -LiteralPath (Join-Path $game 'dialog.tcf') -Force -ErrorAction SilentlyContinue
-            Invoke-Game 'fullscreen' 0 $game @('-flmouse') | Out-Null
-            # restore dialog.tcf for the pinned run
-            [System.IO.File]::WriteAllBytes((Join-Path $game 'dialog.tcf'), $tcf)
+        # Runs 3 and 4: the title screen came up, then at 8-14 s the process heap was found corrupt, in Windows' own DirectDraw
+        # (its 16-bit emulation on this GPU-less machine: Surface IsLost -> reset of all DirectDraw objects -> heap allocation, with
+        # d3d10warp freeing on another thread). -flmouse (no pointer thread) and one CPU did not change it. So these runs put
+        # cnc-ddraw (a widely used open DirectDraw replacement for old games, drawn here with GDI) beside the unchanged TP.EXE.
+        # It is fetched from its own release and its checksum checked; it is not a game file and is removed with the copy.
+        $cncZip = Join-Path $Temp 'cnc-ddraw-7.1.0.0.zip'
+        $cncSha = '0b13ab89a64c9918189b1dadd449ef6ed3cb3b7b19cabd96d8adbd95505bb908'
+        & curl.exe --fail --location --retry 3 --retry-delay 10 --silent --show-error --output $cncZip `
+            'https://github.com/FunkyFr3sh/cnc-ddraw/releases/download/v7.1.0.0/cnc-ddraw.zip'
+        $cncOk = $false
+        if ($LASTEXITCODE -eq 0 -and (Get-FileHash -LiteralPath $cncZip -Algorithm SHA256).Hash.ToLowerInvariant() -eq $cncSha) {
+            & 7z.exe e -y "-o$game" $cncZip 'ddraw.dll' | Out-Null
+            $cncOk = Test-Path -LiteralPath (Join-Path $game 'ddraw.dll')
         }
-        # The race check on the real game: the whole process (and so its comms thread) pinned to CPU 0.
-        Invoke-Game 'cpu1' 1 $game @('-flmouse') | Out-Null
-        # The same windowed run without -flmouse, to show whether the switch is what changes the outcome.
-        Invoke-Game 'windowed-plain' 0 $game | Out-Null
+        Add-Text $summaryFile "cnc-ddraw 7.1.0.0 fetched, checked and placed: $cncOk`n"
+        Write-Host "cnc-ddraw placed: $cncOk"
+        # Its settings: in a window, GDI drawing (no GPU here), and no CPU pinning of its own (singlecpu would pin the whole game to
+        # CPU 0 and so hide the race this test is about); nothing is saved back.
+        $ini = "[ddraw]`r`nwindowed=true`r`nfullscreen=false`r`nborder=true`r`nrenderer=gdi`r`nsinglecpu=false`r`nsavesettings=0`r`n" +
+            "no_compat_warning=true`r`n"
+        [System.IO.File]::WriteAllText((Join-Path $game 'ddraw.ini'), $ini, (New-Object System.Text.ASCIIEncoding))
+        # The game's own fullscreen mode (dialog.tcf gameOptions 0x000c0e15), which cnc-ddraw shows in a window.
+        $tcfFull = [byte[]]$tcf.Clone(); $tcfFull[4] = 0x15
+        $best = 'cnc'
+        if ($cncOk) {
+            $winAlive = [int]@(Invoke-Game 'cnc' 0 $game @() '16BitColor')[-1]
+            [System.IO.File]::WriteAllBytes((Join-Path $game 'dialog.tcf'), $tcfFull)
+            $fullAlive = [int]@(Invoke-Game 'cnc-full' 0 $game @() '16BitColor')[-1]
+            # The pinned run uses whichever of the two lived longer.
+            if ($winAlive -ge $fullAlive) { [System.IO.File]::WriteAllBytes((Join-Path $game 'dialog.tcf'), $tcf) } else { $best = 'cnc-full' }
+            Add-Text $summaryFile "cnc-ddraw: windowed alive ${winAlive}s, fullscreen alive ${fullAlive}s; the pinned run uses $best`n"
+            # The race check on the real game: the whole process (and so its comms thread) pinned to CPU 0.
+            Invoke-Game "$best-cpu1" 1 $game @() '16BitColor' | Out-Null
+        }
+        Remove-Item -LiteralPath (Join-Path $game 'ddraw.dll'), (Join-Path $game 'ddraw.ini') -Force -ErrorAction SilentlyContinue
+        [System.IO.File]::WriteAllBytes((Join-Path $game 'dialog.tcf'), $tcf)
+        # Windows' own DirectDraw again, with full page heap on TP.EXE: the heap corruption then faults at the write that does it,
+        # so the crash stack names the code (the game's or Windows') that overruns. The setting is removed right after.
+        $ifeo = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\TP.EXE'
+        New-Item -Path $ifeo -Force | Out-Null
+        New-ItemProperty -Path $ifeo -Name GlobalFlag -Value 0x02000000 -PropertyType DWord -Force | Out-Null
+        New-ItemProperty -Path $ifeo -Name PageHeapFlags -Value 3 -PropertyType DWord -Force | Out-Null
+        Invoke-Game 'pageheap' 0 $game | Out-Null
+        Remove-Item -Path $ifeo -Recurse -Force -ErrorAction SilentlyContinue
 
         $sd = Get-Service -Name secdrv -ErrorAction SilentlyContinue
         Add-Text $summaryFile "secdrv service: $(if ($sd) { $sd.Status } else { 'not installed' })`n"
