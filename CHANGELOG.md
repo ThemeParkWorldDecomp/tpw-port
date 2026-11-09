@@ -1,5 +1,7 @@
 # Changelog
 
+## 0.4.0 (not released yet)
+
 ## 0.3.3 (2026-11-08)
 
 ### Bug Fixes
