@@ -13,7 +13,7 @@ namespace tpw::ui {
 // What the launcher takes in a drop, in one place: the drop field's heading ("Drop your game discs, ... here") and the
 // card shown while a drag is over the window ("Game discs, ...") both say it (DropKinds). A new kind of file the
 // importer opens is added here.
-inline constexpr const char* kDropKinds = "game discs, images, zips or folders";
+inline constexpr const char* kDropKinds = "game discs, images, zips, 7z, rar or folders";
 // kDropKinds, with a capital letter when `sentence` (it starts a line).
 std::string DropKinds(bool sentence);
 
