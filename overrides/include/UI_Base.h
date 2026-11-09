@@ -444,6 +444,11 @@ void UI_InterfaceUnits(bool on, int16_t& realWidth, int16_t& realHeight, int16_t
 extern int8_t gUISmoothWheelZoom;
 // TPW_PORT_FIX packs gPortPackPictures | Mac: (none: the logo and loading pictures are 4:3) | Port: true when the launcher lays asset packs over the game's files, whose pictures may be of another shape; false, the original's drawing, by default | Why: the splash draws a picture of another shape at its own shape only for packs, so without them it draws as the Mac's; contributed by samueleagle91 (tpw-port PR #26)
 extern bool gPortPackPictures;
+// TPW_PORT_FIX pointerleave UI_DevicePointerOut/gUIPointerOut | Mac: (none: the game filled the screen, and its pointer never left it) | Port: the pointer left the game's window: the window it was in is told it left, and gUIPointerOut is set until the pointer moves over the game again | Why: in a window, or onto another screen, the pointer can leave the game, and its last place, clamped to the screen's edge, kept the camera's edge scroll going toward that side (src/game/ui/UI_Base.cpp); contributed by samueleagle91 (tpw-port PR #120)
+// False until the pointer leaves the game's window, so a program that does not see it leave (the differential tests)
+// keeps the pointer as it was.
+void UI_DevicePointerOut();
+inline bool gUIPointerOut = false;
 // TPW_PORT_FIX widepanel gPortWidePanel | Mac: no such flag (no wide windows) | Port: a flag the launcher sets (launcher/main.cpp); while it is set a window exactly 0x800 units across is a 4:3 panel, not a wide one (UI_IsWideWindow, the InterfaceWindow constructor), apart from the login panel's root, which stays wide | Why: the Options panel's root window is 0..2048, which the wide test called wide, so on a screen wider than 4:3 its rows were anchored apart from their panel; the login panel's root is 0..2048 too, but its rows belong at the screen's right edge; contributed by samueleagle91 (tpw-port PRs #12 and #35)
 // False unless the launcher sets it, so a program that does not (the differential tests) keeps the wide test as it was.
 inline bool gPortWidePanel = false;

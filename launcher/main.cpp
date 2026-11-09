@@ -1872,6 +1872,9 @@ int LauncherMain(int argc, char** argv) {
     // The 2D map's pointer, zoom and view in the unit space and at the interface size (UI_Base.h; samueleagle91, tpw-port
     // PR #24).
     gPortWideMap = true;
+    // The pointer that leaves the game's window leaves its UI's windows too, so the camera's edge scroll stops (UI_Base.h;
+    // samueleagle91, tpw-port PR #120).
+    tpw::gPortPointerLeft = UI_DevicePointerOut;
     // The preset is the size the game renders at, not the window's; a machine whose framebuffers are smaller gets the
     // largest preset that fits. TPW_LARGEST_GAME_SIZE stands in for the machine's limit, to check the fallback.
     if (resolution > 0) {

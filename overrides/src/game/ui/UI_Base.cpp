@@ -177,6 +177,7 @@ uint32_t UI_hash_cakes(const char* text, uint32_t multiplier) {
 // (entered) to the new one. The messages carry x in the high half and y in the low half,
 // but y is sign-extended into the word, so a negative y fills the high half with ones.
 void UI_DevicePointerMove(int16_t x, int16_t y) {
+    gUIPointerOut = false;   // pointerleave: the pointer is back over the game (UI_DevicePointerOut, below)
     if (gUIActive == 0) return;
     gUIPointerX = x;
     gUIPointerY = y;
@@ -204,6 +205,7 @@ int32_t UI_UpdatePointerIn() {
     const int16_t y = gUIPointerY;
     if (gUIRootWindow == nullptr) return 0;
     if (gUICaptureDevice != nullptr) return 0;
+    if (gUIPointerOut) return 1;   // pointerleave: out of the game's window, the pointer is in none of the UI's
     InterfaceWindow* under = gUIRootWindow->PointIn(x, y);
     InterfaceWindow* previous = gUIPointerIn;
     if (under != previous) {
@@ -213,6 +215,14 @@ int32_t UI_UpdatePointerIn() {
         UI_PostMessage(gUIPointerIn, 0x10001, position, 0);
     }
     return 1;
+}
+
+// TPW_PORT_FIX pointerleave UI_DevicePointerOut | Mac: (none: the game filled the screen, and its pointer never left it) | Port: the pointer left the game's window: the window it was in is told it left (0x10002), and no window has it until it moves over the game again (UI_DevicePointerMove; UI_UpdatePointerIn leaves it out); with a button held, or while a window has captured the pointer (a drag), nothing changes | Why: in a window, or onto another screen, the pointer can leave the game, and its last place, clamped to the screen's edge, kept the camera's edge scroll going toward that side until the pointer came back or the window lost the focus; out of the park's window, the camera stops as it does over a panel (reported by slappyhead; contributed by samueleagle91, tpw-port PR #120)
+void UI_DevicePointerOut() {
+    if (gUIActive == 0 || gUIRootWindow == nullptr || gUICaptureDevice != nullptr || gUIButtonFlags != 0) return;
+    if (gUIPointerIn != nullptr) UI_PostMessage(gUIPointerIn, 0x10002, 0, 0);
+    gUIPointerIn = nullptr;
+    gUIPointerOut = true;
 }
 
 // UI_PostMessage, main 0x101c9400 (220 bytes); existing body separated for unit w43.

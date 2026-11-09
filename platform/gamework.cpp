@@ -312,6 +312,15 @@ void UGamework::Run() {
             case SDL_EVENT_WINDOW_FOCUS_LOST:
                 HandleActivateWindow(tpw::MainWindow(), false);
                 break;
+#ifdef TPW_PORT_FIX
+            case SDL_EVENT_WINDOW_MOUSE_LEAVE:
+                // The pointer left the window (the game in a window, or full screen with another screen beside it): the
+                // game takes it out of all of its windows until it moves over the game again (tpw::gPortPointerLeft,
+                // pointerleave). On the Mac the game filled the screen, and the pointer never left it. A scripted click
+                // keeps its place.
+                if (!gScripted.active && tpw::gPortPointerLeft != nullptr) tpw::gPortPointerLeft();
+                break;
+#endif
             default:
                 break;
             }
