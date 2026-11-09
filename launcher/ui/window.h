@@ -43,6 +43,8 @@ struct WindowPlacement {
         int frame = 0;
     };
     std::vector<Wheel> wheels;
+    // The window's size at open, in points (the launcher's --window-size WxH, a test run); 0: the start size.
+    int width = 0, height = 0;
     // The launcher's log (launcher/main.cpp: stderr and the log file, platform/log_file.h) for the window's own report
     // lines (a scripted click, a dumped frame, Play); null: stderr only. The line comes without a newline.
     void (*log)(const char* line) = nullptr;

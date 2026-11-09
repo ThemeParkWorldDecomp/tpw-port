@@ -178,8 +178,25 @@ struct ModRow {
     std::string locked;            // why it cannot be on yet (a content mod before the player's own disc is converted:
                                    // launcher/main.cpp), shown in its row; empty when it can. A locked mod shows off and
                                    // its switch cannot be turned on, and launcher.ini's key is kept for when it unlocks
+    std::string content;           // mod.json's "content" ("ps1": the PlayStation rides), empty for a mod without
+    std::vector<std::string> rides;   // its content folder's rides as the Game data box names them (Aztec Bounce, ...)
 };
 inline std::string ModKey(const std::string& id) { return "mod." + id; }
+
+// A row of the Game data box: one of the five things the player's own discs unlock, in the box's order (Sim Theme Park,
+// Theme Park World, Gold Edition, the PlayStation rides mod, Languages), and whether its data is in the data folder.
+struct GameDataRow {
+    std::string name;     // "Sim Theme Park"
+    std::string tag;      // what it is, beside the name: "US edition"
+    bool unlocked = false;
+    float fraction = 0;   // how much of it is there, for the badge: 0 none (a lock), 1 all (a check)
+    std::string line;     // unlocked: what is there ("Mac release, 1,683 files confirmed"); locked: how to unlock it
+};
+// The five rows from the editions' six statuses (StatusIndex order), the data folder's languages
+// (ImportBackend::Languages()) and the build's mods (the PlayStation rides are the mod whose content is "ps1").
+std::vector<GameDataRow> GameDataRows(const assets::EditionStatus all[6],
+                                      const std::vector<assets::LanguageStatus>& languages,
+                                      const std::vector<ModRow>& mods);
 
 // What the player chose to start.
 class Updater;   // updater.h
@@ -271,6 +288,16 @@ public:
                    ? restoreRects_[static_cast<size_t>(row)] : Rect{};
     }
     void ShowMods(bool open);
+    // The Game data box: open or closed, as the homes' Game data button does; whether it is open; its rows as the last
+    // frame drew them (GameDataRows); and where the last frame drew the homes' Game data button (in the header where it
+    // fits, else in the home's body: GameDataInHeader), the box and its Settings button, in points (empty when not shown).
+    void ShowGameData(bool open);
+    bool GameDataOpen() const { return gameDataOpen_; }
+    std::vector<GameDataRow> GameData() const { return GameDataRows(all_, languages_, mods_); }
+    Rect GameDataButtonRect() const { return gameDataButtonRect_; }
+    bool GameDataInHeader() const { return gameDataInHeader_; }
+    Rect GameDataBoxRect() const { return gameDataOpen_ ? gameDataBoxRect_ : Rect{}; }
+    Rect GameDataSettingsRect() const { return gameDataOpen_ ? gameDataSettingsRect_ : Rect{}; }
     void ArmRemove(assets::Edition edition);
     void ShowNotice(const std::string& message, bool problem);
     // Play's edition switch and Gold Edition toggle, as if clicked (the toggle's state is kept in launcher.ini, GoldKey).
@@ -347,7 +374,7 @@ public:
     Rect ExportLogsRect() const { return exportLogsRect_; }
     Rect OpenDownloadsRect() const { return openDownloadsRect_; }
     // The title row in the last frame, in points: the product's name, the version label drawn to its right, and the
-    // header's buttons (About, Settings and the header's Play when shown; empty on screens without them).
+    // header's buttons (About, Settings, Mods and the homes' Game data where it fits; empty on screens without them).
     Rect TitleRect() const { return titleRect_; }
     Rect TitleVersionRect() const { return titleVersionRect_; }
     Rect HeaderButtonsRect() const { return headerButtonsRect_; }
@@ -422,6 +449,7 @@ private:
     void DrawAbout(const Rect& window);
     void DrawEdited(const Rect& window);
     void DrawMods(const Rect& window);
+    void DrawGameData(const Rect& window);
     // The Game options section of the Settings box (settings_game.cpp): its height, and drawing it at `y` in `in`.
     float GameOptionsHeight(float rowH);
     void DrawGameOptions(const Rect& in, float& y, float rowH);
@@ -549,6 +577,13 @@ private:
     Rect modsButtonRect_, modsOnRect_, modsBoxRect_;
     std::vector<Rect> modSwitchRects_;
     bool modsScrolls_ = false;
+
+    // The Game data box: open, to open again once a drop made while it was open is done (back on the home), and the
+    // last frame's rects.
+    bool gameDataOpen_ = false;
+    bool gameDataReturn_ = false;
+    bool gameDataInHeader_ = false;   // this frame's homes have the button in the header (a wide enough window)
+    Rect gameDataButtonRect_, gameDataBoxRect_, gameDataSettingsRect_;
 
     // The Game options section (SetGameSettings): the files as last read, the edition and the player they are read for
     // (empty player: the last one played), and the last frame's rects.

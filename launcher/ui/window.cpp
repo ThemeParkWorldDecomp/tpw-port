@@ -199,7 +199,11 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
         if (placement.videoStarted != nullptr) placement.videoStarted();
     }
     // Made hidden, placed, then shown, so it never appears on another screen first.
-    SDL_Window* window = SDL_CreateWindow(kProductNameWithVersion, metric::kStartWidth, metric::kStartHeight,
+    SDL_Window* window = SDL_CreateWindow(kProductNameWithVersion,
+                                          placement.width > 0 ? std::max(placement.width, metric::kMinWidth)
+                                                              : metric::kStartWidth,
+                                          placement.height > 0 ? std::max(placement.height, metric::kMinHeight)
+                                                               : metric::kStartHeight,
                                           SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN);
     if (!window) {
         err = std::string("cannot open the launcher window: ") + SDL_GetError();

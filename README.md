@@ -523,10 +523,10 @@ run from WORK, starts tpw-port/build/tpw_launcher with its own user folder (tpw-
 (tpw-port/build/launch-NAME.log) and quits it after SECONDS. Options: --mute, --no-movies, --windowed, --display builtin,
 --background, --launcher-window, --play us|eur and --data DIR (start from the launcher's data folder instead of
 extracted/), and the scripted input used to test it (--click X,Y@PASS, --type TEXT@PASS, --drag X0,Y0-X1,Y1@PASS,
---frames N, --window-click X,Y@FRAME for the launcher's own window (in its points), and --fullscreen: the game's real
-full-screen window on the --display screen, without --windowed or --background; that screen is taken over until the
-run ends. tpw_platform_tests (cmake --build build --target tpw_platform_tests) checks the platform layer without a
-display.
+--frames N, --window-click X,Y@FRAME for the launcher's own window (in its points), --window-size WxH for that
+window's size at open, and --fullscreen: the game's real full-screen window on the --display screen, without
+--windowed or --background; that screen is taken over until the run ends. tpw_platform_tests (cmake --build build
+--target tpw_platform_tests) checks the platform layer without a display.
 
 ### Widescreen and resolution
 

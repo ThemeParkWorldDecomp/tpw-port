@@ -273,6 +273,7 @@ void LauncherUi::HandleEvent(const SDL_Event& e) {
                 else if (aboutOpen_) aboutOpen_ = false;
                 else if (settingsOpen_) settingsOpen_ = false;
                 else if (modsOpen_) modsOpen_ = false;
+                else if (gameDataOpen_) gameDataOpen_ = false;
                 else if (screen_ == Screen::Result || screen_ == Screen::Play) screen_ = Screen::Home;
             }
             break;
@@ -314,6 +315,8 @@ void LauncherUi::OfferPaths(const std::vector<std::string>& paths) {
         return;
     }
     aboutOpen_ = settingsOpen_ = modsOpen_ = false;
+    gameDataReturn_ = gameDataReturn_ || gameDataOpen_;   // the drop is checked as anywhere, then the box comes back
+    gameDataOpen_ = false;
     editedOpen_ = -1;
     armedRemove_ = -1;
     if (backend_.Running()) {
@@ -469,6 +472,11 @@ void LauncherUi::ShowSettings(bool open) {
 
 void LauncherUi::ShowMods(bool open) {
     modsOpen_ = open && modsShown_;
+}
+
+void LauncherUi::ShowGameData(bool open) {
+    gameDataOpen_ = open;
+    if (open) RefreshLanguages();
 }
 
 void LauncherUi::ShowLanguageList(int index) {
@@ -651,12 +659,14 @@ float LauncherUi::DrawHeader(const Rect& w, bool buttons) {
             if (ui_.Button("mods", modsButtonRect_, label, on == 0 ? ButtonKind::Quiet : ButtonKind::Plain))
                 modsOpen_ = true;
         }
-        // The header's Play only where it clears the title and its version (the tiles have their own Play buttons).
-        float pw = ui_.ButtonWidth("Play") + 20;
-        bool fits = x - pw - 10 > titleVersionRect_.Right() + 16;
-        if (screen_ == Screen::Home && AnyPlayable() && fits) {
-            x -= pw + 10;
-            if (ui_.Button("header-play", {x, y, pw, h}, "Play", ButtonKind::Go)) OpenPlay();
+        // The homes' Game data button, where it clears the title and its version; in a narrower window the home has it
+        // in its body (DrawHome, DrawReady). There is no Play here: the tiles have their own (the maintainer, 2026-11-08).
+        float gw = ui_.ButtonWidth("Game data");
+        if (screen_ == Screen::Home && x - gw - 10 > titleVersionRect_.Right() + 16) {
+            x -= gw + 10;
+            gameDataButtonRect_ = {x, y, gw, h};
+            gameDataInHeader_ = true;
+            if (ui_.Button("game-data", gameDataButtonRect_, "Game data", ButtonKind::Quiet)) ShowGameData(true);
         }
         headerButtonsRect_ ={x, y, w.Right() - metric::kMargin - x, h};
     }
@@ -809,6 +819,14 @@ void LauncherUi::DrawHome(const Rect& w) {
         Browse(false, DialogPurpose::Import);
     if (ui_.Button("browse-folder", {bx + fw + 12, cy, dw, buttonH}, "Choose a folder...", ButtonKind::Plain))
         Browse(true, DialogPurpose::Import);
+    // The Game data box, as on the all-confirmed home: in the header where it fits, else in the field's bottom right
+    // corner, clear of its centred words and buttons (a fresh download starts on this home, all locked).
+    if (!gameDataInHeader_) {
+        const float gw = ui_.ButtonWidth("Game data"), gh = 32;
+        gameDataButtonRect_ = {field.Right() - metric::kOutline - 10 - gw, field.Bottom() - metric::kOutline - 10 - gh, gw,
+                               gh};
+        if (ui_.Button("game-data", gameDataButtonRect_, "Game data", ButtonKind::Quiet)) ShowGameData(true);
+    }
 
     DrawTiles(tiles, true);
 
@@ -827,23 +845,23 @@ void LauncherUi::DrawHome(const Rect& w) {
 
 // The home once every edition is confirmed: no drop field, two large tiles (the US edition, then the European one), each
 // with its Gold Edition switch and its Play button. The whole window still takes a drop; the tiles light up under it as the small
-// ones do, and "Game data" opens Settings.
+// ones do, and "Game data" opens the Game data box.
 void LauncherUi::DrawReady(const Rect& w) {
     float top = DrawUpdateBanner(w, DrawHeader(w, true));
     const float m = metric::kMargin;
 
-    // The bottom row, a margin above the window's edge: "Game data" on the left; while a drag is over the window, what
-    // letting go does.
+    // The bottom row, a margin above the window's edge: "Game data" on the left, unless the header has it (DrawHeader);
+    // while a drag is over the window, what letting go does. The row keeps its place either way, so the tiles' Play
+    // buttons stay where the play test clicks them (devtools/playtest.sh).
     const float rowH = 34;
     Rect row{m, w.Bottom() - m - rowH, w.w - 2 * m, rowH};
     float gw = ui_.ButtonWidth("Game data");
-    if (ui_.Button("game-data", {row.x, row.y, gw, rowH}, "Game data", ButtonKind::Quiet)) {
-        settingsOpen_ = true;
-        armedRemove_ = -1;
-        RefreshLanguages();
+    if (!gameDataInHeader_) {
+        gameDataButtonRect_ = {row.x, row.y, gw, rowH};
+        if (ui_.Button("game-data", gameDataButtonRect_, "Game data", ButtonKind::Quiet)) ShowGameData(true);
     }
     if (dragging_) {
-        float tx = row.x + gw + 16;
+        float tx = gameDataInHeader_ ? row.x : row.x + gw + 16;
         text_.Draw(style::kBodyBold, tx, row.y + (rowH - text_.LineHeight(style::kBodyBold)) * 0.5f,
                    text_.Fit(style::kBodyBold, "Let go to check them", row.Right() - tx, false), colour::kInk);
     }
@@ -1151,6 +1169,84 @@ int LanguageChoiceIndex(const std::vector<LanguageChoice>& choices, const std::s
     for (size_t i = 0; i < choices.size(); ++i)
         if (choices[i].name == value) return static_cast<int>(i);
     return 0;
+}
+
+std::vector<GameDataRow> GameDataRows(const EditionStatus all[6], const std::vector<assets::LanguageStatus>& languages,
+                                      const std::vector<ModRow>& mods) {
+    const auto join = [](const std::vector<std::string>& parts) {
+        std::string out;
+        for (size_t i = 0; i < parts.size(); ++i) out += (i == 0 ? "" : i + 1 == parts.size() ? " and " : ", ") + parts[i];
+        return out;
+    };
+    // An edition's tile (DescribeSlot's words): unlocked from either release, the Mac one named first.
+    const auto edition = [&](int slot, const char* name, const char* tag) {
+        const EditionStatus& shown = SlotStatus(all, slot);
+        const TileText t = DescribeSlot(all, slot);
+        GameDataRow row{name, tag, shown.unlocked, 0, {}};
+        row.fraction = shown.unlocked ? 1.0f
+                       : shown.files  ? static_cast<float>(shown.filesPresent) / static_cast<float>(shown.files) : 0.0f;
+        if (!shown.unlocked) {
+            row.line = shown.present ? t.state + ". " + t.detail : t.detail;
+        } else if (slot == 2) {
+            row.line = "From the PC Gold bonus CD, " + Files(shown.filesPresent) + " confirmed";
+        } else {
+            const bool mac = all[StatusIndex(kEditions[slot])].unlocked;
+            const bool windows = all[StatusIndex(WindowsEdition(slot))].unlocked;
+            row.line = std::string(mac && windows ? "Mac and Windows releases" : mac ? "Mac release" : "Windows release") +
+                       ", " + Files(shown.filesPresent) + " confirmed";
+            if (!mac && !WindowsEditionNote(shown.edition).empty()) row.line += "; no Mac bonus rides";
+        }
+        return row;
+    };
+    std::vector<GameDataRow> rows;
+    rows.push_back(edition(0, "Sim Theme Park", "US edition"));
+    rows.push_back(edition(1, "Theme Park World", "European edition"));
+    rows.push_back(edition(2, "Gold Edition", "bonus rides for both games"));
+
+    // The PlayStation rides: the mod whose content folder the player's PlayStation disc is converted into, unlocked once
+    // that folder holds its rides (launcher/main.cpp). The converter takes the games' own files as well.
+    GameDataRow ps1{"PlayStation rides mod", "switched on in Mods", false, 0, {}};
+    const ModRow* mod = nullptr;
+    for (const ModRow& m : mods)
+        if (m.content == "ps1") mod = &m;
+    if (mod == nullptr) {
+        ps1.line = mods.empty() ? "This build has no mods" : "This build does not have it";
+    } else if (!mod->rides.empty()) {
+        ps1.unlocked = true;
+        ps1.fraction = 1;
+        ps1.line = FormatCount(mod->rides.size()) + " from your PlayStation disc: " + join(mod->rides);
+    } else if (!rows[0].unlocked && !rows[1].unlocked) {
+        ps1.line = "Unlock a game above first, then drag in your PlayStation disc";
+    } else {
+        ps1.line = "Drag in your PlayStation disc (US, European or Japanese) to unlock";
+    }
+    rows.push_back(ps1);
+
+    // Languages: every one besides English and American (the editions' own) that the Settings box's Language rows offer
+    // for either edition (LanguageChoices).
+    GameDataRow lang{"Languages", "chosen in Settings", false, 0, {}};
+    std::vector<std::string> usable, partial;
+    for (Edition e : {assets::kEditionUs, assets::kEditionEur})
+        for (const LanguageChoice& c : LanguageChoices(e, languages))
+            if (c.name != "English" && c.name != "American" &&
+                std::find(usable.begin(), usable.end(), LanguageShownName(c.name)) == usable.end())
+                usable.push_back(LanguageShownName(c.name));
+    for (const assets::LanguageStatus& l : languages)
+        if (l.name != "English" && l.name != "American" && l.state != assets::LanguageStatus::State::Absent &&
+            std::find(usable.begin(), usable.end(), LanguageShownName(l.name)) == usable.end())
+            partial.push_back(LanguageShownName(l.name));
+    if (!usable.empty()) {
+        lang.unlocked = true;
+        lang.fraction = 1;
+        lang.line = join(usable) + ", besides English";
+    } else if (!partial.empty()) {
+        lang.fraction = 0.5f;
+        lang.line = "Partly there: " + join(partial) + ". Drag in the rest of its disc to unlock";
+    } else {
+        lang.line = "Drag in a disc in another language, such as French or German, to unlock";
+    }
+    rows.push_back(lang);
+    return rows;
 }
 
 void LauncherUi::DrawSettings(const Rect& w) {
@@ -1807,6 +1903,81 @@ void LauncherUi::DrawMods(const Rect& w) {
     }
 }
 
+// The Game data box: the five things the player's discs unlock, each locked or unlocked with one line, from the editions'
+// statuses (every frame) and the data folder's languages (read when it opens and after an import). A drop on it is checked as
+// anywhere (OfferPaths), and the box opens again after; removing and checking an edition again stay in Settings.
+void LauncherUi::DrawGameData(const Rect& w) {
+    canvas_.FillRound(w, 0, colour::kDim);
+    const std::vector<GameDataRow> rows = GameData();
+    const float pw = std::min(w.w - 2 * metric::kMargin, 640.0f);
+    const float titleH = text_.LineHeight(style::kHeadline) + 12;
+    const float bold = text_.LineHeight(style::kBodyBold), small = text_.LineHeight(style::kSmall);
+    const float rowH = 10 + bold + 3 + small + 10, buttonH = 34;
+    const float bodyH = rows.size() * (rowH + 6) + 4 + buttonH;
+    const float ph = std::min(w.h - 2 * metric::kMargin, titleH + bodyH + 40);
+    Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
+    gameDataBoxRect_ = panel;
+    ui_.Panel(panel, colour::kPaper, colour::kCream);
+    Rect in = panel.Inset(20);
+    float y = in.y;
+    text_.Draw(style::kHeadline, in.x, y, "Game data", colour::kInk);
+    float cw = ui_.ButtonWidth("Close");
+    if (ui_.Button("gamedata-close", {in.Right() - cw, y, cw, 36}, "Close", ButtonKind::Quiet)) gameDataOpen_ = false;
+    y += titleH;
+
+    // Scrolls as Mods does, in a window too short for the rows.
+    const float bodyTop = y, shown = in.Bottom() - bodyTop;
+    const bool scrolls = ph < titleH + bodyH + 40;
+    const float barW = 6, barMargin = panel.Right() - metric::kOutline - in.Right();
+    const Rect bar{in.Right() + std::round((barMargin - barW) * 0.5f), bodyTop, barW, shown};
+    float offset = 0;
+    if (scrolls) {
+        offset = ui_.Scroll("gamedata", panel, 50, std::max(0.0f, bodyH - shown), bar, shown);
+        ui_.Clip({panel.x + metric::kOutline, bodyTop, panel.w - 2 * metric::kOutline,
+                  panel.Bottom() - metric::kOutline - bodyTop});
+        y -= offset;
+    }
+
+    // Each row: the badge (a check, the share there, or a lock), the name and what it is, the line, and the state's word.
+    const float badgeR = 15;
+    const float wordW = std::max(text_.Width(style::kBodyBold, "Unlocked"), text_.Width(style::kBodyBold, "Locked"));
+    for (size_t i = 0; i < rows.size(); ++i) {
+        const GameDataRow& r = rows[i];
+        Rect row{in.x, y, in.w, rowH};
+        canvas_.FillRound(row, 10, i % 2 ? colour::kCream : colour::kYellowSoft.WithAlpha(120));
+        const Badge badge = r.unlocked ? Badge::Check : r.fraction > 0 ? Badge::Partial : Badge::Lock;
+        ui_.DrawBadge(badge, row.x + 12 + badgeR, row.CentreY(), badgeR, r.unlocked ? 1.0f : r.fraction);
+        const float tx = row.x + 12 + 2 * badgeR + 12, textW = row.Right() - 12 - wordW - 12 - tx;
+        float ty = row.y + 10;
+        const float nameW = text_.Draw(style::kBodyBold, tx, ty, r.name, colour::kInk);
+        text_.Draw(style::kSmall, tx + nameW + 10, ty + text_.Ascent(style::kBodyBold) - text_.Ascent(style::kSmall),
+                   text_.Fit(style::kSmall, r.tag, textW - nameW - 10, false), colour::kInkSoft);
+        ty += bold + 3;
+        text_.Draw(style::kSmall, tx, ty, text_.Fit(style::kSmall, r.line, textW, false), colour::kInk);
+        const char* word = r.unlocked ? "Unlocked" : "Locked";
+        text_.Draw(style::kBodyBold, row.Right() - 12 - text_.Width(style::kBodyBold, word),
+                   row.CentreY() - bold * 0.5f, word, r.unlocked ? colour::kLimeDeep : colour::kInkSoft);
+        y += rowH + 6;
+    }
+
+    // Below: how to add more, and Settings, where an edition is removed or checked again.
+    y += 4;
+    const float sw = ui_.ButtonWidth("Open Settings");
+    text_.Draw(style::kSmall, in.x, y + (buttonH - small) * 0.5f,
+               text_.Fit(style::kSmall, "Drop a disc, image, zip or folder on this window to add it.",
+                         in.w - sw - 16, false),
+               colour::kInkSoft);
+    gameDataSettingsRect_ = {in.Right() - sw, y, sw, buttonH};
+    if (ui_.Button("gamedata-settings", gameDataSettingsRect_, "Open Settings", ButtonKind::Quiet)) {
+        gameDataOpen_ = false;
+        ShowSettings(true);
+    }
+    if (scrolls) {
+        ui_.Unclip();
+        ui_.ScrollBar(bar, shown, bodyH, offset, colour::kYellowSoft);
+    }
+}
+
 void LauncherUi::DrawAbout(const Rect& w) {
     const float kLogsRowH = 32;   // the Show logs row, when there is a logs folder
     canvas_.FillRound(w, 0, colour::kDim);
@@ -2002,7 +2173,14 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
     input_.entered = false;
     const bool wasEditing = onlineServerEditing_;
 
-    bool overlay = aboutOpen_ || settingsOpen_ || modsOpen_ || editedOpen_ >= 0;
+    // A drop made in the Game data box: the box opens again once the result is left for the home (not for Play).
+    if (gameDataReturn_ && screen_ == Screen::Home && !backend_.Running()) {
+        gameDataReturn_ = false;
+        ShowGameData(true);
+    } else if (gameDataReturn_ && (screen_ == Screen::Play || screen_ == Screen::Starting)) {
+        gameDataReturn_ = false;
+    }
+    bool overlay = aboutOpen_ || settingsOpen_ || modsOpen_ || gameDataOpen_ || editedOpen_ >= 0;
     if (!settingsOpen_) languageOpen_ = -1;
     if (!settingsOpen_) gamePlayerOpen_ = false;
     if (settingsOpen_ && !settingsWereOpen_) {   // opened: the edition chosen to play and its last player, as they are now
@@ -2016,7 +2194,8 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
     tilesShown_ = false;
     readyShown_ = false;
     showLogsRect_ = titleRect_ = titleVersionRect_ = headerButtonsRect_ = updateBannerRect_ = Rect{};
-    exportLogsRect_ = openDownloadsRect_ = modsButtonRect_ = modsOnRect_ = Rect{};
+    exportLogsRect_ = openDownloadsRect_ = modsButtonRect_ = modsOnRect_ = gameDataButtonRect_ = Rect{};
+    gameDataInHeader_ = false;
     for (Rect& r : editedBadge_) r = Rect{};
     for (Rect& r : tilePlay_) r = Rect{};
     if (editedOpen_ < 0) restoreRects_.clear();
@@ -2035,6 +2214,7 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
         ui_.SetInteractive(!dragging_);
         if (settingsOpen_) DrawSettings(window);
         if (modsOpen_) DrawMods(window);
+        if (gameDataOpen_) DrawGameData(window);
         if (aboutOpen_) DrawAbout(window);
         if (editedOpen_ >= 0) DrawEdited(window);
     }

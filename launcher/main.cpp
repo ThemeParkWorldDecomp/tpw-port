@@ -402,6 +402,8 @@ void Usage(const char* program) {
                  "                 opens 800 x 560 points), pressed before its drawn frame F and released before F + 1\n"
                  "  --window-wheel X,Y,N@F  a scripted turn of the wheel by N notches (below 0: down) in the launcher's\n"
                  "                 window, the pointer at point (X, Y) of it, before its drawn frame F\n"
+                 "  --window-size WxH  the launcher's window opens W x H points (at least 760 x 520) instead of\n"
+                 "                 800 x 560, for a test run of a wide window\n"
                  "  --data DIR     the folder launcher.ini is in (default: the per-user folder SDL names for the\n"
                  "                 launcher, such as ~/Library/Application Support/STP-TPW Launcher on a Mac,\n"
                  "                 %%APPDATA%%\\STP-TPW Launcher on Windows, ~/.local/share/STP-TPW Launcher on Linux)\n"
@@ -498,7 +500,7 @@ void Usage(const char* program) {
 // The options that take a value (main's loop), so the early look below skips their values.
 bool TakesValue(const std::string& arg) {
     static const char* const kWithValue[] = {"--game",  "--data",        "--play",       "--import",     "--program",    "--window-click", "--window-wheel",
-                                             "--user",  "--edition",     "--resolution", "--aspect",     "--frames",
+                                             "--window-size", "--user",  "--edition",     "--resolution", "--aspect",     "--frames",
                                              "--click", "--drag",        "--type",       "--type-env",   "--dump-frames", "--dump-every",
                                              "--dump-limit", "--display", "--write-icon", "--language", "--language-root",
                                              "--renderer", tpw::launcher::kFromLauncherOption, tpw::launcher::kGameAppTestOption};
@@ -959,6 +961,8 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
         placement.dumpLimit = config.dumpLimit;
         placement.clicks = tpw::launcher::gWindowClicks;   // --window-click
         placement.wheels = tpw::launcher::gWindowWheels;   // --window-wheel
+        placement.width = tpw::launcher::gWindowWidth;     // --window-size
+        placement.height = tpw::launcher::gWindowHeight;
         // The window's report lines and its screens go to the log file too; its About box shows the logs folder.
         placement.log = [](const char* line) { tpw::LogRaw(line); };
         placement.videoStarted = [] { tpw::LogDisplayOnce(); };
@@ -1011,8 +1015,15 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
                 row.editions[2] = (mod.editions & tpw::mods::kGold) != 0;
                 row.changesSaves = mod.changesSaves;
                 row.conflicts = mod.conflicts;
-                if (!ModContentReady(backend, mod))
-                    row.locked = ModLockedText(mod);
+                row.content = mod.content;
+                // A content mod's rides, read once: the Game data box names them, and none keeps the mod locked
+                // (ModContentReady).
+                if (!mod.content.empty()) {
+                    for (const tpw::ContentRide& ride : tpw::FindContentRides(ModContentFolder(backend, mod)))
+                        row.rides.push_back(!ride.title.empty() ? ride.title
+                                                                : ride.folder.substr(ride.folder.find_last_of('/') + 1));
+                    if (row.rides.empty()) row.locked = ModLockedText(mod);
+                }
                 rows.push_back(row);
             }
             return rows;
@@ -1606,6 +1617,14 @@ int LauncherMain(int argc, char** argv) {
                 return 2;
             }
             tpw::launcher::gWindowWheels.push_back(wheel);
+        }
+        else if (arg == "--window-size") {
+            const char* spec = value();
+            if (std::sscanf(spec, "%dx%d", &tpw::launcher::gWindowWidth, &tpw::launcher::gWindowHeight) != 2 ||
+                tpw::launcher::gWindowWidth < 1 || tpw::launcher::gWindowHeight < 1) {
+                tpw::LogRawF("launcher: --window-size wants WxH (points): %s\n", spec);
+                return 2;
+            }
         }
         else if (arg == "--user") config.userDir = value();
         else if (arg == "--packs") packs = value();

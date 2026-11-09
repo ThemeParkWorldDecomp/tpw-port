@@ -732,6 +732,15 @@ ModRow Ps1Rides() {
     row.editions[0] = row.editions[1] = row.editions[2] = true;
     row.changesSaves = true;
     row.locked = ContentModLockedText("ps1");
+    row.content = "ps1";
+    return row;
+}
+// The same once the player's PlayStation disc is converted: its rides, as launcher/main.cpp reads them.
+ModRow Ps1RidesConverted() {
+    ModRow row = Ps1Rides();
+    row.locked.clear();
+    row.rides = {"Crazy Clown", "Jumping Skulls", "Eye Slide", "Aztec Bounce", "Diplo-Dip", "Inca Pot", "Romper Stomper",
+                 "Tower"};
     return row;
 }
 ModRow NoStrikes() {
@@ -1360,6 +1369,39 @@ std::vector<Shot> Shots() {
                      onlineServer(""), Screen::Home, {}});
     shots.push_back({"32-settings-online-server-typed", metric::kStartWidth, metric::kStartHeight, FillEverything,
                      onlineServer("192.0.2.7:7598"), Screen::Home, {}});
+
+    // The Game data box: a fresh download (locked), everything (unlocked), and a mix; the drop-field home's button.
+    const auto gameData = [](std::vector<ModRow> mods) {
+        return [mods](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+            ui.SetMods(mods);
+            ui.ShowGameData(true);
+            frames(1);
+        };
+    };
+    const auto everything = [](FakeBackend& b) {
+        FillEverything(b);
+        FillWindows(b);
+        b.languages = {Language("English"), Language("American"), Language("French"), Language("German"),
+                       Language("Danish"), Language("Swedish")};
+    };
+    const auto mixed = [](FakeBackend& b) {
+        PartialUsEur(b);
+        b.FillAll(assets::kEditionUsPc);
+        b.languages = MixedLanguages();
+    };
+    shots.push_back({"60-gamedata-locked", metric::kStartWidth, metric::kStartHeight, nullptr,
+                     gameData({EnableStrikes(), Ps1Rides()}), Screen::Home, {}});
+    shots.push_back({"61-gamedata-unlocked", metric::kStartWidth, metric::kStartHeight, everything,
+                     gameData({EnableStrikes(), Ps1RidesConverted()}), Screen::Home, {}});
+    shots.push_back({"62-gamedata-mixed", metric::kStartWidth, metric::kStartHeight, mixed,
+                     gameData({EnableStrikes(), Ps1Rides()}), Screen::Home, {}});
+    shots.push_back({"63-gamedata-unlocked-smallest", metric::kMinWidth, metric::kMinHeight, everything,
+                     gameData({EnableStrikes(), Ps1RidesConverted()}), Screen::Home, {}});
+    shots.push_back({"64-home-gamedata-button-smallest", metric::kMinWidth, metric::kMinHeight, nullptr, nullptr,
+                     Screen::Home, "found"});
+    // A wide window: the button in the header, where its Play was, on both homes.
+    shots.push_back({"65-home-gamedata-header-wide", 1600, 1000, PartialUsEur, nullptr, Screen::Home, {}});
+    shots.push_back({"66-ready-gamedata-header-wide", 1600, 1000, FillEverything, nullptr, Screen::Home, {}});
     return shots;
 }
 
@@ -1874,14 +1916,16 @@ void CheckTilePlay(SDL_Renderer* renderer) {
                     Check(ui.CurrentScreen() == LauncherUi::Screen::Home, what + ": the click stays on the home");
                 }
 
-    // The case of the bug: at the start width the header has no room for its Play beside Mods, Settings and About.
+    // The case of the bug: at the start width the header had no room for its Play beside Mods, Settings and About. The
+    // header has no Play now; its leftmost button is Mods, or Game data where that fits.
     {
         FakeBackend b;
         b.FillAll(assets::kEditionUs);
         LauncherUi ui(renderer, b);
         ui.SetMods({EnableStrikes(), StaffCrossBridges()});
         ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
-        Check(ui.HeaderButtonsRect().x == ui.ModsButtonRect().x, "tile Play: no header Play beside Mods at the start width");
+        Check(ui.HeaderButtonsRect().x == (ui.GameDataInHeader() ? ui.GameDataButtonRect().x : ui.ModsButtonRect().x),
+              "tile Play: no header Play beside Mods at the start width");
         Check(ui.TilePlayRect(0).w > 0, "tile Play: there all the same on the tile");
     }
 
@@ -3102,6 +3146,216 @@ void CheckMods(SDL_Renderer* renderer) {
     }
 }
 
+// The Game data box: both homes' Game data button opens it (not Settings), with the five rows in order, locked on a fresh
+// download, unlocked with everything, and mixed; a drop made in it is checked and the box comes back with the rows
+// refreshed; its Open Settings button opens Settings; it fits the smallest window, the button clear of the tiles. In a
+// wide window the button is in the header, where its Play was (there is no Play there now), and not in the home's body.
+void CheckGameData(SDL_Renderer* renderer) {
+    auto press = [](LauncherUi& ui, const Rect& r, const std::function<void(int)>& frames) {
+        ui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+        frames(1);
+    };
+    const std::vector<std::string> kNames = {"Sim Theme Park", "Theme Park World", "Gold Edition",
+                                             "PlayStation rides mod", "Languages"};
+    const auto names = [](const std::vector<GameDataRow>& rows) {
+        std::vector<std::string> out;
+        for (const GameDataRow& r : rows) out.push_back(r.name);
+        return out;
+    };
+    const auto starts = [](const std::string& s, const std::string& head) { return s.compare(0, head.size(), head) == 0; };
+
+    // Where the button is: the header's first (leftmost) button in a wide window, below the header in a narrow one.
+    const auto placed = [](LauncherUi& ui, bool wide, const std::string& what) {
+        const Rect button = ui.GameDataButtonRect(), header = ui.HeaderButtonsRect();
+        Check(button.w > 0, what + ": the home has the Game data button");
+        Check(ui.GameDataInHeader() == wide, what + (wide ? ": the button is in the header" : ": the button is in the body"));
+        if (wide) {
+            Check(button.x == header.x && button.y == header.y && button.h == header.h,
+                  what + ": the header's leftmost button, where its Play was (no Play beside it)");
+            Check(button.x >= ui.TitleVersionRect().Right() + 16, what + ": the button clears the title's version");
+        } else {
+            Check(button.y > header.Bottom(), what + ": the button is below the header");
+        }
+        for (int i = 0; i < 3; ++i)
+            Check(!Overlaps(button, ui.TileRect(i)), what + ": the button is clear of tile " + std::to_string(i));
+    };
+
+    const float sizes[3][2] = {{metric::kStartWidth, metric::kStartHeight}, {metric::kMinWidth, metric::kMinHeight},
+                               {1600, 1000}};
+    for (int size = 0; size < 3; ++size) {
+        const float w = sizes[size][0], h = sizes[size][1];
+        const bool wide = size == 2;
+        const std::string at = " at " + std::to_string(static_cast<int>(w)) + "x" + std::to_string(static_cast<int>(h));
+
+        // A fresh download: the drop-field home, everything locked.
+        {
+            const std::string what = "game data, fresh" + at;
+            FakeBackend b;
+            LauncherUi ui(renderer, b);
+            ui.SetMods({EnableStrikes(), Ps1Rides()});
+            auto frames = [&](int n) {
+                for (int i = 0; i < n; ++i) ui.Frame(kDt, w, h, 1);
+            };
+            frames(1);
+            const Rect button = ui.GameDataButtonRect();
+            Check(ui.ReadyPlayRect(0).w == 0, what + ": the drop-field home");
+            placed(ui, wide, what);   // the body is drawn after the header: a second button there would move the rect
+            press(ui, button, frames);
+            frames(1);   // the box opened in the click's frame shows from the next
+            Check(ui.GameDataOpen() && ui.GameDataBoxRect().w > 0, what + ": the button opens the Game data box");
+            Check(ui.SettingsBodyCounted() == 0 && ui.InterfaceSizeRect().w == 0, what + ": not Settings");
+            const Rect box = ui.GameDataBoxRect();
+            Check(box.y >= metric::kMargin - 1 && box.Bottom() <= h - metric::kMargin + 1 && box.x >= 0 && box.Right() <= w,
+                  what + ": the box fits the window");
+            const std::vector<GameDataRow> rows = ui.GameData();
+            Check(names(rows) == kNames, what + ": the five rows, in order");
+            for (const GameDataRow& r : rows) Check(!r.unlocked && r.fraction == 0, what + ": " + r.name + " is locked");
+            CheckEq(rows[0].line, "Drag in the US Mac CD or the US Windows CD to unlock", what + ": Sim Theme Park's line");
+            Check(starts(rows[1].line, "Drag in ") && starts(rows[2].line, "Drag in "), what + ": how to unlock the others");
+            CheckEq(rows[3].line, "Unlock a game above first, then drag in your PlayStation disc", what + ": the PS1 line");
+            CheckEq(rows[4].line, "Drag in a disc in another language, such as French or German, to unlock",
+                    what + ": the Languages line");
+            const Rect settings = ui.GameDataSettingsRect();
+            Check(settings.w > 0 && box.Contains(settings.CentreX(), settings.CentreY()), what + ": Open Settings is in the box");
+            SDL_Event escape{};
+            escape.type = SDL_EVENT_KEY_DOWN;
+            escape.key.key = SDLK_ESCAPE;
+            ui.HandleEvent(escape);
+            frames(1);
+            Check(!ui.GameDataOpen() && ui.GameDataBoxRect().w == 0, what + ": Escape closes the box");
+
+            // A drop made in the box: checked as anywhere, then the box again, its rows refreshed.
+            ui.ShowGameData(true);
+            frames(1);
+            FakeBackend::Script s;
+            s.finish = [](FakeBackend& fb, ImportReport&) { fb.FillAll(assets::kEditionUs); };
+            b.Queue(std::move(s));
+            ui.HandleEvent(DropEvent(SDL_EVENT_DROP_BEGIN));
+            ui.HandleEvent(DropEvent(SDL_EVENT_DROP_POSITION, box.CentreX(), box.CentreY()));
+            frames(1);
+            ui.HandleEvent(DropEvent(SDL_EVENT_DROP_FILE, box.CentreX(), box.CentreY(), "/a/us.dmg"));
+            ui.HandleEvent(DropEvent(SDL_EVENT_DROP_COMPLETE));
+            frames(3);
+            Check(b.Started().size() == 1 && b.Started()[0] == std::vector<std::string>{"/a/us.dmg"},
+                  what + ": a drop on the box is imported");
+            Check(ui.CurrentScreen() == LauncherUi::Screen::Result && !ui.GameDataOpen(),
+                  what + ": the result shows, the box out of its way");
+            ui.ShowScreen(LauncherUi::Screen::Home);
+            frames(1);
+            Check(ui.GameDataOpen(), what + ": back on the home, the box comes back");
+            const std::vector<GameDataRow> after = ui.GameData();
+            Check(after[0].unlocked && after[0].fraction == 1, what + ": after the drop, Sim Theme Park is unlocked");
+            Check(starts(after[0].line, "Mac release, "), what + ": Sim Theme Park's line names the Mac release");
+            CheckEq(after[3].line, "Drag in your PlayStation disc (US, European or Japanese) to unlock",
+                    what + ": a game in, the PS1 line asks for the disc");
+
+            // Its Open Settings button: Settings, the box closed.
+            press(ui, ui.GameDataSettingsRect(), frames);
+            frames(1);
+            Check(!ui.GameDataOpen() && ui.SettingsBodyCounted() > 0, what + ": Open Settings opens Settings");
+        }
+
+        // Everything: the all-confirmed home, everything unlocked.
+        {
+            const std::string what = "game data, everything" + at;
+            FakeBackend b;
+            FillEverything(b);
+            FillWindows(b);
+            b.languages = {Language("English"), Language("American"), Language("French"), Language("German"),
+                           Language("Danish"), Language("Swedish")};
+            LauncherUi ui(renderer, b);
+            ui.SetMods({EnableStrikes(), Ps1RidesConverted()});
+            auto frames = [&](int n) {
+                for (int i = 0; i < n; ++i) ui.Frame(kDt, w, h, 1);
+            };
+            frames(1);
+            Check(ui.ReadyPlayRect(0).w > 0, what + ": the all-confirmed home");
+            placed(ui, wide, what);
+            if (wide) {
+                // The row below the tiles keeps its place (the play test clicks the tiles' Play), empty but for a drag's
+                // hint; the header keeps the button during a drag.
+                Check(ui.TileRect(0).Bottom() > ui.GameDataButtonRect().Bottom(), what + ": the tiles are below the header");
+                ui.HandleEvent(DropEvent(SDL_EVENT_DROP_BEGIN));
+                ui.HandleEvent(DropEvent(SDL_EVENT_DROP_POSITION, w * 0.5f, 20));
+                frames(1);
+                Check(ui.GameDataInHeader() && ui.GameDataButtonRect().w > 0 && !ui.GameDataOpen(),
+                      what + ": during a drag the header keeps the button");
+                ui.HandleEvent(DropEvent(SDL_EVENT_DROP_COMPLETE));
+                frames(1);
+            }
+            press(ui, ui.GameDataButtonRect(), frames);
+            Check(ui.GameDataOpen() && ui.SettingsBodyCounted() == 0, what + ": Game data opens its box, not Settings");
+            const std::vector<GameDataRow> rows = ui.GameData();
+            Check(names(rows) == kNames, what + ": the five rows, in order");
+            for (const GameDataRow& r : rows) Check(r.unlocked && r.fraction == 1, what + ": " + r.name + " is unlocked");
+            Check(starts(rows[0].line, "Mac and Windows releases, ") && starts(rows[1].line, "Mac and Windows releases, "),
+                  what + ": both releases of both games");
+            Check(starts(rows[2].line, "From the PC Gold bonus CD, "), what + ": the Gold line");
+            CheckEq(rows[3].line,
+                    "8 from your PlayStation disc: Crazy Clown, Jumping Skulls, Eye Slide, Aztec Bounce, Diplo-Dip, Inca "
+                    "Pot, Romper Stomper and Tower",
+                    what + ": the PS1 line names its rides");
+            CheckEq(rows[4].line, "Fran\xC3\xA7" "ais, Deutsch, Dansk and Svenska, besides English",
+                    what + ": the Languages line names them");
+        }
+
+        // Mixed: the US Mac edition, the European one partial, the Windows US one, some languages; PS1 not converted.
+        {
+            const std::string what = "game data, mixed" + at;
+            FakeBackend b;
+            PartialUsEur(b);
+            b.FillAll(assets::kEditionUsPc);
+            b.languages = MixedLanguages();
+            LauncherUi ui(renderer, b);
+            ui.SetMods({Ps1Rides()});
+            auto frames = [&](int n) {
+                for (int i = 0; i < n; ++i) ui.Frame(kDt, w, h, 1);
+            };
+            frames(1);
+            press(ui, ui.GameDataButtonRect(), frames);
+            Check(ui.GameDataOpen(), what + ": the box opens");
+            const std::vector<GameDataRow> rows = ui.GameData();
+            Check(names(rows) == kNames, what + ": the five rows, in order");
+            Check(rows[0].unlocked && starts(rows[0].line, "Mac and Windows releases, "), what + ": Sim Theme Park unlocked");
+            Check(!rows[1].unlocked && rows[1].fraction > 0 && rows[1].fraction < 1 &&
+                      rows[1].line.find(" confirmed. Drag in ") != std::string::npos,
+                  what + ": Theme Park World partly there, with how to unlock it");
+            Check(!rows[2].unlocked && rows[2].fraction == 0, what + ": Gold locked");
+            Check(!rows[3].unlocked && starts(rows[3].line, "Drag in your PlayStation disc"), what + ": PS1 locked");
+            Check(rows[4].unlocked, what + ": Languages unlocked");
+            for (const char* name : {"Fran\xC3\xA7" "ais", "Deutsch", "Italiano", "Korean"})
+                Check(rows[4].line.find(name) != std::string::npos, what + ": Languages names " + name);
+            for (const char* name : {"Dansk", "Espa\xC3\xB1" "ol"})
+                Check(rows[4].line.find(name) == std::string::npos, what + ": Languages leaves out " + name);
+        }
+    }
+
+    // A build without mods; partial languages only; the button clear of the update banner on the drop-field home.
+    {
+        FakeBackend b;
+        b.languages = {Language("English"), Language("French", 0, 4)};
+        EditionStatus all[6];
+        b.AllStatuses(all);
+        const std::vector<GameDataRow> rows = GameDataRows(all, b.languages, {});
+        CheckEq(rows[3].line, "This build has no mods", "game data: a build without mods says so");
+        Check(!rows[4].unlocked && rows[4].fraction > 0 && starts(rows[4].line, "Partly there: Fran"),
+              "game data: a language partly there");
+        LauncherUi ui(renderer, b);
+        std::unique_ptr<Updater> updater = MakeUpdater(b, "found");
+        ui.SetUpdater(updater.get());
+        ui.Frame(kDt, metric::kMinWidth, metric::kMinHeight, 1);
+        Check(ui.GameDataButtonRect().w > 0 && !Overlaps(ui.GameDataButtonRect(), ui.UpdateBannerRect()),
+              "game data: the button is clear of the update banner at the smallest size");
+        for (int i = 0; i < 3; ++i)
+            Check(!Overlaps(ui.GameDataButtonRect(), ui.TileRect(i)),
+                  "game data: under the update banner, the button is clear of tile " + std::to_string(i));
+    }
+}
+
 // No footer on either home (the maintainer, 2026-11-08): the tiles, or on the all-confirmed home the "Game data" row under them,
 // sit a margin above the window's bottom edge at the start size and the smallest, and the version is the one beside the
 // title; and the About box's Show logs button, there only when the window has a logs folder.
@@ -3511,6 +3765,7 @@ int main(int argc, char** argv) {
         CheckFrameRateSlider(renderer);
         CheckRendererRow(renderer);
         CheckMods(renderer);
+        CheckGameData(renderer);
         CheckVersionAndLogs(renderer);
         CheckTitleVersion(renderer);
         CheckUpdateBanner(renderer);
