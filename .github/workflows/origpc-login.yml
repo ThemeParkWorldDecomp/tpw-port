@@ -1,0 +1,106 @@
+# Does the ORIGINAL Windows game reach our online server at login? The original TP.EXE is SafeDisc-protected and cannot run on
+# a 64-bit Windows, so its login library (weaauthr.dll, from the player's disc in the secrets) is loaded by a small harness
+# that calls it the way the game does, logs every socket call and holds the connection open (hold_seconds) for a look at the
+# server meanwhile; then the same library meets a stand-in server on the runner that sends a greeting first, or not.
+# The game itself is also started once, for the record (trygame). TEMPORARY: lives on the ci-origpc branch only, never on main.
+# The disc's address is a repository secret, never printed; the last step deletes the files.
+name: origpc-login
+
+on:
+  push:
+    branches: [ci-origpc]
+  workflow_dispatch:
+    inputs:
+      server:
+        description: The server's address (the hosts entry points the game's server name at it)
+        default: '164.92.124.157'
+      hold_seconds:
+        description: How long the library's own login connection to the server is held open
+        default: '120'
+      keep_open_minutes:
+        description: Minutes the runner waits at the end, before the files are deleted
+        default: '0'
+      try_game:
+        description: Also start the real TP.EXE from the mounted disc and take screenshots
+        type: boolean
+        default: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  PC_DISCS: ${{ secrets.TPW_FRESH_PC_DISCS }}
+  ORIGPC_DISC: ${{ secrets.TPW_ORIGPC_DISC }}
+  ORIGPC_NAME: ${{ secrets.TPW_ORIGPC_NAME }}
+  ORIGPC_PASS: ${{ secrets.TPW_ORIGPC_PASS }}
+  SERVER: ${{ inputs.server || '164.92.124.157' }}
+  HOLD_SECONDS: ${{ inputs.hold_seconds || '120' }}
+  KEEP_OPEN_MINUTES: ${{ inputs.keep_open_minutes || '0' }}
+
+jobs:
+  login:
+    runs-on: windows-2022
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the harness
+        run: '& .github\origpc\win.ps1 build; exit $LASTEXITCODE'
+      - name: Fetch the disc
+        timeout-minutes: 40
+        run: '& .github\origpc\win.ps1 fetch; exit $LASTEXITCODE'
+      - name: Take the login library out of it
+        run: '& .github\origpc\win.ps1 extract; exit $LASTEXITCODE'
+      - name: Point the game's server name at our server
+        run: '& .github\origpc\win.ps1 hosts; exit $LASTEXITCODE'
+      - name: A plain connection to the server
+        run: '& .github\origpc\win.ps1 probe; exit $LASTEXITCODE'
+      - name: The library logs in to our server by the game's server name
+        id: real
+        timeout-minutes: 30
+        run: '& .github\origpc\win.ps1 run real-name; exit $LASTEXITCODE'
+      - name: The library logs in to our server by its address
+        if: always() && steps.real.outcome != 'skipped'
+        timeout-minutes: 5
+        run: '& .github\origpc\win.ps1 run real-ip; exit $LASTEXITCODE'
+      - name: A stand-in server that sends nothing first
+        if: always() && steps.real.outcome != 'skipped'
+        timeout-minutes: 3
+        run: '& .github\origpc\win.ps1 run mock-none; exit $LASTEXITCODE'
+      - name: A stand-in server that sends one zero byte first
+        if: always() && steps.real.outcome != 'skipped'
+        timeout-minutes: 3
+        run: '& .github\origpc\win.ps1 run mock-00; exit $LASTEXITCODE'
+      - name: A stand-in server that sends "B" first
+        if: always() && steps.real.outcome != 'skipped'
+        timeout-minutes: 3
+        run: '& .github\origpc\win.ps1 run mock-42; exit $LASTEXITCODE'
+      - name: A stand-in server that sends "Bs" first
+        if: always() && steps.real.outcome != 'skipped'
+        timeout-minutes: 3
+        run: '& .github\origpc\win.ps1 run mock-4273; exit $LASTEXITCODE'
+      - name: Start the real game from the mounted disc
+        if: always() && steps.real.outcome != 'skipped' && (github.event_name == 'push' || inputs.try_game)
+        timeout-minutes: 5
+        run: '& .github\origpc\win.ps1 trygame; exit $LASTEXITCODE'
+      - name: Hold the runner
+        if: always()
+        timeout-minutes: 360
+        run: '& .github\origpc\win.ps1 hold; exit $LASTEXITCODE'
+      - name: Delete the game files
+        if: always()
+        run: '& .github\origpc\win.ps1 clean; exit $LASTEXITCODE'
+      - name: Keep the logs, netstat, the capture and the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: origpc-login
+          path: ${{ runner.temp }}/origpc-out/
+          if-no-files-found: ignore
+          retention-days: 14
