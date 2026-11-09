@@ -75,6 +75,12 @@ jobs:
       - name: Give the runner a sound device (VB-CABLE, for the game's sound and music)
         if: always() && steps.real.outcome != 'skipped' && (github.event_name == 'push' || inputs.try_game)
         continue-on-error: true
+        # a third-party action: the secrets in the workflow's env are blanked for it
+        env:
+          PC_DISCS: ''
+          ORIGPC_DISC: ''
+          ORIGPC_NAME: ''
+          ORIGPC_PASS: ''
         uses: LABSN/sound-ci-helpers@e9d6ba52163a3283714a68412036ddf33f78d49c
       - name: Start the real game from the mounted disc
         if: always() && steps.real.outcome != 'skipped' && (github.event_name == 'push' || inputs.try_game)
