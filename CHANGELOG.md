@@ -15,6 +15,7 @@
 - The camera no longer keeps scrolling by itself after the pointer leaves the game's window, in windowed mode or onto a second screen (Thanks slappyhead and @samueleagle91)
 - Fixed letters such as ä, ö, ü, ß, é and ñ not being typed in names (Thanks @johhnyjefferson34133 and @samueleagle91)
 - Roller coasters in online parks that were started before 0.3.3 no longer lose their loops and track, or show their supports at the wrong height, when the park is visited (Thanks Addable13)
+- Walking in first person in an online park no longer disconnects you from chat
 
 ### Changes
 

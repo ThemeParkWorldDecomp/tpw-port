@@ -1236,6 +1236,12 @@ void COnlineControl::UpdateFirstPersonPos(MapPos x, MapPos y) {
     Teleport(thing, x, y);
 }
 
+// TPW_PORT_FIX movethrottle OnlineControlTeleportOwnAvatar | Mac: no such helper | Port: UpdateFirstPersonPos's Teleport of the own avatar without its Move | Why: UpdateAvatarPos (ui_onlinePanel.cpp) moves the own avatar every frame as the Mac does but sends its Move at most four times a second
+void OnlineControlTeleportOwnAvatar(COnlineControl* self, MapPos x, MapPos y) {
+    tag_IDX_TYPE<IDXTYPEUniqueNameThingId, uint16_t> thing = reinterpret_cast<CThing*>(PointerAt(self, 4))->GetThingId();
+    self->Teleport(thing, x, y);
+}
+
 // Unit v51062: four small COnlineControl members, Argument::StrVal / BStrVal, and the library functions around them (wide streambuf,
 // ios and ostream destructors, ctype<wchar_t>::do_widen, the buddy map's erase_one, nocase_string's destructor).
 

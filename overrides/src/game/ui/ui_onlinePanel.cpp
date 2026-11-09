@@ -185,6 +185,19 @@ void ChatBackToThirdPerson() {
 
 namespace {
 PortFramePace gAvatarCountdownPace;
+uint64_t gAvatarMoveSentAt;   // UTimer::GetAbsolute (microseconds) of the last first-person Move UpdateAvatarPos sent; 0: none yet
+bool gAvatarMoveOwed;         // the place in gOnlineMapX/Z was taken, its Move not sent yet
+
+// The least time between two first-person Moves, in microseconds (UTimer::GetAbsolute's unit).
+constexpr uint64_t kAvatarMoveGap = 250000;
+
+// Whether a first-person Move may go now: none went in the last kAvatarMoveGap. A yes notes the time.
+bool AvatarMoveDue() {
+    const uint64_t now = SamsUtilities::UTimer::GetAbsolute();
+    if (gAvatarMoveSentAt != 0 && now >= gAvatarMoveSentAt && now - gAvatarMoveSentAt < kAvatarMoveGap) return false;
+    gAvatarMoveSentAt = now;
+    return true;
+}
 }  // namespace
 
 // 0x101e5e08
@@ -204,7 +217,10 @@ void UpdateAvatarPos() {
     gOnlineSavedFlags = gFirstPersonFlags;
     for (int32_t steps = PortFrameSteps(gAvatarCountdownPace); steps > 0; --steps)
         if (gOnlineFirstPersonCountdown != 0) gOnlineFirstPersonCountdown = gOnlineFirstPersonCountdown - 1;
-    if (gOnlineFirstPersonCountdown != 0 || gOnlineByte78 == 0) return;
+    if (gOnlineFirstPersonCountdown != 0 || gOnlineByte78 == 0) {
+        gAvatarMoveOwed = false;   // just into first person or out of it: the entry, the leave or the hide sent the place
+        return;
+    }
 
     uint8_t x[2];
     uint8_t z[2];
@@ -215,13 +231,28 @@ void UpdateAvatarPos() {
         ToMapPos(gCameraViewPoint.z, z);
         ToMapPos(gCameraViewPoint.x, x);
     }
-    if (x[0] == gOnlineMapX[0] && x[1] == gOnlineMapX[1] && z[0] == gOnlineMapZ[0] && z[1] == gOnlineMapZ[1] && !unhide) return;
+    // TPW_PORT_FIX movethrottle UpdateAvatarPos | Mac: while walking in first person every frame drawn sends the avatar's new place to the chat server (a Move, UpdateFirstPersonPos) | Port: the own avatar still moves every frame, but a Move goes at most once each 250 ms (AvatarMoveDue); a place not sent is sent once the 250 ms are over, so the place the player stops at always goes | Why: at 60 frames a second that is 3,600 Moves a minute, and the server closes the chat after 600 requests a minute, so about 10 s of walking disconnected the player; the server passes on only five Moves a second anyway
+    if (x[0] == gOnlineMapX[0] && x[1] == gOnlineMapX[1] && z[0] == gOnlineMapZ[0] && z[1] == gOnlineMapZ[1] && !unhide) {
+        if (gAvatarMoveOwed && AvatarMoveDue()) {
+            gAvatarMoveOwed = false;
+            OnlineControlOrNew()->UpdateFirstPersonPos(MakeMapPos(x), MakeMapPos(z));
+        }
+        return;
+    }
     gOnlineMapX[0] = x[0];
     gOnlineMapX[1] = x[1];
     gOnlineMapZ[0] = z[0];
     gOnlineMapZ[1] = z[1];
-    if (unhide) OnlineControlOrNew()->UnHideAvatar(MakeMapPos(x), MakeMapPos(z));
-    else OnlineControlOrNew()->UpdateFirstPersonPos(MakeMapPos(x), MakeMapPos(z));
+    if (unhide) {
+        gAvatarMoveOwed = false;
+        OnlineControlOrNew()->UnHideAvatar(MakeMapPos(x), MakeMapPos(z));
+    } else if (AvatarMoveDue()) {
+        gAvatarMoveOwed = false;
+        OnlineControlOrNew()->UpdateFirstPersonPos(MakeMapPos(x), MakeMapPos(z));
+    } else {
+        gAvatarMoveOwed = true;
+        OnlineControlTeleportOwnAvatar(OnlineControlOrNew(), MakeMapPos(x), MakeMapPos(z));
+    }
 }
 
 // OnlinePanelMsg_DisableVoteButton.cpp, main app: two helpers of the online panel (gOnlinePanel).

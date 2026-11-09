@@ -503,6 +503,21 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     else()
       add_test(NAME resolution_slider COMMAND tpw_host_resolution_slider)
     endif()
+    # Walking in first person in a park visited online (the port's fix movethrottle): the real UpdateAvatarPos,
+    # ChatGoFirstPerson and ChatBackToThirdPerson, the control, the windows and the clock being the test's stand-ins. Made only
+    # with the port's fixes: the original sends a Move every frame.
+    add_executable(tpw_host_move_throttle ${TPW_DECOMP_DIR}/tests/host_move_throttle.cpp ${TPW_DECOMP_DIR}/src/game/ui/ui_onlinePanel.cpp)
+    target_include_directories(tpw_host_move_throttle PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    tpw_slice(TARGET tpw_host_move_throttle NAME move_throttle KEEP
+      __Z15UpdateAvatarPosv   # UpdateAvatarPos()
+      __Z17ChatGoFirstPersonv   # ChatGoFirstPerson()
+      __Z21ChatBackToThirdPersonv   # ChatBackToThirdPerson()
+      _gOnlineFirstPersonCountdown _gOnlineMapX _gOnlineMapZ _gOnlineSavedFlags)
+    if(tpw_platform_tests_skipped)
+      set_target_properties(tpw_host_move_throttle PROPERTIES EXCLUDE_FROM_ALL ON)
+    else()
+      add_test(NAME move_throttle COMMAND tpw_host_move_throttle)
+    endif()
     # A live change of shape reaches the mesh and gradient draw objects (the port's fix resslider): the real objects with the real
     # Change and GetUIMatrix; the engine's meshes and textures and the base class are the test's stand-ins.
     add_executable(tpw_host_ui_follow ${TPW_DECOMP_DIR}/tests/host_ui_follow.cpp ${TPW_DECOMP_DIR}/src/game/ui/InterfaceDrawEngine.cpp
