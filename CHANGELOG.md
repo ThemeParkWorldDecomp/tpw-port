@@ -17,6 +17,7 @@
 - Fixed letters such as ä, ö, ü, ß, é and ñ not being typed in names (Thanks @johhnyjefferson34133 and @samueleagle91)
 - Roller coasters in online parks that were started before 0.3.3 no longer lose their loops and track, or show their supports at the wrong height, when the park is visited (Thanks Addable13)
 - Walking in first person in an online park no longer disconnects you from chat
+- On a widescreen, a park visited online scrolls right again when the pointer is at the screen's right edge while the contacts and chat are open
 
 ### Changes
 

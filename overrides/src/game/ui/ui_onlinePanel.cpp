@@ -1089,6 +1089,8 @@ void CreateOnlinePanel() {
         gGameWindowCentreY = gScreenCentreY;
         gGameWindowHalfWidth = gViewCentreX;
         gGameWindowHalfHeight = gViewCentreY;
+        // TPW_PORT_FIX onlineedge CreateOnlinePanel | Mac: the contacts and chat panel's root is the whole 4:3 screen, hears the pointer wherever the contacts, chat and buttons are not, and passes it to the camera (OnlinePanelMsg), while the online view's window under it is hidden | Port: the root hears the whole screen on a wider one too (UI_HearWholeScreen) | Why: a widescreen port; the 2048-unit root stands against the left edge (UI_PanelAnchor), so with the panel open the pointer right of it reached no window that passes it to the camera, the camera took it as gone (pointer leave) and a park visited online never scrolled right
+        UI_HearWholeScreen(gOnlinePanel);
     }
     gOnlineWindowE90 = gUIRootWindow->Build(gOnlineUnderlayScriptA, ButtonsUnderlayMsg);
     gOnlineWindowE90->Show(0);
