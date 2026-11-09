@@ -15,7 +15,7 @@ the SHA-256 list at the end of this script, so a wrong or damaged one is found t
          fonts, which serve only the platform tests)
   eur    optional: the Theme Park World European PC CD, an ISO 9660 image with Joliet names (raw 2352-byte sectors or
          cooked 2048; for tpw --eur). The European edition also needs the Mac CD above.
-  Any patch file (.sea.sit) is not needed: the data tables the build reads come from the CD's own program.
+  Any patch file (.sea.sit) is not needed.
 
 and unpacked into WORK/extracted as
 
@@ -23,8 +23,7 @@ and unpacked into WORK/extracted as
                                                  resource fork as NAME.rsrc (when it has one) and its type and creator
                                                  as NAME.finfo ("TYPE<tab>CREATOR"); --whole-disc writes the rest of
                                                  the disc beside it (manuals, installers, extras), which nothing reads.
-                                                 "Theme Park Data/SimTheme Park" is the program the seven data
-                                                 tables are generated again from by tpw-decomp's check
+                                                 "Theme Park Data/SimTheme Park" is the program tpw-decomp's check reads
                                                  (devtools/check_game_tables.py); the build and the launcher do not
                                                  need it.
   Theme_Park_World_Bonus_Stuff/Theme Park World Bonus Stuff/tpwfnt/

@@ -237,6 +237,9 @@ void LauncherUi::HandleEvent(const SDL_Event& e) {
         case SDL_EVENT_TEXT_INPUT:
             if (onlineServerEditing_ && e.text.text != nullptr) input_.typed += e.text.text;
             break;
+        case SDL_EVENT_WINDOW_FOCUS_GAINED:
+            gameSettingsStale_ = true;   // the window is back: the game may have changed its files (RefreshGameSettings)
+            break;
         case SDL_EVENT_WINDOW_DISPLAY_CHANGED:
         case SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED:
             frameRateTopStale_ = true;   // the Frame rate limit slider's top is read again (DrawSettings)
@@ -257,6 +260,7 @@ void LauncherUi::HandleEvent(const SDL_Event& e) {
             }
             if (e.key.key == SDLK_ESCAPE) {
                 if (languageOpen_ >= 0) languageOpen_ = -1;
+                else if (gamePlayerOpen_) gamePlayerOpen_ = false;
                 else if (editedOpen_ >= 0) editedOpen_ = -1;
                 else if (armedRemove_ >= 0) armedRemove_ = -1;
                 else if (aboutOpen_) aboutOpen_ = false;
@@ -401,6 +405,18 @@ void LauncherUi::OpenPlay() {
     screen_ = Screen::Play;
 }
 
+void LauncherUi::StartPlay(int index, bool gold) {
+    playIndex_ = index;
+    choice_.edition = status_[index].edition;   // the tile's Mac edition, or its Windows one
+    choice_.gold = gold;
+    choice_.skipIntro = skipIntro_;
+    choice_.backToLauncher = backToLauncher_;
+    choice_.language = PlayLanguage(kEditions[index], languages_, language_[index]);
+    playChosen_ = true;
+    std::string err;
+    backend_.SetLastChoice(assets::EditionName(choice_.edition), err);
+}
+
 void LauncherUi::PollVerify() {
     if (!verify_.valid()) return;
     if (verify_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
@@ -439,6 +455,7 @@ void LauncherUi::ShowSettings(bool open) {
     if (!open) onlineServerEditing_ = false;
     armedRemove_ = -1;
     languageOpen_ = -1;
+    gamePlayerOpen_ = false;
     if (open) RefreshLanguages();
 }
 
@@ -807,6 +824,18 @@ void LauncherUi::DrawHome(const Rect& w) {
         Browse(true, DialogPurpose::Import);
 
     DrawTiles(tiles, true);
+
+    // A playable edition's own Play, in its tile's header band: there at every window size, where the header's gives way
+    // to Mods, Settings and About, and without taking height from the drop field. This home has no Gold Edition switch, so
+    // the Gold rides go by the edition's kept switch once their data is in, as on the Play screen.
+    const float playW = text_.Width(style::kButton, "Play") + 24, playH = 30;
+    for (int i = 0; i < 2; ++i) {
+        if (!status_[i].unlocked) continue;
+        const Rect& t = tileRects_[i];
+        tilePlay_[i] = {t.Right() - metric::kOutline - 6 - playW, t.y + metric::kOutline + 4, playW, playH};
+        if (ui_.Button(std::string("tile-play-") + assets::EditionName(kEditions[i]), tilePlay_[i], "Play", ButtonKind::Go))
+            StartPlay(i, status_[2].unlocked && gold_[i]);
+    }
 }
 
 // The home once every edition is confirmed: no drop field, two large tiles (the US edition, then the European one), each
@@ -880,17 +909,8 @@ void LauncherUi::DrawReady(const Rect& w) {
         EditedBadge(i, {r.CentreX() - bw * 0.5f, pill.y - 12 - badgeH, bw, badgeH});
         readyPlay_[i] = play;
         if (ui_.Button(std::string("ready-play-") + assets::EditionName(kEditions[i]), play, "Play", ButtonKind::Go,
-                       true, style::kHeadline)) {
-            playIndex_ = i;
-            choice_.edition = status_[i].edition;   // the tile's Mac edition, or its Windows one
-            choice_.gold = goldOn;
-            choice_.skipIntro = skipIntro_;
-            choice_.backToLauncher = backToLauncher_;
-            choice_.language = PlayLanguage(kEditions[i], languages_, language_[i]);
-            playChosen_ = true;
-            std::string err;
-            backend_.SetLastChoice(assets::EditionName(choice_.edition), err);
-        }
+                       true, style::kHeadline))
+            StartPlay(i, goldOn);
     }
     tilesShown_ = true;
     readyShown_ = true;
@@ -1066,16 +1086,7 @@ void LauncherUi::DrawPlay(const Rect& w) {
     float playW = 220;
     float bottom = std::max(y + playH, col.Bottom());
     Rect play{col.CentreX() - playW * 0.5f, std::min(y + 6, bottom - playH), playW, playH};
-    if (ui_.Button("play", play, "Play", ButtonKind::Go, s.unlocked, style::kHeadline)) {
-        choice_.edition = s.edition;
-        choice_.gold = goldOn;
-        choice_.skipIntro = skipIntro_;
-        choice_.backToLauncher = backToLauncher_;
-        choice_.language = PlayLanguage(kEditions[playIndex_], languages_, language_[playIndex_]);
-        playChosen_ = true;
-        std::string err;
-        backend_.SetLastChoice(assets::EditionName(choice_.edition), err);
-    }
+    if (ui_.Button("play", play, "Play", ButtonKind::Go, s.unlocked, style::kHeadline)) StartPlay(playIndex_, goldOn);
     float backW = ui_.ButtonWidth("Back");
     if (ui_.Button("play-back", {panel.x + 20, panel.Bottom() - 20 - 38, backW, 38}, "Back", ButtonKind::Quiet))
         screen_ = Screen::Home;
@@ -1168,14 +1179,16 @@ void LauncherUi::DrawSettings(const Rect& w) {
                   4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + 8 * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + static_cast<float>(SamOptions().size() + 1) * rowH +
-                  text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH + (rendererRow_ ? rowH : 0.0f);
+                  text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH + (rendererRow_ ? rowH : 0.0f) +
+                  (gameShown_ ? GameOptionsHeight(rowH) + text_.LineHeight(style::kSmall) + 6 : 0.0f);
     float ph = std::min(w.h - 2 * metric::kMargin, titleH + bodyH + 40);
     Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
     // An open Language list (drawn last, over the box) takes the pointer: the box below it draws but does not react,
     // and a press outside the list closes it. One opened in this frame shows from the next.
     const int listOpen = languageOpen_;
+    const bool playerListOpen = gamePlayerOpen_;
     const bool interactive = ui_.Interactive();
-    if (listOpen >= 0) ui_.SetInteractive(false);
+    if (listOpen >= 0 || playerListOpen) ui_.SetInteractive(false);
     ui_.Panel(panel, colour::kPaper, colour::kCream);
     Rect in = panel.Inset(20);
     float y = in.y;
@@ -1188,15 +1201,17 @@ void LauncherUi::DrawSettings(const Rect& w) {
     y += titleH;
 
     // A window too short for the rest scrolls it under the title: the wheel anywhere over the box moves it a row a
-    // line, and a bar in the right margin shows where it is. It is clipped below the Close button and at the box's
-    // outline, so the row below the view shows its top. Whether it scrolls is whether the box was capped, an exact
-    // comparison: `bodyH - shown` can come out a hair above 0 in a box that fits.
+    // line, and a bar in the right margin shows where it is and can be dragged. It is clipped below the Close button and
+    // at the box's outline, so the row below the view shows its top. Whether it scrolls is whether the box was capped, an
+    // exact comparison: `bodyH - shown` can come out a hair above 0 in a box that fits.
     const float bodyTop = y, shown = in.Bottom() - bodyTop;
     settingsScrolls_ = ph < titleH + bodyH + 40;
     const float maxOffset = settingsScrolls_ ? std::max(0.0f, bodyH - shown) : 0.0f;
+    const float barW = 6, barMargin = panel.Right() - metric::kOutline - in.Right();
+    const Rect bar{in.Right() + std::round((barMargin - barW) * 0.5f), bodyTop, barW, shown};
     float offset = 0;
     if (settingsScrolls_) {
-        offset = ui_.Scroll("settings", panel, rowH, maxOffset);
+        offset = ui_.Scroll("settings", panel, rowH, maxOffset, bar, shown);
         ui_.Clip({panel.x + metric::kOutline, bodyTop, panel.w - 2 * metric::kOutline,
                   panel.Bottom() - metric::kOutline - bodyTop});
         y -= offset;
@@ -1467,9 +1482,18 @@ void LauncherUi::DrawSettings(const Rect& w) {
         y += rowH;
     }
 
+    if (gameShown_) DrawGameOptions(in, y, rowH);
+
     // The original's options files' graphics options (SamOptions), each Default (the detail level's own) or a choice.
     text_.Draw(style::kBodyBold, in.x, y, "Graphics", colour::kInk);
     y += text_.LineHeight(style::kBodyBold) + 4;
+    if (gameShown_) {
+        text_.Draw(style::kSmall, in.x, y,
+                   text_.Fit(style::kSmall, "Default keeps what each edition's Graphics quality gives; a choice here replaces it",
+                             in.w, false),
+                   colour::kInkSoft);
+        y += text_.LineHeight(style::kSmall) + 6;
+    }
     for (size_t i = 0; i < SamOptions().size(); ++i) {
         const SamOption& option = SamOptions()[i];
         Rect row{in.x, y, in.w, rowH - 6};
@@ -1581,9 +1605,7 @@ void LauncherUi::DrawSettings(const Rect& w) {
     }
     if (settingsScrolls_) {
         ui_.Unclip();
-        const float barW = 6, margin = panel.Right() - metric::kOutline - in.Right();
-        ui_.ScrollBar({in.Right() + std::round((margin - barW) * 0.5f), bodyTop, barW, shown}, shown, bodyH, offset,
-                      colour::kYellowSoft);
+        ui_.ScrollBar(bar, shown, bodyH, offset, colour::kYellowSoft);
     }
 
     if (listOpen >= 0 && languageOpen_ == listOpen) {
@@ -1604,6 +1626,12 @@ void LauncherUi::DrawSettings(const Rect& w) {
         if (close) languageOpen_ = -1;
     } else {
         languageRows_.clear();
+    }
+    if (gameShown_ && playerListOpen && gamePlayerOpen_) {
+        ui_.SetInteractive(interactive);
+        DrawGamePlayerList(w);
+    } else {
+        gamePlayerRows_.clear();
     }
 }
 
@@ -1660,9 +1688,11 @@ void LauncherUi::DrawMods(const Rect& w) {
     const float bodyTop = y, shown = in.Bottom() - bodyTop;
     modsScrolls_ = ph < titleH + bodyH + 40;
     const float maxOffset = modsScrolls_ ? std::max(0.0f, bodyH - shown) : 0.0f;
+    const float barW = 6, barMargin = panel.Right() - metric::kOutline - in.Right();
+    const Rect bar{in.Right() + std::round((barMargin - barW) * 0.5f), bodyTop, barW, shown};
     float offset = 0;
     if (modsScrolls_) {
-        offset = ui_.Scroll("mods", panel, 50, maxOffset);
+        offset = ui_.Scroll("mods", panel, 50, maxOffset, bar, shown);
         ui_.Clip({panel.x + metric::kOutline, bodyTop, panel.w - 2 * metric::kOutline,
                   panel.Bottom() - metric::kOutline - bodyTop});
         y -= offset;
@@ -1740,9 +1770,7 @@ void LauncherUi::DrawMods(const Rect& w) {
     if (!modsMessage_.empty()) text_.DrawWrapped(style::kSmallBold, in.x, y + 4, in.w, modsMessage_, colour::kInk);
     if (modsScrolls_) {
         ui_.Unclip();
-        const float barW = 6, margin = panel.Right() - metric::kOutline - in.Right();
-        ui_.ScrollBar({in.Right() + std::round((margin - barW) * 0.5f), bodyTop, barW, shown}, shown, bodyH, offset,
-                      colour::kYellowSoft);
+        ui_.ScrollBar(bar, shown, bodyH, offset, colour::kYellowSoft);
     }
 }
 
@@ -1943,12 +1971,21 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
 
     bool overlay = aboutOpen_ || settingsOpen_ || modsOpen_ || editedOpen_ >= 0;
     if (!settingsOpen_) languageOpen_ = -1;
+    if (!settingsOpen_) gamePlayerOpen_ = false;
+    if (settingsOpen_ && !settingsWereOpen_) {   // opened: the edition chosen to play and its last player, as they are now
+        gameEdition_ = -1;
+        gamePlayer_.clear();
+    }
+    if (settingsOpen_ && (!settingsWereOpen_ || gameSettingsStale_)) RefreshGameSettings();
+    settingsWereOpen_ = settingsOpen_;
+    gameSettingsStale_ = false;
     ui_.SetInteractive(!overlay && !dragging_);
     tilesShown_ = false;
     readyShown_ = false;
     versionRect_ = showLogsRect_ = titleRect_ = titleVersionRect_ = headerButtonsRect_ = updateBannerRect_ = Rect{};
     exportLogsRect_ = openDownloadsRect_ = modsButtonRect_ = modsOnRect_ = Rect{};
     for (Rect& r : editedBadge_) r = Rect{};
+    for (Rect& r : tilePlay_) r = Rect{};
     if (editedOpen_ < 0) restoreRects_.clear();
     if (!aboutOpen_) exported_ = LogsExport{};
     DrawBackdrop(window);

@@ -10,11 +10,21 @@
 // thread. With gPortSoundPan, each chunk goes into its stream as 16-bit stereo at the sample's rate, with the stream's
 // pan applied (SetPan), and the counts below (Feed, Queued) are still in the sample's own format; without it
 // the chunk goes in as the sample has it, and SetPan changes nothing heard.
+//
+// A computer whose device will not open (or whose audio driver will not start) is not a failure of Open: the streams exist and
+// the game's sound runs its course unheard. A thread of the device (the watcher, never with --mute) then does what SDL's audio
+// thread would: it pulls the bound streams at the speed of a device, and every few seconds tries the device again, and when it
+// opens binds them to it. With a device the watcher looks every few seconds at whether SDL has followed the system's default
+// (it does by itself, and when it loses the last device it goes on taking samples at the same speed; but it stays on the old one
+// if the new one refused to open at that moment), and opens the default again when it has not.
 #pragma once
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
+#include <thread>
 #include <vector>
 
 namespace tpw {
@@ -46,11 +56,16 @@ public:
     // Initialises SDL audio once (never quits it), opens the default playback device (S16, two
     // channels, `rate`) and makes `streams` unbound streams at gain 1. With --mute the SDL "dummy"
     // driver is asked for, so that the game's sounds still run their course in real time, unheard.
-    // False (and a log line) when SDL cannot do that.
+    // No device, or no audio driver, is a log line and true, and the watcher takes over (above). False (and a log line) when
+    // the streams cannot be made, and with --mute when the dummy driver fails too: it is never tried again.
     bool Open(uint32_t rate, uint32_t streams);
-    // Unbinds and destroys every stream and closes the device.
+    // Stops the watcher, unbinds and destroys every stream and closes the device.
     void Close();
-    bool IsOpen() const { return mDevice != 0; }
+    bool IsOpen() const { return mDevice.load() != 0; }   // there is a device now (false while the watcher waits for one)
+    uint32_t DeviceId() const { return mDevice.load(); }  // SDL's logical device, 0 when there is none
+    bool Watching() const { return mWatcher.joinable(); }
+    // Stops every device's watcher, for the launcher to call before SDL_Quit: SDL_Quit destroys the streams it pulls.
+    static void StopWatchers();
     uint32_t StreamCount() const { return static_cast<uint32_t>(mStreams.size()); }
     // SDL audio streams created and not yet destroyed in the whole process.
     static int LiveStreams();
@@ -89,6 +104,7 @@ public:
 
     // State, for the tests and the log.
     bool IsBound(uint32_t stream) const;       // the stream is bound to the device
+    uint32_t StreamDevice(uint32_t stream) const;   // the device SDL has it on, 0 for none
     bool IsEnded(uint32_t stream) const;       // a pull answered false: nothing more is pulled
     uint32_t Pulled(uint32_t stream) const;    // chunks put in the stream since the source was set
     int Queued(uint32_t stream) const;         // bytes queued in the stream, in the source format
@@ -107,8 +123,21 @@ public:
     struct Stream;
 
 private:
-    uint32_t mDevice = 0;
+    void Watch(uint32_t rate);
+    void StopWatcher();
+    void Pump(uint32_t bytes);
+    void Adopt(uint32_t device);
+    void FollowDefault(uint32_t rate, int& staleChecks, bool& staleLogged);
+
+    std::atomic<uint32_t> mDevice{0};
+    bool mOpen = false;   // Open has made the streams
+    std::vector<uint32_t> mGivenUp;   // devices left for the default's sake: the watcher's, and Close's once it has stopped
     std::vector<std::unique_ptr<Stream>> mStreams;
+    std::atomic<bool> mDevicePaused{false};
+    std::thread mWatcher;
+    std::mutex mWatchLock;
+    std::condition_variable mWatchWake;
+    bool mStopWatching = false;
 };
 
 // The bytes of one sample in the formats the stream takes: 1 for 8 bits, 2 for 16, 4 for 32, 0 for

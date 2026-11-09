@@ -18,6 +18,17 @@ Rect Grown(const Rect& r, float factor) {
 float Clamp01(float v) {
     return std::clamp(v, 0.0f, 1.0f);
 }
+
+// A scroll bar's thumb in `track`, `shown` of `total` in view and scrolled `offset`: its height, and its top.
+float ThumbHeight(const Rect& track, float shown, float total) {
+    return std::max(18.0f, track.h * shown / total);
+}
+float ThumbTop(const Rect& track, float shown, float total, float offset) {
+    return track.y + (track.h - ThumbHeight(track, shown, total)) * Clamp01(offset / (total - shown));
+}
+
+// How far either side of a scroll bar a press still takes it: the bar is only 6 points wide.
+constexpr float kBarReach = 6;
 }  // namespace
 
 void Ui::Begin(float dt, const Input& input) {
@@ -38,13 +49,28 @@ bool Ui::Hovered(const Rect& r) const {
     return r.Contains(input_.mouseX, input_.mouseY) && (!clipped_ || clip_.Contains(input_.mouseX, input_.mouseY));
 }
 
-float Ui::Scroll(const std::string& id, const Rect& area, float step, float maxOffset) {
+float Ui::Scroll(const std::string& id, const Rect& area, float step, float maxOffset, const Rect& bar, float shown) {
     ScrollState& s = offsets_[id];
     if (s.frame + 1 != frame_) s.offset = 0;
     s.frame = frame_;
+    maxOffset = std::max(0.0f, maxOffset);
     if (interactive_ && Hovered(area) && input_.wheel != 0) s.offset -= input_.wheel * step;
+    // The bar: pressed on its thumb, the thumb follows the pointer from where it was taken while the button is held;
+    // pressed above or below the thumb, the thumb's middle comes to the pointer and follows it from there.
+    if (bar.h > 0 && shown > 0 && maxOffset > 0) {
+        const float total = shown + maxOffset;
+        const float thumbH = ThumbHeight(bar, shown, total), travel = bar.h - thumbH;
+        const std::string barId = id + "#bar";
+        if (interactive_ && input_.pressed && Hovered({bar.x - kBarReach, bar.y, bar.w + 2 * kBarReach, bar.h})) {
+            active_ = barId;
+            const float thumbY = ThumbTop(bar, shown, total, s.offset);
+            const bool onThumb = input_.mouseY >= thumbY && input_.mouseY < thumbY + thumbH;
+            s.grab = onThumb ? input_.mouseY - thumbY : thumbH * 0.5f;
+        }
+        if (active_ == barId && input_.down && travel > 0) s.offset = (input_.mouseY - s.grab - bar.y) / travel * maxOffset;
+    }
     // Kept unrounded, so a touchpad's small steps add up; drawn at whole points.
-    s.offset = std::clamp(s.offset, 0.0f, std::max(0.0f, maxOffset));
+    s.offset = std::clamp(s.offset, 0.0f, maxOffset);
     return std::round(s.offset);
 }
 
@@ -65,9 +91,8 @@ void Ui::ScrollBar(const Rect& track, float shown, float total, float offset, Rg
     if (total <= shown) return;
     float radius = track.w * 0.5f;
     canvas_.FillRound(track, radius, trackColour);
-    float h = std::max(18.0f, track.h * shown / total);
-    float y = track.y + (track.h - h) * Clamp01(offset / (total - shown));
-    canvas_.FillRound({track.x, y, track.w, h}, radius, colour::kInkSoft);
+    canvas_.FillRound({track.x, ThumbTop(track, shown, total, offset), track.w, ThumbHeight(track, shown, total)}, radius,
+                      colour::kInkSoft);
 }
 
 bool Ui::Clicked(const std::string& id, const Rect& r, bool enabled) {

@@ -168,8 +168,8 @@ const uint8_t kGameActions[26] = {kGHide, kGLoad0, kGSave0, kGRestart, kGPublish
 
 // TPW_PORT_FIX escfs MainGameMenuCB/InitialiseMainMenu | Mac: the game menu's items are the jump table's (ids 0 to 0x19) | Port: one more item, id 0x1a, "Enter Full Screen" or "Exit Full Screen" by the window's state when the menu opens, between Exit To Lobby and Quit Game in each of the menu's three layouts, in the same font, colour and spacing; its answer closes the menu as Resume Game does and switches the window (gPortFullScreenHooks, include/ui_mainmenu.h); nothing while the hooks are not set or the switch is not possible | Why: the Esc menu is where a player looks for the switch, and a Mac has no Alt+Enter (the maintainer's request, 2026-10-25); the label is the port's own text, not the game's text table, which the port cannot change
 constexpr int32_t kPortFullScreenItem = 0x1a;
-// The label's storage: the item keeps the pointer it is given (menu_callee::GetAndCopy answers the text itself in the program) and
-// the menu's close marks its first characters free, as it does the text table's buffer, so the label is written again on each open.
+// The label's storage: the item's SetText gets this pointer and the item's own copy comes from the string heap, as with the text
+// table's buffer; the label is written again on each open, since it follows the full screen state.
 char16_t gPortFullScreenLabel[24];
 
 bool PortFullScreenItemShown() {
@@ -459,9 +459,6 @@ void InitialiseLobbyMenu() {
 
 uint8_t gMainMenuPauseFlag;   // 0x10396a54
 
-// Stand-in for UIMenu::~UIMenu 0x1018ac8c (not translated yet): frees the menu. Weak so a translation or a test fake replaces it.
-__attribute__((weak)) void DestroyUIMenu(UIMenu* menu) { delete menu; }
-
 // Makes the main menu (the lobby's when `a` is not 0) and shows it; nothing when it already exists.
 void CreateMainMenu(int32_t a) {
     if (gMainMenu != nullptr) return;
@@ -491,7 +488,7 @@ void HideMainMenu() {
         UI_UnPauseTimerSystem();
     }
     gMainMenu->Hide();
-    DestroyUIMenu(gMainMenu);
+    UIMenuDestruct(gMainMenu, 1);   // Mac 0x101fc140: UIMenu::~UIMenu 0x1018ac8c with the delete flag 1 tells the window 4, which deletes it
     gMainMenu = nullptr;
 }
 

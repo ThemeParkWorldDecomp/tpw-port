@@ -275,7 +275,8 @@ void CActionRecorder::ResetActionRecording() {
 void CActionRecorder::RecordAction(RecordedAction action) {
     if (mRecording != 0) return;
     if (mState == 0) return;
-    uint8_t code = static_cast<uint8_t>(static_cast<uint32_t>(action) >> 24);
+    // TPW_PORT_FIX arcode CActionRecorder::RecordAction | Mac: writes the high byte of the action word (0) for the actions without operands (0x37 and 0x38, a coaster pylon type; 0x41, a coaster brace undone) | Port: writes the action's code, the byte the replay reads as the action | Why: the replay took each 0 for action 0 (a mode change) with two operand bytes and read the rest of the recording out of step; a published park with coaster pylon edits then crashed every visitor (0.3.2)
+    uint8_t code = static_cast<uint8_t>(action);
     ActionFile(mActionFile)->Write(&code, 1);
     CTRACE(2, "AR - %d\n", static_cast<int32_t>(action));
 }
@@ -571,6 +572,11 @@ int32_t CActionRecorder::ReadAndProcessNextAction() {
         case 1: {   // 0x10145554
             uint16_t a;
             if (!read(&a, 2)) return 0;
+            // TPW_PORT_FIX arcode CActionRecorder::ReadAndProcessNextAction | Mac: a 0 is action 0 (a mode change) with a halfword | Port: a 0 whose halfword is no mode (above 0xff; the modes are below 0x40) is an action without operands that the Mac's recorder wrote as 0 (arcode RecordAction): nothing is played and the next action starts at the byte after the 0 | Why: the parks recorded by the Mac's recorder (and the port's before 0.3.3) were read out of step from their first coaster pylon edit, and the misread actions crashed the game (GetTrackBrace past the coaster's last brace, 0.3.2)
+            if (id == 0 && a > 0xff) {
+                file->Seek(static_cast<uint32_t>(file->GetPos() - 2), 0);   // back to the byte after the 0
+                break;
+            }
             ProcessAction(id, a);
             break;
         }

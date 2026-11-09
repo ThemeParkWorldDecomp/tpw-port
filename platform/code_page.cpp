@@ -19,6 +19,7 @@
 
 #include "platform.h"
 #include "platform/macdoze.h"
+#include "path_text.h"
 
 namespace tpw {
 
@@ -309,12 +310,16 @@ void Compose(std::u16string& text) {
 }  // namespace
 
 std::filesystem::path HostNameOf(const std::string& gameName) {
+    if (!HasHighByte(gameName)) return std::filesystem::path(gameName);
     std::u16string text;
-    if (gCodePage == 0 || !HasHighByte(gameName) || !DecodeCodePage(gCodePage, gameName, text))
-        return std::filesystem::path(gameName);
 #ifdef _WIN32
+    // Not path's own narrow reading: under the UTF-8 process code page (path_text.h) a Latin name's accented byte is no
+    // text at all, and it throws. A name no code page reads keeps its bytes as Latin-1 letters.
+    if ((gCodePage == 0 || !DecodeCodePage(gCodePage, gameName, text)) && !tpw_win_decode(tpw_win_game_code_page(), gameName, text))
+        DecodeCodePage(0, gameName, text);
     return std::filesystem::path(std::wstring(text.begin(), text.end()));
 #else
+    if (gCodePage == 0 || !DecodeCodePage(gCodePage, gameName, text)) return std::filesystem::path(gameName);
     return std::filesystem::path(Utf8Of(text));
 #endif
 }
@@ -327,7 +332,7 @@ std::string HostNarrowName(const std::filesystem::path& hostName) {
 #ifdef _WIN32
     return tpw_win_ansi_name(hostName.c_str());
 #else
-    return hostName.string();
+    return tpw::PathText(hostName);
 #endif
 }
 }  // namespace
@@ -339,7 +344,7 @@ std::string GameNameOf(const std::filesystem::path& hostName) {
     const std::wstring& native = hostName.native();
     bool high = false;
     for (wchar_t c : native) high = high || c >= 0x80;
-    if (!high) return hostName.string();
+    if (!high) return tpw::PathText(hostName);
     text.assign(native.begin(), native.end());
 #else
     const std::string& native = hostName.native();

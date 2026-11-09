@@ -513,7 +513,7 @@ int32_t OnlinePanelMsg(InterfaceWindow* window, int32_t message, int32_t a, int3
 namespace online_edit_callee {
 __attribute__((weak)) void* New(size_t size) {
     if (size == 0xe8c) return COnlineControl::operator new(sizeof(COnlineControl));   // the online control: its own allocator (the arena)
-    return ::operator new(size);
+    return ::operator new(size > 0x400 ? size : 0x400);   // the Mac allocates the sizes of its objects; the host's are larger
 }
 // the virtual at slot 0x2c of the table at window+0x118
 __attribute__((weak)) void WindowSetText(InterfaceWindow* window, char16_t* text) { window->SetText(text); }
@@ -705,7 +705,7 @@ void MessagesLCPostFormat(InterfaceWindow* window) {
 
 int32_t gContactsMaxRows = 20;   // 0x102b0c54: rows kept in the list (initial word 0x14)
 
-// Placeholders for the program (the host cannot call the Mac's virtuals through __ptr_glue); the test library defines the real ones.
+// Placeholders for the unit libraries; src/game/GameShimGlue.cpp defines the program's FontCharWidth and WindowSlot1c.
 namespace contacts_callee {
 __attribute__((weak)) int32_t FontCharWidth(InterfaceFont*, char16_t) { return 0; }   // the font's virtual at +0x14 of the table at +0x10
 __attribute__((weak)) void WindowSlot1c(InterfaceWindow*, int32_t) {}                  // the window's virtual at +0x1c of the table at +0x118
@@ -1063,8 +1063,14 @@ void CreateOnlinePanel() {
     gOnlineWindowE8c->Show(0);
     gOnlineWindowE8c->unlink();
     gOnlineWindowE8c->GetWindow(0x3003)->SetCallbackFunction(ButtonsMenuMsg);
+    // TPW_PORT_FIX v5L26 CreateOnlinePanel | Mac: a contact's buttons menu lies on an underlay of the whole 4:3 screen, so a click anywhere off the menu closes it | Port: the two underlays hear the whole screen on a wider one too (UI_HearWholeScreen) | Why: a widescreen port; the 4:3 underlay stood in the middle of a wide screen, so a click left or right of it left the menu open
+    UI_HearWholeScreen(gOnlineWindowE90);
+    UI_HearWholeScreen(gOnlineWindowE8c);
     gOnlineWord88 = 0;
-    gOnlineWindow = gUIRootWindow->CreateObject(1, 0, static_cast<int32_t>(0xfff04d2a), 0, 0, 0x7ff, 0x5ff);
+    // TPW_PORT_FIX v5L26 CreateOnlinePanel | Mac: the online view's window, which takes the pointer for the camera, is 2048 x 1536 units | Port: as wide and as high as the unit space, like the game window | Why: a widescreen port; the 4:3 window sat in the middle of a wide screen while the camera measures the pointer against the whole screen, so the pointer inside it never reached the left or right scroll edge and outside it the camera stopped hearing it, and a park visited online did not scroll left or right (Addable13)
+    gOnlineWindow = gUIRootWindow->CreateObject(1, 0, static_cast<int32_t>(0xfff04d2a), 0, 0, static_cast<int16_t>(gUIUnitWidth - 1),
+                                                static_cast<int16_t>(gUIUnitHeight - 1));
+    UI_MarkFullWindow(gOnlineWindow);
     gOnlineWindow->SetCallbackFunction(OnlinePanelMsg);
     MoveHelpText(-1, 10);
     gOnlineCursorState = 0;

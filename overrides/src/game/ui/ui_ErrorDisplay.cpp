@@ -55,6 +55,7 @@ InterfaceWindow* Dialog(int16_t* description, InterfaceWindowCallback callback, 
     // TPW_PORT_FIX uiscale Dialog | Mac: the dialog's holder is 1536 units high | Port: as high as the unit space, the dialog moved down to the middle | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
     InterfaceWindow* holder = gUIRootWindow->CreateObject(1, 1, 1, 0, 0, static_cast<int16_t>(gUIUnitWidth - 1),
                                                           static_cast<int16_t>(gUIUnitHeight - 1));
+    UI_MarkFullWindow(holder);
     if (holder != nullptr) {
         UI_CentreDown(holder);
         dialog = holder->Build(description, callback);

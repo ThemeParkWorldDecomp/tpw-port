@@ -118,7 +118,9 @@ public:
 
     // Content taller than its view: how far it is scrolled, in points from its top (0 to `maxOffset`). The wheel over
     // `area` moves it `step` points a line. Content not drawn the frame before (a box opened again) starts at its top.
-    float Scroll(const std::string& id, const Rect& area, float step, float maxOffset);
+    // With `bar`, the track its ScrollBar is drawn in, and `shown`, how much of the content is in view (in the offset's
+    // unit), the bar can be dragged as well: by its thumb, or pressed anywhere on its track to bring the thumb there.
+    float Scroll(const std::string& id, const Rect& area, float step, float maxOffset, const Rect& bar = {}, float shown = 0);
     // Drawing, and the pointer the widgets see, kept inside `r` until Unclip.
     void Clip(const Rect& r);
     void Unclip();
@@ -134,6 +136,7 @@ private:
     struct ScrollState {
         float offset = 0;
         uint64_t frame = 0;   // the frame it was last drawn in
+        float grab = 0;       // while its bar is dragged: where on the thumb the pointer holds it, from the thumb's top
     };
     // True when the press and the release both landed on `r` while interactive.
     bool Clicked(const std::string& id, const Rect& r, bool enabled);

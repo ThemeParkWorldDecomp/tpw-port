@@ -67,6 +67,9 @@
 #include <cstring>
 #include <cwchar>
 #include <new>
+// TPW_PORT_FIX resslider InterfaceDrawEngine.cpp | Mac: no such includes | Port: TPSettings.h for gPortLiveResolution and the set for LivePlacedObjects | Why: see PortFollowUnits
+#include "TPSettings.h"
+#include <unordered_set>
 
 // ui_main.cpp (main app of SimTheme Park 2.04b3), the part that starts the interface:
 // the meshes of the interface (0x10184abc..0x10185640), InitGeneralUI (0x10185b68), the
@@ -101,6 +104,14 @@ float CalcZTrans(int32_t z) {
 
 sHeapInfo* gUIHeap;
 
+// TPW_PORT_FIX resslider LivePlacedObjects | Mac: (none) | Port: the engine's mesh and gradient draw objects alive, for PortFollowUnits; kept only while gPortLiveResolution is set, since the set's allocations show in the differential tests' heap counts | Why: their matrices are worked out in the unit space of the moment and kept
+namespace {
+std::unordered_set<InterfaceDrawObject*>& LivePlacedObjects() {
+    static auto* live = new std::unordered_set<InterfaceDrawObject*>;   // (never destroyed: windows outlive the statics at exit)
+    return *live;
+}
+}  // namespace
+
 // ---- InterfaceDrawEngineMesh
 
 // Marks the mesh as the interface's (header flag 0x200), takes its node count as the number
@@ -119,10 +130,14 @@ InterfaceDrawEngineMesh::InterfaceDrawEngineMesh(void* mesh) : InterfaceDrawObje
     }
     mNodeFlags = nullptr;
     mLocalised = 0;
+    // TPW_PORT_FIX resslider InterfaceDrawEngineMesh::InterfaceDrawEngineMesh | Mac: (none) | Port: the object joins the list PortFollowUnits walks | Why: see LivePlacedObjects
+    if (gPortLiveResolution) LivePlacedObjects().insert(this);
 }
 
 // An object the library has owns its mesh's engine mesh; any other is an instance.
 InterfaceDrawEngineMesh::~InterfaceDrawEngineMesh() {
+    // TPW_PORT_FIX resslider InterfaceDrawEngineMesh::~InterfaceDrawEngineMesh | Mac: (none) | Port: the object leaves the list PortFollowUnits walks | Why: see LivePlacedObjects
+    if (gPortLiveResolution) LivePlacedObjects().erase(this);
     tag_sMesh* data = static_cast<tag_sMesh*>(mData);
     if (data != nullptr) {
         if (mInLibrary == 0) DestroyMeshInstance(data, gUIHeap, 0);
@@ -383,6 +398,17 @@ void InterfaceDrawEngineMesh::Change(uint32_t flags, DOChange* change) {
 
 void InterfaceDrawEngineMesh::Draw(int16_t, CoolRect*, int16_t) {}
 void InterfaceDrawEngineMesh::Draw(int16_t, CoolRect*, int16_t, char16_t*) {}
+
+// TPW_PORT_FIX resslider PortFollowUnits | Mac: (none: the unit space is one size for the game's life) | Port: each mesh and gradient is placed again from the rectangle it has, as its next Change would do | Why: GetUIMatrix divides by the unit space's width, so after a change of shape the object drew at the old shape's stretch until its window next changed it, while the windows' hit areas and hover pictures were already in the new layout
+void PortFollowUnits() {
+    for (InterfaceDrawObject* object : LivePlacedObjects()) {
+        if (object->mData == nullptr) continue;   // (the slider's Change would read through it)
+        if (RectWidth(*object) == 0 || RectHeight(*object) == 0) continue;   // (never placed, the library's own: a slider's Change would stretch it to nothing)
+        DOChange change{};
+        change.mRect = &object->mRect;
+        object->Change(kChangeRect, &change);
+    }
+}
 
 // ---- InterfaceDrawEngineMesh
 
@@ -668,11 +694,15 @@ InterfaceDrawEngineVGradient::InterfaceDrawEngineVGradient(void* mesh) : Interfa
             mData = reinterpret_cast<void*>(1);
         }
     }
+    // TPW_PORT_FIX resslider InterfaceDrawEngineVGradient::InterfaceDrawEngineVGradient | Mac: (none) | Port: the object joins the list PortFollowUnits walks | Why: see LivePlacedObjects
+    if (gPortLiveResolution) LivePlacedObjects().insert(this);
 }
 
 // The textures and the mesh are freed (in that order) only when the constructor finished; the base destructor and the delete are the
 // language's.
 InterfaceDrawEngineVGradient::~InterfaceDrawEngineVGradient() {
+    // TPW_PORT_FIX resslider InterfaceDrawEngineVGradient::~InterfaceDrawEngineVGradient | Mac: (none) | Port: the object leaves the list PortFollowUnits walks | Why: see LivePlacedObjects
+    if (gPortLiveResolution) LivePlacedObjects().erase(this);
     if (mData != nullptr) {
         DMFreeTextures(&mTextures);
         DMFreeMesh(&mMeshSet);
@@ -864,6 +894,8 @@ InterfaceDrawEngineHGradient::InterfaceDrawEngineHGradient(void* mesh) : Interfa
     uv[1].mF00[7] = 0.0f;
     CalcUVs();
     mData = reinterpret_cast<void*>(1);
+    // TPW_PORT_FIX resslider InterfaceDrawEngineHGradient::InterfaceDrawEngineHGradient | Mac: (none) | Port: the object joins the list PortFollowUnits walks | Why: see LivePlacedObjects
+    if (gPortLiveResolution) LivePlacedObjects().insert(this);
 }
 
 // Lead 2026-10-20 (v51129): the destructor (0x10189c0c, the class's key function, so the vtable comes with it) is translated in
@@ -876,6 +908,8 @@ InterfaceDrawEngineHGradient::InterfaceDrawEngineHGradient(void* mesh) : Interfa
 // 0x10189c0c (140): the vtable is stored, the textures and the mesh are freed when the mesh was made (mData set), then the base's
 // destructor runs. The delete flag (r4) is the C++ delete.
 InterfaceDrawEngineHGradient::~InterfaceDrawEngineHGradient() {
+    // TPW_PORT_FIX resslider InterfaceDrawEngineHGradient::~InterfaceDrawEngineHGradient | Mac: (none) | Port: the object leaves the list PortFollowUnits walks | Why: see LivePlacedObjects
+    if (gPortLiveResolution) LivePlacedObjects().erase(this);
     if (mData != nullptr) {
         DMFreeTextures(&mTextures);
         DMFreeMesh(&mMeshSet);

@@ -29,8 +29,6 @@ set(TPW_DECOMP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tpw-decomp)
 if(NOT EXISTS ${TPW_DECOMP_DIR}/CMakeLists.txt)
   message(FATAL_ERROR "tpw-decomp is missing: git submodule update --init")
 endif()
-# The game's seven data tables are in tpw-decomp (tables/ and include/, see its README) and compiled into the game library,
-# so the build and the launcher need no program of the game.
 set(TPW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 # The Linux build (the TPW_LINUX parts of this file): the platform layer's host code is in platform/host_linux.cpp and
 # platform/linux, and the game is drawn by the system's OpenGL or, when the player chooses it, by the port's own Vulkan
@@ -162,6 +160,7 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   list(REMOVE_DUPLICATES TPW_PLATFORM_SOURCES)
   add_library(tpw_platform STATIC ${TPW_PLATFORM_SOURCES})
   target_include_directories(tpw_platform PUBLIC ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+  target_include_directories(tpw_platform PRIVATE ${TPW_DECOMP_DIR}/assets)   # gold_rides.cpp's gold_ride_table.h
   target_link_libraries(tpw_platform PUBLIC SDL3::SDL3)
   target_link_libraries(tpw_platform PRIVATE ZLIB::ZLIB)   # platform/online_ftp.cpp's park checks
   if(NOT TPW_LINUX)
@@ -247,7 +246,7 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   set(TPW_LAUNCHER_BUILD unknown)
   find_package(Git QUIET)
   if(GIT_FOUND)
-    execute_process(COMMAND ${GIT_EXECUTABLE} describe --always --dirty WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    execute_process(COMMAND ${GIT_EXECUTABLE} describe --tags --always --dirty WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
                     OUTPUT_VARIABLE tpw_describe OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE tpw_describe_result ERROR_QUIET)
     if(tpw_describe_result EQUAL 0 AND tpw_describe MATCHES "^[A-Za-z0-9._+-]+$")
       set(TPW_LAUNCHER_BUILD ${tpw_describe})
@@ -423,6 +422,11 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   # stand-ins). The original asks the null world, so ctest runs it only with the port's fixes; a build without them fails.
   add_executable(tpw_host_map_quit ${TPW_DECOMP_DIR}/tests/host_map_quit.cpp ${TPW_DECOMP_DIR}/src/game/ui/ui_main.cpp)
   target_include_directories(tpw_host_map_quit PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+  if(WIN32)
+    # ui_main.cpp includes dlfcn.h, which MinGW has no copy of: platform/win's, as the game library gets it (the slicer
+    # indexes the file with this target's own include folders).
+    target_include_directories(tpw_host_map_quit PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/platform/win)
+  endif()
   if(TPW_PORT_FIX)
     target_compile_definitions(tpw_host_map_quit PRIVATE TPW_HOST_MAP_QUIT_GUARD)   # the test sets the fix's flag
   endif()
@@ -460,6 +464,60 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
       add_test(NAME truncated_save COMMAND tpw_host_truncated_save)
     endif()
   endif()
+  # The options panel's Screen resolution slider in the launcher (the port's fix resslider): the real DoScroll,
+  # CPlayerSettings::SetResolution and PortApplyGameSize, the windows and the clock being the test's stand-ins. Made only with
+  # the port's fixes: the original has no such choice of sizes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_resolution_slider ${TPW_DECOMP_DIR}/tests/host_resolution_slider.cpp ${TPW_DECOMP_DIR}/src/game/ui/ui_parkStatus.cpp
+                   ${TPW_DECOMP_DIR}/src/game/TPSettings.cpp ${TPW_DECOMP_DIR}/src/game/ui/ui_gamesize.cpp ${TPW_DECOMP_DIR}/platform/msl.cpp)
+    target_include_directories(tpw_host_resolution_slider PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    tpw_slice(TARGET tpw_host_resolution_slider NAME resolution_slider KEEP
+      __ZN13options_panel8DoScrollEii   # options_panel::DoScroll(int, int)
+      __ZN15CPlayerSettings13SetResolutionENS_11eRESOLUTIONE   # CPlayerSettings::SetResolution(CPlayerSettings::eRESOLUTION)
+      __Z17PortApplyGameSizev   # PortApplyGameSize()
+      __Z13PortShowShapei)   # PortShowShape(int)
+    if(tpw_platform_tests_skipped)
+      set_target_properties(tpw_host_resolution_slider PROPERTIES EXCLUDE_FROM_ALL ON)
+    else()
+      add_test(NAME resolution_slider COMMAND tpw_host_resolution_slider)
+    endif()
+    # A live change of shape reaches the mesh and gradient draw objects (the port's fix resslider): the real objects with the real
+    # Change and GetUIMatrix; the engine's meshes and textures and the base class are the test's stand-ins.
+    add_executable(tpw_host_ui_follow ${TPW_DECOMP_DIR}/tests/host_ui_follow.cpp ${TPW_DECOMP_DIR}/src/game/ui/InterfaceDrawEngine.cpp
+                   ${TPW_DECOMP_DIR}/src/game/TPMesh.cpp ${TPW_DECOMP_DIR}/src/game/LMatrix.cpp ${TPW_DECOMP_DIR}/src/game/ui/CoolRect.cpp
+                   ${TPW_DECOMP_DIR}/src/game/ui/CoolRegion.cpp ${TPW_DECOMP_DIR}/platform/arena.cpp)
+    target_include_directories(tpw_host_ui_follow PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    tpw_slice(TARGET tpw_host_ui_follow NAME ui_follow KEEP
+      __Z15PortFollowUnitsv   # PortFollowUnits()
+      __Z11GetUIMatrixP7sMatrixssssffffsss   # GetUIMatrix(...)
+      __Z21UpdateMeshLocalMatrixP9tag_sMeshP7sMatrix   # UpdateMeshLocalMatrix(tag_sMesh*, sMatrix*)
+      __Z25CombineMatricesNoWDest1stP7sMatrixS0_   # CombineMatricesNoWDest1st(sMatrix*, sMatrix*)
+      __Z17SetMatrixIdentityP7sMatrix   # SetMatrixIdentity(sMatrix*)
+      __Z23VectorThroughLMatrixNoWP7sMatrixP8s3DPoint   # VectorThroughLMatrixNoW(sMatrix*, s3DPoint*)
+      __ZN23InterfaceDrawEngineMeshC1EPv __ZN23InterfaceDrawEngineMeshD1Ev __ZN23InterfaceDrawEngineMeshD0Ev
+      __ZN23InterfaceDrawEngineMesh4ShowEs __ZN23InterfaceDrawEngineMesh4DrawEsP8CoolRects __ZN23InterfaceDrawEngineMesh4DrawEsP8CoolRectsPDs
+      __ZN23InterfaceDrawEngineMesh6ChangeEjP8DOChange __ZN23InterfaceDrawEngineMesh14CalculateFrameEjP8DOChange __ZN23InterfaceDrawEngineMesh10InstanceMeEv
+      __ZN33InterfaceDrawEngineResizableFrameC1EPv __ZN33InterfaceDrawEngineResizableFrameD1Ev __ZN33InterfaceDrawEngineResizableFrameD0Ev
+      __ZN33InterfaceDrawEngineResizableFrame6ChangeEjP8DOChange __ZN33InterfaceDrawEngineResizableFrame10InstanceMeEv
+      __ZN34InterfaceDrawEngineResizableSliderC1EPv __ZN34InterfaceDrawEngineResizableSliderD1Ev __ZN34InterfaceDrawEngineResizableSliderD0Ev
+      __ZN34InterfaceDrawEngineResizableSlider6ChangeEjP8DOChange __ZN34InterfaceDrawEngineResizableSlider10InstanceMeEv
+      __ZN28InterfaceDrawEngineVGradientC1EPv __ZN28InterfaceDrawEngineVGradientD1Ev __ZN28InterfaceDrawEngineVGradientD0Ev
+      __ZN28InterfaceDrawEngineVGradient4ShowEs __ZN28InterfaceDrawEngineVGradient6ChangeEjP8DOChange
+      __ZN28InterfaceDrawEngineVGradient9CalcVertsEv __ZN28InterfaceDrawEngineVGradient7CalcUVsEv
+      __ZN28InterfaceDrawEngineHGradientC1EPv __ZN28InterfaceDrawEngineHGradientD1Ev __ZN28InterfaceDrawEngineHGradientD0Ev
+      __ZN28InterfaceDrawEngineHGradient4ShowEs __ZN28InterfaceDrawEngineHGradient6ChangeEjP8DOChange
+      __ZN28InterfaceDrawEngineHGradient9CalcVertsEv __ZN28InterfaceDrawEngineHGradient7CalcUVsEv
+      __ZN10CoolRegion5ShiftEss __ZN10CoolRegion6AdjustEssss __ZN10CoolRegion6MiddleEPsS0_ __ZN10CoolRegion7PointInEss
+      __ZN10CoolRegionD1Ev __ZN10CoolRegioneqERS_ __ZN8CoolRect14RectIntersectsEPS_ __ZN8CoolRect3GetEPsS0_S0_S0_
+      __ZN8CoolRect3SetEssss __ZN8CoolRect5ShiftEss __ZN8CoolRect6AdjustEssss __ZN8CoolRect6MiddleEPsS0_
+      __ZN8CoolRect7GetDimsEPsS0_ __ZN8CoolRect7PointInEss __ZN8CoolRectC1Essss __ZN8CoolRectC1Ev __ZN8CoolRectD1Ev
+      __ZN8CoolRectC1Ev __ZN8CoolRectD1Ev)
+    if(tpw_platform_tests_skipped)
+      set_target_properties(tpw_host_ui_follow PROPERTIES EXCLUDE_FROM_ALL ON)
+    else()
+      add_test(NAME ui_follow COMMAND tpw_host_ui_follow)
+    endif()
+  endif()
   # The launcher's log file (platform/log_file.cpp): one file that each run adds to, its run headers, the cut to its newest
   # 5 MB, the old files folded in, and Export logs (platform/log_export.cpp), in a temporary folder.
   add_executable(tpw_log_tests platform/tests/log_tests.cpp)
@@ -495,6 +553,72 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   add_test(NAME online_ftp COMMAND tpw_online_ftp_tests)
   # The same client against a running online server (decomp-onlinesrv's tpw-online) on this computer: skips (77) unless
   # TPW_ONLINE_SERVER names one.
+  # The numbers on the online globe's chat satellites through the real code (tests/host_chat_satellites.cpp), with only the
+  # connection a fake. It is linked as tpw_launcher is, with its own stand-ins, so a body that is empty or missing answers 0 here as
+  # it does in the game instead of being a link error or a test's fake.
+  if(TARGET tpw_launcher)
+    add_library(tpw_host_chat_satellites_objects OBJECT ${TPW_DECOMP_DIR}/tests/host_chat_satellites.cpp launcher/pending_manual.cpp)
+    target_include_directories(tpw_host_chat_satellites_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
+    set(TPW_CHAT_SATELLITES_STUBS ${CMAKE_CURRENT_BINARY_DIR}/stubs_chat_satellites.cpp)
+    add_custom_command(
+      OUTPUT ${TPW_CHAT_SATELLITES_STUBS}
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/launcher/gen_stubs.py
+              --out ${TPW_CHAT_SATELLITES_STUBS} --include-dir ${TPW_INCLUDE_DIR}
+              --nm ${CMAKE_NM} --provides $<TARGET_FILE:SDL3-static> --provides $<TARGET_FILE:tpw_zlib> --provides $<TARGET_FILE:tpw_libjpeg>
+              --provides $<TARGET_FILE:tpw_launcher_ui> --provides $<TARGET_FILE:tpw_assets> ${TPW_STUB_SYSLIBS} ${TPW_MOVIE_SYSLIBS}
+              $<TARGET_FILE:tpw> $<TARGET_FILE:tpw_platform> $<TARGET_OBJECTS:tpw_host_chat_satellites_objects>
+      DEPENDS tpw tpw_platform SDL3-static tpw_zlib tpw_libjpeg tpw_launcher_ui tpw_assets $<TARGET_OBJECTS:tpw_host_chat_satellites_objects>
+              launcher/gen_stubs.py
+      COMMAND_EXPAND_LISTS VERBATIM
+      COMMENT "Generating stand-ins for the chat satellites test")
+    add_executable(tpw_host_chat_satellites $<TARGET_OBJECTS:tpw_host_chat_satellites_objects> ${TPW_CHAT_SATELLITES_STUBS})
+    target_include_directories(tpw_host_chat_satellites PRIVATE ${TPW_INCLUDE_DIR} launcher)
+    target_link_libraries(tpw_host_chat_satellites PRIVATE tpw tpw_platform tpw_launcher_ui)
+    if(TPW_LINUX)
+      target_link_libraries(tpw_host_chat_satellites PRIVATE $<TARGET_FILE:tpw>)
+    endif()
+    if(WIN32)
+      target_link_options(tpw_host_chat_satellites PRIVATE -Wl,--export-all-symbols)
+    endif()
+    add_test(NAME chat_satellites COMMAND tpw_host_chat_satellites)
+  endif()
+  # Starting the game when no sound device opens (tests/host_no_sound_device.cpp): the real SOUND_Init down to SoundDevice, linked
+  # as tpw_launcher is, with its own stand-ins. It needs no slicer, so Windows CI runs it. The original crashes there, so ctest
+  # runs it only with the port's fixes; a build without them makes it, and it fails.
+  if(TARGET tpw_launcher)
+    add_library(tpw_host_no_sound_device_objects OBJECT ${TPW_DECOMP_DIR}/tests/host_no_sound_device.cpp launcher/pending_manual.cpp)
+    target_include_directories(tpw_host_no_sound_device_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
+    target_link_libraries(tpw_host_no_sound_device_objects PRIVATE SDL3::SDL3)
+    set(TPW_NO_SOUND_DEVICE_STUBS ${CMAKE_CURRENT_BINARY_DIR}/stubs_no_sound_device.cpp)
+    add_custom_command(
+      OUTPUT ${TPW_NO_SOUND_DEVICE_STUBS}
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/launcher/gen_stubs.py
+              --out ${TPW_NO_SOUND_DEVICE_STUBS} --include-dir ${TPW_INCLUDE_DIR}
+              --nm ${CMAKE_NM} --provides $<TARGET_FILE:SDL3-static> --provides $<TARGET_FILE:tpw_zlib> --provides $<TARGET_FILE:tpw_libjpeg>
+              --provides $<TARGET_FILE:tpw_launcher_ui> --provides $<TARGET_FILE:tpw_assets> ${TPW_STUB_SYSLIBS} ${TPW_MOVIE_SYSLIBS}
+              $<TARGET_FILE:tpw> $<TARGET_FILE:tpw_platform> $<TARGET_OBJECTS:tpw_host_no_sound_device_objects>
+      DEPENDS tpw tpw_platform SDL3-static tpw_zlib tpw_libjpeg tpw_launcher_ui tpw_assets $<TARGET_OBJECTS:tpw_host_no_sound_device_objects>
+              launcher/gen_stubs.py
+      COMMAND_EXPAND_LISTS VERBATIM
+      COMMENT "Generating stand-ins for the no sound device test")
+    add_executable(tpw_host_no_sound_device $<TARGET_OBJECTS:tpw_host_no_sound_device_objects> ${TPW_NO_SOUND_DEVICE_STUBS})
+    target_include_directories(tpw_host_no_sound_device PRIVATE ${TPW_INCLUDE_DIR} launcher)
+    target_link_libraries(tpw_host_no_sound_device PRIVATE tpw tpw_platform tpw_launcher_ui)
+    if(TPW_LINUX)
+      target_link_libraries(tpw_host_no_sound_device PRIVATE $<TARGET_FILE:tpw>)
+    endif()
+    if(WIN32)
+      target_link_options(tpw_host_no_sound_device PRIVATE -Wl,--export-all-symbols)
+    endif()
+    if(TPW_PORT_FIX)
+      add_test(NAME no_sound_driver COMMAND tpw_host_no_sound_device driver)
+      add_test(NAME no_sound_device COMMAND tpw_host_no_sound_device open)
+    endif()
+    foreach(mode silent arrive late lost stale mute stress)
+      add_test(NAME no_sound_${mode} COMMAND tpw_host_no_sound_device ${mode})
+      set_tests_properties(no_sound_${mode} PROPERTIES TIMEOUT 120)
+    endforeach()
+  endif()
   add_executable(tpw_online_boss_e2e platform/tests/online_boss_e2e.cpp)
   target_include_directories(tpw_online_boss_e2e PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
   target_link_libraries(tpw_online_boss_e2e PRIVATE tpw_platform)
@@ -567,7 +691,7 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   # may talk to the internet: devtools/check_offline.py holds the tree to that (port_CONTRIBUTING.md, "Playable offline").
   add_library(tpw_launcher_ui STATIC ${TPW_LAUNCHER_UI_SOURCES} launcher/net/net.cpp ${TPW_UI_FONTS_CPP})
   target_include_directories(tpw_launcher_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/launcher/ui ${CMAKE_CURRENT_SOURCE_DIR}/launcher/net)
-  target_include_directories(tpw_launcher_ui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
+  target_include_directories(tpw_launcher_ui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb ${TPW_DECOMP_DIR}/platform)   # path_text.h
   target_link_libraries(tpw_launcher_ui PUBLIC SDL3::SDL3 tpw_assets ZLIB::ZLIB)
   # The launcher's version: launcher/VERSION.txt is the one place it is written (not launcher/VERSION: launcher/ is an
   # include folder, and on a case-blind disk that name would stand in for the C++ header <version>). The window's corner,
@@ -596,8 +720,9 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     # and the icon Explorer, the taskbar and the Start menu shortcut show for tpw_launcher.exe. The icon is the launcher's
     # stand-in (launcher/app_icon_standin.cpp, the same code the window shows before a game is imported), written as a
     # multi-size .ico into the build folder by tpw_make_ico (launcher/win/make_ico.cpp) at build time: no picture file is
-    # in the tree. Compiled by the toolchain's resource compiler (llvm-mingw's windres, or MSVC's rc); without one the
-    # build goes on without the resources, as before.
+    # in the tree. The manifest (launcher/win/tpw_launcher.manifest) makes UTF-8 the process's code page, for the paths of a
+    # player's name outside plain ASCII (platform/path_text.h). Compiled by the toolchain's resource compiler (llvm-mingw's
+    # windres, or MSVC's rc); without one the build goes on without the resources, as before, and build.yml's check fails.
     include(CheckLanguage)
     check_language(RC)
     if(CMAKE_RC_COMPILER)
@@ -612,9 +737,11 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
         DEPENDS tpw_make_ico
         VERBATIM
         COMMENT "Drawing the launcher's icon")
+      set(TPW_LAUNCHER_MANIFEST ${CMAKE_CURRENT_SOURCE_DIR}/launcher/win/tpw_launcher.manifest)
       configure_file(launcher/win/launcher.rc.in ${CMAKE_CURRENT_BINARY_DIR}/launcher.rc @ONLY)
-      # the .ico is listed as a source so that its command belongs to the target; the .rc is compiled again when it changes
-      set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/launcher.rc PROPERTIES OBJECT_DEPENDS ${TPW_LAUNCHER_ICO})
+      # the .ico is listed as a source so that its command belongs to the target; the .rc is compiled again when it or the
+      # manifest changes
+      set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/launcher.rc PROPERTIES OBJECT_DEPENDS "${TPW_LAUNCHER_ICO};${TPW_LAUNCHER_MANIFEST}")
       target_sources(tpw_launcher PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/launcher.rc ${TPW_LAUNCHER_ICO})
     else()
       message(STATUS "tpw: no resource compiler, tpw_launcher.exe has no version resource and no icon")
@@ -663,6 +790,33 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   endif()
   target_compile_definitions(tpw_launcher_ui_tests PRIVATE TPW_UI_SCREENS_DEFAULT="${CMAKE_CURRENT_BINARY_DIR}/ui-screens")
   add_test(NAME launcher_ui COMMAND tpw_launcher_ui_tests)
+  # The launcher's reads and writes of the game's settings files (launcher/ui/game_settings.h).
+  add_executable(tpw_game_settings_tests launcher/ui/tests/game_settings_tests.cpp)
+  target_link_libraries(tpw_game_settings_tests PRIVATE tpw_launcher_ui)
+  add_test(NAME game_settings COMMAND tpw_game_settings_tests)
+  # The same files against the game's own code: the real CPlayerSettings load and save, the file calls and the sound table being
+  # the test's stand-ins, and the real size lists (launcher/game_size_rules.h). Made only with the port's fixes, as the
+  # Settings box's Game options are.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_settings_sync_test launcher/ui/tests/settings_sync_game_test.cpp ${TPW_DECOMP_DIR}/src/game/TPSettings.cpp)
+    target_include_directories(tpw_settings_sync_test PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/launcher
+                               ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    target_link_libraries(tpw_settings_sync_test PRIVATE tpw_launcher_ui)
+    tpw_slice(TARGET tpw_settings_sync_test NAME settings_sync KEEP
+      __ZN15CPlayerSettings4InitEv   # CPlayerSettings::Init()
+      __ZN15CPlayerSettingsD1Ev   # CPlayerSettings::~CPlayerSettings()
+      __ZN15CPlayerSettingsD2Ev
+      __ZN15CPlayerSettings10LoadGlobalER23TbDynamicStringTemplateIcE   # CPlayerSettings::LoadGlobal
+      __ZN15CPlayerSettings10SaveGlobalER23TbDynamicStringTemplateIcE   # CPlayerSettings::SaveGlobal
+      __ZN15CPlayerSettings15SerialiseGlobalEPvij   # CPlayerSettings::SerialiseGlobal
+      __ZN15CPlayerSettings14SerialiseLocalEPvij   # CPlayerSettings::SerialiseLocal
+      __ZN15CPlayerSettings13SetResolutionENS_11eRESOLUTIONE)   # CPlayerSettings::SetResolution
+    if(tpw_platform_tests_skipped)
+      set_target_properties(tpw_settings_sync_test PROPERTIES EXCLUDE_FROM_ALL ON)
+    else()
+      add_test(NAME settings_sync COMMAND tpw_settings_sync_test)
+    endif()
+  endif()
   # The network module (launcher/net/) and the update check (launcher/ui/updater.h): no answer, fast, when nothing
   # answers; junk refused; the Update button's runs of the script. Its curl is the test program itself (TPW_NET_CURL), so
   # it needs no internet and runs where networking is blocked (the CI's offline runs).
@@ -696,6 +850,8 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   # No function of the game or the launcher is looked up by its symbol at run time (a Linux launcher exports none of its
   # own, so the lookup finds nothing there and Save crashed; Discord, xoob, 2026-11-01): devtools/check_own_dlsym.py.
   add_test(NAME own_dlsym COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/devtools/check_own_dlsym.py)
+  # A path's string() may throw on Windows under the UTF-8 process code page: tpw::PathText in its place (platform/path_text.h).
+  add_test(NAME path_text COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/devtools/check_path_text.py)
 else()
   message(STATUS "tpw: launcher not built (needs OpenGL and Python 3)")
 endif()

@@ -166,14 +166,21 @@ bool tpw_win_narrow_path(const wchar_t* path, std::string& narrow) {
     return Ansi(shortFolder + wide.substr(cut), narrow);
 }
 
+unsigned tpw_win_game_code_page() {
+    const UINT process = GetACP();
+    if (process != CP_UTF8) return process;
+    DWORD system = 0;
+    const int got = GetLocaleInfoW(LOCALE_SYSTEM_DEFAULT, LOCALE_IDEFAULTANSICODEPAGE | LOCALE_RETURN_NUMBER,
+                                   reinterpret_cast<LPWSTR>(&system), sizeof system / sizeof(wchar_t));
+    return got > 0 && system != 0 && system != CP_UTF8 ? system : 1252;   // 0: a locale with no ANSI code page
+}
+
 std::string tpw_win_ansi_name(const wchar_t* name) {
-    const bool utf8 = GetACP() == CP_UTF8;   // which takes no default character
-    const DWORD flags = utf8 ? 0 : WC_NO_BEST_FIT_CHARS;
-    const char* fallback = utf8 ? nullptr : "?";
-    const int size = WideCharToMultiByte(CP_ACP, flags, name, -1, nullptr, 0, fallback, nullptr);
+    const UINT page = tpw_win_game_code_page();
+    const int size = WideCharToMultiByte(page, WC_NO_BEST_FIT_CHARS, name, -1, nullptr, 0, "?", nullptr);
     if (size <= 0) return std::string();
     std::string narrow(static_cast<size_t>(size), '\0');
-    if (WideCharToMultiByte(CP_ACP, flags, name, -1, narrow.data(), size, fallback, nullptr) != size) return std::string();
+    if (WideCharToMultiByte(page, WC_NO_BEST_FIT_CHARS, name, -1, narrow.data(), size, "?", nullptr) != size) return std::string();
     narrow.resize(static_cast<size_t>(size - 1));   // without the NUL
     return narrow;
 }

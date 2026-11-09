@@ -1,5 +1,7 @@
 // gold_rides.cpp: the Gold Edition rides laid over the game folder (gold_rides.h).
 #include "gold_rides.h"
+#include "path_text.h"
+#include "gold_ride_table.h"   // assets/, in tpw-port the submodule's (TPW_DECOMP_DIR)
 
 #include <algorithm>
 #include <cctype>
@@ -63,6 +65,12 @@ std::vector<GoldRide> ParseRideConfig(const std::string& text) {
     return rides;
 }
 
+std::vector<GoldRide> BuiltInGoldRides() {
+    std::vector<GoldRide> rides;
+    for (const assets::GoldRideRow& row : assets::kGoldRideTable) rides.push_back({row.folder, row.wad, {}});
+    return rides;
+}
+
 static std::vector<GoldRide>& Overlay() {
     static std::vector<GoldRide> rides;
     return rides;
@@ -78,7 +86,7 @@ static fs::path ChildNoCase(const fs::path& folder, const std::string& name) {
     const std::string lower = Lower(name);
     for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec)) {
         std::error_code kind;
-        if (it->is_regular_file(kind) && Lower(it->path().filename().string()) == lower) return it->path();
+        if (it->is_regular_file(kind) && Lower(tpw::PathText(it->path().filename())) == lower) return it->path();
     }
     return {};
 }
@@ -88,12 +96,22 @@ size_t UseGoldRides(const fs::path& folder, size_t* missing) {
     overlay.clear();
     if (missing != nullptr) *missing = 0;
     if (folder.empty()) return 0;
+    // The installer's list when the folder has it; downloads of the rides alone do not, and the built-in table (the same
+    // 35 rows, gold_ride_table.h) places them then. A folder that does not exist is no overlay.
+    std::vector<GoldRide> listed;
     const fs::path list = ChildNoCase(folder, "RideConfig.txt");
-    if (list.empty()) return 0;
-    std::ifstream in(list, std::ios::binary);
-    std::stringstream text;
-    text << in.rdbuf();
-    for (GoldRide ride : ParseRideConfig(text.str())) {
+    if (!list.empty()) {
+        std::ifstream in(list, std::ios::binary);
+        std::stringstream text;
+        text << in.rdbuf();
+        listed = ParseRideConfig(text.str());
+    }
+    else {
+        std::error_code ec;
+        if (!fs::is_directory(folder, ec)) return 0;
+        listed = BuiltInGoldRides();
+    }
+    for (GoldRide ride : listed) {
         if (ride.folder.empty() || ride.name.empty() || ride.name[0] == '.') continue;
         ride.host = ChildNoCase(folder, ride.name);
         if (ride.host.empty()) {

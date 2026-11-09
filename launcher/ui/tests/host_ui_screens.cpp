@@ -10,6 +10,7 @@
 #include <zlib.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -19,9 +20,11 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "backend.h"
+#include "game_settings.h"
 #include "launcher_ui.h"
 #include "manifest.h"
 #include "texts.h"
@@ -388,6 +391,90 @@ std::vector<ImportProgress> LogEvents(size_t count) {
 }
 
 // ---- drawing a state
+
+// Game options for the box: a folder of two editions' files under the system's temporary folder, with two players of the
+// first, and the game's real sizes' shape (launcher/game_size_rules.h gives the real ones; these need no game header).
+struct GameOptionsFolder {
+    std::filesystem::path root;
+    GameSettingsSource source;
+
+    explicit GameOptionsFolder(const std::string& name) {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        root = fs::temp_directory_path(ec) / ("tpw-ui-game-options-" + name + "-" + std::to_string(reinterpret_cast<uintptr_t>(this)));
+        fs::remove_all(root, ec);
+        fs::create_directories(root);
+        std::FILE* sam = std::fopen((root / "sound.sam").string().c_str(), "w");
+        std::fprintf(sam, "SoundInfo.DEFAULTQUALITY 50\nSoundInfo.SOUNDON 1\nDefaultVolume.SFX 75\nDefaultVolume.MUSIC 60\n"
+                          "DefaultVolume.SPEECH 75\nDefaultVolume.MOVIE 100\n");
+        std::fclose(sam);
+        source.sizes.shapes = {"4:3", "16:10", "16:9"};
+        // A hundred heights of 200 at three shapes, and any other size at its own, as a number that holds the size.
+        static const auto shapeOf = [](GameSize size) { return size.width * 100 < size.height * 145 ? 0 : size.width * 100 < size.height * 170 ? 1 : 2; };
+        source.sizes.chosen = [](int setting, int& shape) {
+            GameSize size{3200, 2000};
+            if (setting & 0x40000000) size = {(setting >> 15) & 0x7fff, setting & 0x7fff};
+            shape = shapeOf(size);
+            return size;
+        };
+        source.sizes.stops = [](int shape, GameSize opened) {
+            static const int kWide[] = {4, 16, 16}, kHigh[] = {3, 10, 9};
+            std::vector<GameSize> stops;
+            for (int i = 1; i <= 10; ++i) stops.push_back({i * 200 * kWide[shape] / kHigh[shape], i * 200});
+            if (shapeOf(opened) == shape && std::find(stops.begin(), stops.end(), opened) == stops.end()) {
+                stops.push_back(opened);
+                std::sort(stops.begin(), stops.end(), [](GameSize a, GameSize b) { return a.height < b.height; });
+            }
+            return stops;
+        };
+        source.sizes.closest = [](const std::vector<GameSize>& stops, GameSize size) {
+            int best = 0;
+            for (int i = 0; i < static_cast<int>(stops.size()); ++i)
+                if (std::abs(stops[static_cast<size_t>(i)].height - size.height) < std::abs(stops[static_cast<size_t>(best)].height - size.height))
+                    best = i;
+            return best;
+        };
+        source.sizes.setting = [](GameSize size) { return 0x40000000 | size.width << 15 | size.height; };
+        const fs::path rootCopy = root;
+        source.userFolder = [rootCopy](int edition) { return rootCopy / (edition == 0 ? "us" : "eur"); };
+        source.soundSam = [rootCopy](int) { return rootCopy / "sound.sam"; };
+    }
+    ~GameOptionsFolder() {
+        std::error_code ec;
+        std::filesystem::remove_all(root, ec);
+    }
+    std::filesystem::path Config(int edition) const { return source.userFolder(edition) / "save" / "Config.tcf"; }
+    std::filesystem::path Player(int edition, const std::string& folder) const {
+        return source.userFolder(edition) / "save" / "users" / folder / "gms.dat";
+    }
+    // A new player's gms.dat: 25 bytes before the 39 of the options, four after.
+    void AddPlayer(int edition, const std::string& folder) const {
+        std::vector<uint8_t> bytes(68, 0);
+        bytes[0] = 0x0c;
+        for (int block : {0, 8, 16, 24}) {
+            bytes[static_cast<size_t>(25 + block)] = 1;
+            bytes[static_cast<size_t>(25 + block + 4)] = 50;
+        }
+        for (int flag = 32; flag < 39; ++flag) bytes[static_cast<size_t>(25 + flag)] = 1;
+        Save(Player(edition, folder), bytes);
+    }
+    static void Save(const std::filesystem::path& file, const std::vector<uint8_t>& bytes) {
+        std::filesystem::create_directories(file.parent_path());
+        std::FILE* out = std::fopen(file.string().c_str(), "wb");
+        std::fwrite(bytes.data(), 1, bytes.size(), out);
+        std::fclose(out);
+    }
+    static std::vector<uint8_t> Load(const std::filesystem::path& file) {
+        std::vector<uint8_t> bytes;
+        std::FILE* in = std::fopen(file.string().c_str(), "rb");
+        if (!in) return bytes;
+        uint8_t buffer[4096];
+        size_t got = 0;
+        while ((got = std::fread(buffer, 1, sizeof buffer, in)) > 0) bytes.insert(bytes.end(), buffer, buffer + got);
+        std::fclose(in);
+        return bytes;
+    }
+};
 
 struct Shot {
     std::string name;
@@ -999,6 +1086,60 @@ std::vector<Shot> Shots() {
                      },
                      nullptr, Screen::Home, {}});
 
+    // Some of the discs: each playable edition's small tile has its own Play, in the smallest window, with the Customized
+    // settings badge, with Mods in the header, under the update banner and in a large window.
+    auto usMac = [](FakeBackend& b) { b.FillAll(assets::kEditionUs); };
+    auto eurMac = [](FakeBackend& b) { b.FillAll(assets::kEditionEur); };
+    auto usWin = [](FakeBackend& b) { b.FillAll(assets::kEditionUsPc); };
+    auto eurWin = [](FakeBackend& b) { b.FillAll(assets::kEditionEurPc); };
+    auto bothMods = [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
+        ui.SetMods({EnableStrikes(), StaffCrossBridges()});
+    };
+    shots.push_back({"40-tile-play-us", metric::kStartWidth, metric::kStartHeight, usMac, nullptr, Screen::Home, {}});
+    shots.push_back({"40-tile-play-eur", metric::kStartWidth, metric::kStartHeight, eurMac, nullptr, Screen::Home, {}});
+    shots.push_back({"40-tile-play-us-pc", metric::kStartWidth, metric::kStartHeight, usWin, nullptr, Screen::Home, {}});
+    shots.push_back({"40-tile-play-eur-pc", metric::kStartWidth, metric::kStartHeight, eurWin, nullptr, Screen::Home, {}});
+    shots.push_back({"41-tile-play-both-smallest", metric::kMinWidth, metric::kMinHeight, FillWindows, nullptr, Screen::Home, {}});
+    shots.push_back({"41-tile-play-mods", metric::kStartWidth, metric::kStartHeight, PartialUsEur, bothMods, Screen::Home, {}});
+    shots.push_back({"41-tile-play-mods-smallest", metric::kMinWidth, metric::kMinHeight, FillWindows, bothMods,
+                     Screen::Home, {}});
+    shots.push_back({"42-tile-play-customized-smallest", metric::kMinWidth, metric::kMinHeight,
+                     [](FakeBackend& b) {
+                         b.FillAll(assets::kEditionUs);
+                         b.FillAll(assets::kEditionEur);
+                         EditUsSettings(b);
+                         b.edited[assets::kEditionEur] = {{"data/med.sam", "/x/data/med.sam", true, 0}};
+                     },
+                     bothMods, Screen::Home, {}});
+    shots.push_back({"42-tile-play-banner-smallest", metric::kMinWidth, metric::kMinHeight, PartialUsEur, bothMods,
+                     Screen::Home, "found"});
+    shots.push_back({"42-tile-play-banner-customized", metric::kStartWidth, metric::kStartHeight,
+                     [](FakeBackend& b) {
+                         PartialUsEur(b);
+                         EditUsSettings(b);
+                     },
+                     bothMods, Screen::Home, "found"});
+    shots.push_back({"44-tile-play-hover-smallest", metric::kMinWidth, metric::kMinHeight, FillWindows,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
+                         const Rect r = ui.TilePlayRect(1);
+                         ui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"44-tile-play-drag-over", metric::kStartWidth, metric::kStartHeight, usMac,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
+                         const Rect t = ui.TileRect(0);
+                         ui.HandleEvent(DropEvent(SDL_EVENT_DROP_BEGIN));
+                         ui.HandleEvent(DropEvent(SDL_EVENT_DROP_POSITION, t.CentreX(), t.CentreY()));
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"43-tile-play-large", 1600, 1000, FillWindows, bothMods, Screen::Home, {}});
+    shots.push_back({"43-tile-play-gold-and-one", metric::kStartWidth, metric::kStartHeight,
+                     [](FakeBackend& b) {
+                         b.FillAll(assets::kEditionEur);
+                         b.FillAll(assets::kEditionGold);
+                     },
+                     nullptr, Screen::Home, {}});
+
     // Every edition confirmed: two large tiles with their Gold badges and Play buttons, no drop field.
     shots.push_back({"12-home-all-confirmed", metric::kStartWidth, metric::kStartHeight, FillEverything, nullptr,
                      Screen::Home, {}});
@@ -1024,6 +1165,33 @@ std::vector<Shot> Shots() {
     shots.push_back({"21-settings-smallest", metric::kMinWidth, metric::kMinHeight, PartialUsEur,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) { ui.ShowSettings(true); },
                      Screen::Home, {}});
+
+    // The Game options section, at the window's start size and in the smallest window, scrolled to it and to its player's rows.
+    static const GameOptionsFolder shotFolder("shots");
+    shotFolder.AddPlayer(0, "1Ann");
+    shotFolder.AddPlayer(1, "1Ann");
+    for (const auto& [name, w, h, past] : std::vector<std::tuple<std::string, float, float, GameOption>>{
+             {"36-settings-game-options", metric::kStartWidth, metric::kStartHeight, GameOption::Resolution},
+             {"36-settings-game-options-rendering", metric::kStartWidth, metric::kStartHeight, GameOption::MusicVolume},
+             {"37-settings-game-options-player", metric::kStartWidth, metric::kStartHeight, GameOption::Scroll},
+             {"38-settings-game-options-smallest", metric::kMinWidth, metric::kMinHeight, GameOption::Resolution},
+             {"39-settings-game-options-player-smallest", metric::kMinWidth, metric::kMinHeight, GameOption::Scroll}}) {
+        const float high = h;
+        const GameOption option = past;
+        const float wide = w;
+        shots.push_back({name, static_cast<int>(wide), static_cast<int>(high), PartialUsEur,
+                         [high, option](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                             ui.SetGameSettings(shotFolder.source);
+                             ui.ShowSettings(true);
+                             frames(2);
+                             ui.HandleEvent(MotionEvent(90, high * 0.5f));
+                             for (int notch = 0; notch < 80 && ui.GameOptionRect(option).Bottom() > high * 0.9f; ++notch) {
+                                 ui.HandleEvent(WheelEvent(-1));
+                                 frames(1);
+                             }
+                         },
+                         Screen::Home, {}});
+    }
 
     // The Language section (launcher_ui.h LanguageKey) with the European edition's list open, on the five-language disc's
     // data: scrolled until the rows are in view, the list below its field.
@@ -1601,9 +1769,188 @@ void CheckWindowsReady(SDL_Renderer* renderer) {
           "Mac CD added: the US Play starts the Mac edition, the switch kept");
 }
 
+// The home with the drop field: a playable edition's tile has its own Play at every window size, whatever the header has
+// room for, and it starts that tile's edition as the all-confirmed home's does. A locked tile and the Gold one have none.
+void CheckTilePlay(SDL_Renderer* renderer) {
+    const float sizes[4][2] = {{metric::kMinWidth, metric::kMinHeight}, {metric::kStartWidth, metric::kStartHeight},
+                               {1600, 1000}, {2560, 1440}};
+    auto click = [](LauncherUi& ui, const Rect& r, float w, float h) {
+        ui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+        ui.Frame(kDt, w, h, 1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+        ui.Frame(kDt, w, h, 1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+        ui.Frame(kDt, w, h, 1);
+    };
+    Canvas canvas(renderer);
+    Text text(canvas);
+    const float titleW = text.Width(style::kHeading, EditionTitle(assets::kEditionEur));
+
+    // One disc alone: its tile's Play starts its edition, in every size, with Mods in the header and without, with the
+    // Customized settings badge on the tile and without.
+    const struct {
+        Edition edition;
+        int slot;
+        const char* name;
+    } alone[4] = {{assets::kEditionUs, 0, "us"}, {assets::kEditionEur, 1, "eur"},
+                  {assets::kEditionUsPc, 0, "us-pc"}, {assets::kEditionEurPc, 1, "eur-pc"}};
+    for (const auto& one : alone)
+        for (const auto& size : sizes)
+            for (const bool mods : {false, true})
+                for (const bool edited : {false, true}) {
+                    const float w = size[0], h = size[1];
+                    const std::string what = std::string("tile Play, ") + one.name + " alone at " +
+                                             std::to_string(static_cast<int>(w)) + "x" +
+                                             std::to_string(static_cast<int>(h)) + (mods ? " with Mods" : "") +
+                                             (edited ? " customized" : "");
+                    FakeBackend b;
+                    b.FillAll(one.edition);
+                    if (edited) b.edited[one.edition] = {{"data/med.sam", "/x/data/med.sam", true, 0}};
+                    LauncherUi ui(renderer, b);
+                    if (mods) ui.SetMods({EnableStrikes(), StaffCrossBridges()});
+                    ui.Frame(kDt, w, h, 1);
+                    const Rect tile = ui.TileRect(one.slot), play = ui.TilePlayRect(one.slot);
+                    Check(play.w > 0, what + ": the tile has a Play");
+                    Check(play.x >= tile.x && play.Right() <= tile.Right() && play.y >= tile.y && play.Bottom() <= tile.y + 42,
+                          what + ": it is in the tile's header band");
+                    Check(tile.x + metric::kOutline + 14 + titleW + 2 <= play.x, what + ": it is clear of the tile's title");
+                    Check(ui.TilePlayRect(1 - one.slot).w == 0 && ui.TileRect(1 - one.slot).w > 0,
+                          what + ": the locked tile has no Play");
+                    Check(ui.TilePlayRect(2).w == 0, what + ": the Gold tile has no Play");
+                    Check(ui.ReadyPlayRect(one.slot).w == 0, what + ": this is the home with the drop field");
+                    const Rect badge = ui.EditedBadgeRect(one.slot);
+                    Check((badge.w > 0) == edited, what + ": the badge is there only with edits");
+                    if (edited)
+                        Check(play.Bottom() < badge.y && badge.Bottom() <= tile.Bottom(),
+                              what + ": Play and the badge do not touch, both in the tile");
+                    LaunchChoice choice;
+                    Check(!ui.TakePlay(choice), what + ": no play before a click");
+                    click(ui, play, w, h);
+                    Check(ui.TakePlay(choice) && choice.edition == one.edition, what + ": a click starts that edition");
+                    Check(!choice.gold, what + ": without the Gold data no Gold rides");
+                    CheckEq(b.LastChoice(), one.name, what + ": the choice is kept");
+                    Check(ui.CurrentScreen() == LauncherUi::Screen::Home, what + ": the click stays on the home");
+                }
+
+    // The case of the bug: at the start width the header has no room for its Play beside Mods, Settings and About.
+    {
+        FakeBackend b;
+        b.FillAll(assets::kEditionUs);
+        LauncherUi ui(renderer, b);
+        ui.SetMods({EnableStrikes(), StaffCrossBridges()});
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(ui.HeaderButtonsRect().x == ui.ModsButtonRect().x, "tile Play: no header Play beside Mods at the start width");
+        Check(ui.TilePlayRect(0).w > 0, "tile Play: there all the same on the tile");
+    }
+
+    // Both editions without the Gold rides, one from each kind of disc: each tile starts its own.
+    {
+        FakeBackend b;
+        b.FillAll(assets::kEditionUs);
+        b.FillAll(assets::kEditionEurPc);
+        LauncherUi ui(renderer, b);
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        LaunchChoice choice;
+        click(ui, ui.TilePlayRect(0), metric::kStartWidth, metric::kStartHeight);
+        Check(ui.TakePlay(choice) && choice.edition == assets::kEditionUs, "tile Play: the US tile's starts the US edition");
+        click(ui, ui.TilePlayRect(1), metric::kStartWidth, metric::kStartHeight);
+        Check(ui.TakePlay(choice) && choice.edition == assets::kEditionEurPc,
+              "tile Play: the European tile's starts the European Windows edition");
+    }
+
+    // A disc only partly there: no Play on that tile.
+    {
+        FakeBackend b;
+        PartialUsEur(b);
+        LauncherUi ui(renderer, b);
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(ui.TilePlayRect(0).w > 0 && ui.TilePlayRect(1).w == 0, "tile Play: none on a partial tile");
+    }
+
+    // Nothing there: no Play at all.
+    {
+        FakeBackend b;
+        LauncherUi ui(renderer, b);
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(ui.TilePlayRect(0).w == 0 && ui.TilePlayRect(1).w == 0 && ui.TilePlayRect(2).w == 0,
+              "tile Play: none with no disc");
+    }
+
+    // One edition and the Gold rides: not the all-confirmed home, the Gold tile has no Play, the edition's kept switch
+    // decides the rides, and the rest of the choice is what the other Play buttons hand on.
+    {
+        FakeBackend b;
+        b.FillAll(assets::kEditionEur);
+        b.FillAll(assets::kEditionGold);
+        b.languages = {Language("English"), Language("French")};
+        b.settings[kSkipIntroKey] = "1";
+        b.settings[kBackToLauncherKey] = "1";
+        b.settings[LanguageKey(assets::kEditionEur)] = "French";
+        LaunchChoice choice;
+        for (const bool on : {true, false}) {
+            b.settings["gold_eur"] = on ? "1" : "0";
+            LauncherUi ui(renderer, b);
+            ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+            Check(ui.TilePlayRect(1).w > 0 && ui.TilePlayRect(0).w == 0 && ui.TilePlayRect(2).w == 0 &&
+                      ui.TileRect(2).w > 0,
+                  "tile Play, Gold data: on the European tile only");
+            click(ui, ui.TilePlayRect(1), metric::kStartWidth, metric::kStartHeight);
+            Check(ui.TakePlay(choice) && choice.edition == assets::kEditionEur && choice.gold == on,
+                  "tile Play, Gold data: the kept switch decides the Gold rides");
+            Check(choice.skipIntro && choice.backToLauncher, "tile Play: hands on Skip the intro and Back to the launcher");
+            CheckEq(choice.language, "French", "tile Play: hands on the edition's language");
+        }
+    }
+
+    // Under an open box the button is gone and takes no click; a drag over the window does not press it either.
+    {
+        FakeBackend b;
+        b.FillAll(assets::kEditionUs);
+        LauncherUi ui(renderer, b);
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        const Rect play = ui.TilePlayRect(0);
+        ui.ShowAbout(true);
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(ui.TilePlayRect(0).w == 0, "tile Play: not offered under the About box");
+        click(ui, play, metric::kStartWidth, metric::kStartHeight);
+        LaunchChoice choice;
+        Check(!ui.TakePlay(choice), "tile Play: a click on the About box does not start the game");
+    }
+
+    // The result screen has its own Play and keeps it; the tiles there have none.
+    {
+        FakeBackend b;
+        b.FillAll(assets::kEditionUs);
+        b.Queue(FakeBackend::Script());
+        LauncherUi ui(renderer, b);
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        ui.HandleEvent(DropEvent(SDL_EVENT_DROP_BEGIN));
+        ui.HandleEvent(DropEvent(SDL_EVENT_DROP_FILE, 300, 200, "/a/one.iso"));
+        ui.HandleEvent(DropEvent(SDL_EVENT_DROP_COMPLETE));
+        for (int i = 0; i < 3; ++i) ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(ui.CurrentScreen() == LauncherUi::Screen::Result && ui.TileRect(0).w > 0 && ui.TilePlayRect(0).w == 0,
+              "tile Play: none on the result screen's tiles");
+    }
+
+    // The all-confirmed home is as it was: no small tiles' Play, the large ones where the play test clicks them.
+    for (const bool windows : {false, true}) {
+        FakeBackend b;
+        if (windows) FillWindowsAndGold(b);
+        else FillEverything(b);
+        LauncherUi ui(renderer, b);
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(ui.TilePlayRect(0).w == 0 && ui.TilePlayRect(1).w == 0 && ui.TilePlayRect(2).w == 0,
+              "all confirmed: no small tile's Play");
+        const Rect us = ui.ReadyPlayRect(0), eu = ui.ReadyPlayRect(1);
+        Check(us.Contains(205, 373) && eu.Contains(595, 373), "all confirmed: the large Play buttons where the play test clicks");
+        std::printf("all confirmed: Play buttons %.0f,%.0f %.0fx%.0f and %.0f,%.0f %.0fx%.0f\n", us.x, us.y, us.w, us.h, eu.x,
+                    eu.y, eu.w, eu.h);
+    }
+}
+
 // Scrolling: the wheel over the area moves the offset a step a line and stops at both ends, the wheel elsewhere does
-// nothing, small steps add up, and content not drawn for a frame starts at its top again. A clip keeps the pointer too:
-// a button outside it is not clicked.
+// nothing, small steps add up, and content not drawn for a frame starts at its top again. Its bar is dragged by the
+// thumb or pressed on its track. A clip keeps the pointer too: a button outside it is not clicked.
 void CheckScroll(SDL_Renderer* renderer) {
     Canvas canvas(renderer);
     Text text(canvas);
@@ -1639,6 +1986,38 @@ void CheckScroll(SDL_Renderer* renderer) {
     in.wheel = 0;
     frame(in, false);
     Check(frame(in) == 0, "scroll: drawn again after a frame without it, it starts at the top");
+
+    // The bar beside it, 100 of 220 in view: its thumb is 100 * 100 / 220 high, and travels the rest of the track.
+    const Rect bar{310, 100, 6, 100};
+    const float thumbH = 100.0f * 100.0f / 220.0f, travel = 100.0f - thumbH;
+    auto barFrame = [&](float x, float y, bool down, bool pressed, bool released) {
+        Input b;
+        b.mouseX = x;
+        b.mouseY = y;
+        b.down = down;
+        b.pressed = pressed;
+        b.released = released;
+        canvas.Begin(1);
+        ui.Begin(kDt, b);
+        const float offset = ui.Scroll("b", area, 50, 120, bar, 100);
+        ui.End();
+        return offset;
+    };
+    Check(barFrame(313, 110, false, false, false) == 0, "scroll bar: starts at the top");
+    Check(barFrame(313, 110, true, true, false) == 0, "scroll bar: pressed on the thumb, the view stays");
+    Check(barFrame(313, 110 + travel * 0.5f, true, false, false) == 60, "scroll bar: the thumb dragged half way");
+    Check(barFrame(400, 900, true, false, false) == 120, "scroll bar: dragged past the end, off the bar, it stops there");
+    Check(barFrame(400, 900, false, false, true) == 120, "scroll bar: let go");
+    Check(barFrame(313, 110, false, false, false) == 120, "scroll bar: the pointer moved without the button: no drag");
+    Check(barFrame(313, 101, true, true, false) == 0, "scroll bar: pressed on the track above the thumb, it comes there");
+    barFrame(313, 101, false, false, true);
+    Check(barFrame(313, 100 + thumbH * 0.5f + travel * 0.75f, true, true, false) == 90,
+          "scroll bar: pressed on the track below, the thumb's middle comes to the pointer");
+    barFrame(313, 150, false, false, true);
+    Check(barFrame(306, 199, true, true, false) == 120, "scroll bar: a press just beside the bar takes it");
+    barFrame(306, 199, false, false, true);
+    Check(barFrame(300, 101, true, true, false) == 120, "scroll bar: a press further away does not");
+    barFrame(300, 101, false, false, true);
 
     const Rect button{100, 100, 120, 40};
     auto click = [&](const Rect& clip) {
@@ -1931,6 +2310,216 @@ void CheckSoundPanSwitch(SDL_Renderer* renderer) {
     again.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
     again.Frame(kDt, width, height, 1);
     CheckEq(b.Setting(kSoundPanKey), "0", "sound panning: a launcher.ini with 1 shows it on, so one click turns it off");
+}
+
+// The Settings box's Game options section (settings_game.cpp): none without the game's settings, every row of the Options
+// panel with them, nothing written by opening it, a change in the file at once and in no launcher.ini key, the game's
+// change shown when the window comes back, and nothing changed while the game holds the folder or of a file that does not read.
+void CheckGameOptions(SDL_Renderer* renderer) {
+    namespace fs = std::filesystem;
+    const float width = 1100, height = 3400;   // tall enough for the whole box
+    auto number = [](int got, int want, const std::string& what) { CheckEq(std::to_string(got), std::to_string(want), what); };
+
+    {
+        FakeBackend b;
+        LauncherUi ui(renderer, b);
+        ui.ShowSettings(true);
+        ui.Frame(kDt, width, height, 1);
+        Check(ui.GameOptionRect(GameOption::Advisor).w == 0, "game options: none without the game's settings (the original)");
+        Check(ui.GameEditionRect().w == 0, "game options: no edition row without them");
+    }
+
+    GameOptionsFolder folder("box");
+    FakeBackend b;
+    LauncherUi ui(renderer, b);
+    ui.SetGameSettings(folder.source);
+    auto frames = [&](int n) {
+        for (int i = 0; i < n; ++i) ui.Frame(kDt, width, height, 1);
+    };
+    auto clickAt = [&](float x, float y) {
+        ui.HandleEvent(MotionEvent(x, y));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, x, y));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, x, y));
+        frames(1);
+    };
+    auto click = [&](GameOption option) {
+        const Rect r = ui.GameOptionRect(option);
+        clickAt(r.CentreX(), r.CentreY());
+    };
+    // The choice'th of `count` side by side choices.
+    auto choose = [&](const Rect& r, int choice, int count) {
+        clickAt(r.x + r.w * (static_cast<float>(choice) + 0.5f) / static_cast<float>(count), r.CentreY());
+    };
+    auto drag = [&](GameOption option, float toFraction) {
+        const Rect r = ui.GameOptionRect(option);
+        const float y = r.CentreY(), fromX = r.CentreX(), toX = r.x + r.w * toFraction;
+        ui.HandleEvent(MotionEvent(fromX, y));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, fromX, y));
+        frames(1);
+        ui.HandleEvent(MotionEvent(toX, y));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, toX, y));
+        frames(1);
+    };
+    auto windowBack = [&] {
+        SDL_Event event{};
+        event.type = SDL_EVENT_WINDOW_FOCUS_GAINED;
+        ui.HandleEvent(event);
+        frames(1);
+    };
+
+    // Opening: the defaults, and no file made.
+    folder.AddPlayer(1, "1Ann");
+    const std::vector<uint8_t> annBefore = GameOptionsFolder::Load(folder.Player(1, "1Ann"));
+    ui.ShowSettings(true);
+    frames(2);
+    for (int option = 0; option < static_cast<int>(GameOption::Count); ++option)
+        Check(ui.GameOptionRect(static_cast<GameOption>(option)).w > 0, "game options: row " + std::to_string(option) + " is in the box");
+    Check(ui.GameEditionRect().w > 0 && ui.GameShapeRect().w > 0 && ui.GamePlayerRect().w > 0, "game options: edition, shape and player rows");
+    number(ui.GameEdition(), 1, "game options: the edition chosen to play");
+    Check(ui.GameView().configState == GameFileState::Missing, "game options: no Config.tcf yet");
+    number(ui.GameView().config.soundQuality, 75, "game options: the game's first Audio quality");
+    number(ui.GameView().player, 0, "game options: the only player");
+    Check(!fs::exists(folder.Config(1)), "game options: opening the box makes no Config.tcf");
+    Check(GameOptionsFolder::Load(folder.Player(1, "1Ann")) == annBefore, "game options: opening the box changes no player");
+    Check(ui.SettingsBodyCounted() == ui.SettingsBodyDrawn(), "game options: the box's height is the rows drawn");
+    const size_t keptKeys = b.settings.size();
+
+    // A toggle of the player's: its byte, and only that; no Config.tcf for it.
+    click(GameOption::Advisor);
+    std::vector<uint8_t> ann = GameOptionsFolder::Load(folder.Player(1, "1Ann"));
+    number(ann[25 + 32], 0, "game options: a click turns Advisor off in gms.dat");
+    ann[25 + 32] = 1;
+    Check(ann == annBefore, "game options: nothing else of gms.dat changed");
+    Check(!ui.GameView().options.advisor, "game options: the box shows Advisor off");
+    Check(!fs::exists(folder.Config(1)), "game options: a player's option makes no Config.tcf");
+
+    // A choice of Config.tcf's: makes the game's file from its defaults, that one number changed.
+    choose(ui.GameOptionRect(GameOption::GraphicsQuality), 0, 3);
+    GameConfig config;
+    Check(ParseGameConfig(GameOptionsFolder::Load(folder.Config(1)), config), "game options: Graphics quality makes the file");
+    number(config.detail, 0, "game options: Low kept");
+    number(config.soundQuality, 75, "game options: the game's Audio quality in the new file");
+    number(config.movie.volume, 100, "game options: the game's Movie volume in the new file");
+
+    // The sliders: a volume, Audio quality, and the Screen resolution's stops and shapes.
+    drag(GameOption::SfxVolume, 0.25f);
+    const int sfx = ui.GameView().options.sfx.volume;
+    Check(sfx > 15 && sfx < 35, "game options: Sound effects volume dragged to a quarter");
+    PlayerOptions options;
+    Check(ParsePlayerOptions(GameOptionsFolder::Load(folder.Player(1, "1Ann")), options), "game options: gms.dat still reads");
+    number(options.sfx.volume, sfx, "game options: the file has it");
+    click(GameOption::SfxOn);
+    Check(ParsePlayerOptions(GameOptionsFolder::Load(folder.Player(1, "1Ann")), options) && !options.sfx.on, "game options: its switch");
+    number(options.sfx.volume, sfx, "game options: the switch leaves the volume");
+    drag(GameOption::AudioQuality, 1.5f);
+    Check(ParseGameConfig(GameOptionsFolder::Load(folder.Config(1)), config), "game options: reads");
+    number(config.soundQuality, 100, "game options: Audio quality dragged past the end is its top");
+    drag(GameOption::Resolution, -0.5f);
+    Check(ParseGameConfig(GameOptionsFolder::Load(folder.Config(1)), config), "game options: reads");
+    number(config.resolution, 0x40000000 | 320 << 15 | 200, "game options: the first size at the screen's shape, as the game's number");
+    choose(ui.GameShapeRect(), 2, 3);
+    Check(ParseGameConfig(GameOptionsFolder::Load(folder.Config(1)), config), "game options: reads");
+    number(config.resolution, 0x40000000 | 355 << 15 | 200, "game options: the shape button keeps the height and changes the shape");
+    choose(ui.GameShapeRect(), 1, 3);
+    Check(ParseGameConfig(GameOptionsFolder::Load(folder.Config(1)), config), "game options: reads");
+    number(config.resolution, 0x40000000 | 320 << 15 | 200, "game options: and back");
+    drag(GameOption::Resolution, 1.5f);
+    Check(ParseGameConfig(GameOptionsFolder::Load(folder.Config(1)), config), "game options: reads");
+    number(config.resolution, 2, "game options: back at the size it opened at, the number the file held");
+
+    // Rendering to Software: as the panel's button, Graphics quality comes down and High is off.
+    choose(ui.GameOptionRect(GameOption::GraphicsQuality), 2, 3);
+    choose(ui.GameOptionRect(GameOption::Rendering), 1, 2);
+    Check(ParseGameConfig(GameOptionsFolder::Load(folder.Config(1)), config), "game options: reads");
+    number(config.renderer, 0, "game options: Software rendering");
+    number(config.detail, 1, "game options: Graphics quality comes down with it");
+    choose(ui.GameOptionRect(GameOption::GraphicsQuality), 2, 3);
+    Check(ParseGameConfig(GameOptionsFolder::Load(folder.Config(1)), config), "game options: reads");
+    number(config.detail, 1, "game options: no High with Software rendering");
+    choose(ui.GameOptionRect(GameOption::Rendering), 0, 2);
+
+    // Videocard is shown, and cannot be changed (the system gives the game one device).
+    const std::vector<uint8_t> beforeCard = GameOptionsFolder::Load(folder.Config(1));
+    choose(ui.GameOptionRect(GameOption::Videocard), 1, 2);
+    Check(GameOptionsFolder::Load(folder.Config(1)) == beforeCard, "game options: Videocard does not change");
+    number(static_cast<int>(b.settings.size()), static_cast<int>(keptKeys), "game options: no launcher.ini key for any of them");
+
+    // The game writes its file while the window is away; the window coming back shows it.
+    config.soundQuality = 11;
+    GameOptionsFolder::Save(folder.Config(1), EncodeGameConfig(config));
+    number(ui.GameView().config.soundQuality, 100, "game options: the box has what it last read");
+    windowBack();
+    number(ui.GameView().config.soundQuality, 11, "game options: the window back, the box has the game's");
+
+    // A second player: the last one played first, the other chosen, its own values; a change goes to it alone.
+    folder.AddPlayer(1, "2Bob");
+    fs::last_write_time(folder.Player(1, "2Bob"), fs::file_time_type::clock::now() + std::chrono::hours(1));
+    windowBack();
+    number(static_cast<int>(ui.GameView().players.size()), 2, "game options: two players");
+    CheckEq(ui.GameView().players[static_cast<size_t>(ui.GameView().player)].name, "Bob", "game options: the last one played");
+    const Rect field = ui.GamePlayerRect();
+    clickAt(field.CentreX(), field.CentreY());
+    frames(1);
+    const Rect row = ui.GamePlayerRow(0);
+    Check(row.w > 0, "game options: the player list opens");
+    clickAt(row.CentreX(), row.CentreY());
+    CheckEq(ui.GameView().players[static_cast<size_t>(ui.GameView().player)].name, "Ann", "game options: the player chosen");
+    Check(!ui.GameView().options.advisor, "game options: that player's own values");
+    const std::vector<uint8_t> bobBefore = GameOptionsFolder::Load(folder.Player(1, "2Bob"));
+    click(GameOption::Tutorial);
+    Check(ParsePlayerOptions(GameOptionsFolder::Load(folder.Player(1, "1Ann")), options) && !options.tutorial, "game options: goes to that player");
+    Check(GameOptionsFolder::Load(folder.Player(1, "2Bob")) == bobBefore, "game options: and not the other");
+    windowBack();
+    CheckEq(ui.GameView().players[static_cast<size_t>(ui.GameView().player)].name, "Ann", "game options: a player chosen in the box stays chosen");
+    ui.ShowSettings(false);
+    frames(1);
+    ui.ShowSettings(true);
+    frames(2);
+    CheckEq(ui.GameView().players[static_cast<size_t>(ui.GameView().player)].name, "Bob", "game options: opened again, the last one played");
+    clickAt(field.CentreX(), field.CentreY());
+    frames(1);
+    clickAt(ui.GamePlayerRow(0).CentreX(), ui.GamePlayerRow(0).CentreY());
+
+    // While the game holds the folder: shown as running, and no row changes a file.
+    {
+        GameFileLock game;
+        Check(game.Take(folder.source.userFolder(1)), "game options: the game's lock");
+        windowBack();
+        Check(ui.GameView().running, "game options: the box knows the game is running");
+        const std::vector<uint8_t> annHeld = GameOptionsFolder::Load(folder.Player(1, "1Ann"));
+        const std::vector<uint8_t> configHeld = GameOptionsFolder::Load(folder.Config(1));
+        click(GameOption::Advisor);
+        drag(GameOption::MusicVolume, 0.1f);
+        drag(GameOption::AudioQuality, 0.1f);
+        drag(GameOption::Resolution, 0.5f);
+        choose(ui.GameOptionRect(GameOption::Rendering), 1, 2);
+        Check(GameOptionsFolder::Load(folder.Player(1, "1Ann")) == annHeld, "game options: no player's file written while the game runs");
+        Check(GameOptionsFolder::Load(folder.Config(1)) == configHeld, "game options: no Config.tcf written while the game runs");
+    }
+    windowBack();
+    Check(!ui.GameView().running, "game options: the game gone, the rows work again");
+
+    // A file that does not read: left as it is, and said so.
+    std::vector<uint8_t> cut = GameOptionsFolder::Load(folder.Config(1));
+    cut.resize(10);
+    GameOptionsFolder::Save(folder.Config(1), cut);
+    windowBack();
+    Check(ui.GameView().configState == GameFileState::Damaged, "game options: a cut Config.tcf is seen");
+    choose(ui.GameOptionRect(GameOption::GraphicsQuality), 0, 3);
+    drag(GameOption::AudioQuality, 0.5f);
+    Check(GameOptionsFolder::Load(folder.Config(1)) == cut, "game options: and left as it was");
+
+    // The other edition: its own folder, its own defaults, its only state.
+    choose(ui.GameEditionRect(), 0, 2);
+    number(ui.GameEdition(), 0, "game options: the other edition");
+    Check(ui.GameView().configState == GameFileState::Missing && ui.GameView().player == -1, "game options: its own files, none yet");
+    click(GameOption::Advisor);
+    Check(!fs::exists(folder.source.userFolder(0)), "game options: no player, so a player's option writes nothing");
+    Check(ui.SettingsBodyCounted() == ui.SettingsBodyDrawn(), "game options: the height again");
 }
 
 // The Settings box's Several keys at once switch (reported by Addable13): off when launcher.ini has no key (the original's
@@ -2648,9 +3237,9 @@ void CheckUpdateBanner(SDL_Renderer* renderer) {
     }
 }
 
-// The real backend over an empty data folder: neither edition asks for a program of the game (its data tables are
-// built in), so each edition is counted exactly as the importer counts it and the program's record is optional. The
-// folder is made under the screens folder and removed again.
+// The real backend over an empty data folder: neither edition asks for a program of the game, so each edition is
+// counted exactly as the importer counts it and the program's record is optional. The folder is made under the screens
+// folder and removed again.
 void CheckNoProgram(const std::string& screens) {
     namespace fs = std::filesystem;
     const fs::path pref = fs::path(screens) / "no-program";
@@ -2678,6 +3267,44 @@ void CheckNoProgram(const std::string& screens) {
     fs::remove_all(pref, ec);
 }
 
+// The launcher's settings kept over the importer's write of launcher.ini on Play (KeepSettings): the Play saves the
+// edition chosen with the importer's older copy of the file, which drops what the window saved since it opened (the
+// Mods box's switches came back off after a game, 0.3.2). The real backend over an empty data folder, made under the
+// screens folder and removed again.
+void CheckKeepSettings(const std::string& screens) {
+    namespace fs = std::filesystem;
+    const fs::path pref = fs::path(screens) / "keep-settings";
+    std::error_code ec;
+    fs::remove_all(pref, ec);
+    fs::create_directories(pref, ec);
+    const auto saved = [&](const std::string& key) {
+        assets::LauncherIni ini;
+        std::string err;
+        if (!assets::LoadLauncherIni((pref / "launcher.ini").string(), ini, err)) return std::string("(no file)");
+        for (const auto& kv : ini.extra)
+            if (kv.first == key) return kv.second;
+        return std::string("(absent)");
+    };
+    {
+        ImporterBackend backend(pref.string());
+        std::string err;
+        Check(backend.Open(err), "keep settings: the data folder opens: " + err);
+        Check(backend.SaveSetting("mod.test-on", "1", err), "keep settings: a mod switched on is saved: " + err);
+        Check(backend.SaveSetting("mod.test-off", "0", err), "keep settings: a mod switched off is saved: " + err);
+        Check(backend.SaveSetting(kSkipIntroKey, "1", err), "keep settings: Skip the intro films is saved: " + err);
+        Check(backend.SaveSetting("mod.test-unlisted", "1", err), "keep settings: another key is saved: " + err);
+        CheckEq(saved("mod.test-on"), "1", "keep settings: the switch is in the file before Play");
+        backend.SetLastChoice(assets::EditionName(assets::kEditionUs), err);   // what Play does
+        KeepSettings(backend, pref.string(), {"mod.test-on", "mod.test-off"});
+        CheckEq(saved("mod.test-on"), "1", "keep settings: a mod switched on stays on after Play");
+        CheckEq(saved("mod.test-off"), "0", "keep settings: a mod switched off stays off after Play");
+        CheckEq(saved(kSkipIntroKey), "1", "keep settings: Skip the intro films stays after Play");
+        CheckEq(saved("mod.test-unlisted"), "(absent)", "keep settings: only the keys named are written again");
+        CheckEq(saved("mod.test-never"), "(absent)", "keep settings: a key never saved is not written");
+    }
+    fs::remove_all(pref, ec);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -2693,6 +3320,7 @@ int main(int argc, char** argv) {
 
     CheckTexts();
     CheckNoProgram(dir);
+    CheckKeepSettings(dir);
 
     SDL_Surface* scratch = SDL_CreateSurface(320, 240, SDL_PIXELFORMAT_XRGB8888);
     SDL_Renderer* renderer = scratch ? SDL_CreateSoftwareRenderer(scratch) : nullptr;
@@ -2702,11 +3330,13 @@ int main(int argc, char** argv) {
         CheckDrops(renderer);
         CheckReady(renderer);
         CheckWindowsReady(renderer);
+        CheckTilePlay(renderer);
         CheckScroll(renderer);
         CheckSettingsScroll(renderer);
         CheckLanguages(renderer);
         CheckVisitorLooks(renderer);
         CheckSoundPanSwitch(renderer);
+        CheckGameOptions(renderer);
         CheckSeveralKeysSwitch(renderer);
         CheckOnlineServerField(renderer);
         CheckFrameRateSlider(renderer);

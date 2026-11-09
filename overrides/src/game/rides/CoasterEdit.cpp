@@ -1275,6 +1275,17 @@ static tag_sTrackBrace* EditBrace(uint32_t id) {
     return GetTrackBrace(reinterpret_cast<sCoasterTrackParams*>(&gCoasterEditInstance->mBlock3C), id);
 }
 
+// TPW_PORT_FIX bracereplay ReplayBrace | Mac: a replayed pylon command (loft, rotate, wobble, stack up or down, delete, move) takes the id-th brace back from the last of the editor's coaster (GetTrackBrace) whatever the coaster has, and it and a replayed track regeneration read the edit instance even when no coaster is in the editor | Port: this answers that brace, or NULL when no coaster is in the editor or the coaster has fewer braces; the command then does nothing (a delete leaves gCoasterDragBrace NULL), and so does the regeneration with no coaster | Why: a recording whose replay builds fewer braces than its player had (the actions the Mac's recorder wrote as 0, arcode) asked for braces past the first, and the walk faulted at a NULL brace's +0x68 (and at a NULL instance), crashing visitors of some online parks with roller coasters (0.3.2)
+static tag_sTrackBrace* ReplayBrace(uint32_t id) {
+    if (gCoasterEditInstance == nullptr) return nullptr;
+    tag_sTrackBrace* brace = reinterpret_cast<sCoasterTrackParams*>(&gCoasterEditInstance->mBlock3C)->mLastBrace;
+    while (brace != nullptr && id != 0) {
+        brace = brace->mPrev;
+        --id;
+    }
+    return brace;
+}
+
 // 0x10055e0c
 void SetLoftPylon(float value, uint32_t id, int32_t a, int32_t b) {
     tag_sTrackBrace* brace = EditBrace(id);
@@ -1284,6 +1295,7 @@ void SetLoftPylon(float value, uint32_t id, int32_t a, int32_t b) {
 
 // 0x10055eac
 void LayoutSetLoftPylon(float value, uint32_t id) {
+    if (ReplayBrace(id) == nullptr) return;
     tag_sTrackBrace* brace = EditBrace(id);
     brace->mFE8w = value;
     HandleCoasterDataChange(1, brace, gCoasterEditInstance, 0, 0);
@@ -1299,6 +1311,7 @@ void SetRotatePylon(float value, uint32_t id, int32_t setFlag, int32_t b) {
 
 // 0x10055ff0
 void LayoutSetRotatePylon(float value, uint32_t id) {
+    if (ReplayBrace(id) == nullptr) return;
     tag_sTrackBrace* brace = EditBrace(id);
     brace->mAngle = value;
     brace->mFlags |= 1;
@@ -1323,6 +1336,7 @@ void SetWobblePylon(float x, float z, uint32_t id, int32_t setFlags, int32_t b) 
 
 // 0x10056180
 void LayoutSetWobblePylon(float x, float z, uint32_t id) {
+    if (ReplayBrace(id) == nullptr) return;
     tag_sTrackBrace* brace = EditBrace(id);
     if ((brace->mFlags & 0x40) != 0) {
         brace->mFD8 = 0.0f;
@@ -2130,20 +2144,33 @@ sCoasterTrackParams* EditParams() {
 
 // 0x10058c08 (76 bytes): swaps the brace with the table entry two places on (offset 0x38 - 0x30).
 void LayoutStackPylonUp(uint16_t id) {
+    // TPW_PORT_FIX bracereplay LayoutStackPylonUp | Mac: the brace (GetTrackBrace) and the one above it in its pylon are taken whatever the editor holds | Port: nothing is done when ReplayBrace finds no such brace or the brace is the top of its pylon (or has no pylon); likewise Down at the bottom of its pylon, Delete with either brace missing (gCoasterDragBrace is then NULL), Move with no brace, the regeneration with no coaster in the editor | Why: the replay of a recording out of step with its coaster (arcode) faulted on the missing brace or swapped with a slot past the pylon's braces, crashing visitors of some online parks (0.3.2)
+    const tag_sTrackBrace* replay = ReplayBrace(id);
+    if (replay == nullptr || replay->mData == nullptr || IndexOf(replay) + 1 >= PylonOf(replay)->mCount) return;
     tag_sTrackBrace* brace = GetTrackBrace(EditParams(), id);
     ExchangeTrackBraces(brace, PylonTableEntry(brace, 2));
 }
 
 // 0x10058c80 (76 bytes)
 void LayoutStackPylonDown(uint16_t id) {
+    const tag_sTrackBrace* replay = ReplayBrace(id);
+    if (replay == nullptr || replay->mData == nullptr || IndexOf(replay) == 0 || IndexOf(replay) >= PylonOf(replay)->mCount) return;
     tag_sTrackBrace* brace = GetTrackBrace(EditParams(), id);
     ExchangeTrackBraces(brace, PylonTableEntry(brace, 0));
 }
 
 // 0x10058cf8 (120 bytes)
 void LayoutDeleteMultiPylons(uint16_t a, uint16_t b) {
+    if (ReplayBrace(a) == nullptr) {
+        gCoasterDragBrace = nullptr;
+        return;
+    }
     gCoasterDragBrace = GetTrackBrace(EditParams(), a);
     DoDeleteMultiPylons();
+    if (ReplayBrace(b) == nullptr) {   // after the first delete, which took a brace
+        gCoasterDragBrace = nullptr;
+        return;
+    }
     gCoasterDragBrace = GetTrackBrace(EditParams(), b);
     DoDeleteMultiPylons();
 }
@@ -2152,6 +2179,7 @@ void LayoutDeleteMultiPylons(uint16_t a, uint16_t b) {
 void LayoutSetMovePylon(uint16_t a, uint16_t b, uint16_t c) {
     (void)a;
     (void)b;
+    if (ReplayBrace(c) == nullptr) return;
     DisableCurrentPylonEditState();
     gCoasterWord16E0 = 2;
     tag_sTrackBrace* brace = GetTrackBrace(EditParams(), c);
@@ -2162,6 +2190,7 @@ void LayoutSetMovePylon(uint16_t a, uint16_t b, uint16_t c) {
 // 0x10058e48 (76 bytes)
 void LayoutRegenerateTrack() {
     tag_sCoasterInstance* instance = gCoasterEditInstance;
+    if (instance == nullptr) return;
     if (instance->mFlags & 1) {
         gCoasterCurrent = instance;
         gCoasterCurrentData = &instance->mBlock3C;
@@ -2188,9 +2217,10 @@ void LayoutSetCoasterEditOld(uint32_t entrance) {
     SetCoasterEdit(instance, entrance != 0 ? 1 : 0);
 }
 
-// 0x1005901c (88 bytes)
+// 0x1005901c (88 bytes). Calls the tag_sCoasterInstance* overload (0x100585f4), not the void* one (0x10058758), which
+// does nothing while a recording plays back.
 void LayoutSetCoasterEdit(uint32_t id) {
-    void* instance = id != 0 ? gObjectTable[id] : nullptr;
+    tag_sCoasterInstance* instance = id != 0 ? static_cast<tag_sCoasterInstance*>(gObjectTable[id]) : nullptr;
     SetCoasterEdit(instance, id != 0 ? 1 : 0);
 }
 

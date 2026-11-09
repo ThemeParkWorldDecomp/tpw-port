@@ -11,7 +11,8 @@
 // the arena reads as the empty string and is logged. Each reply or push is handed to the game as Chat::internalCallback2 does: a
 // vector of Argument, the first {"", "", event}, then {text, "", atoi(text)} for each narrow argument and {"", text, 0} for each wide
 // one, given to the callback with the code 100 and the request's context; -4 and -5 come with an empty vector.
-// Not in the host tests' link: it calls the game.
+// The lobby's satellites use the same connection with no login (chat_satellite_callee, ProcessGetChatSatellitePlayers).
+// Not in the host tests' link: it calls the game. Only tpw_host_chat_satellites links it, whole, as the launcher does.
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
@@ -20,12 +21,14 @@
 #include <string>
 #include <vector>
 
+#include "InterfaceWindow.h"
 #include "email.h"
 #include "online.h"
 #include "platform.h"
 #include "platform/arena.h"
 #include "platform/online_boss.h"
 #include "platform/online_slots.h"
+#include "std_basic_filebuf.h"
 
 namespace {
 
@@ -123,6 +126,35 @@ int32_t ChatConnect(void* chat, const char* server, uint16_t port, void (*callba
     ChatWord(chat, 4) = 1;
     return 1;
 }
+
+}  // namespace online_callee
+
+namespace chat_satellite_callee {
+
+// 0x1023aa08 Chat::Connect, as the lobby's satellites call it: the callback takes the vector by reference, which is the same pointer.
+int32_t ChatConnect(void* chat, const char* server, uint16_t port, ChatCallback callback, char* extra) {
+    return online_callee::ChatConnect(chat, server, port, reinterpret_cast<GameCallback>(callback), extra);
+}
+
+// 0x1023aa38 Chat::RoomInfo: command 7 with the room as a narrow argument. The room is made by outbox_callee::StringCtor
+// (platform/postcard_dispatch.cpp), which writes only the first word of the string: the arena offset of a representation with the
+// length at +0 and its characters' arena offset at +0xc (and not the native pointer at +0x10 that tpw::slots reads).
+void ChatRoomInfo(void* chat, const MslCharString& room, void* context) {
+    uint32_t word = 0;
+    std::memcpy(&word, &room, sizeof word);
+    if (word == 0 || !tpw::InArena(tpw::gArenaBase + word)) {
+        tpw::Log("online: chat: a room word (0x%08x) that names no representation, not sent", word);
+        return;
+    }
+    uint32_t length = 0, chars = 0;
+    std::memcpy(&length, tpw::gArenaBase + word, sizeof length);
+    std::memcpy(&chars, tpw::gArenaBase + word + 0xc, sizeof chars);
+    Send(chat, 7, {ChatToken::Narrow(std::string(reinterpret_cast<const char*>(tpw::gArenaBase + chars), length))}, context);
+}
+
+}  // namespace chat_satellite_callee
+
+namespace online_callee {
 
 // 0x1023aa50 Chat::Release: the connection let go of (the Mac clears the client pointer and leaves the connected word).
 void ChatRelease(void* chat) {

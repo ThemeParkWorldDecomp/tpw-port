@@ -48,7 +48,6 @@ void FindParksPostGetPlayerParksCallbackFn(int32_t error, const void* context, T
 
 char16_t gFindPanelPlayerName[64];              // 0x103960a4
 void (*gFindPanelCloseCallback)();              // 0x103960c4
-int32_t gFindPanelWord;                         // 0x103960c8
 
 namespace {
 const char kStopSearchText[] = "WL / MW : Stop the search and display whatever has been got in the search\n";   // 0x1024ef8d
@@ -75,7 +74,7 @@ int32_t OnlineParkFindPanelMsg(InterfaceWindow* window, int32_t message, int32_t
         if (message != 0x15) {
             if (message < 0x15) {
                 if (message >= 0x14) {
-                    gFindPanelWord = 0;
+                    gOnlineParkFindPanel = nullptr;
                     gLobby->mWindow->CaptureKb(0);
                 }
             } else if (message == 0x1f) {
@@ -247,7 +246,8 @@ void FillOnlineParkFindList(TbPtrList<CFSOnlinePark>* parks) {
             item[1].mText = localised.mString.mData;
             if (gOnlineSystem == nullptr) gOnlineSystem = findpanel_callee::NewOnlineSystem();
             CFSOnlineCity* city = park_info_callee::ReturnCityInfo(gOnlineSystem->mCityList, park->mF48);
-            item[2].mText = city->mName;
+            // TPW_PORT_FIX unlistedcity FillOnlineParkFindList | Mac: the row's city cell reads the city's name unchecked (0x101e9bf0) and crashes on a city not on the list | Port: the cell stays empty, the row stays | Why: an owner search can answer with a park of a city the server's config dropped
+            item[2].mText = city != nullptr ? city->mName : gOnlineParkFindWide;
             count--;
             item[3].mInt = park->mFB8;
             item[4].mInt = park->mF50;

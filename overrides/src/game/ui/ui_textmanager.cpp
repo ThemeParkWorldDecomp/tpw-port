@@ -67,6 +67,8 @@ void InterfaceTitleTextObject::UpdateTextures(char16_t* text) {
     TbRenderArea area;
     TbRect bounds = {0, 0, 0, 0};
     if (text == nullptr) return;
+    // TPW_PORT_FIX resslider InterfaceTitleTextObject::UpdateTextures | Mac: the text is drawn and forgotten | Port: it is kept to be drawn again when the screen's size changes | Why: see include/ui_DrawObject.h
+    PortRememberText(text);
     const TextBox box = Justify(*this);
     gText.mRenderParams.SetFont(FontOf(*this));
     PrepareSurface(*this, area);

@@ -1718,10 +1718,19 @@ int32_t CWorld::ConvertDLRidesUsedToIndices(uint16_t* out) {
                 ride = gRideDatabase.GetNextRide();
             GAME_ASSERTMSG(ride != nullptr, kNotInDatabaseText);
             if (ride != nullptr) {
+                // TPW_PORT_FIX dlrides CWorld::ConvertDLRidesUsedToIndices | Mac: reads the number after the folder's last backslash, with no test for NULL | Port: a folder with no backslash is read from its last name, between the last two ':' or '/' ("data:levels:hallow:Rides:_bellt_10:" gives 10, the number in the ride's file name), and a folder with no digit there adds nothing | Why: the game's folders are ':' separated on every platform, so strrchr answered NULL and publishing a park that has an add-on ride crashed in strpbrk
                 const char* name = std::strrchr(ride->mFolder, '\\');
+                if (name == nullptr) {
+                    const char* last = ride->mFolder + std::strlen(ride->mFolder);
+                    while (last > ride->mFolder && (last[-1] == ':' || last[-1] == '/')) --last;
+                    name = last;
+                    while (name > ride->mFolder && name[-1] != ':' && name[-1] != '/') --name;
+                }
                 name = std::strpbrk(name, kDigits);
-                char* end;
-                out[k++] = static_cast<uint16_t>(std::strtol(name, &end, 10));
+                if (name != nullptr) {
+                    char* end;
+                    out[k++] = static_cast<uint16_t>(std::strtol(name, &end, 10));
+                }
             }
         }
     }

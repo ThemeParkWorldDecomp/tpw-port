@@ -16,6 +16,7 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #define STBTT_STATIC
 #include "stb_truetype.h"
+#include "path_text.h"
 
 #include <algorithm>
 #include <cctype>
@@ -304,7 +305,7 @@ int32_t AddFontFile(const std::string& hostPath) {
                 faces += got;
             }
         }
-        if (faces == 0) LogOnce("nofaces:" + hostPath, "AddFontResource: no sfnt resource in " + forkPath.string());
+        if (faces == 0) LogOnce("nofaces:" + hostPath, "AddFontResource: no sfnt resource in " + tpw::PathText(forkPath));
         added[hostPath] = faces;
         return faces;
     }

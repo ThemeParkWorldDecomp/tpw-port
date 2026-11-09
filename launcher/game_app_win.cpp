@@ -20,6 +20,7 @@
 
 #include "app_icon.h"
 #include "host_win.h"
+#include "path_text.h"
 
 // platform.h is not included (the game's headers define Win32 names themselves, as host_win.h says): only the log line.
 namespace tpw {
@@ -285,7 +286,7 @@ bool KeepGameExe(const std::wstring& launcher, const std::wstring& exe, bool us,
 std::string WorkingFolder() {
     std::error_code ec;
     const fs::path cwd = fs::current_path(ec);
-    return ec ? "" : cwd.string();   // in the C runtime's code page, as argv's are (StartProcess)
+    return ec ? "" : tpw::PathText(cwd);   // in the C runtime's code page, as argv's are (StartProcess)
 }
 
 struct WindowSearch {
@@ -325,7 +326,7 @@ HRESULT SetText(IPropertyStore* store, const PROPERTYKEY& key, const std::wstrin
 
 }  // namespace
 
-bool StartGameApp(int argc, char** argv, bool us, const std::string& dataFolder, bool activate, GameApp& app, std::string& why) {
+bool StartGameApp(int argc, char** argv, bool us, const std::string& edition, const std::string& dataFolder, bool activate, GameApp& app, std::string& why) {
     if (!CurrentGameBundle().empty()) {
         why = "this process runs from the game's program, not tpw_launcher.exe";
         return false;
@@ -339,7 +340,7 @@ bool StartGameApp(int argc, char** argv, bool us, const std::string& dataFolder,
     if (!KeepGameExe(launcher, exe, us, dataFolder, app.made, why)) return false;
     app.bundle = Utf8(exe);
     PROCESS_INFORMATION info{};
-    if (!StartProcess(exe, GameArguments(argc, argv, us, WorkingFolder()), activate, info, why)) return false;
+    if (!StartProcess(exe, GameArguments(argc, argv, edition, WorkingFolder()), activate, info, why)) return false;
     app.pid = static_cast<int>(info.dwProcessId);
     app.running = info.hProcess;
     return true;

@@ -37,6 +37,7 @@
 #include "platform.h"
 #include "platform/indirectx.h"
 #include "platform/macdoze.h"
+#include "path_text.h"
 
 namespace {
 tpw::Window gWindow;
@@ -118,7 +119,7 @@ void DumpFrame() {
     std::snprintf(name, sizeof name, "frame-%04d.bmp", count++);
     std::error_code ec;
     std::filesystem::create_directories(tpw::config().dumpFramesDir, ec);
-    if (!SDL_SaveBMP(surface, (tpw::config().dumpFramesDir / name).string().c_str())) {
+    if (!SDL_SaveBMP(surface, tpw::PathText(tpw::config().dumpFramesDir / name).c_str())) {
         tpw::Log("could not save %s: %s", name, SDL_GetError());
     } else {
         tpw::Log("dumped %s at %llu ms (pass %d)", name, static_cast<unsigned long long>(SDL_GetTicks()), tpw::CurrentPass());
@@ -201,11 +202,20 @@ void SetGameSize(int wide, int high) {
         return;
     }
     if (wide == gFit.gameWide && high == gFit.gameHigh) return;
+    // (a size of the same shape, as the options panel's slider picks, leaves the window where and as big as the player has it:
+    // it is letterboxed by less than a pixel at most, and the mouse goes through the same fit)
+    const double crossNew = static_cast<double>(gFit.gameWide) * high;
+    const double crossOld = static_cast<double>(wide) * gFit.gameHigh;
+    const bool sameShape = gFit.gameWide > 0 && gFit.gameHigh > 0 && std::fabs(crossNew - crossOld) <= 0.01 * crossOld;
     gFit.gameWide = wide;
     gFit.gameHigh = high;
     SetPortRect(wide, high);
     if (gfx::Created() && !gfx::Resize(wide, high)) {
         DisableFit("could not make the framebuffer for the new resolution");
+        return;
+    }
+    if (sameShape) {
+        tpw::Log("fit: game %dx%d, the window stays as it is", wide, high);
         return;
     }
     RefitWindow();

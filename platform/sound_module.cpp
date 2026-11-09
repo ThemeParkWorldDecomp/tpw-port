@@ -250,7 +250,8 @@ CSprocketsChannel* CSprocketsModule::ChannelAt(uint32_t index) const {
 // the speaker config is Stereo; the MPEG file player pool is set to be kept full (UPooled<CMpegMacFilePlayerUnpooled, 10>::
 // SetPoolKeepFull(1), 0x1002b5ec) and the pool maintenance runs (Tick). -1 when the array cannot be made. Host: the device is opened
 // at mRate (22050, the base's constructor value; the info has no rate field) as 16-bit stereo, with one stream per channel;
-// no device is also -1 (the game goes on without sound, as on a Mac without a sound card).
+// no device is not a failure (SoundDevice::Open: the sounds run unheard until one opens). -1 when the streams cannot be made, and
+// with --mute when the dummy driver fails (the game goes on without sound, as on a Mac without a sound card).
 TbError CSprocketsModule::Init(const TbSoundSystemInfo& info) {
     Host& host = HostOf(this);
     if (host.channels != nullptr) Close();

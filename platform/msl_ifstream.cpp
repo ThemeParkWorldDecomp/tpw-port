@@ -22,6 +22,7 @@
 
 #include "FS_MasterSave.h"
 #include "platform.h"
+#include "path_text.h"
 
 namespace {
 
@@ -69,7 +70,7 @@ SwearFilebuf* FilebufOpen(SwearFilebuf* buf, const char* path, int32_t) {
     if (buf->mFile != 0) return nullptr;
     const std::filesystem::path host = tpw::FindHostPath(path);
     if (host.empty()) return nullptr;
-    std::FILE* file = std::fopen(host.string().c_str(), "rb");
+    std::FILE* file = std::fopen(tpw::PathText(host).c_str(), "rb");
     if (file == nullptr) return nullptr;
     OpenFile open;
     uint8_t chunk[4096];

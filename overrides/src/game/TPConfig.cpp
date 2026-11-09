@@ -118,6 +118,11 @@ void InitialiseGameStage3() {
             break;
         default: break;
         }
+        // TPW_PORT_FIX resslider InitialiseGameStage3 | Mac: the start's size is a preset | Port: or the launcher's exact size (1920 x 1080 is no preset at any shape) | Why: --resolution and a size saved from the options panel
+        if (gPortStartWide > 0) {
+            gScreenWidth = gPortStartWide;
+            gScreenHeight = gPortStartHigh;
+        }
     } else {
         switch (gPlayerSettings.mCurrent.mResolution) {
         case 0: SetScreenSize(512, 384); break;

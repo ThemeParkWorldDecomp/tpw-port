@@ -62,6 +62,7 @@
 #include "gfx.h"
 #include "handoff.h"
 #include "log_export.h"
+#include "path_text.h"
 #ifdef TPW_PORT_FIX
 #include "mods.h"
 #endif
@@ -118,11 +119,44 @@ std::unordered_map<const char*, long> gStubCallsByName;
 // Apply the native override after the game's balance files and saved settings load,
 // before the first Process call chooses fonts and the screen size. The translated
 // start-up and the original entry point remain unchanged.
+#ifdef TPW_PORT_FIX
+bool gStartAtSavedSize = false;   // no --resolution: the game starts at the size the options panel's slider last saved
+bool gStartAtSavedShape = false;  // no --aspect either: and at the shape it saved with it
+#endif
 class ResolutionOverrideWorld final : public ThemeParkWorld {
 public:
     explicit ResolutionOverrideWorld(int32_t preset) : mPreset(preset) {}
     bool Initialise() override {
         if (!ThemeParkWorld::Initialise()) return false;
+#ifdef TPW_PORT_FIX
+        // The size saved from the options panel's slider (Config.tcf is loaded by now; include/TPSettings.h), unless
+        // --resolution names the start's size.
+        if (gStartAtSavedSize) {
+            const int32_t setting = gPlayerSettings.mCurrent.mResolution;
+            int32_t exactWide = 0;
+            int32_t exactHigh = 0;
+            const bool exact = PortResolutionSize(setting, exactWide, exactHigh);
+            const int32_t saved = exact ? UI_ClosestPreset(exactWide, exactHigh, gUIWideAspect) : PortResolutionPreset(setting, mPreset);
+            const int32_t shape = gStartAtSavedShape ? PortResolutionShape(setting) : -1;
+            const float aspect = shape >= 0 ? UI_ShapeAspect(shape) : gUIWideAspect;
+            int32_t wide = 0;
+            int32_t high = 0;
+            UI_PresetSize(saved, aspect, wide, high);
+            if (exact && gStartAtSavedShape && PortSizeFits(exactWide, exactHigh)) {
+                mPreset = UI_ClosestPreset(exactWide, exactHigh, UI_SizeAspect(exactWide, exactHigh));
+                gUIWideAspect = UI_SizeAspect(exactWide, exactHigh);
+                gPortStartWide = exactWide;
+                gPortStartHigh = exactHigh;
+                tpw::Log("resolution: %dx%d, saved from the options panel", exactWide, exactHigh);
+                tpw::LogFileF("game size: %dx%d, saved from the options panel", exactWide, exactHigh);
+            } else if ((saved != mPreset || aspect != gUIWideAspect) && PortSizeFits(wide, high)) {
+                mPreset = saved;
+                gUIWideAspect = aspect;
+                tpw::Log("resolution: %dx%d (preset %d), saved from the options panel", wide, high, mPreset);
+                tpw::LogFileF("game size: %dx%d (preset %d), saved from the options panel", wide, high, mPreset);
+            }
+        }
+#endif
         gResolutionBalance.mValues[1].mInteger = mPreset;
         return true;
     }
@@ -131,34 +165,62 @@ private:
 };
 
 int ResolutionPreset(const char* size) {
-    const char* sizes[] = {"512x384",   "640x480",   "800x600",   "1024x768",  "1280x1024",
-                           "1600x1200", "2048x1536", "2560x1920", "3200x2400", "4096x3072"};
-    for (int i = 0; i < 10; ++i)
-        if (std::strcmp(size, sizes[i]) == 0) return i + 1;
+    for (int i = 0; i < kUISizePresetCount; ++i)
+        if (std::strcmp(size, kUISizePresets[i].mName) == 0) return i + 1;
     return 0;
 }
 
 #ifdef TPW_PORT_FIX
-// The shape of the screen the game opens on (its desktop mode: --display's screen, else the main one), as the nearest of
-// the three the UI was laid out for: 4:3, 16:10 and 16:9 (a MacBook's 2056 x 1329 is 16:10, a 21:9 screen 16:9, a 5:4
-// or upright one 4:3). False when there is no screen to ask. Video is started for it and stays started (the window and
-// the game use it).
-bool ScreenAspect(int& wide, int& high) {
-    if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) return false;
+#include "game_size_rules.h"
+
+// A size of the slider's lists that is not a preset's name (1920x1080): 0 when it is not one. It is exactly that size.
+bool ListedSize(const char* name, int32_t& wide, int32_t& high) {
+    for (const auto& list : kUISizeLists) {
+        for (const UISizeStop& size : list) {
+            char text[32];
+            std::snprintf(text, sizeof text, "%dx%d", size.mWidth, size.mHeight);
+            if (std::strcmp(name, text) != 0) continue;
+            wide = size.mWidth;
+            high = size.mHeight;
+            return true;
+        }
+    }
+    return false;
+}
+
+// The desktop mode of the screen the game opens on (--display's, else the main one); null when there is no screen to ask.
+// Video is started for it and stays started (the window and the game use it).
+const SDL_DisplayMode* ScreenMode() {
+    if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) return nullptr;
     SDL_DisplayID display = tpw::ChosenDisplay();
     if (display == 0) display = SDL_GetPrimaryDisplay();
     const SDL_DisplayMode* mode = display != 0 ? SDL_GetDesktopDisplayMode(display) : nullptr;
-    if (mode == nullptr || mode->w <= 0 || mode->h <= 0) return false;
-    static const int kShapes[3][2] = {{4, 3}, {16, 10}, {16, 9}};
+    return mode != nullptr && mode->w > 0 && mode->h > 0 ? mode : nullptr;
+}
+
+// The shape of that screen, as the nearest of the three the UI was laid out for: 4:3, 16:10 and 16:9 (a MacBook's
+// 2056 x 1329 is 16:10, a 21:9 screen 16:9, a 5:4 or upright one 4:3). False when there is no screen to ask.
+bool ScreenAspect(int& wide, int& high) {
+    const SDL_DisplayMode* mode = ScreenMode();
+    if (mode == nullptr) return false;
     const float shape = static_cast<float>(mode->w) / static_cast<float>(mode->h);
     int nearest = 0;
-    for (int i = 1; i < 3; ++i) {
-        const float distance = std::fabs(shape - static_cast<float>(kShapes[i][0]) / static_cast<float>(kShapes[i][1]));
-        const float best = std::fabs(shape - static_cast<float>(kShapes[nearest][0]) / static_cast<float>(kShapes[nearest][1]));
+    for (int i = 1; i < kUISizeShapeCount; ++i) {
+        const float distance = std::fabs(shape - static_cast<float>(kUISizeShapes[i].mWide) / static_cast<float>(kUISizeShapes[i].mHigh));
+        const float best = std::fabs(shape - static_cast<float>(kUISizeShapes[nearest].mWide) / static_cast<float>(kUISizeShapes[nearest].mHigh));
         if (distance < best) nearest = i;
     }
-    wide = kShapes[nearest][0];
-    high = kShapes[nearest][1];
+    wide = kUISizeShapes[nearest].mWide;
+    high = kUISizeShapes[nearest].mHigh;
+    return true;
+}
+
+// That screen's size in pixels, even: the largest stop of the options panel's slider and of the launcher's.
+bool ScreenPixels(int32_t& wide, int32_t& high) {
+    const SDL_DisplayMode* mode = ScreenMode();
+    if (mode == nullptr) return false;
+    wide = 2 * static_cast<int32_t>(static_cast<float>(mode->w) * mode->pixel_density * 0.5f);
+    high = 2 * static_cast<int32_t>(static_cast<float>(mode->h) * mode->pixel_density * 0.5f);
     return true;
 }
 #endif
@@ -333,6 +395,8 @@ void Usage(const char* program) {
                  "                 first files of the edition last played, so Play starts sooner)\n"
                  "  --window-click X,Y@F  a scripted left click in the launcher's own window at point (X, Y) of it (it\n"
                  "                 opens 800 x 560 points), pressed before its drawn frame F and released before F + 1\n"
+                 "  --window-wheel X,Y,N@F  a scripted turn of the wheel by N notches (below 0: down) in the launcher's\n"
+                 "                 window, the pointer at point (X, Y) of it, before its drawn frame F\n"
                  "  --data DIR     the folder launcher.ini is in (default: the per-user folder SDL names for the\n"
                  "                 launcher, such as ~/Library/Application Support/STP-TPW Launcher on a Mac,\n"
                  "                 %%APPDATA%%\\STP-TPW Launcher on Windows, ~/.local/share/STP-TPW Launcher on Linux)\n"
@@ -365,10 +429,14 @@ void Usage(const char* program) {
                  "                 port's own Vulkan renderer, which draws with a software device such as Mesa's lavapipe\n"
                  "                 too); launcher.ini's renderer key and the Settings box's Renderer say the same. Without\n"
                  "                 a Vulkan device the game is drawn with OpenGL whatever was asked, and the log says so\n"
-                 "  --resolution WxH  the game's resolution, named by its 4:3 size: a Resolution.sam preset (512x384,\n"
+                 "  --resolution WxH  the size the game starts at, named by its 4:3 size: a Resolution.sam preset (512x384,\n"
                  "                    640x480, 800x600, 1024x768, 1280x1024, 1600x1200, 2048x1536) or a larger one of the\n"
-                 "                    port's (2560x1920, 3200x2400, 4096x3072; default: 4096x3072). The game renders at it\n"
-                 "                    offscreen and the window shows it scaled\n"
+                 "                    port's (2560x1920, 3200x2400, 4096x3072; default: the size last saved from the game's\n"
+                 "                    Options panel, at its saved shape, else 4096x3072). The game renders at it offscreen and the\n"
+                 "                    window shows it scaled. The slider's other sizes (1920x1080, 1366x768, 1440x900 and so on)\n"
+                 "                    are exactly that size and its shape, whatever --aspect says. The panel's slider and shape\n"
+                 "                    buttons change the size while the game runs, and save it for the next start without this\n"
+                 "                    option\n"
                  "  --aspect W:H   the screen's shape (default: the nearest of 4:3, 16:10 and 16:9 to the screen's own).\n"
                  "                 The Resolution.sam presets keep their height and are\n"
                  "                 widened (2048x1536 becomes 2730x1536 at 16:9, 2458x1536 at 16:10); the larger ones keep\n"
@@ -424,7 +492,7 @@ void Usage(const char* program) {
 
 // The options that take a value (main's loop), so the early look below skips their values.
 bool TakesValue(const std::string& arg) {
-    static const char* const kWithValue[] = {"--game",  "--data",        "--play",       "--import",     "--program",    "--window-click",
+    static const char* const kWithValue[] = {"--game",  "--data",        "--play",       "--import",     "--program",    "--window-click", "--window-wheel",
                                              "--user",  "--edition",     "--resolution", "--aspect",     "--frames",
                                              "--click", "--drag",        "--type",       "--type-env",   "--dump-frames", "--dump-every",
                                              "--dump-limit", "--display", "--write-icon", "--language", "--language-root",
@@ -569,8 +637,8 @@ void AdoptOldSaves(const std::filesystem::path& prefPath, const std::filesystem:
         if (!std::filesystem::is_directory(old, ec)) continue;
         std::filesystem::create_directories(saves.parent_path(), ec);
         std::filesystem::copy(old, saves, std::filesystem::copy_options::recursive, ec);
-        if (ec) tpw::Log("saves: could not copy \"%s\" to \"%s\": %s", old.string().c_str(), saves.string().c_str(), ec.message().c_str());
-        else tpw::Log("saves: copied from \"%s\" (the folder earlier builds used; it is left as it was)", old.string().c_str());
+        if (ec) tpw::Log("saves: could not copy \"%s\" to \"%s\": %s", tpw::PathText(old).c_str(), tpw::PathText(saves).c_str(), ec.message().c_str());
+        else tpw::Log("saves: copied from \"%s\" (the folder earlier builds used; it is left as it was)", tpw::PathText(old).c_str());
         return;
     }
 }
@@ -635,25 +703,14 @@ void NameAppMenu(const char* name) {
 #endif
 }
 
-// The launcher's settings, written to launcher.ini again after the importer's last write of the file (the choice it saved
-// on Play, an import in the window), which kept the importer's older copy of the keys: on Play and when the window
-// closes. From tpw-port PRs #10, #19, #20, #22 and #24 by samueleagle91; the update check's keys (updater.h) too.
-void KeepSettings(const tpw::ui::ImporterBackend& backend, const std::string& prefPath) {
-    for (const char* key : {tpw::ui::kSkipIntroKey, tpw::ui::kBackToLauncherKey, tpw::ui::kSmoothZoomKey,
-                            tpw::ui::kInterfaceSizeKey, tpw::ui::kPcSoundPicksKey, tpw::ui::kSoundPanKey,
-                            tpw::ui::kSeveralKeysKey, tpw::ui::kFullScreenKey, tpw::ui::kRendererKey, tpw::ui::kFrameRateKey,
-                            tpw::ui::kCheckUpdatesKey, tpw::ui::kLanguageUsKey, tpw::ui::kLanguageEurKey,
-                            tpw::ui::kOnlineServerKey,
-                            tpw::ui::kUpdateLastCheckKey, tpw::ui::kUpdateFoundKey}) {
-        const std::string value = backend.Setting(key);
-        std::string ignored;
-        if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, key, value, ignored);
-    }
-    for (const tpw::ui::SamOption& option : tpw::ui::SamOptions()) {   // the Graphics section's keys, as above
-        const std::string value = backend.Setting(option.key);
-        std::string ignored;
-        if (!value.empty()) tpw::ui::ImporterBackend::SaveIniExtra(prefPath, option.key, value, ignored);
-    }
+// The launcher's settings kept on Play and when the window closes (launcher_ui.h KeepSettings), with the Mods box's
+// switches: "0" (off) is kept too.
+void KeepLauncherSettings(const tpw::ui::ImporterBackend& backend, const std::string& prefPath) {
+    std::vector<std::string> more;
+#ifdef TPW_PORT_FIX
+    for (const tpw::mods::Mod& mod : tpw::mods::Catalog()) more.push_back(tpw::mods::Key(mod));
+#endif
+    tpw::ui::KeepSettings(backend, prefPath, more);
 }
 
 // The game's window, made (platform/handoff.h SetGameWindowMadeHook): the game's icon (icon.png in the data folder, or the
@@ -694,7 +751,7 @@ int GameAppTest(const tpw::Config& config, const std::string& dataDir, const std
     if (gFromLauncher.empty()) {
         tpw::launcher::GameApp app;
         std::string why;
-        if (!tpw::launcher::StartGameApp(gArgc, gArgv, us, backend.DataFolder(), !config.background, app, why)) {
+        if (!tpw::launcher::StartGameApp(gArgc, gArgv, us, edition, backend.DataFolder(), !config.background, app, why)) {
             tpw::Log("game app test: %s not started (%s)", tpw::launcher::GameAppName(us), why.c_str());
             return 1;
         }
@@ -871,10 +928,11 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
         tpw::ui::WindowPlacement placement;
         placement.background = config.background;
         placement.maxFrames = config.maxFrames;   // --frames, --dump-frames, --dump-every, --dump-limit: the window's too
-        placement.dumpDir = config.dumpFramesDir.string();
+        placement.dumpDir = tpw::PathText(config.dumpFramesDir);
         placement.dumpEvery = config.dumpEvery;
         placement.dumpLimit = config.dumpLimit;
         placement.clicks = tpw::launcher::gWindowClicks;   // --window-click
+        placement.wheels = tpw::launcher::gWindowWheels;   // --window-wheel
         // The window's report lines and its screens go to the log file too; its About box shows the logs folder.
         placement.log = [](const char* line) { tpw::LogRaw(line); };
         placement.videoStarted = [] { tpw::LogDisplayOnce(); };
@@ -927,6 +985,41 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
             row.conflicts = mod.conflicts;
             placement.modRows.push_back(row);
         }
+        // The Settings box's Game options: the files the game keeps its Options panel's settings in, for each edition as
+        // the game would run it below. --resolution and --aspect are one start's and are not shown or saved here.
+        placement.gameSettings = true;
+        placement.gameSource.sizes = PortGameSizeRules(kDefaultResolution, [] {
+            static int shape = -1;
+            if (shape >= 0) return shape;
+            int wide = 0, high = 0;
+            shape = 0;
+            if (ScreenAspect(wide, high))
+                for (int i = 0; i < kUISizeShapeCount; ++i)
+                    if (kUISizeShapes[i].mWide == wide && kUISizeShapes[i].mHigh == high) shape = i;
+            return shape;
+        }, [] {
+            static tpw::ui::GameSize screen;
+            if (screen.width == 0) ScreenPixels(screen.width, screen.height);
+            return screen;
+        });
+        placement.gameSource.userFolder = [&backend, &prefPath, given = config.userDir](int edition) {
+            if (!given.empty()) return given;
+            const std::filesystem::path saves = std::filesystem::path(backend.DataFolder()) / "saves" / (edition == 0 ? "us" : "eur");
+            AdoptOldSaves(prefPath, saves, edition == 0);   // before anything is written there: it needs no such folder yet
+            return saves;
+        };
+        // sound.sam as the game finds it: the user folder's before the game folder's (FindHostPath).
+        placement.gameSource.soundSam = [&backend, userFolder = placement.gameSource.userFolder](int edition) {
+            std::error_code ec;
+            std::filesystem::path file = userFolder(edition) / "data" / "sound.sam";
+            if (std::filesystem::exists(file, ec)) return file;
+            for (const tpw::assets::Edition one : {edition == 0 ? tpw::assets::kEditionUs : tpw::assets::kEditionEur,
+                                                   edition == 0 ? tpw::assets::kEditionUsPc : tpw::assets::kEditionEurPc}) {
+                file = std::filesystem::path(backend.importer()->GameFolder(one)) / "data" / "sound.sam";
+                if (std::filesystem::exists(file, ec)) return file;
+            }
+            return std::filesystem::path();
+        };
 #endif
         if (!config.display.empty()) {
             if (config.background) {   // before SDL's video starts, as the game's window sets them
@@ -940,7 +1033,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
             }
         }
         const tpw::ui::WindowOutcome outcome = tpw::launcher::OpenLauncherWindow(backend, choice, err, placement);
-        if (outcome == tpw::ui::WindowOutcome::Quit) KeepSettings(backend, prefPath);
+        if (outcome == tpw::ui::WindowOutcome::Quit) KeepLauncherSettings(backend, prefPath);
         switch (outcome) {
             case tpw::ui::WindowOutcome::Quit: return 0;
             case tpw::ui::WindowOutcome::Failed:
@@ -953,7 +1046,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
     }
     // "Skip the intro films" is as --no-movies; "Back to the launcher after playing" opens the launcher again when a
     // game started from its window quits (ReopenLauncher).
-    KeepSettings(backend, prefPath);
+    KeepLauncherSettings(backend, prefPath);
 #if defined(__APPLE__) || defined(_WIN32)
     // The window's Play: the game plays as an application of its own, "Sim Theme Park" or "Theme Park World"
     // (launcher/game_app.h; port_CONTRIBUTING.md, "The game's own process"), so the Dock, Cmd-Tab and Force Quit (the
@@ -964,7 +1057,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
         const bool usApp = tpw::assets::IsUsGame(choice.edition);
         tpw::launcher::GameApp app;
         std::string why;
-        if (tpw::launcher::StartGameApp(gArgc, gArgv, usApp, backend.DataFolder(), !config.background, app, why)) {
+        if (tpw::launcher::StartGameApp(gArgc, gArgv, usApp, tpw::assets::EditionName(choice.edition), backend.DataFolder(), !config.background, app, why)) {
             tpw::Log("data folder: %s", backend.DataFolder().c_str());
             tpw::LogFileF("play: %s (%s), from the launcher window's Play, handed to %s (process %d; %s); game folder %s",
                           usApp ? "Sim Theme Park, the US edition" : "Theme Park World, the European edition",
@@ -1104,7 +1197,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
                   play.empty()                ? "the launcher window's Play"
                   : !gFromLauncher.empty()    ? "the launcher window's Play, as the game's own application"
                                               : "--play",
-                  config.gameDir.string().c_str());
+                  tpw::PathText(config.gameDir).c_str());
     // The Gold Edition switch (launcher_ui.h GoldKey). The Gold data is kept in assets/gold, apart from the game folder
     // chosen above; with the switch on, its rides are laid over the game folder (platform/gold_rides.h), each at the
     // place the PC Gold installer copied it to, and the game finds them as it scans the ride folders.
@@ -1113,7 +1206,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
         size_t missing = 0;
         const size_t rides = tpw::UseGoldRides(gold, &missing);
         if (missing == 0) tpw::Log("Gold rides: on, %zu rides overlaid from assets/gold", rides);
-        else tpw::Log("Gold rides: on, %zu rides overlaid from assets/gold (%zu listed in RideConfig.txt are missing)", rides, missing);
+        else tpw::Log("Gold rides: on, %zu rides overlaid from assets/gold (%zu of the listed rides are missing)", rides, missing);
     }
     else if (backend.Status(tpw::assets::kEditionGold).unlocked) tpw::Log("Gold rides: off (data present, switched off)");
     else tpw::Log("Gold rides: no data");
@@ -1306,7 +1399,7 @@ void ReopenLauncher(int argc, char** argv) {
         const std::string program = (std::filesystem::u8path(gameBundle).parent_path() / "tpw_launcher.exe").u8string();
 #else
         // the bare program, beside the game's bundle (this process's program is the hard link under the game's name)
-        const std::string program = (std::filesystem::path(gameBundle).parent_path() / "tpw_launcher").string();
+        const std::string program = tpw::PathText(std::filesystem::path(gameBundle).parent_path() / "tpw_launcher");
 #endif
         kept.insert(kept.begin(), program);
         for (const std::string& arg : kept) args.push_back(arg.c_str());
@@ -1375,6 +1468,11 @@ int LauncherMain(int argc, char** argv) {
 #endif
     tpw::Config& config = tpw::config();
     int32_t resolution = kDefaultResolution;
+    bool resolutionGiven = false;   // --resolution; without it the game starts at the size last saved from the options panel
+#ifdef TPW_PORT_FIX
+    int32_t namedWide = 0;          // --resolution named a size of the slider's lists off the presets: exactly that size, and its shape
+    int32_t namedHigh = 0;
+#endif
     int aspectWide = kDefaultAspectWide;
     int aspectHigh = kDefaultAspectHigh;
     bool aspectGiven = false;   // --aspect; without it the screen's own shape (ScreenAspect)
@@ -1417,9 +1515,8 @@ int LauncherMain(int argc, char** argv) {
             while (i + 1 < argc && argv[i + 1][0] != '-') imports.push_back(argv[++i]);   // the paths after it
         }
         else if (arg == "--verify") verify = true;
-        // The game's data tables are built in (tables/ and include/ in tpw-decomp): an older script's --program is
-        // taken and left unused.
-        else if (arg == "--program") tpw::Log("launcher: --program %s is not used (the game's data tables are built in)", value());
+        // An older script's --program is taken and left unused.
+        else if (arg == "--program") tpw::Log("launcher: --program %s is not used", value());
         else if (arg == "--no-preload") tpw::launcher::gNoPreload = true;
         else if (arg == "--window-click") {
             const char* spec = value();
@@ -1430,6 +1527,16 @@ int LauncherMain(int argc, char** argv) {
                 return 2;
             }
             tpw::launcher::gWindowClicks.push_back(click);
+        }
+        else if (arg == "--window-wheel") {
+            const char* spec = value();
+            tpw::ui::WindowPlacement::Wheel wheel{};
+            if (std::sscanf(spec, "%f,%f,%f@%d", &wheel.x, &wheel.y, &wheel.notches, &wheel.frame) != 4 || wheel.frame < 1) {
+                tpw::LogRawF("launcher: --window-wheel wants X,Y,NOTCHES@F (window point, turns, drawn frame from 1): %s\n",
+                             spec);
+                return 2;
+            }
+            tpw::launcher::gWindowWheels.push_back(wheel);
         }
         else if (arg == "--user") config.userDir = value();
         else if (arg == "--packs") packs = value();
@@ -1457,11 +1564,15 @@ int LauncherMain(int argc, char** argv) {
         else if (arg == "--resolution") {
             const char* size = value();
             resolution = ResolutionPreset(size);
+#ifdef TPW_PORT_FIX
+            if (resolution == 0 && ListedSize(size, namedWide, namedHigh)) resolution = UI_ClosestPreset(namedWide, namedHigh, 0.0f);
+#endif
             if (resolution == 0) {
                 tpw::LogRawF("launcher: unsupported resolution: %s\n", size);
                 Usage(argv[0]);
                 return 2;
             }
+            resolutionGiven = true;
             tpw::Log("resolution override: %s", size);
         }
         else if (arg == "--aspect") {
@@ -1625,7 +1736,7 @@ int LauncherMain(int argc, char** argv) {
     std::error_code ec;
     if (!std::filesystem::is_directory(config.gameDir / "data", ec)) {
         tpw::LogRawF("launcher: no game found in \"%s\" (it must hold the game's \"data\" folder)\n",
-                     config.gameDir.string().c_str());
+                     tpw::PathText(config.gameDir).c_str());
         return 1;
     }
     if (config.edition.empty()) config.edition = tpw::EditionOf(config.gameDir);
@@ -1639,9 +1750,9 @@ int LauncherMain(int argc, char** argv) {
         }
     }
     std::filesystem::create_directories(config.userDir, ec);
-    tpw::Log("game folder: %s", config.gameDir.string().c_str());
+    tpw::Log("game folder: %s", tpw::PathText(config.gameDir).c_str());
     tpw::Log("edition: %s", config.edition == "stp" ? "SimTheme Park (stp)" : "Theme Park World (tpw)");
-    tpw::Log("user folder: %s", config.userDir.string().c_str());
+    tpw::Log("user folder: %s", tpw::PathText(config.userDir).c_str());
 #ifdef TPW_PORT_FIX
     // TPW_PORT_FIX online-server: the online screens against a revived online server (platform/online_boss.cpp, the
     // original protocol): the connection made on its own thread and the answers given on the game's (UGamework::Run), every reply
@@ -1670,12 +1781,12 @@ int LauncherMain(int argc, char** argv) {
     if (!language.empty()) {
         const std::string own = config.edition == "stp" ? "American" : "English";
         if (tpw::UseLanguagePack(languageRoot, language))
-            tpw::Log("language: %s, from %s", language.c_str(), tpw::LanguagePackFolder().string().c_str());
+            tpw::Log("language: %s, from %s", language.c_str(), tpw::PathText(tpw::LanguagePackFolder()).c_str());
         else if (language == own)
             tpw::Log("language: %s, the edition's own", language.c_str());
         else {
             tpw::LogRawF("launcher: --language %s: no folder lang/%s in the language root \"%s\" (--language-root)\n",
-                         language.c_str(), language.c_str(), languageRoot.string().c_str());
+                         language.c_str(), language.c_str(), tpw::PathText(languageRoot).c_str());
             return 1;
         }
     }
@@ -1717,12 +1828,26 @@ int LauncherMain(int argc, char** argv) {
     // largest preset that fits. TPW_LARGEST_GAME_SIZE stands in for the machine's limit, to check the fallback.
     if (resolution > 0) {
         const char* forced = std::getenv("TPW_LARGEST_GAME_SIZE");
-        resolution = FittingPreset(resolution, forced != nullptr ? std::atoi(forced) : tpw::LargestGameSize());
-        // The launcher owns the size (the Resolution.sam value ResolutionOverrideWorld sets): the options panel shows
-        // the size the game runs at and offers no other (include/TPSettings.h); Config.tcf's resolution is ignored.
-        gPortScreenWidth = &gScreenWidth;
-        gPortScreenHeight = &gScreenHeight;
-        tpw::Log("video: the launcher sets the resolution; Config.tcf's resolution is ignored");
+        const int limit = forced != nullptr ? std::atoi(forced) : tpw::LargestGameSize();
+        if (namedWide > 0 && (limit <= 0 || (namedWide <= limit && namedHigh <= limit))) {
+            gPortStartWide = namedWide;
+            gPortStartHigh = namedHigh;
+            gUIWideAspect = UI_SizeAspect(namedWide, namedHigh);
+            resolution = UI_ClosestPreset(namedWide, namedHigh, gUIWideAspect);
+            aspectWide = namedWide;
+            aspectHigh = namedHigh;
+            tpw::Log("resolution: %dx%d, whatever the aspect", namedWide, namedHigh);
+        } else {
+            resolution = FittingPreset(resolution, limit);
+        }
+        ScreenPixels(gPortScreenWide, gPortScreenHigh);
+        // The options panel's slider changes the size while the game runs and keeps the choice in Config.tcf, which the next
+        // start opens at; --resolution names one start's size and leaves the saved choice alone (include/TPSettings.h).
+        gPortLiveResolution = true;
+        gUIFullWindows = new std::unordered_set<const InterfaceWindow*>;
+        gPortLargestGameSize = limit;
+        gStartAtSavedSize = !resolutionGiven;
+        gStartAtSavedShape = !aspectGiven;
     }
 #else
     tpw::Log("aspect: 4:3 (a build without the port's fixes has the original layout only)");
@@ -1738,6 +1863,10 @@ int LauncherMain(int argc, char** argv) {
         int32_t gameWide = 0;
         int32_t gameHigh = 0;
         if (resolution > 0) UI_PresetSize(resolution, gUIWideAspect, gameWide, gameHigh);
+        if (gPortStartWide > 0) {
+            gameWide = gPortStartWide;
+            gameHigh = gPortStartHigh;
+        }
         tpw::LogFileF("game size: %dx%d (preset %d), aspect %d:%d, %s, %s", gameWide, gameHigh, resolution, aspectWide,
                       aspectHigh, config.debugOptions[1] != 0 && !config.background ? "full screen" : "in a window",
                       config.fit ? "scaled to the window" : "drawn into the window directly");
@@ -1749,9 +1878,19 @@ int LauncherMain(int argc, char** argv) {
     tpw::LogFileF("renderer: %s asked for; %s in use%s", tpw::gfx::Name(tpw::gfx::Requested()),
                   tpw::gfx::Name(tpw::gfx::Chosen()),
                   tpw::gfx::Available(tpw::gfx::Api::Vulkan) ? "" : " (this build has OpenGL only)");
+#ifdef TPW_PORT_FIX
+    // TPW_PORT_FIX setsync RunGame | Mac: the settings files had one writer | Port: the game holds the user folder's lock while it runs | Why: the launcher's Settings box writes the same files, and never while the game can (launcher/ui/game_settings.h)
+    tpw::ui::GameFileLock gameFiles;
+    if (!gameFiles.Take(config.userDir, 1000))
+        tpw::Log("settings: another game or launcher has %s; playing anyway", config.userDir.u8string().c_str());
+#endif
     const int result = RunGame(resolution);
+#ifdef TPW_PORT_FIX
+    gameFiles.Release();
+#endif
     Report();
     gReopenLauncher = gBackToLauncher;
+    tpw::SoundDevice::StopWatchers();   // a module still alive here: SDL_Quit destroys the streams its watcher pulls
     SDL_Quit();
     return result;
 }
@@ -1774,6 +1913,10 @@ int main(int argc, char** argv) {
     std::string bundleNote;
     tpw::launcher::RunFromAppBundle(argc, argv, IconDataFolder(dataDir), bundleNote);
     OpenLog(argc, argv, dataDir);
+#ifdef _WIN32
+    // UTF-8 (65001) from Windows 10 1903 (launcher/win/tpw_launcher.manifest); any other is an older Windows or a lost manifest.
+    tpw::Log("windows: process code page %u", GetACP());
+#endif
     std::atexit(LogExitAtExit);
     RegisterSamTables();
     // The arena starts on a 4 GB boundary (platform/arena.cpp): its offsets are then the low halves of its addresses, and the

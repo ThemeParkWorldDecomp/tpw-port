@@ -14,6 +14,7 @@
 
 #include "backend.h"
 #include "draw.h"
+#include "game_settings.h"
 #include "text.h"
 #include "texts.h"
 #include "versions.h"
@@ -122,6 +123,12 @@ const std::vector<SamOption>& SamOptions();
 // The index in `values` launcher.ini's value names, or -1 for the detail level's own (default, absent or not a choice).
 int SamChoice(const SamOption& option, const std::string& value);
 
+// The launcher's settings, written to the launcher.ini of `prefPath` again after the importer's last write of the file (the
+// choice it saved on Play, an import in the window), which kept the importer's older copy of the keys: the keys above,
+// the update check's (updater.h), each of SamOptions(), and `more` (the Mods box's switches, launcher/main.cpp). A key
+// with no value is left as the file has it. From tpw-port PRs #10, #19, #20, #22 and #24 by samueleagle91.
+void KeepSettings(const ImporterBackend& backend, const std::string& prefPath, const std::vector<std::string>& more = {});
+
 // What the About box's Export logs button did (the launcher's platform/log_export.h): `message` is for the player ("Saved to
 // Downloads: <name>", or why nothing was saved) and `folder` is where the copy is, to show (empty: none was made).
 struct LogsExport {
@@ -188,6 +195,10 @@ public:
     // The mods of the build (a build with the port's fixes, launcher/main.cpp): the header gets a Mods button, which
     // opens the Mods box and, while any mod is on, says how many ("1 mod on"). Never called (a build without the fixes): no button.
     void SetMods(const std::vector<ModRow>& mods);
+    // The game's own settings (a build with the port's fixes, launcher/main.cpp): the Settings box gets the Game options
+    // section, every setting of the game's Options panel, read from and written to the game's files (game_settings.h).
+    // Never called (a build without the fixes): no such section.
+    void SetGameSettings(const GameSettingsSource& source);
     // The update check (updater.h), owned by the window: its banner on the homes, the Settings box's "Check for
     // updates". Null: none of these.
     void SetUpdater(Updater* updater);
@@ -241,6 +252,9 @@ public:
     // Where the last frame drew the drop targets, in points (an empty rect when not shown). Index 0 US, 1 European,
     // 2 Gold (empty on the all-confirmed home, whose two tiles are the US and European ones).
     Rect TileRect(int index) const { return tilesShown_ ? tileRects_[index] : Rect{}; }
+    // The home with the drop field's Play button of a small tile (0 US, 1 European; never 2 Gold) in the last frame, in points
+    // (empty when not shown: that edition is not playable, or this is another screen).
+    Rect TilePlayRect(int index) const { return tilesShown_ ? tilePlay_[index] : Rect{}; }
     // The all-confirmed home's Play button of a tile (0 US, 1 European) in the last frame, in points (empty when not shown).
     Rect ReadyPlayRect(int index) const { return readyShown_ ? readyPlay_[index] : Rect{}; }
     // The all-confirmed home's Gold Edition switch of a tile (0 US, 1 European) in the last frame, in points (empty when
@@ -323,6 +337,21 @@ public:
     // How many mods are on (launcher.ini's mod.<id> keys), and whether the switch of row `index` is.
     int ModsOn() const;
     bool ModOn(size_t index) const { return index < modOn_.size() && modOn_[index]; }
+    // The Game options section as the last read found it, and where the last frame drew its controls, in points (empty when
+    // the box is closed or has no such section): an option's own, Screen resolution's slider for GameOption::Resolution,
+    // and the edition switch, the shape switch and the player's field. The volumes' switches are their On options.
+    const GameSettingsView& GameView() const { return gameView_; }
+    int GameEdition() const { return gameEdition_; }
+    const std::string& GameMessage() const { return gameMessage_; }
+    Rect GameOptionRect(GameOption option) const { return settingsOpen_ && gameShown_ ? gameRects_[static_cast<int>(option)] : Rect{}; }
+    Rect GameEditionRect() const { return settingsOpen_ && gameShown_ ? gameEditionRect_ : Rect{}; }
+    Rect GameShapeRect() const { return settingsOpen_ && gameShown_ ? gameShapeRect_ : Rect{}; }
+    Rect GamePlayerRect() const { return settingsOpen_ && gameShown_ ? gamePlayerRect_ : Rect{}; }
+    // A row of the open player list in the last frame, in points (empty when no list is shown or no such row).
+    Rect GamePlayerRow(int row) const {
+        return gamePlayerOpen_ && row >= 0 && row < static_cast<int>(gamePlayerRows_.size())
+                   ? gamePlayerRows_[static_cast<size_t>(row)] : Rect{};
+    }
 
 private:
     struct DialogInbox;
@@ -339,6 +368,8 @@ private:
     bool AnyPlayable() const;
     bool AllConfirmed() const;   // US, European and Gold all unlocked: the home becomes two tiles to play from
     void OpenPlay();
+    // Every Play button's start: the game of a tile (status_ index), with the Gold rides or without.
+    void StartPlay(int index, bool gold);
     // Flips an edition's Gold Edition switch (0 US, 1 European) and keeps it in launcher.ini (GoldKey).
     void SetGold(int index, bool on);
     TileView TileFor(int index) const;
@@ -364,6 +395,13 @@ private:
     void DrawAbout(const Rect& window);
     void DrawEdited(const Rect& window);
     void DrawMods(const Rect& window);
+    // The Game options section of the Settings box (settings_game.cpp): its height, and drawing it at `y` in `in`.
+    float GameOptionsHeight(float rowH);
+    void DrawGameOptions(const Rect& in, float& y, float rowH);
+    void DrawGamePlayerList(const Rect& window);
+    // Reads the shown edition's files again: when the box opens, when the window comes back, and after each change.
+    void RefreshGameSettings();
+    void WriteGameSetting(GameOption option, int value);
     // Whether row `index`'s switch can be turned on: the mod supports an edition of the data folder and no mod it
     // conflicts with is on. Empty `why` when it can, else what the box says.
     bool ModAllowed(size_t index, std::string& why) const;
@@ -412,6 +450,7 @@ private:
     Rect fieldRect_;           // last frame's drop targets
     Rect tileRects_[3];
     bool tilesShown_ = false;
+    Rect tilePlay_[3];         // last frame's (TilePlayRect)
     Rect readyPlay_[2];
     Rect readyGold_[2];        // the all-confirmed home's Gold Edition switches
     bool readyShown_ = false;
@@ -478,6 +517,23 @@ private:
     Rect modsButtonRect_, modsOnRect_, modsBoxRect_;
     std::vector<Rect> modSwitchRects_;
     bool modsScrolls_ = false;
+
+    // The Game options section (SetGameSettings): the files as last read, the edition and the player they are read for
+    // (empty player: the last one played), and the last frame's rects.
+    bool gameShown_ = false;
+    GameSettingsSource gameSource_;
+    GameSettingsView gameView_;
+    GameSize gameSizeOpened_;  // the size the file held when the box read it, and its number: a stop while the box is open,
+    int gameResolutionOpened_ = 0;   // and coming back to it keeps the number, as the panel's slider does
+    int gameEdition_ = -1;     // 0 US, 1 European; -1 until the box first opens: the edition Play shows
+    std::string gamePlayer_;
+    bool gamePlayerOpen_ = false;
+    bool settingsWereOpen_ = false;
+    bool gameSettingsStale_ = false;
+    std::string gameMessage_;  // why the last change was not kept, until the next read
+    Rect gameRects_[static_cast<int>(GameOption::Count)];
+    Rect gameEditionRect_, gameShapeRect_, gamePlayerRect_;
+    std::vector<Rect> gamePlayerRows_;
 
     std::string notice_;
     bool noticeProblem_ = false;

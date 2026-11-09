@@ -16,6 +16,7 @@ namespace tpw::launcher {
 extern bool gNoPreload;
 // --window-click: scripted clicks in the launcher's window (a test run).
 extern std::vector<ui::WindowPlacement::Click> gWindowClicks;
+extern std::vector<ui::WindowPlacement::Wheel> gWindowWheels;
 
 // RunLauncherWindow (launcher/ui/window.h) with the preload started first. Play: the window stays open on the Starting
 // screen and the start is being counted (BeginStartup). Otherwise the preload is stopped and joined.

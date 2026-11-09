@@ -23,6 +23,7 @@
 
 #include "platform.h"
 #include "platform/online_boss.h"
+#include "path_text.h"
 
 namespace tpw::online::boss::ftp {
 
@@ -382,14 +383,14 @@ bool ParkPaths(const std::string& remote, const std::string& local) {
     const std::string guid = slash == std::string::npos ? remote : remote.substr(slash + 1);
     if (!IsGuidText(guid)) return false;
     const std::filesystem::path path(local);
-    std::string name = path.filename().string();
+    std::string name = tpw::PathText(path.filename());
     if (name.size() < 5) return false;
     std::string extension = name.substr(name.size() - 5);
     std::transform(extension.begin(), extension.end(), extension.begin(),
                    [](unsigned char ch) { return static_cast<char>(std::toupper(ch)); });
     if (extension != ".LAYS") return false;
     name.resize(name.size() - 5);
-    return path.parent_path().filename().string() + name == guid;
+    return tpw::PathText(path.parent_path().filename()) + name == guid;
 }
 
 // Received whole and checked: written beside its place and moved there.
@@ -403,14 +404,14 @@ bool Place(Link& s, const std::string& local, const std::vector<uint8_t>& bytes)
         out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
         out.close();
         if (!out) {
-            Note(s, "could not write " + part.string());
+            Note(s, "could not write " + tpw::PathText(part));
             std::filesystem::remove(part, ec);
             return false;
         }
     }
     std::filesystem::rename(part, path, ec);
     if (ec) {
-        Note(s, "could not move the park to " + path.string() + ": " + ec.message());
+        Note(s, "could not move the park to " + tpw::PathText(path) + ": " + ec.message());
         std::filesystem::remove(part, ec);
         return false;
     }

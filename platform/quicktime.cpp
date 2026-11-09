@@ -20,6 +20,7 @@
 #include "platform.h"
 #include "platform/macdoze.h"
 #include "platform/quicktime.h"
+#include "path_text.h"
 
 #ifdef TPW_HAVE_FFMPEG
 extern "C" {
@@ -236,9 +237,9 @@ OSErr NewMovieFromFile(Movie* movie, int16_t refNum, int16_t*, unsigned char*, i
     OpenFiles().erase(found);
     auto* m = new MovieRecord;
     m->self = m;
-    if (avformat_open_input(&m->format, path.string().c_str(), nullptr, nullptr) < 0 ||
+    if (avformat_open_input(&m->format, tpw::PathText(path).c_str(), nullptr, nullptr) < 0 ||
         avformat_find_stream_info(m->format, nullptr) < 0) {
-        tpw::Log("movie: cannot read %s", path.string().c_str());
+        tpw::Log("movie: cannot read %s", tpw::PathText(path).c_str());
         Free(m);
         return kNoMovie;
     }
@@ -246,7 +247,7 @@ OSErr NewMovieFromFile(Movie* movie, int16_t refNum, int16_t*, unsigned char*, i
     m->audioIndex = av_find_best_stream(m->format, AVMEDIA_TYPE_AUDIO, -1, m->videoIndex, nullptr, 0);
     if (m->videoIndex >= 0) m->video = OpenDecoder(m->format->streams[m->videoIndex]);
     if (m->video == nullptr) {
-        tpw::Log("movie: no decoder for the picture of %s", path.string().c_str());
+        tpw::Log("movie: no decoder for the picture of %s", tpw::PathText(path).c_str());
         Free(m);
         return kNoMovie;
     }
@@ -262,7 +263,7 @@ OSErr NewMovieFromFile(Movie* movie, int16_t refNum, int16_t*, unsigned char*, i
         m->sound = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr);
         if (m->sound == nullptr) tpw::Log("movie: no sound (%s)", SDL_GetError());
     }
-    tpw::Log("movie: %s", path.filename().string().c_str());
+    tpw::Log("movie: %s", tpw::PathText(path.filename()).c_str());
     *movie = &m->self;
     return 0;
 }
