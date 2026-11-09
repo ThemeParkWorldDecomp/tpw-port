@@ -147,6 +147,15 @@ public static void Click(int x, int y) {
     mouse_event(0x0002, 0, 0, 0, System.UIntPtr.Zero); System.Threading.Thread.Sleep(50);
     mouse_event(0x0004, 0, 0, 0, System.UIntPtr.Zero);
 }
+[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)] public struct PT { public int X; public int Y; }
+[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)] public struct RC { public int L; public int T; public int R; public int B; }
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool ClientToScreen(System.IntPtr h, ref PT p);
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool GetClientRect(System.IntPtr h, out RC r);
+public static string Client(System.IntPtr h) {
+    PT p = new PT(); RC r;
+    if (!GetClientRect(h, out r) || !ClientToScreen(h, ref p)) { return "client area unknown"; }
+    return "client origin " + p.X + "," + p.Y + " size " + (r.R - r.L) + "x" + (r.B - r.T);
+}
 public static void Key(byte vk) {
     keybd_event(vk, 0, 0, System.UIntPtr.Zero); System.Threading.Thread.Sleep(50);
     keybd_event(vk, 0, 2, System.UIntPtr.Zero);
@@ -161,11 +170,20 @@ public static void Key(byte vk) {
 # screenshots, and (once the online button's position is known from a screenshot) clicks through to the login and Accept with
 # the dummy account. A first run that only reaches the title screen and posts screenshots is enough; keep_open_minutes gives
 # time to read them and fill in the positions.
-function Invoke-Game([string]$Tag, [int]$Affinity, [string]$Game) {
-    Write-Host "==== game run $Tag (affinity $Affinity)"
+# Every TP.EXE from the copied game (C:\TPW): only the game this script started, never another process.
+function Get-GameCopies { @(Get-CimInstance Win32_Process -Filter "Name = 'TP.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -like 'C:\TPW\*' }) }
+
+function Invoke-Game([string]$Tag, [int]$Affinity, [string]$Game, [string[]]$GameArgs = @()) {
+    Write-Host "==== game run $Tag (affinity $Affinity; arguments '$($GameArgs -join ' ')')"
     Ensure-Input
+    # Run 3: a crashed game stayed listed for a minute (Windows Error Reporting), and the next run's TP.EXE ended at once with
+    # no window. Wait for the last one to be gone first.
+    $deadline = (Get-Date).AddSeconds(90)
+    while (@(Get-GameCopies).Count -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
     $log = Join-Path $Out "game-$Tag.txt"
-    Write-Text $log "game run $Tag at $(Get-Date -Format o); affinity $Affinity; cwd $Game`n"
+    Write-Text $log "game run $Tag at $(Get-Date -Format o); affinity $Affinity; arguments '$($GameArgs -join ' ')'; cwd $Game`n"
+    $left = @(Get-GameCopies)
+    if ($left.Count) { Add-Text $log "an earlier TP.EXE is still there: $(($left | ForEach-Object { $_.ProcessId }) -join ', ')`n" }
     $gameExe = Join-Path $Game 'TP.EXE'
     $dbwLog = Join-Path $Out "dbwin-$Tag.txt"
     # The dbwin reader is the harness (module-level $Exe), not the game.
@@ -187,7 +205,9 @@ function Invoke-Game([string]$Tag, [int]$Affinity, [string]$Game) {
     $env:__COMPAT_LAYER = 'DWM8And16BitMitigation 16BitColor'
     Add-Text $log "compatibility layers: $env:__COMPAT_LAYER`n"
     $g = $null
-    try { $g = Start-Process -FilePath $gameExe -WorkingDirectory $Game -PassThru -ErrorAction Stop; $null = $g.Handle }
+    $sp = @{ FilePath = $gameExe; WorkingDirectory = $Game; PassThru = $true; ErrorAction = 'Stop' }
+    if ($GameArgs.Count) { $sp.ArgumentList = $GameArgs }
+    try { $g = Start-Process @sp; $null = $g.Handle }
     catch { Add-Text $log "TP.EXE did not start: $_`n"; Write-Host "TP.EXE did not start: $_" }
     Remove-Item Env:\__COMPAT_LAYER -ErrorAction SilentlyContinue
     if ($g -and $Affinity -gt 0) {
@@ -209,7 +229,7 @@ function Invoke-Game([string]$Tag, [int]$Affinity, [string]$Game) {
     # time (s) -> what to do. Keys skip the EA and intro movies; the clicks are placeholders to fill in from the screenshots
     # (the JP UI is navigated by position). Escape is virtual-key 0x1B, Return 0x0D, Space 0x20.
     $keyAt = @{ 3 = 0x1B; 5 = 0x1B; 8 = 0x1B; 11 = 0x0D; 20 = 0x1B }
-    $shotAt = 4, 8, 14, 22, 32, 45, 60
+    $shotAt = 4, 8, 10, 12, 13, 14, 16, 18, 22, 32, 45, 60
     $net = Join-Path $Out "game-netstat-$Tag.txt"
     $lastNet = ''
     $sawWindow = $false
@@ -234,7 +254,7 @@ function Invoke-Game([string]$Tag, [int]$Affinity, [string]$Game) {
                 $w = Get-Process -Id $q.ProcessId -ErrorAction SilentlyContinue
                 if ($w -and $w.MainWindowTitle) {
                     $sawWindow = $true
-                    $titleLine = "t${t}s window of $($q.Name): '$($w.MainWindowTitle)'"
+                    $titleLine = "t${t}s window of $($q.Name): '$($w.MainWindowTitle)', $([Origpc.Input]::Client($w.MainWindowHandle))"
                     Add-Text $log "$titleLine`n"; Write-Host "  $titleLine"
                 }
             }
@@ -268,6 +288,7 @@ function Invoke-Game([string]$Tag, [int]$Affinity, [string]$Game) {
         Remove-Item -LiteralPath $dmp.FullName -Force -ErrorAction SilentlyContinue
     }
     foreach ($q in @(Get-GameTree)) { Stop-Process -Id $q.ProcessId -Force -ErrorAction SilentlyContinue }
+    foreach ($q in @(Get-GameCopies)) { Wait-Process -Id $q.ProcessId -Timeout 60 -ErrorAction SilentlyContinue }
     if (-not $dbw.WaitForExit(25000)) { Stop-Process -Id $dbw.Id -Force -ErrorAction SilentlyContinue }
     $dbt = @(Get-Content -LiteralPath $dbwLog -ErrorAction SilentlyContinue)
     $comms = @($dbt | Where-Object { $_ -match 'commsThread|Started|Ended|WSAE|login|Login|connect|Connect' })
@@ -454,17 +475,23 @@ switch ($Step) {
         Save-Screen (Join-Path $Out 'game-before.png')
         # Windowed run. If no window ever appears (dialog mode may misbehave, or GDI capture of DirectDraw comes back black),
         # fall back to a fullscreen run without dialog.tcf.
-        $sawWindow = Invoke-Game 'windowed' 0 $game
+        # Run 3 (with a sound device): the title screen came up, then about 2 s after Return the game crashed in ddraw's heap,
+        # in its asynchronous pointer thread (Surface IsLost -> ddraw resets all objects after a mode change). The game's own
+        # command-line switch -flmouse stops that thread (it is what the game does by itself on 3dfx cards); it is a switch of
+        # the original TP.EXE, which is run unchanged.
+        $sawWindow = Invoke-Game 'windowed' 0 $game @('-flmouse')
         if (-not $sawWindow) {
             Write-Host 'no window in the windowed run; retrying fullscreen (no dialog.tcf)'
             Add-Text $summaryFile "windowed run showed no window; retrying fullscreen without dialog.tcf`n"
             Remove-Item -LiteralPath (Join-Path $game 'dialog.tcf') -Force -ErrorAction SilentlyContinue
-            Invoke-Game 'fullscreen' 0 $game | Out-Null
+            Invoke-Game 'fullscreen' 0 $game @('-flmouse') | Out-Null
             # restore dialog.tcf for the pinned run
             [System.IO.File]::WriteAllBytes((Join-Path $game 'dialog.tcf'), $tcf)
         }
         # The race check on the real game: the whole process (and so its comms thread) pinned to CPU 0.
-        Invoke-Game 'cpu1' 1 $game | Out-Null
+        Invoke-Game 'cpu1' 1 $game @('-flmouse') | Out-Null
+        # The same windowed run without -flmouse, to show whether the switch is what changes the outcome.
+        Invoke-Game 'windowed-plain' 0 $game | Out-Null
 
         $sd = Get-Service -Name secdrv -ErrorAction SilentlyContinue
         Add-Text $summaryFile "secdrv service: $(if ($sd) { $sd.Status } else { 'not installed' })`n"
@@ -488,7 +515,12 @@ switch ($Step) {
         if (Test-Path -LiteralPath $Orig) { Fail "$Orig is still there" }
         # The copied real game (trygame): no game file is ever kept or uploaded.
         if (Test-Path -LiteralPath 'C:\TPW') {
-            Remove-Item -LiteralPath 'C:\TPW' -Recurse -Force -ErrorAction SilentlyContinue
+            # Run 3: a crashed TP.EXE from the copy still held its files. Stop the copy's own processes, then retry.
+            foreach ($q in @(Get-GameCopies)) { Stop-Process -Id $q.ProcessId -Force -ErrorAction SilentlyContinue; Wait-Process -Id $q.ProcessId -Timeout 60 -ErrorAction SilentlyContinue }
+            for ($i = 0; $i -lt 6 -and (Test-Path -LiteralPath 'C:\TPW'); $i++) {
+                Remove-Item -LiteralPath 'C:\TPW' -Recurse -Force -ErrorAction SilentlyContinue
+                if (Test-Path -LiteralPath 'C:\TPW') { Start-Sleep -Seconds 10 }
+            }
             if (Test-Path -LiteralPath 'C:\TPW') { Fail 'C:\TPW is still there' }
             Write-Host 'the copied real game (C:\TPW) is deleted'
         }
