@@ -314,7 +314,7 @@ on the Mac, bugs included. This repository adds what it takes to play:
   game's window: OpenGL (platform/gl_backend.cpp, platform/offscreen.cpp), or on Linux the port's own Vulkan renderer
   (platform/vulkan/), which draws the OpenGL 1.1 calls the game makes. On Linux those calls are the platform layer's own
   (platform/gl_entry.cpp), handed to the Vulkan renderer or to the system's OpenGL.
-- overrides/: the port's fixes, 417 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
+- overrides/: the port's fixes, 421 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
   the port does and why. Each file there is built in place of the tpw-decomp file of the same path. Headers are read
   from a copy of tpw-decomp's headers in the build folder with the overridden ones laid over it.
 - mods/: the [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) submodule, for optional changes to how the game plays (Mods, above). Its
@@ -619,9 +619,12 @@ One exception: an option the original game already had in its .sam data files be
 changes how a park plays, as long as it offers only the values the original accepts and its default is the original's.
 Players set it in the launcher or a game menu, never by editing a .sam file.
 
-One addition to the game's own screens: the online login panel has a "Create account" button, a sign-up popup and a
+Two additions to the game's own screens. The online login panel has a "Create account" button, a sign-up popup and a
 password reset ("Forgot password?"), drawn in the game's own style. The original made accounts and reset passwords on
-EA's website, which is gone. It belongs in tpw-port, and with the port's fixes off the panel is the original's.
+EA's website, which is gone. It belongs in tpw-port, and with the port's fixes off the panel is the original's. And
+Buy Ride's picture of a ride the Gold Edition added has a small "GOLD" badge, display only, so players can tell those
+rides apart. It belongs in tpw-port too, and the launcher's Settings switch "Show Ride Badges" (on by default) turns it
+off. The "PS1" badge on the PlayStation rides is the tpw-mods PlayStation rides mod's own and follows the same switch.
 
 Pull requests are welcome here for anything that passes that test: fixes, other systems (the BSDs, for example), build
 changes, tools. [CONTRIBUTING.md](CONTRIBUTING.md) has the rules, including the three a setting must meet. An accepted

@@ -40,6 +40,19 @@ inline constexpr const char* kInterfaceSizeKey = "interface_size";
 // launcher.ini's key for the Settings box's "Varied sounds" (absent or "1": each of the sounds' random draws moves the seed,
 // as on the PC, so a sound varies among its recordings; "0": the Mac's draws, one recording a sound each launch).
 inline constexpr const char* kPcSoundPicksKey = "pc_sound_picks";
+// launcher.ini's key for the Settings box's "Show Ride Badges" (absent or "1": the Buy Ride panel's picture of a Gold Edition
+// ride the base game does not have has a "GOLD" tag, and of a PlayStation rides mod ride a "PS1" one, include/RideBadges.h;
+// "0": no tags, as the original). Display only; on by default (the maintainer's approved exception to settings off by default,
+// 2026-11-08). The GOLD tag is TPW_PORT_FIX goldbadge, the PS1 tag the ps1-rides mod's (its ps1_badge hook); this one
+// switch shows or hides both.
+inline constexpr const char* kRideBadgesKey = "ride_badges";
+// Whether the Settings box has the "Show Ride Badges" row: only with the port's fixes, as the badges themselves are; the
+// OFF build's launcher has no such switch and its game no tags.
+#ifdef TPW_PORT_FIX
+inline constexpr bool kRideBadgesRow = true;
+#else
+inline constexpr bool kRideBadgesRow = false;
+#endif
 // launcher.ini's key for the Settings box's "Full screen" (absent or "1": the game is a real full-screen window, as it has
 // always been; "0": it plays in a window with a title bar, as --windowed starts it). Alt+Enter in the game switches on
 // Windows, Cmd+Ctrl+F or the green button on a Mac.
@@ -302,6 +315,9 @@ public:
     Rect UpdateBannerRect() const { return updateBannerRect_; }
     // The Settings box's Stereo panning switch where the last frame drew it, in points (empty when the box is closed).
     Rect SoundPanRect() const { return settingsOpen_ ? soundPanRect_ : Rect{}; }
+    // The Settings box's Show Ride Badges switch where the last frame drew it, in points (empty when the box is closed or
+    // the build has no such row, kRideBadgesRow).
+    Rect RideBadgesRect() const { return settingsOpen_ ? rideBadgesRect_ : Rect{}; }
     // The Settings box's Several keys at once switch where the last frame drew it, in points (empty when the box is closed).
     Rect SeveralKeysRect() const { return settingsOpen_ ? severalKeysRect_ : Rect{}; }
     // The Settings box's W A S D move the camera switch where the last frame drew it, in points (empty when the box is closed).
@@ -434,6 +450,7 @@ private:
     bool skipIntro_ = false;   // the Settings box's "Skip the intro films", as launcher.ini keeps it
     bool backToLauncher_ = false;   // the Settings box's "Back to the launcher after playing", as launcher.ini keeps it
     bool pcSoundPicks_ = true;      // the Settings box's "Varied sounds", as launcher.ini keeps it (on when absent)
+    bool rideBadges_ = true;        // the Settings box's "Show Ride Badges", as launcher.ini keeps it (on when absent)
     bool fullScreen_ = true;        // the Settings box's "Full screen", as launcher.ini keeps it (on when absent)
     bool rendererRow_ = kRendererRow;   // whether the Settings box has the Renderer row
     int renderer_ = 0;              // the Settings box's "Renderer": 0 OpenGL (also when absent), 1 Vulkan
@@ -515,6 +532,7 @@ private:
     std::vector<Rect> samRects_;   // last frame's (SamOptionRect), one for each of SamOptions()
     Rect frameRateRect_;       // last frame's (FrameRateRect)
     Rect soundPanRect_;        // last frame's (SoundPanRect)
+    Rect rideBadgesRect_;      // last frame's (RideBadgesRect)
     Rect severalKeysRect_;     // last frame's (SeveralKeysRect)
     Rect wasdCameraRect_;      // last frame's (WasdCameraRect)
     Rect onlineServerRect_;    // last frame's (OnlineServerRect)

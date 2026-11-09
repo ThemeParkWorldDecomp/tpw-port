@@ -25,6 +25,7 @@ struct Hooks {
     bool strikeGate = false;          // strike_gate: CStaffHQ::UpdateMonthly considers strikes in an open park with visitors in it
     bool strikeMessages = false;      // strike_messages: the advisor's "last warning" a week before a strike and "strike over" at its end
     bool staffBridgeWander = false;   // staff_bridge_wander: a staff member's random walk (CPeep::SetRandomDestination) may cross a footbridge
+    bool ps1Badge = false;            // ps1_badge: the PlayStation rides have the "PS1" tag on the Buy Ride panel (include/RideBadges.h), while "Show Ride Badges" is on
 };
 
 // A compiled-in mod, as its mod.json describes it.
@@ -53,7 +54,8 @@ const std::vector<Mod>& Catalog();
 inline std::string Key(const Mod& mod) { return "mod." + mod.id; }
 
 // Puts `hooks` into the game (the hooks' flags, include/ThingReceivers.h's gModStrikeGate, gModStrikeMessages and
-// gModStaffBridgeWander). Before the game starts, once; never called, the game's hooks stay off.
+// gModStaffBridgeWander, and include/RideBadges.h's gModPs1Badge). Before the game starts, once; never called, the
+// game's hooks stay off.
 void Apply(const Hooks& hooks);
 
 }  // namespace tpw::mods

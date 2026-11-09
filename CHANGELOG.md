@@ -7,6 +7,7 @@
 - A new mod, PlayStation rides: the seven rides only the PlayStation edition had, and its Tower as Halloween scenery. Drop your own USA, European or Japanese PlayStation disc on the launcher to unlock it in the Mods box
 - A new setting, W A S D move the camera (off by default): W, A, S and D scroll the park and walk in first person (Z, Q, S and D on an AZERTY keyboard). With it on, A and S no longer open the All items and All staff screens
 - A new setting, Zoom out further (off by default): the mouse wheel and the zoom keys can take the camera further out, to see more of the park at once
+- Buy Ride now marks the Gold Edition's extra rides with a small GOLD tag and the PlayStation rides with a PS1 tag. Settings has Show Ride Badges to turn them off
 
 ### Bug Fixes
 

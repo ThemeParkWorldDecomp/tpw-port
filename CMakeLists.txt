@@ -566,6 +566,14 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   target_include_directories(tpw_log_scrub_tests PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
   target_link_libraries(tpw_log_scrub_tests PRIVATE tpw_platform)
   add_test(NAME log_scrub COMMAND tpw_log_scrub_tests)
+  # The ride badges (include/RideBadges.h, platform/ride_badges.cpp): which rides get the GOLD and PS1 tags, none with
+  # "Show Ride Badges" off, and the tag's place in the Buy Ride picture. Only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_ride_badges_tests platform/tests/ride_badges_tests.cpp)
+    target_include_directories(tpw_ride_badges_tests PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    target_link_libraries(tpw_ride_badges_tests PRIVATE tpw_platform)
+    add_test(NAME ride_badges COMMAND tpw_ride_badges_tests)
+  endif()
   # The online server client (platform/online_boss.cpp) against a fake connection: the framing, every request and every reply
   # parser, byte for byte, with malformed and oversized replies.
   add_executable(tpw_online_boss_tests platform/tests/online_boss_tests.cpp)

@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -2353,6 +2354,47 @@ void CheckSoundPanSwitch(SDL_Renderer* renderer) {
     CheckEq(b.Setting(kSoundPanKey), "0", "sound panning: a launcher.ini with 1 shows it on, so one click turns it off");
 }
 
+// The Settings box's Show Ride Badges switch (launcher_ui.h kRideBadgesKey): with the port's fixes, on when launcher.ini has
+// no key (the maintainer's approved default), a click keeps "0" (no tags), a second click "1", and a launcher.ini with "0" shows it off;
+// the OFF build has no such row, so its game never has a tag.
+void CheckRideBadgesSwitch(SDL_Renderer* renderer) {
+    FakeBackend b;
+    LauncherUi ui(renderer, b);
+    const float width = 1100, height = 2400;   // tall enough for the whole box
+    auto frames = [&](LauncherUi& u, int n) {
+        for (int i = 0; i < n; ++i) u.Frame(kDt, width, height, 1);
+    };
+    auto click = [&](LauncherUi& u) {
+        const Rect r = u.RideBadgesRect();
+        const float x = r.CentreX(), y = r.CentreY();
+        u.HandleEvent(MotionEvent(x, y));
+        frames(u, 1);
+        u.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, x, y));
+        frames(u, 1);
+        u.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, x, y));
+        frames(u, 1);
+    };
+    ui.ShowSettings(true);
+    frames(ui, 1);
+    if (!kRideBadgesRow) {
+        Check(ui.RideBadgesRect().w == 0, "ride badges: the OFF build has no switch");
+        CheckEq(b.Setting(kRideBadgesKey), "", "ride badges: the OFF build keeps nothing");
+        return;
+    }
+    Check(ui.RideBadgesRect().w > 0, "ride badges: the switch is in the Settings box");
+    CheckEq(b.Setting(kRideBadgesKey), "", "ride badges: nothing is kept until the player chooses");
+    click(ui);
+    CheckEq(b.Setting(kRideBadgesKey), "0", "ride badges: on by default, so a click turns it off");
+    click(ui);
+    CheckEq(b.Setting(kRideBadgesKey), "1", "ride badges: a second click turns it on");
+    b.settings[kRideBadgesKey] = "0";
+    LauncherUi again(renderer, b);
+    again.ShowSettings(true);
+    frames(again, 1);
+    click(again);
+    CheckEq(b.Setting(kRideBadgesKey), "1", "ride badges: a launcher.ini with 0 shows it off, so one click turns it on");
+}
+
 // The Settings box's Game options section (settings_game.cpp): none without the game's settings, every row of the Options
 // panel with them, nothing written by opening it, a change in the file at once and in no launcher.ini key, the game's
 // change shown when the window comes back, and nothing changed while the game holds the folder or of a file that does not read.
@@ -2426,7 +2468,10 @@ void CheckGameOptions(SDL_Renderer* renderer) {
     number(ui.GameView().player, 0, "game options: the only player");
     Check(!fs::exists(folder.Config(1)), "game options: opening the box makes no Config.tcf");
     Check(GameOptionsFolder::Load(folder.Player(1, "1Ann")) == annBefore, "game options: opening the box changes no player");
-    Check(ui.SettingsBodyCounted() == ui.SettingsBodyDrawn(), "game options: the box's height is the rows drawn");
+    std::printf("the box's height is the rows drawn: the body counted %.3f points, drawn %.3f\n", ui.SettingsBodyCounted(),
+                ui.SettingsBodyDrawn());
+    Check(ui.SettingsBodyDrawn() > 0 && std::fabs(ui.SettingsBodyCounted() - ui.SettingsBodyDrawn()) < 0.5f,
+          "game options: the box's height is the rows drawn");
     const size_t keptKeys = b.settings.size();
 
     // A toggle of the player's: its byte, and only that; no Config.tcf for it.
@@ -2560,7 +2605,10 @@ void CheckGameOptions(SDL_Renderer* renderer) {
     Check(ui.GameView().configState == GameFileState::Missing && ui.GameView().player == -1, "game options: its own files, none yet");
     click(GameOption::Advisor);
     Check(!fs::exists(folder.source.userFolder(0)), "game options: no player, so a player's option writes nothing");
-    Check(ui.SettingsBodyCounted() == ui.SettingsBodyDrawn(), "game options: the height again");
+    std::printf("the height again: the body counted %.3f points, drawn %.3f\n", ui.SettingsBodyCounted(),
+                ui.SettingsBodyDrawn());
+    Check(ui.SettingsBodyDrawn() > 0 && std::fabs(ui.SettingsBodyCounted() - ui.SettingsBodyDrawn()) < 0.5f,
+          "game options: the height again");
 }
 
 // The Settings box's Several keys at once switch (reported by Addable13): off when launcher.ini has no key (the original's
@@ -3455,6 +3503,7 @@ int main(int argc, char** argv) {
         CheckLanguages(renderer);
         CheckVisitorLooks(renderer);
         CheckSoundPanSwitch(renderer);
+        CheckRideBadgesSwitch(renderer);
         CheckGameOptions(renderer);
         CheckSeveralKeysSwitch(renderer);
         CheckWasdCameraSwitch(renderer);

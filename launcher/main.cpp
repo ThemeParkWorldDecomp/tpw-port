@@ -68,6 +68,8 @@
 #ifdef TPW_PORT_FIX
 #include "content_overlay.h"
 #include "mods.h"
+#include "ride_badges.h"
+#include "RideBadges.h"
 #endif
 #ifdef _WIN32
 #include "host_win.h"
@@ -1255,6 +1257,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
         tpw::mods::Hooks hooks;
         std::vector<const tpw::mods::Mod*> on;
         std::vector<std::filesystem::path> content;
+        std::vector<std::filesystem::path> ps1Content;   // the content of the mod that switched ps1_badge on
         std::string line;
         // Every content mod, on or off, for the message of a park that needs its rides (include/platform/missing_rides.h).
         std::vector<tpw::ContentMod> known;
@@ -1283,7 +1286,9 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
                          clash->id.c_str());
                 continue;
             }
+            const bool ps1Badge = hooks.ps1Badge;
             mod.switchOn(hooks);
+            if (hooks.ps1Badge && !ps1Badge && !mod.content.empty()) ps1Content.push_back(ModContentFolder(backend, mod));
             on.push_back(&mod);
             if (!mod.content.empty()) content.push_back(ModContentFolder(backend, mod));
             tpw::Log("mods: %s %s on", mod.id.c_str(), mod.version.c_str());
@@ -1299,6 +1304,14 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
         }
         if (!line.empty())
             std::snprintf(gModsOnLine, sizeof gModsOnLine, "launcher: mods on: %s\n", line.c_str());
+        // The Settings box's "Show Ride Badges" (include/RideBadges.h, platform/ride_badges.h): on unless launcher.ini
+        // says 0; after the Gold rides and the content rides above, whose rides it tags.
+        tpw::UseRideBadges(tpw::RideBadgesSetting(backend.Setting(tpw::ui::kRideBadgesKey)), config.gameDir, ps1Content);
+        if (gPortRideBadges)
+            tpw::Log("ride badges: on, %zu Gold rides, %zu PlayStation rides (the launcher's Settings)",
+                     gRideBadgeGold.size(), gRideBadgePs1.size());
+        else
+            tpw::Log("ride badges: off (the launcher's Settings)");
     }
 #endif
     return -1;

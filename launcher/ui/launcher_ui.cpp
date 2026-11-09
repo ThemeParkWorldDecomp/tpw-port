@@ -28,6 +28,8 @@ constexpr float kTitleVersionGap = 10;
 constexpr float kTileHeight = 158;
 constexpr float kEditedBadgeH = 26;    // the Customized settings badge at a small tile's bottom (EditedBadge)
 constexpr const char* kEditedLabel = "Customized settings";
+// The Show Ride Badges row's line, in the style of every Settings row: what the switch does, under its name.
+constexpr const char* kRideBadgesLine = "Rides not in the standard edition get a GOLD or PS1 corner badge in Buy Ride";
 constexpr size_t kLogLimit = 4000;     // rows kept in the checking log
 constexpr float kNoticeSeconds = 4.5f;
 constexpr float kStartupNoticeSeconds = 9.0f;   // the startup check's notice: the window may still be opening
@@ -138,6 +140,7 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     samRects_.resize(SamOptions().size());
     frameRate_ = FrameRateSetting(backend_.Setting(kFrameRateKey));
     pcSoundPicks_ = backend_.Setting(kPcSoundPicksKey) != "0";
+    rideBadges_ = backend_.Setting(kRideBadgesKey) != "0";
     fullScreen_ = backend_.Setting(kFullScreenKey) != "0";
     renderer_ = backend_.Setting(kRendererKey) == "vulkan" ? 1 : 0;   // OpenGL unless Vulkan was chosen
     checkUpdates_ = backend_.Setting(kCheckUpdatesKey) != "0";   // on by default (updater.h says why)
@@ -1155,10 +1158,10 @@ void LauncherUi::DrawSettings(const Rect& w) {
     const float rowH = 50;
     float pw = std::min(w.w - 2 * metric::kMargin, 640.0f);
     float titleH = text_.LineHeight(style::kHeadline) + 12;
-    // Everything below the title, as drawn below: the Game section's 9 rows, the Renderer row (counted last) when shown.
+    // Everything below the title, as drawn below: the Game section's 10 rows and Show Ride Badges (kRideBadgesRow), the Renderer row (counted last) when shown.
     // A row added below is counted here too; the Settings scroll test checks the sum against what is drawn.
     float bodyH = 2 * (text_.LineHeight(style::kBodyBold) + 4) + 40 + text_.LineHeight(style::kSmall) + 14 + 3 * rowH +
-                  4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + 9 * rowH +
+                  4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + (kRideBadgesRow ? 11 : 10) * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + static_cast<float>(SamOptions().size() + 1) * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH + (rendererRow_ ? rowH : 0.0f) +
@@ -1446,6 +1449,21 @@ void LauncherUi::DrawSettings(const Rect& w) {
         if (ui_.Toggle("sound-pan", soundPanRect_, soundPan_)) {
             std::string err;
             if (!backend_.SaveSetting(kSoundPanKey, soundPan_ ? "1" : "0", err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
+        }
+        y += rowH;
+    }
+    if (kRideBadgesRow) {   // Show Ride Badges: only with the port's fixes (launcher_ui.h kRideBadgesKey)
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, "Show Ride Badges", colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, kRideBadgesLine, row.w - 12 - 56 - 24, false), colour::kInkSoft);
+        rideBadgesRect_ = {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32};
+        if (ui_.Toggle("ride-badges", rideBadgesRect_, rideBadges_)) {
+            std::string err;
+            if (!backend_.SaveSetting(kRideBadgesKey, rideBadges_ ? "1" : "0", err))
                 settingsMessage_ = "Cannot keep the setting: " + err;
         }
         y += rowH;
