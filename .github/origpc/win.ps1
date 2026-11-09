@@ -173,13 +173,40 @@ public static void Focus(System.IntPtr h) {
     Key(0x87);
     SetForegroundWindow(h); System.Threading.Thread.Sleep(100);
 }
-// A point given in the game's own 640x480 coordinates, clicked wherever the window's client area is now and however it is scaled.
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool GetWindowRect(System.IntPtr h, out RC r);
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool SystemParametersInfo(uint a, uint b, int[] c, uint d);
+[System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "SystemParametersInfo")] public static extern bool SystemParametersInfoP(uint a, uint b, System.IntPtr c, uint d);
+// Run 5: the game draws its own pointer (its asynchronous pointer thread reads DirectInput's relative motion), which stayed at the
+// client's top left while the Windows pointer was elsewhere. So the window's client area is put at the screen's 0,0, pointer
+// acceleration is turned off (speed 10 is 1:1), and each click first pushes the pointer far up and left (both pointers stop at 0,0)
+// and then moves it by the target in small steps: the game's pointer and Windows' then agree, whichever the game reads.
+public static string Place(System.IntPtr h) {
+    PT p = new PT(); RC w;
+    if (!GetWindowRect(h, out w) || !ClientToScreen(h, ref p)) { return "window not placed"; }
+    SetWindowPos(h, new System.IntPtr(-1), w.L - p.X, w.T - p.Y, 0, 0, 0x0041);
+    SystemParametersInfo(0x0004, 0, new int[] { 0, 0, 0 }, 0);
+    SystemParametersInfoP(0x0071, 0, new System.IntPtr(10), 0);
+    return "window placed with its client area at 0,0; pointer acceleration off";
+}
+static void Move(int dx, int dy) {
+    while (dx != 0 || dy != 0) {
+        int sx = System.Math.Max(-20, System.Math.Min(20, dx)), sy = System.Math.Max(-20, System.Math.Min(20, dy));
+        mouse_event(0x0001, (uint)sx, (uint)sy, 0, System.UIntPtr.Zero); System.Threading.Thread.Sleep(8);
+        dx -= sx; dy -= sy;
+    }
+}
+// A point given in the game's own 640x480 coordinates (the client area is 640x480 at the screen's 0,0 after Place).
 public static string ClickGame(System.IntPtr h, int x, int y) {
     PT p = new PT(); RC r;
     if (!GetClientRect(h, out r) || !ClientToScreen(h, ref p) || r.R <= 0 || r.B <= 0) { return "client area unknown, no click"; }
     int sx = p.X + x * r.R / 640, sy = p.Y + y * r.B / 480;
-    Focus(h); Click(sx, sy);
-    return "clicked game " + x + "," + y + " at screen " + sx + "," + sy;
+    Focus(h);
+    Move(-1600, -1600); System.Threading.Thread.Sleep(100);
+    Move(sx, sy); System.Threading.Thread.Sleep(100);
+    SetCursorPos(sx, sy); System.Threading.Thread.Sleep(150);
+    mouse_event(0x0002, 0, 0, 0, System.UIntPtr.Zero); System.Threading.Thread.Sleep(80);
+    mouse_event(0x0004, 0, 0, 0, System.UIntPtr.Zero);
+    return "clicked game " + x + "," + y + " at screen " + sx + "," + sy + " (client origin " + p.X + "," + p.Y + ")";
 }
 public static void Type(string s) {
     foreach (char c in s) {
@@ -221,7 +248,7 @@ function Invoke-Game([string]$Tag, [int]$Affinity, [string]$Game, [string[]]$Gam
     $gameExe = Join-Path $Game 'TP.EXE'
     $dbwLog = Join-Path $Out "dbwin-$Tag.txt"
     # The dbwin reader is the harness (module-level $Exe), not the game.
-    $dbw = Start-Process -FilePath $Exe -ArgumentList @('--dbwin', '80', '--log', $dbwLog) -PassThru -NoNewWindow `
+    $dbw = Start-Process -FilePath $Exe -ArgumentList @('--dbwin', '135', '--log', $dbwLog) -PassThru -NoNewWindow `
         -RedirectStandardOutput (Join-Path $Temp "dbwin-$Tag-stdout.txt")
     Start-Sleep -Milliseconds 700
     # Run 1 (no shims): both windowed runs crashed (0xc0000005) right after the game logged the desktop's 32-bit pixel format,
@@ -263,22 +290,30 @@ function Invoke-Game([string]$Tag, [int]$Affinity, [string]$Game, [string[]]$Gam
     # time (s) -> what to do. Keys skip the EA and intro movies (Escape is virtual-key 0x1B, Return 0x0D). The clicks are in the
     # game's own 640x480 coordinates (the JP front end is navigated by position) and are filled in from the screenshots; the
     # typed text is only ever the dummy account (origpc_auth.cpp's defaults), never a secret.
-    $keyAt = @{ 3 = 0x1B; 5 = 0x1B; 8 = 0x1B; 11 = 0x0D }
-    $clickAt = @{}
-    $typeAt = @{}
-    $shotAt = @(4, 6, 8, 10, 12, 14, 16, 18, 20, 23, 26, 30, 35, 40, 45, 50, 55, 60, 70, 80, 90)
+    # Run 5 (cnc-ddraw) showed the player list at 10 s. The positions are the game's window scripts' (a 2048x1536 space, here / 3.2;
+    # the port's playtest recipe clicks the same ones): Create New Player (1326,121), the name dialog's tick (1418,566), the island
+    # lobby's globe button (rect 68,946-221,1099), and on the login panel (script 0x102b02fc) the name box 0x49 (632,463-1307,556);
+    # Return in the name box moves to the password box and Return there logs in (OnlineLoginPanelDlgMsg, message 0x802); the
+    # panel's tick (1376,524-1460,608) is pressed once more later in case Return did not take.
+    $keyAt = @{ 3 = 0x1B; 5 = 0x1B; 8 = 0x1B; 54 = 0x0D; 58 = 0x0D }
+    $clickAt = @{ 16 = @(414, 38); 22 = @(443, 177); 38 = @(45, 319); 50 = @(303, 159); 75 = @(443, 177) }
+    $typeAt = @{ 19 = 'ci'; 52 = 'origpcci'; 56 = 'not-a-secret' }
+    $shotAt = @(4, 8, 12, 15, 18, 21, 24, 27, 30, 33, 36, 40, 44, 48, 51, 53, 55, 57, 60, 63, 66, 70, 74, 78, 85, 95, 105, 115, 125)
     $net = Join-Path $Out "game-netstat-$Tag.txt"
     $lastNet = ''
     $sawWindow = $false
     $alive = 0
     $hwnd = [IntPtr]::Zero
     $start = Get-Date
-    for ($t = 1; $t -le 92; $t++) {
+    for ($t = 1; $t -le 127; $t++) {
         Start-Sleep -Seconds 1
         $elapsed = [int]((Get-Date) - $start).TotalSeconds
         if ($hwnd -eq [IntPtr]::Zero -and $null -ne $g -and -not $g.HasExited) {
             $g.Refresh()
-            if ($g.MainWindowHandle -ne [IntPtr]::Zero) { $hwnd = $g.MainWindowHandle; Add-Text $log "t${t}s game window found`n" }
+            if ($g.MainWindowHandle -ne [IntPtr]::Zero) {
+                $hwnd = $g.MainWindowHandle
+                Add-Text $log "t${t}s game window found; $([Origpc.Input]::Place($hwnd))`n"
+            }
         }
         if ($hwnd -ne [IntPtr]::Zero -and ($keyAt.ContainsKey($t) -or $shotAt -contains $t)) { try { [Origpc.Input]::Focus($hwnd) } catch {} }
         if ($keyAt.ContainsKey($t)) {
@@ -493,6 +528,7 @@ switch ($Step) {
         & robocopy.exe $src $game /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
         if (-not (Test-Path -LiteralPath (Join-Path $game 'TP.EXE'))) { Dismount-DiskImage -ImagePath $iso | Out-Null; Fail 'TP.EXE was not copied to the runner' }
         Add-Text $summaryFile "copied $((Get-ChildItem -LiteralPath $game -Recurse -File | Measure-Object -Sum Length).Sum) bytes to $game`n"
+        $copiedAt = Get-Date
 
         # Japanese: the game reads its language from the registry (default 0x809 English). 0x11 is Japanese. It is 32-bit, so the
         # real key on a 64-bit Windows is under WOW6432Node; the plain and HKCU paths are set too for safety.
@@ -545,29 +581,26 @@ switch ($Step) {
         $ini = "[ddraw]`r`nwindowed=true`r`nfullscreen=false`r`nborder=true`r`nrenderer=gdi`r`nsinglecpu=false`r`nsavesettings=0`r`n" +
             "no_compat_warning=true`r`n"
         [System.IO.File]::WriteAllText((Join-Path $game 'ddraw.ini'), $ini, (New-Object System.Text.ASCIIEncoding))
-        # The game's own fullscreen mode (dialog.tcf gameOptions 0x000c0e15), which cnc-ddraw shows in a window.
-        $tcfFull = [byte[]]$tcf.Clone(); $tcfFull[4] = 0x15
-        $best = 'cnc'
+        # Run 5: with cnc-ddraw the game ran 91 s in all three runs (windowed, the game's fullscreen in a window, one CPU) and showed
+        # the player list. Native DirectDraw under full page heap stopped at 4 s on a 1-byte over-read in the game's pixel converter
+        # (TP+0x239aba, a dword load of the last 3 bytes of a buffer: a read, not the corrupting write). These runs go on to the
+        # online login with the dummy account, on all CPUs and pinned to CPU 0, twice each.
         if ($cncOk) {
-            $winAlive = [int]@(Invoke-Game 'cnc' 0 $game @() '16BitColor')[-1]
-            [System.IO.File]::WriteAllBytes((Join-Path $game 'dialog.tcf'), $tcfFull)
-            $fullAlive = [int]@(Invoke-Game 'cnc-full' 0 $game @() '16BitColor')[-1]
-            # The pinned run uses whichever of the two lived longer.
-            if ($winAlive -ge $fullAlive) { [System.IO.File]::WriteAllBytes((Join-Path $game 'dialog.tcf'), $tcf) } else { $best = 'cnc-full' }
-            Add-Text $summaryFile "cnc-ddraw: windowed alive ${winAlive}s, fullscreen alive ${fullAlive}s; the pinned run uses $best`n"
-            # The race check on the real game: the whole process (and so its comms thread) pinned to CPU 0.
-            Invoke-Game "$best-cpu1" 1 $game @() '16BitColor' | Out-Null
+            foreach ($r in @(@('cnc-all-1', 0), @('cnc-cpu1-1', 1), @('cnc-all-2', 0), @('cnc-cpu1-2', 1))) {
+                Invoke-Game $r[0] $r[1] $game @() '16BitColor' | Out-Null
+                # Each run starts from no player, so the Create New Player button stays where it was: every file the game wrote
+                # (robocopy kept the disc's dates) goes back to the disc's copy, or is removed if the disc has none.
+                Get-ChildItem -LiteralPath $game -Recurse -File -ErrorAction SilentlyContinue |
+                    Where-Object { $_.LastWriteTime -gt $copiedAt -and $_.Name -notin 'ddraw.dll', 'ddraw.ini', 'dialog.tcf' } |
+                    ForEach-Object {
+                        $rel = $_.FullName.Substring($game.Length)
+                        if (Test-Path -LiteralPath "$src$rel") { Copy-Item -LiteralPath "$src$rel" -Destination $_.FullName -Force; $how = 'restored' }
+                        else { Remove-Item -LiteralPath $_.FullName -Force; $how = 'removed' }
+                        Add-Text $summaryFile "after $($r[0]): the game wrote $rel, $how`n"
+                    }
+            }
         }
         Remove-Item -LiteralPath (Join-Path $game 'ddraw.dll'), (Join-Path $game 'ddraw.ini') -Force -ErrorAction SilentlyContinue
-        [System.IO.File]::WriteAllBytes((Join-Path $game 'dialog.tcf'), $tcf)
-        # Windows' own DirectDraw again, with full page heap on TP.EXE: the heap corruption then faults at the write that does it,
-        # so the crash stack names the code (the game's or Windows') that overruns. The setting is removed right after.
-        $ifeo = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\TP.EXE'
-        New-Item -Path $ifeo -Force | Out-Null
-        New-ItemProperty -Path $ifeo -Name GlobalFlag -Value 0x02000000 -PropertyType DWord -Force | Out-Null
-        New-ItemProperty -Path $ifeo -Name PageHeapFlags -Value 3 -PropertyType DWord -Force | Out-Null
-        Invoke-Game 'pageheap' 0 $game | Out-Null
-        Remove-Item -Path $ifeo -Recurse -Force -ErrorAction SilentlyContinue
 
         $sd = Get-Service -Name secdrv -ErrorAction SilentlyContinue
         Add-Text $summaryFile "secdrv service: $(if ($sd) { $sd.Status } else { 'not installed' })`n"
