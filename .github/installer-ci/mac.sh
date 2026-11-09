@@ -566,6 +566,8 @@ case_real() {
     snap "$DATA" >"$C/data-before.txt"
     git clone -q "$TPW_CI_SOURCE" "$C/release-repo" || bad "cannot copy the checkout"
     git -C "$C/release-repo" checkout -q -B main
+    # a checkout with the project's tags (a tag push's, or a clone of one) would offer its newest release instead of this one
+    git -C "$C/release-repo" tag -l | while read -r t; do git -C "$C/release-repo" tag -d "$t" >/dev/null; done
     printf '%s\n' "$version" >"$C/release-repo/launcher/VERSION.txt"
     git -C "$C/release-repo" add launcher/VERSION.txt
     git -C "$C/release-repo" -c user.name=ci -c user.email=ci@example.invalid -c commit.gpgsign=false commit -q -m "Release $version"

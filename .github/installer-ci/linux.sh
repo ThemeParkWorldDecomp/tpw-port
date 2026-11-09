@@ -955,7 +955,7 @@ case_real() {
     snap "$DATA" >"$C/data-before.txt"
     git clone -q "$TPW_CI_SOURCE" "$C/release-repo" || bad "cannot copy the checkout"
     git -C "$C/release-repo" checkout -q -B main
-    # a checkout with the project's tags (a clone of one, not CI's) would offer its newest release instead of this one
+    # a checkout with the project's tags (a tag push's, or a clone of one) would offer its newest release instead of this one
     git -C "$C/release-repo" tag -l | while read -r t; do git -C "$C/release-repo" tag -d "$t" >/dev/null; done
     real_release "$version"
     # The submodules' addresses are relative (../tpw-decomp), so they resolve beside the release repository: bare copies
