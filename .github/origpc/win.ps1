@@ -300,10 +300,14 @@ function Invoke-Game([string]$Tag, [int]$Affinity, [string]$Game, [string[]]$Gam
     # Run 6 showed the real flow: a Create New Player button opens the name dialog with the name box already taking keys, and
     # Return there makes the player and goes to the island lobby within a second (no tick needed); the lobby's globe is at 45,319.
     # Return in the lobby enters a park, so the only Returns after the lobby are the login panel's.
-    $keyAt = @{ 3 = 0x1B; 5 = 0x1B; 8 = 0x1B; 21 = 0x0D; 34 = 0x0D; 38 = 0x0D }
-    $clickAt = @{ 12 = @(150, 440); 16 = @(414, 38); 26 = @(45, 319); 31 = @(303, 159); 55 = @(443, 177) }
-    $typeAt = @{ 19 = 'ci'; 32 = 'origpcci'; 36 = 'not-a-secret' }
-    $shotAt = @(4, 8, 12, 14, 17, 18, 20, 22, 24, 27, 29, 30, 32, 33, 35, 37, 40, 44, 48, 52, 56, 60, 70, 80, 95, 110, 125)
+    # Run 7: the globe opens a "choose connection method" screen first (built in code, not a window script), measured from
+    # its screenshots: "use the current connection" (307,105), "dial-up" (307,133), its tick (505,207). The login panel comes after
+    # it; its script's frame (500,233-1516,830, so 156,73-474,259) leaves that tick outside it, so the tick is clicked even if the
+    # button alone opened the panel. The login panel's positions are the script's: name box 0x49 (303,159), tick (443,177).
+    $keyAt = @{ 3 = 0x1B; 5 = 0x1B; 8 = 0x1B; 21 = 0x0D; 41 = 0x0D; 45 = 0x0D }
+    $clickAt = @{ 12 = @(150, 440); 16 = @(414, 38); 26 = @(45, 319); 29 = @(307, 105); 32 = @(505, 207); 38 = @(303, 159); 60 = @(443, 177) }
+    $typeAt = @{ 19 = 'ci'; 39 = 'origpcci'; 43 = 'not-a-secret' }
+    $shotAt = @(4, 8, 12, 14, 17, 20, 22, 24, 27, 28, 30, 31, 33, 34, 36, 37, 39, 40, 42, 44, 46, 48, 52, 56, 62, 70, 80, 95, 110, 125)
     $net = Join-Path $Out "game-netstat-$Tag.txt"
     $lastNet = ''
     $sawWindow = $false
