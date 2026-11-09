@@ -1063,6 +1063,9 @@ inline bool gModStrikeGate = false;
 inline bool gModStrikeMessages = false;
 // TPW_PORT_FIX mods gModStaffBridgeWander | Mac: no such flag | Port: TPW_MOD_HOOK staff_bridge_wander, set by the launcher like gModStrikeGate; set, a staff member's random walk (CPeep::SetRandomDestination) may step onto, along and off a footbridge | Why: tpw-mods staff-cross-bridges
 inline bool gModStaffBridgeWander = false;
+// TPW_PORT_FIX mods gModPs1Ground | Mac: no such flag | Port: TPW_MOD_HOOK ps1_ground, set by the launcher like gModStrikeGate; set, a ride mesh whose header has flag 0x40000000 (only the PlayStation rides mod's converter writes it) has every cell of its base blended into the park's ground (CalculateSkirtVertices) | Why: tpw-mods ps1-rides: the park's own ground shows through the grass of the PlayStation ride's ground
+inline bool gModPs1Ground = false;
+constexpr uint32_t kHeaderPs1Ground = 0x40000000;
 static_assert(sizeof(CStaffHQ) == 0x68, "CStaffHQ is 0x68 bytes");
 static_assert(offsetof(CStaffHQ, mTraining) == 0xc, "CStaffHQ::mTraining at 0xc");
 static_assert(offsetof(CStaffHQ, mStrikes) == 0x24, "CStaffHQ::mStrikes at 0x24");
