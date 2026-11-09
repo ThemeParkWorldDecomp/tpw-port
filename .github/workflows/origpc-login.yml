@@ -71,6 +71,11 @@ jobs:
         if: always() && steps.real.outcome != 'skipped'
         timeout-minutes: 20
         run: '& .github\origpc\win.ps1 series; exit $LASTEXITCODE'
+      # Run 2: the game crashed in its music code (it loads a .sf2 sound bank) on a runner with no sound device at all.
+      - name: Give the runner a sound device (VB-CABLE, for the game's sound and music)
+        if: always() && steps.real.outcome != 'skipped' && (github.event_name == 'push' || inputs.try_game)
+        continue-on-error: true
+        uses: LABSN/sound-ci-helpers@e9d6ba52163a3283714a68412036ddf33f78d49c
       - name: Start the real game from the mounted disc
         if: always() && steps.real.outcome != 'skipped' && (github.event_name == 'push' || inputs.try_game)
         timeout-minutes: 30

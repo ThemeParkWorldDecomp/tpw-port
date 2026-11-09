@@ -176,6 +176,14 @@ function Invoke-Game([string]$Tag, [int]$Affinity, [string]$Game) {
     # and fullscreen exited with code 1. A 1999 DirectDraw game expects a 16-bit display, so it runs under Windows' own
     # compatibility layers for that (reduced colour, and DirectDraw's 8/16-bit mitigation), set only for this child process.
     $run = Get-Date
+    # A crash writes a minidump on the runner only (never in the artifact); its stack, as addresses, goes in the game log.
+    $dumps = Join-Path $Temp 'tpdumps'
+    New-Item -ItemType Directory -Force -Path $dumps | Out-Null
+    $wer = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\TP.EXE'
+    New-Item -Path $wer -Force | Out-Null
+    New-ItemProperty -Path $wer -Name DumpFolder -Value $dumps -PropertyType ExpandString -Force | Out-Null
+    New-ItemProperty -Path $wer -Name DumpType -Value 1 -PropertyType DWord -Force | Out-Null
+    New-ItemProperty -Path $wer -Name DumpCount -Value 5 -PropertyType DWord -Force | Out-Null
     $env:__COMPAT_LAYER = 'DWM8And16BitMitigation 16BitColor'
     Add-Text $log "compatibility layers: $env:__COMPAT_LAYER`n"
     $g = $null
@@ -247,6 +255,17 @@ function Invoke-Game([string]$Tag, [int]$Affinity, [string]$Game) {
         $text = ($e.Message -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 12) -join ' | '
         Add-Text $log "event $($e.Id) $($e.ProviderName): $text`n"
         Write-Host "  event $($e.Id): $text"
+    }
+    Start-Sleep -Seconds 3
+    $cdb = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x86\cdb.exe'
+    foreach ($dmp in @(Get-ChildItem -LiteralPath $dumps -Filter '*.dmp' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $run })) {
+        if (Test-Path -LiteralPath $cdb) {
+            $st = @(& $cdb -z $dmp.FullName -c '.ecxr; r; kv 40; lm; q' 2>&1 | ForEach-Object { "$_" } |
+                Where-Object { $_ -match '^(eax|eip|cs|ChildEBP|[0-9a-f]{8} |\s*[0-9a-f]{2} [0-9a-f]{8} )' -or $_ -match '!|\+0x' })
+            Add-Text $log "crash stack from $($dmp.Name):`n$(($st | Select-Object -First 90) -join "`n")`n"
+            Write-Host "  crash stack:"; $st | Select-Object -First 40 | ForEach-Object { Write-Host "    $_" }
+        } else { Add-Text $log "minidump written but cdb.exe is not on this runner`n" }
+        Remove-Item -LiteralPath $dmp.FullName -Force -ErrorAction SilentlyContinue
     }
     foreach ($q in @(Get-GameTree)) { Stop-Process -Id $q.ProcessId -Force -ErrorAction SilentlyContinue }
     if (-not $dbw.WaitForExit(25000)) { Stop-Process -Id $dbw.Id -Force -ErrorAction SilentlyContinue }
@@ -422,6 +441,15 @@ switch ($Step) {
                         0x01,0x00,0x00,0x00, 0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00)
         [System.IO.File]::WriteAllBytes((Join-Path $game 'dialog.tcf'), $tcf)
         Add-Text $summaryFile "wrote dialog.tcf (windowed 640x480, software renderer, front end on)`n"
+
+        # Sound: the workflow installs VB-CABLE before this step; the game needs the audio service and an output device.
+        foreach ($svc in 'AudioEndpointBuilder', 'Audiosrv') {
+            try { Set-Service -Name $svc -StartupType Automatic; Start-Service -Name $svc } catch { Add-Text $summaryFile "could not start $svc`: $_`n" }
+            Add-Text $summaryFile "service $svc`: $((Get-Service -Name $svc -ErrorAction SilentlyContinue).Status)`n"
+        }
+        $snd = @(Get-CimInstance Win32_SoundDevice -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name) ($($_.Status))" })
+        Add-Text $summaryFile "sound devices: $(if ($snd.Count) { $snd -join '; ' } else { 'none' })`n"
+        Write-Host "sound devices: $($snd -join '; ')"
 
         Save-Screen (Join-Path $Out 'game-before.png')
         # Windowed run. If no window ever appears (dialog mode may misbehave, or GDI capture of DirectDraw comes back black),
