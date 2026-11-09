@@ -10,6 +10,11 @@ using assets::EditionStatus;
 using assets::ImportProgress;
 using assets::ImportReport;
 
+std::string ContentModLockedText(const std::string& content) {
+    return "Drop your own " + std::string(content == "ps1" ? "PlayStation disc" : "disc") +
+           " on the launcher to unlock.";
+}
+
 std::string FileUrl(const std::string& path, bool windows) {
     static const char kHex[] = "0123456789ABCDEF";
     std::string url = "file://";
@@ -315,6 +320,9 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
     } else if (!unlockedNow.empty()) {
         r.headline = "All assets confirmed for " + JoinAnd(unlockedNow);
         r.good = true;
+    } else if (!report.playStation.empty()) {
+        r.headline = report.playStationConverted ? "PlayStation rides ready" : "PlayStation disc recognised";
+        r.good = report.playStationConverted;
     } else if (report.written == 0 && !report.errors.empty()) {
         // A damaged or unreadable drop must not read as "nothing new": name the file and the reason first.
         r.headline = report.errors.size() == 1 ? "A file could not be read" : "Some files could not be read";
@@ -360,6 +368,7 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
             r.lines.push_back(EditionLabel(shown.edition) + ": " + FormatCount(shown.filesPresent) + " of " +
                               FormatCount(shown.files) + " files confirmed");
     }
+    for (const std::string& line : report.playStation) r.lines.push_back(line);
     if (report.written) r.lines.push_back(Files(report.written) + " put in place");
     if (report.alreadyThere) r.lines.push_back(Files(report.alreadyThere) + " already in place");
     if (!report.differentVersions.empty() && !LooksLikeOlderPressing(report) && !LooksLikeFirstRelease(report))
@@ -388,6 +397,9 @@ bool DescribeProgress(const ImportProgress& p, LogRow& row) {
             return true;
         case ImportProgress::Kind::Error:
             row = {p.message.empty() ? p.path : p.message, "problem", LogRow::Bad};
+            return true;
+        case ImportProgress::Kind::Content:
+            row = {p.message, "", LogRow::Same};
             return true;
         case ImportProgress::Kind::Finished:
             row = {p.message, "done", LogRow::Same};

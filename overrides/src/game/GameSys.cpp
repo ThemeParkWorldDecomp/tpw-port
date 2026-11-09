@@ -561,12 +561,21 @@ uint32_t GAMESYSTEM_Tick() {
             if (TheGameType().mType == kGameTypeOnline) {
                 if (!OnlineControl()->WantToShutDown()) {
                     CSaveLoadHeader header;
-                    gSaveLoad.Load(OnlineSystem()->ReturnFTPDownloadLocalPath(), &header, CSaveLoad::LoadType(1));
-                    gActionRecorder.ReplayRecording(ReplayType(0));
+                    // TPW_PORT_FIX heldpark GAMESYSTEM_Tick | Mac: the result of Load is ignored: a downloaded park that needs rides the game has not got is visited as the new park the level began with, its recording replayed onto it | Port: the park is held (below): the game goes back to the menu, where the error dialog names the rides; the recording is not replayed | Why: the visitor saw an empty park, or a replay of another park's actions
+                    if (gSaveLoad.Load(OnlineSystem()->ReturnFTPDownloadLocalPath(), &header, CSaveLoad::LoadType(1)) == 0 &&
+                        PortMissingRides())
+                        PortTellMissingRides(1, true);
+                    else
+                        gActionRecorder.ReplayRecording(ReplayType(0));
                 }
             } else {
                 gLoadSave.LoadMostRecent();
             }
+        }
+        // TPW_PORT_FIX heldpark GAMESYSTEM_Tick | Mac: none: the park goes on to be shown, whatever its load did | Port: a held park (PortTellMissingRides) is left before its first frame, so the game goes back to the menu and the error dialog naming the rides opens there | Why: the player saw the empty park the level began with behind the message
+        if (gPortHeldPark != 0) {
+            GS_SetCurrentGameStatus(GS_LEAVE_PARK);
+            gGameSystemState = 11;
         }
         if (TheGameType().mType != kGameTypeOnline && MasterSave()->IsFirstTimePlayer()) {
             MasterSave()->ClearFirstTimePlayer();
@@ -718,7 +727,9 @@ uint32_t GAMESYSTEM_Tick() {
     }
 
     case 11:   // leave the park
-        if (TheGameType().mType != kGameTypeOnline) gLoadSave.Save(gTPGlobals.mAutosaveName);
+        // TPW_PORT_FIX heldpark GAMESYSTEM_Tick | Mac: leaving a park autosaves it | Port: not a held park (left straight from its load, above), which is then let go | Why: the autosave would be the new park the level began with, written over the player's park, and the newest file the next game starts with
+        if (TheGameType().mType != kGameTypeOnline && gPortHeldPark == 0) gLoadSave.Save(gTPGlobals.mAutosaveName);
+        gPortHeldPark = 0;
         UIMain_GetFullyOutOfFirstPerson();
         gei_MapWho->SetFinalCallback(nullptr);
         gei_TCache->Flush(0);

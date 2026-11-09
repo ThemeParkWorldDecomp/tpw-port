@@ -64,6 +64,7 @@
 #include "log_export.h"
 #include "path_text.h"
 #ifdef TPW_PORT_FIX
+#include "content_overlay.h"
 #include "mods.h"
 #endif
 #ifdef _WIN32
@@ -705,6 +706,27 @@ void NameAppMenu(const char* name) {
 
 // The launcher's settings kept on Play and when the window closes (launcher_ui.h KeepSettings), with the Mods box's
 // switches: "0" (off) is kept too.
+#ifdef TPW_PORT_FIX
+// A content mod's folder (mod.json's "content"): assets/<content> in the data folder, which the player's own disc is
+// converted into. Empty for a mod without content.
+std::filesystem::path ModContentFolder(const tpw::ui::ImporterBackend& backend, const tpw::mods::Mod& mod) {
+    if (mod.content.empty()) return {};
+    return std::filesystem::path(backend.DataFolder()) / "assets" / mod.content;
+}
+
+// Whether a mod can be on: one without content always, a content mod once its folder holds a ride (the Mods box shows
+// it locked until then).
+bool ModContentReady(const tpw::ui::ImporterBackend& backend, const tpw::mods::Mod& mod) {
+    return mod.content.empty() || !tpw::FindContentRides(ModContentFolder(backend, mod)).empty();
+}
+
+// The Mods box's line under a content mod until then: what unlocks it, on one line of the box. ps1 is the content made
+// by converting a PlayStation disc (platform/content_overlay.h).
+std::string ModLockedText(const tpw::mods::Mod& mod) {
+    return tpw::ui::ContentModLockedText(mod.content);
+}
+#endif
+
 void KeepLauncherSettings(const tpw::ui::ImporterBackend& backend, const std::string& prefPath) {
     std::vector<std::string> more;
 #ifdef TPW_PORT_FIX
@@ -971,20 +993,26 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
 #ifdef TPW_PORT_FIX
         // The header's Mods button: the build's mods (platform/mods.h's catalog, none in a build without a mods folder).
         placement.mods = true;
-        for (const tpw::mods::Mod& mod : tpw::mods::Catalog()) {
-            tpw::ui::ModRow row;
-            row.id = mod.id;
-            row.name = mod.name;
-            row.version = mod.version;
-            row.author = mod.author;
-            row.text = mod.text;
-            row.editions[0] = (mod.editions & tpw::mods::kUs) != 0;
-            row.editions[1] = (mod.editions & tpw::mods::kEuropean) != 0;
-            row.editions[2] = (mod.editions & tpw::mods::kGold) != 0;
-            row.changesSaves = mod.changesSaves;
-            row.conflicts = mod.conflicts;
-            placement.modRows.push_back(row);
-        }
+        placement.modsReader = [&backend] {
+            std::vector<tpw::ui::ModRow> rows;
+            for (const tpw::mods::Mod& mod : tpw::mods::Catalog()) {
+                tpw::ui::ModRow row;
+                row.id = mod.id;
+                row.name = mod.name;
+                row.version = mod.version;
+                row.author = mod.author;
+                row.text = mod.text;
+                row.editions[0] = (mod.editions & tpw::mods::kUs) != 0;
+                row.editions[1] = (mod.editions & tpw::mods::kEuropean) != 0;
+                row.editions[2] = (mod.editions & tpw::mods::kGold) != 0;
+                row.changesSaves = mod.changesSaves;
+                row.conflicts = mod.conflicts;
+                if (!ModContentReady(backend, mod))
+                    row.locked = ModLockedText(mod);
+                rows.push_back(row);
+            }
+            return rows;
+        };
         // The Settings box's Game options: the files the game keeps its Options panel's settings in, for each edition as
         // the game would run it below. --resolution and --aspect are one start's and are not shown or saved here.
         placement.gameSettings = true;
@@ -1218,9 +1246,20 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
                                                       (choice.gold ? tpw::mods::kGold : 0));
         tpw::mods::Hooks hooks;
         std::vector<const tpw::mods::Mod*> on;
+        std::vector<std::filesystem::path> content;
         std::string line;
+        // Every content mod, on or off, for the message of a park that needs its rides (include/platform/missing_rides.h).
+        std::vector<tpw::ContentMod> known;
+        for (const tpw::mods::Mod& mod : tpw::mods::Catalog())
+            if (!mod.content.empty()) known.push_back({mod.name, ModContentFolder(backend, mod)});
+        tpw::KnowContentMods(known);
         for (const tpw::mods::Mod& mod : tpw::mods::Catalog()) {
             if (backend.Setting(tpw::mods::Key(mod)) != "1") continue;
+            if (!ModContentReady(backend, mod)) {
+                tpw::Log("mods: %s %s is on but locked (no content in assets/%s); left off", mod.id.c_str(),
+                         mod.version.c_str(), mod.content.c_str());
+                continue;
+            }
             if ((mod.editions & editions) != editions) {
                 tpw::Log("mods: %s %s is on but not for this edition; left off", mod.id.c_str(), mod.version.c_str());
                 continue;
@@ -1238,10 +1277,18 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
             }
             mod.switchOn(hooks);
             on.push_back(&mod);
+            if (!mod.content.empty()) content.push_back(ModContentFolder(backend, mod));
             tpw::Log("mods: %s %s on", mod.id.c_str(), mod.version.c_str());
             line += (line.empty() ? "" : ", ") + mod.id + " " + mod.version;
         }
         tpw::mods::Apply(hooks);
+        // The content mods' rides, laid over the game folder (platform/content_overlay.h).
+        if (!content.empty()) {
+            std::vector<std::string> refused;
+            const size_t rides = tpw::UseContentRides(content, config.gameDir, &refused);
+            tpw::Log("mods: %zu content rides overlaid", rides);
+            for (const std::string& why : refused) tpw::Log("mods: content ride left out: %s", why.c_str());
+        }
         if (!line.empty())
             std::snprintf(gModsOnLine, sizeof gModsOnLine, "launcher: mods on: %s\n", line.c_str());
     }
@@ -1344,6 +1391,7 @@ int ImportFromOptions(const std::string& dataDir, const std::vector<std::string>
              static_cast<unsigned long long>(report.matched), static_cast<unsigned long long>(report.written),
              static_cast<unsigned long long>(report.alreadyThere), static_cast<unsigned long long>(report.unknownFiles));
     for (const std::string& error : report.errors) tpw::Log("import: error: %s", error.c_str());
+    for (const std::string& line : report.playStation) tpw::Log("import: %s", line.c_str());
     for (const std::string& dest : report.differentVersions) tpw::Log("import: a different version (not used): %s", dest.c_str());
     if (report.cancelled || report.aborted) tpw::Log("import: stopped before the end%s", report.aborted ? " by a write error" : "");
     tpw::launcher::RefreshInstalledIcon(backend.DataFolder());   // the import may have written the game's icon

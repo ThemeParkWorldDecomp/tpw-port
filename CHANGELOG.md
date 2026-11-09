@@ -2,6 +2,15 @@
 
 ## 0.4.0 (not released yet)
 
+### New Features
+
+- A new mod, PlayStation rides: the seven rides only the PlayStation edition had, and its Tower as Halloween scenery. Drop your own USA, European or Japanese PlayStation disc on the launcher to unlock it in the Mods box
+
+### Bug Fixes
+
+- Fixed a crash when visiting an online park that has a ride the server does not list
+- A saved park that needs rides you have switched off (the Gold rides, or a mod's) is no longer replaced by a new park: the game says which rides it needs without opening it, and keeps it for when they are back
+
 ## 0.3.3 (2026-11-08)
 
 ### Bug Fixes

@@ -8,6 +8,7 @@
 #include <SDL3/SDL.h>
 
 #include <future>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -154,6 +155,9 @@ struct ModRow {
     bool editions[3] = {};         // the editions it supports: 0 US, 1 European, 2 Gold (the Gold bonus rides)
     bool changesSaves = false;     // a game saved with it on differs from the original's
     std::vector<std::string> conflicts;   // the ids of mods it cannot be on with
+    std::string locked;            // why it cannot be on yet (a content mod before the player's own disc is converted:
+                                   // launcher/main.cpp), shown in its row; empty when it can. A locked mod shows off and
+                                   // its switch cannot be turned on, and launcher.ini's key is kept for when it unlocks
 };
 inline std::string ModKey(const std::string& id) { return "mod." + id; }
 
@@ -195,6 +199,8 @@ public:
     // The mods of the build (a build with the port's fixes, launcher/main.cpp): the header gets a Mods button, which
     // opens the Mods box and, while any mod is on, says how many ("1 mod on"). Never called (a build without the fixes): no button.
     void SetMods(const std::vector<ModRow>& mods);
+    // Reread content locks after an import or a change of data folder, so a disc drop unlocks its mod immediately.
+    void SetModsReader(std::function<std::vector<ModRow>()> reader);
     // The game's own settings (a build with the port's fixes, launcher/main.cpp): the Settings box gets the Game options
     // section, every setting of the game's Options panel, read from and written to the game's files (game_settings.h).
     // Never called (a build without the fixes): no such section.
@@ -510,6 +516,7 @@ private:
     float settingsBodyCounted_ = 0, settingsBodyDrawn_ = 0;   // last frame's (SettingsBodyCounted, SettingsBodyDrawn)
 
     // Mods (SetMods): the rows, their switches as launcher.ini keeps them, and the last frame's rects.
+    std::function<std::vector<ModRow>()> modsReader_;
     bool modsShown_ = false;
     std::vector<ModRow> mods_;
     std::vector<bool> modOn_;

@@ -1725,6 +1725,8 @@ void CFSOnlineSystem::LoggedInRequestFTPDownload(const CFSOnlinePark* park) {
         for (int32_t bit = 0; bit < 8; ++bit) {
             if (((1 << bit) & 0xff & rideBits[i]) == 0) continue;
             CFSOnlineRide* ride = ftpreq_callee::ReturnRideInfo(mRideList, mFTPPark->mF4C, bit + (0x1f - i) * 8 + 1);
+            // TPW_PORT_FIX nullride CFSOnlineSystem::LoggedInRequestFTPDownload | Mac: a ride of the park that the server's ride list has not got is read through NULL | Port: such a ride is skipped (its file path is never used: the names the loop builds are made of buffers nothing writes) | Why: visiting a park with a ride the list lacks (a PlayStation ride, or a list that failed to come) crashed; the park itself then refuses to load and says which rides it needs (the fix heldpark)
+            if (ride == nullptr) continue;
             TbDynamicStringTemplate<char16_t> filePath = [&]() {
                 TbDynamicStringTemplate<char16_t> returned = ftpreq_callee::GetFilePath(ride);
                 return TbDynamicStringTemplate<char16_t>(returned);

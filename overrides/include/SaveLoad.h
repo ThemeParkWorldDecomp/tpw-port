@@ -161,3 +161,21 @@ bool PortIsEarlySave(const uint8_t* modules, uint32_t size);
 // Subscribes every live thing of the world to the message types its constructor or Init subscribed it to.
 class CMessageCentre;
 void PortSubscribeLoadedThings(CMessageCentre& centre);
+
+// TPW_PORT_FIX heldpark gPortMissingRides | Mac: a park that needs a ride the game has not got fails to load and nothing says which; as a game starts, the new park the level began with is played instead and leaving it autosaves over the player's park | Port: Load keeps the rides the park lacked; the park is held: the player is told which rides in the game's error dialog, nothing is saved and the game goes back to the menu | Why: a park built with the Gold rides or a mod's rides (the PlayStation rides) on was lost the first time the game started with them off
+// The rides the last park Load refused needed and the ride database has not got (the bits of the park's ride record that
+// gRidesOwned lacks); all 0 when it refused none. Load clears it, LoadHeader sets it (src/game/save/SaveLoad.cpp).
+inline uint8_t gPortMissingRides[0x20] = {};
+// Nonzero while the park is held: from the failed load of the player's park (CFSLoadSave::LoadMostRecent) or of an online park
+// until the game has left it (GAMESYSTEM_Tick goes from loading the park, state 9, straight to leaving it, 11, so it is never
+// shown and nothing autosaves it; the message opens on the menu the game goes back to).
+inline int32_t gPortHeldPark = 0;
+// True when gPortMissingRides has a bit.
+inline bool PortMissingRides() {
+    for (uint8_t byte : gPortMissingRides)
+        if (byte != 0) return true;
+    return false;
+}
+// Puts the message naming gPortMissingRides in the error dialog's queue (AddUIError); `place` is a tpw::MissingRidesPlace
+// (include/platform/missing_rides.h). With `hold`, holds the park too. src/game/save/heldpark.cpp.
+void PortTellMissingRides(int32_t place, bool hold);

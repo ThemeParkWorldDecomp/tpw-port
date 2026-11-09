@@ -68,6 +68,7 @@ struct WindowPlacement {
     // button shows; `mods` false: no such button.
     bool mods = false;
     std::vector<ModRow> modRows;
+    std::function<std::vector<ModRow>()> modsReader;
     // The game's own settings (a build with the port's fixes: launcher/main.cpp), which the Settings box's Game options
     // section shows and changes; `gameSettings` false: no such section.
     bool gameSettings = false;

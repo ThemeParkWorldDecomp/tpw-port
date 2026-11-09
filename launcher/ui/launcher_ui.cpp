@@ -63,6 +63,8 @@ void Merge(ImportReport& into, const ImportReport& r) {
     into.unknownFiles += r.unknownFiles;
     into.unknownBytes += r.unknownBytes;
     into.errors.insert(into.errors.end(), r.errors.begin(), r.errors.end());
+    into.playStation.insert(into.playStation.end(), r.playStation.begin(), r.playStation.end());
+    into.playStationConverted = into.playStationConverted || r.playStationConverted;
 }
 
 // What Play hands the game for an edition's Language (LaunchChoice::language): the kept one while the data folder still
@@ -382,6 +384,7 @@ void LauncherUi::RefreshStatus() {
                       assets::kEditionUsPc, assets::kEditionEurPc})
         all_[StatusIndex(e)] = backend_.Status(e);
     for (int i = 0; i < 3; ++i) status_[i] = SlotStatus(all_, i);
+    if (modsReader_) SetMods(modsReader_());
 }
 
 void LauncherUi::RefreshLanguages() {
@@ -490,7 +493,12 @@ void LauncherUi::SetMods(const std::vector<ModRow>& mods) {
     modsShown_ = true;
     mods_ = mods;
     modOn_.clear();
-    for (const ModRow& mod : mods_) modOn_.push_back(backend_.Setting(ModKey(mod.id)) == "1");
+    for (const ModRow& mod : mods_) modOn_.push_back(mod.locked.empty() && backend_.Setting(ModKey(mod.id)) == "1");
+}
+
+void LauncherUi::SetModsReader(std::function<std::vector<ModRow>()> reader) {
+    modsReader_ = std::move(reader);
+    if (modsReader_) SetMods(modsReader_());
 }
 
 int LauncherUi::ModsOn() const {
@@ -500,6 +508,10 @@ int LauncherUi::ModsOn() const {
 bool LauncherUi::ModAllowed(size_t index, std::string& why) const {
     why.clear();
     const ModRow& mod = mods_[index];
+    if (!mod.locked.empty()) {
+        why = mod.locked;
+        return false;
+    }
     bool edition = false;
     for (int i = 0; i < 3; ++i) edition = edition || (mod.editions[i] && status_[i].unlocked);
     if (!edition) {

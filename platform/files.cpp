@@ -11,6 +11,9 @@
 
 #include <sys/stat.h>
 
+#ifdef TPW_PORT_FIX
+#include "content_overlay.h"
+#endif
 #include "gold_rides.h"
 #include "language_pack.h"
 #include "packs.h"
@@ -234,6 +237,15 @@ static fs::path FindHostPathOf(const std::vector<std::string>& parts) {
     // A Gold ride (gold_rides.h) at its place in the game folder, before the base game's copy of it.
     found = GoldRideHostPath(parts);
     if (!found.empty()) return found;
+#ifdef TPW_PORT_FIX
+    // A mod's content ride (content_overlay.h): a file in its folder, which the game folder does not have.
+    std::vector<std::string> rest;
+    const fs::path content = ContentRideFolder(parts, rest);
+    if (!content.empty()) {
+        found = FindUnder(content, rest);
+        if (!found.empty()) return found;
+    }
+#endif
     return FindUnder(config().gameDir, parts);
 }
 
@@ -306,20 +318,35 @@ std::vector<DirEntry> ListGameFolder(const std::string& gamePath) {
     // language only the folders it covers (in data/Language its own folder alone, so the game takes it as its language),
     // from a pack only the files a pack may hold. The Gold rides (gold_rides.h) are listed with the game folder, as the
     // Gold installer's copies would be in it: a Gold copy of a base ride takes the base entry's place, a new ride is
-    // sorted in among the base ones.
-    enum class Root { kUser, kLanguage, kPack, kGame };
+    // sorted in among the base ones. A mod's content rides (content_overlay.h) are listed with the game folder too, each
+    // ride's folder in its parent's place, and the inside of a ride's folder from the content folder.
+    enum class Root { kUser, kLanguage, kPack, kContent, kGame };
     std::vector<std::pair<fs::path, Root>> roots{{config().userDir, Root::kUser}};
     if (LanguagePackCovers(parts) || LanguagePackLists(parts, LanguagePackName()))
         roots.emplace_back(LanguagePackFolder(), Root::kLanguage);
     for (const fs::path& pack : PackDirs()) roots.emplace_back(pack, Root::kPack);
+#ifdef TPW_PORT_FIX
+    std::vector<std::string> contentRest;
+    const fs::path content = ContentRideFolder(parts, contentRest);
+    if (!content.empty()) roots.emplace_back(content, Root::kContent);
+#endif
     roots.emplace_back(config().gameDir, Root::kGame);
     std::vector<DirEntry> entries;
     for (size_t r = 0; r < roots.size(); ++r) {
         const auto& [root, source] = roots[r];
         const bool pack = source == Root::kPack;
         const bool game = source == Root::kGame;
+#ifdef TPW_PORT_FIX
+        std::vector<DirEntry> gold = game ? GoldRideEntries(inside) : std::vector<DirEntry>();
+        if (game) {
+            const std::vector<DirEntry> rides = ContentEntries(inside);
+            gold.insert(gold.end(), rides.begin(), rides.end());
+        }
+        const fs::path folder = FindUnder(root, source == Root::kContent ? contentRest : parts);
+#else
         const std::vector<DirEntry> gold = game ? GoldRideEntries(inside) : std::vector<DirEntry>();
         const fs::path folder = FindUnder(root, parts);
+#endif
         std::error_code ec;
         const bool listed = !folder.empty() && fs::is_directory(folder, ec);
         if (!listed && gold.empty()) continue;

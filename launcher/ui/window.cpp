@@ -238,7 +238,10 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
         ui.SetLogsFolder(placement.logsFolder);
         ui.SetShowLogs(placement.showLogs);
         ui.SetExportLogs(placement.exportLogs);
-        if (placement.mods) ui.SetMods(placement.modRows);
+        if (placement.mods) {
+            if (placement.modsReader) ui.SetModsReader(placement.modsReader);
+            else ui.SetMods(placement.modRows);
+        }
         if (placement.gameSettings) ui.SetGameSettings(placement.gameSource);
         // The update check: at every start, on a thread of its own; closing the window stops it (or an update's build).
         const char* base = SDL_GetBasePath();

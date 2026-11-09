@@ -40,6 +40,9 @@ struct Mod {
     bool changesSaves = false;            // a saved game made with it on differs from the original's
     std::vector<std::string> hooks;       // the TPW_MOD_HOOK names it switches on
     void (*switchOn)(Hooks& hooks) = nullptr;   // its own code: sets the fields of its hooks
+    std::string content;   // its content's folder in the data folder's assets (mod.json's "content", optional): ps1.
+                           // The launcher lays it over the game folder (platform/content_overlay.h) with the mod on,
+                           // and keeps the mod locked until the folder holds it
 };
 
 // The mods of this build, in their folders' order (mods.cmake's TPW_MODS); empty when the build found no mods folder.

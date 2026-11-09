@@ -26,6 +26,7 @@
 #include "Ptr32.h"
 #include "dialogs.h"
 #include "email.h"
+#include "content_overlay.h"
 #include "gold_rides.h"
 #include "language_pack.h"
 #include "packs.h"
@@ -425,6 +426,136 @@ static void TestGoldRides(const fs::path& scratch) {
     config.gameDir = gameDir;
     config.userDir = userDir;
 }
+
+#ifdef TPW_PORT_FIX
+// A mod's content rides (content_overlay.h): each ride's folder in its parent's place in the game folder, its files
+// inside it, a ride with no number in the mod's range, a number twice or the game folder's own folder refused; off,
+// nothing changes.
+static void TestContentRides(const fs::path& scratch) {
+    tpw::Config& config = tpw::config();
+    const fs::path gameDir = config.gameDir;
+    const fs::path userDir = config.userDir;
+    config.gameDir = scratch / "game";
+    config.userDir = scratch / "user";
+    const fs::path content = scratch / "content";
+    const fs::path jungle = fs::path("data") / "levels" / "jungle";
+    Touch(config.gameDir / jungle / "rides" / "_snake_1.wad", "base snake");
+    Touch(config.gameDir / jungle / "rides" / "Swings" / "swings.sam", "base swings");
+    Touch(config.gameDir / jungle / "global.sam");
+    // Two rides, a third whose number is the first's, one numbered outside the range, one without its .sam and one
+    // the game folder has already. The .sam as the converter writes it: CR LF, tabs, the name in quotes.
+    Touch(content / "Data" / "Levels" / "Jungle" / "rides" / "Aztec" / "aztec.sam",
+          "#\r\nInfo.Id\t\t\t1187\r\nInfo.Name\t\t\"Aztec Bounce\"\r\nInfo.DownloadedRideNumber\t201\r\n");
+    Touch(content / "Data" / "Levels" / "Jungle" / "rides" / "Aztec" / "textures" / "azte01.tga", "aztec texture");
+    Touch(content / "Data" / "Levels" / "Jungle" / "rides" / "Aztec" / "aztec.md2", "aztec model");
+    Touch(content / "data" / "levels" / "jungle" / "rides" / "jack" / "jack.sam", "Info.DownloadedRideNumber 201\n");
+    Touch(content / "data" / "levels" / "space" / "sideshow" / "pong" / "PONG.SAM",
+          "Info.Name Pong\nInfo.DownloadedRideNumber 202\n");
+    Touch(content / "data" / "levels" / "space" / "rides" / "low" / "low.sam", "Info.DownloadedRideNumber 33\n");
+    Touch(content / "data" / "levels" / "space" / "rides" / "bare" / "bare.md2");
+    Touch(content / "data" / "levels" / "jungle" / "rides" / "swings" / "swings.sam", "Info.DownloadedRideNumber 210\n");
+
+    std::vector<std::string> refused;
+    CHECK(tpw::FindContentRides(content).size() == 3);   // no game folder to refuse the swings against
+    CHECK(tpw::UseContentRides({content}, config.gameDir, &refused) == 2);
+    CHECK(refused.size() == 4);
+    const auto& rides = tpw::ContentRides();
+    CHECK(rides.size() == 2 && rides[0].folder == "data/levels/jungle/rides/aztec" && rides[0].number == 201);
+    CHECK(rides[0].title == "Aztec Bounce" && Same(rides[0].host, content / "Data" / "Levels" / "Jungle" / "rides" / "Aztec"));
+    CHECK(rides[1].folder == "data/levels/space/sideshow/pong" && rides[1].number == 202 && rides[1].title == "Pong");
+
+    // Lookups: a ride's files at their place in the game folder, in any case; the user folder still first; the
+    // refused rides and the rest of the game folder as before.
+    const fs::path aztec = content / "Data" / "Levels" / "Jungle" / "rides" / "Aztec";
+    CHECK(Same(tpw::FindHostPath("data:levels:jungle:rides:aztec:aztec.sam"), aztec / "aztec.sam"));
+    CHECK(Same(tpw::FindHostPath("data\\levels\\JUNGLE\\rides\\AZTEC\\textures\\AZTE01.tga"), aztec / "textures" / "azte01.tga"));
+    CHECK(Same(tpw::FindHostPath("data:levels:jungle:rides:aztec"), aztec));
+    CHECK(tpw::FindHostPath("data:levels:jungle:rides:aztec:missing.md2").empty());
+    CHECK(tpw::FindHostPath("data:levels:jungle:rides:jack:jack.sam").empty());
+    CHECK(Same(tpw::FindHostPath("data:levels:jungle:rides:swings:swings.sam"),
+               config.gameDir / jungle / "rides" / "Swings" / "swings.sam"));
+    Touch(config.userDir / jungle / "rides" / "aztec" / "aztec.md2", "user aztec");
+    CHECK(Same(tpw::FindHostPath("data:levels:jungle:rides:aztec:aztec.md2"), config.userDir / jungle / "rides" / "aztec" / "aztec.md2"));
+    fs::remove_all(config.userDir);
+
+    // Listings: the ride's folder among the base rides, the way to a theme folder the base game here lacks, and the
+    // inside of the ride's folder.
+    auto names = [](const std::vector<tpw::DirEntry>& entries) {
+        std::string text;
+        for (const tpw::DirEntry& entry : entries) text += entry.name + (entry.isDirectory ? "/ " : " ");
+        return text;
+    };
+    CHECK(names(tpw::ListGameFolder("data:levels:jungle:rides")) == "_snake_1.wad Aztec/ Swings/ ");
+    CHECK(names(tpw::ListGameFolder("data:levels")) == "jungle/ space/ ");
+    CHECK(names(tpw::ListGameFolder("data:levels:space:sideshow")) == "pong/ ");
+    CHECK(names(tpw::ListGameFolder("data:levels:jungle:rides:aztec")) == "aztec.md2 aztec.sam textures/ ");
+    CHECK(names(tpw::ListGameFolder("data:levels:jungle:rides:aztec:textures")) == "azte01.tga ");
+    // The game's directory search sees the same.
+    NS_MacDoze::_WIN32_FIND_DATAA found{};
+    NS_MacDoze::InternalHandle* search = NS_MacDoze::FindFirstFile("data\\levels\\jungle\\rides\\aztec\\*.sam", &found);
+    CHECK(search != reinterpret_cast<NS_MacDoze::InternalHandle*>(-1));
+    CHECK(std::string(found.cFileName) == "aztec.sam" && !NS_MacDoze::FindNextFile(search, &found));
+    NS_MacDoze::FindClose(search);
+
+    // Off: the game folder alone, as before.
+    // A second mod's content folder: its rides after the first's, a number or a folder the first has refused.
+    const fs::path second = scratch / "second";
+    Touch(second / "data" / "levels" / "space" / "sideshow" / "block" / "block.sam", "Info.DownloadedRideNumber 203\n");
+    Touch(second / "data" / "levels" / "space" / "sideshow" / "again" / "again.sam", "Info.DownloadedRideNumber 202\n");
+    Touch(second / "data" / "levels" / "jungle" / "rides" / "aztec" / "aztec.sam", "Info.DownloadedRideNumber 204\n");
+    refused.clear();
+    CHECK(tpw::UseContentRides({content, second}, config.gameDir, &refused) == 3 && refused.size() == 6);
+    CHECK(tpw::ContentRides()[2].folder == "data/levels/space/sideshow/block" && tpw::ContentRides()[2].number == 203);
+    CHECK(Same(tpw::FindHostPath("data:levels:jungle:rides:aztec:aztec.sam"), aztec / "aztec.sam"));
+    CHECK(names(tpw::ListGameFolder("data:levels:space:sideshow")) == "block/ pong/ ");
+
+    // A folder named as the game's are (_romper_208, the converter's): its .sam is the name without the number. One
+    // whose last part is not a number is not.
+    const fs::path third = scratch / "third";
+    const fs::path romper = third / "data" / "levels" / "space" / "rides" / "_romper_208";
+    Touch(romper / "_romper.sam", "Info.Name \"Romper Stomper\"\nInfo.DownloadedRideNumber 208\n");
+    Touch(romper / "_romper.md2", "romper model");
+    Touch(third / "data" / "levels" / "space" / "rides" / "_bad_x" / "_bad.sam", "Info.DownloadedRideNumber 209\n");
+    refused.clear();
+    CHECK(tpw::UseContentRides({third}, config.gameDir, &refused) == 1 && refused.size() == 1);
+    CHECK(refused.size() == 1 && refused[0] == "data/levels/space/rides/_bad_x: no _bad_x.sam");
+    CHECK(tpw::ContentRides()[0].number == 208 && tpw::ContentRides()[0].title == "Romper Stomper");
+    CHECK(Same(tpw::FindHostPath("data:levels:space:rides:_romper_208:_romper.md2"), romper / "_romper.md2"));
+
+    // The message for a park that needs rides the game has not got: the Gold Edition's counted, a known content mod's
+    // named (on or off), the rest of the content numbers counted.
+    uint8_t missing[0x20] = {};
+    auto need = [&](int number) { missing[(number - 1) >> 3] |= static_cast<uint8_t>(1 << ((number - 1) & 7)); };
+    need(10);
+    need(33);
+    need(201);
+    need(208);
+    need(250);
+    tpw::KnowContentMods({{"PlayStation rides", content}, {"Second", second}, {"Third", third}, {"Empty", scratch / "nowhere"}});
+    CHECK(tpw::MissingRidesText(missing, tpw::MissingRidesPlace::kOwnPark) ==
+          "This park needs rides this game hasn't got: 2 Gold Edition rides, Aztec Bounce (PlayStation rides), Romper "
+          "Stomper (Third) and 1 ride made from a PlayStation disc. It has been kept as it was. Turn those rides on in the "
+          "launcher, then play it again.");
+    tpw::KnowContentMods({});
+    std::memset(missing, 0, sizeof missing);
+    need(205);
+    need(206);
+    CHECK(tpw::MissingRidesText(missing, tpw::MissingRidesPlace::kOnlinePark) ==
+          "This park needs rides this game hasn't got: 2 rides made from a PlayStation disc. Turn those rides on in the "
+          "launcher to visit it.");
+    for (int number = 201; number <= 256; ++number) need(number);
+    CHECK(tpw::MissingRidesText(missing, tpw::MissingRidesPlace::kLoadedPark).size() < 500);
+
+    CHECK(tpw::UseContentRides({}) == 0);
+    CHECK(tpw::ContentRides().empty());
+    CHECK(tpw::FindHostPath("data:levels:jungle:rides:aztec:aztec.sam").empty());
+    CHECK(names(tpw::ListGameFolder("data:levels:jungle:rides")) == "_snake_1.wad Swings/ ");
+    CHECK(names(tpw::ListGameFolder("data:levels")) == "jungle/ ");
+    CHECK(tpw::UseContentRides({scratch / "nowhere"}) == 0);
+    config.gameDir = gameDir;
+    config.userDir = userDir;
+}
+#endif
 
 // The chosen language laid over the game folder (language_pack.h): data:Language: lists its folder first, so the game
 // takes it as its language, its text, speech and pictures are found before the packs' and the game folder's, and nothing
@@ -4011,6 +4142,9 @@ int main() {
     TestPacks(scratch / "packs");
     TestFilms(scratch / "films");
     TestGoldRides(scratch / "gold");
+#ifdef TPW_PORT_FIX
+    TestContentRides(scratch / "content");
+#endif
     TestLanguagePack(scratch / "language");
     TestEdition(scratch / "edition");
     TestSwearStreams();

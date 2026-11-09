@@ -113,8 +113,10 @@ void RefreshesTheIcns(const fs::path& scratch) {
     Check(!fs::exists(icns.string() + ".part"), "no icon.icns.part is left");
     Check(fs::last_write_time(app, ec) > old + std::chrono::hours(24), "the .app is touched after a write");
     fs::last_write_time(app, old, ec);
+    // HFS+ rounds to seconds. Compare with the time it stored, rather than the nanoseconds requested above.
+    const auto stored = fs::last_write_time(app, ec);
     Check(RefreshAppIcns(app.string(), game, why) == IconRefresh::Kept, "the same icon again is kept");
-    Check(fs::last_write_time(app, ec) == old, "the .app is not touched when nothing changed");
+    Check(fs::last_write_time(app, ec) == stored, "the .app is not touched when nothing changed");
     Check(RefreshAppIcns(app.string(), {'n', 'e', 'w'}, why) == IconRefresh::Written && Read(icns) == "new",
           "a different icon replaces the one written before");
     Check(RefreshAppIcns(app.string(), {}, why) == IconRefresh::None && Read(icns) == "new", "no icon: nothing written");

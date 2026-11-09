@@ -720,6 +720,19 @@ ModRow StaffCrossBridges() {
     row.editions[0] = row.editions[1] = row.editions[2] = true;
     return row;
 }
+// A content mod (mod.json's "content") before the player's own disc is converted: locked, as launcher/main.cpp gives it.
+ModRow Ps1Rides() {
+    ModRow row;
+    row.id = "ps1-rides";
+    row.name = "PlayStation rides";
+    row.version = "0.1.0";
+    row.author = "TPW Decomp";
+    row.text = "Adds the rides only the PlayStation edition had, converted from your own PlayStation disc.";
+    row.editions[0] = row.editions[1] = row.editions[2] = true;
+    row.changesSaves = true;
+    row.locked = ContentModLockedText("ps1");
+    return row;
+}
 ModRow NoStrikes() {
     ModRow row;
     row.id = "no-strikes";
@@ -1291,6 +1304,19 @@ std::vector<Shot> Shots() {
                      },
                      Screen::Home, {}});
 
+    // The box with a locked content mod (its launcher.ini key on, kept for when it unlocks) under a mod that is on.
+    shots.push_back({"36-mods-locked", metric::kStartWidth, metric::kStartHeight,
+                     [](FakeBackend& b) {
+                         FillEverything(b);
+                         b.settings[ModKey("enable-strikes")] = "1";
+                         b.settings[ModKey("ps1-rides")] = "1";
+                     },
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
+                         ui.SetMods({EnableStrikes(), Ps1Rides()});
+                         ui.ShowMods(true);
+                     },
+                     Screen::Home, {}});
+
     // The update banner under the title (updater.h), in the smallest window: on the home with the drop field (whose
     // icon makes room for it) and on the all-confirmed one.
     shots.push_back({"22-update-found-smallest", metric::kMinWidth, metric::kMinHeight, nullptr, nullptr, Screen::Home,
@@ -1437,6 +1463,21 @@ void CheckWindowsTexts() {
 }
 
 void CheckTexts() {
+    CheckEq(ContentModLockedText("ps1"), "Drop your own PlayStation disc on the launcher to unlock.",
+            "content mod: how to unlock PlayStation rides");
+    {
+        ImportReport ps1;
+        EditionStatus before[6] = {};
+        ps1.playStation.push_back("PlayStation rides: 7 rides and the Tower converted from the USA disc (SLUS_010.69).");
+        ps1.playStationConverted = true;
+        ResultText result = DescribeResult(ps1, before);
+        CheckEq(result.headline, "PlayStation rides ready", "PS1 conversion headline");
+        Check(result.good && result.lines.size() == 1 && result.lines.front() == ps1.playStation.front(),
+              "PS1 conversion reports its own content without changing edition counts");
+        ps1.playStationConverted = false;
+        result = DescribeResult(ps1, before);
+        Check(!result.good && result.headline == "PlayStation disc recognised", "PS1 without PC donors stays honest");
+    }
     CheckEq(FileUrl("/Users/a b/Library/Application Support/STP-TPW Launcher/logs"),
             "file:///Users/a%20b/Library/Application%20Support/STP-TPW%20Launcher/logs", "FileUrl: spaces");
     CheckEq(FileUrl("/Users/Ren\xC3\xA9" "e/logs#1", false), "file:///Users/Ren%C3%A9e/logs%231",
@@ -2925,6 +2966,46 @@ void CheckMods(SDL_Renderer* renderer) {
         press(ui, ui.ModSwitchRect(0), frames);
         CheckEq(b.Setting(ModKey("enable-strikes")), "1", "mods: Enable strikes turns on beside it");
         Check(ui.ModOn(0) && ui.ModOn(1) && ui.ModsOn() == 2, "mods: both are on");
+    }
+    {   // a locked content mod: off whatever launcher.ini says, its switch cannot be turned on, and its key is kept
+        FakeBackend b;
+        FillEverything(b);
+        b.settings[ModKey("ps1-rides")] = "1";
+        LauncherUi ui(renderer, b);
+        auto frames = [&](int n) {
+            for (int i = 0; i < n; ++i) ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        };
+        ui.SetMods({EnableStrikes(), Ps1Rides()});
+        ui.ShowMods(true);
+        frames(1);
+        Check(!ui.ModOn(1) && ui.ModsOn() == 0, "mods: a locked mod shows off, though launcher.ini has it on");
+        press(ui, ui.ModSwitchRect(1), frames);
+        Check(!ui.ModOn(1), "mods: a locked mod's switch cannot be turned on");
+        CheckEq(b.Setting(ModKey("ps1-rides")), "1", "mods: a locked mod's key is kept for when it unlocks");
+        press(ui, ui.ModSwitchRect(0), frames);
+        CheckEq(b.Setting(ModKey("enable-strikes")), "1", "mods: a mod beside a locked one still turns on");
+        LauncherUi unlocked(renderer, b);
+        ModRow ready = Ps1Rides();
+        ready.locked.clear();
+        unlocked.SetMods({EnableStrikes(), ready});
+        unlocked.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(unlocked.ModOn(1), "mods: unlocked, the kept key shows it on again");
+        bool contentReady = false;
+        ui.SetModsReader([&] {
+            ModRow content = Ps1Rides();
+            if (contentReady) content.locked.clear();
+            return std::vector<ModRow>{EnableStrikes(), content};
+        });
+        FakeBackend::Script conversion;
+        conversion.finish = [&](FakeBackend&, ImportReport& report) {
+            contentReady = true;
+            report.playStationConverted = true;
+            report.playStation.push_back("PlayStation rides: 7 rides and the Tower converted.");
+        };
+        b.Queue(std::move(conversion));
+        ui.OfferPaths({"disc.cue"});
+        frames(3);
+        Check(ui.ModOn(1), "mods: a completed disc drop unlocks content without restarting the launcher");
     }
     {   // a build with no mods folder: the box says so
         FakeBackend b;

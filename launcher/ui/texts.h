@@ -16,6 +16,8 @@ std::string FormatCount(uint64_t n);
 std::string FormatBytes(uint64_t bytes);
 // "1 file", "12 files"
 std::string Files(uint64_t n);
+// The Mods box's locked content line. A content mod unlocks when the player's disc supplies its rides.
+std::string ContentModLockedText(const std::string& content);
 
 // The three tiles, in order: the US game, the European game, the Gold rides. A tile's settings keys and saves are its
 // game's; the edition it shows is its Mac one or its Windows one (SlotStatus).

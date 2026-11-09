@@ -454,6 +454,8 @@ constexpr uint32_t kPortMaxUnpackedSave = 256u << 20; // and unpacked
 int32_t CSaveLoad::Load(const char* path, CSaveLoadHeader* header, LoadType type) {
     GAME_ASSERTMSG(type != kLoadHeaderOnly || header != nullptr,
                    "Cannot have a header-only load but supply no header pointer\n");
+    // TPW_PORT_FIX heldpark CSaveLoad::Load | Mac: none | Port: forgets the rides a park loaded before lacked | Why: gPortMissingRides names this load's
+    std::memset(gPortMissingRides, 0, sizeof gPortMissingRides);
     bfl::FileSystem::CDiscFile file;
     const bool opened = file.Open(path, 0x80000000).Succeeded();
     if (opened != (gSaveLoadOpenTestWord == 0)) {
@@ -991,6 +993,10 @@ int32_t CSaveLoad::LoadHeader(bfl::FileSystem::CFile& file, LoadType type, CSave
     if (!LbFile_Read(handle, rides, 0x100, &count).Succeeded() || count != 0x100) return 0;
     // (the world is only the receiver of the call: the function never reads it)
     if (gGameWorld->DoIHaveTheseRides(rides, type == kLoadPark ? 1 : 0) == 0) {
+        // TPW_PORT_FIX heldpark CSaveLoad::LoadHeader | Mac: none | Port: keeps the rides the park needs that the database has not got (DoIHaveTheseRides has built gRidesOwned whole before it answers) | Why: the player is told which (PortTellMissingRides)
+        if (type != kLoadHeaderOnly)
+            for (size_t i = 0; i < sizeof gPortMissingRides; ++i)
+                gPortMissingRides[i] = static_cast<uint8_t>(static_cast<uint8_t>(rides[i]) & ~gRidesOwned[i]);
         mError = kErrorMissingRides;
         return 0;
     }
