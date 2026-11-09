@@ -17,6 +17,7 @@
 #include "Mouse.h"
 #include "ParkTime.h"
 #include "platform/arena.h"
+#include "port_wasd.h"
 #include "ppc_math.h"
 #include "Ptr32.h"
 #include "RideDB.h"
@@ -227,9 +228,12 @@ int32_t CoasterPanelMsg(InterfaceWindow* window, int32_t message, int32_t a, int
         int16_t key = static_cast<int16_t>(a);
         int16_t modifiers = static_cast<int16_t>(static_cast<uint8_t>(static_cast<uint32_t>(b) >> 16));
         if (message == 0x1000b) {
+            // TPW_PORT_FIX wasd-camera CoasterPanelMsg | Mac: W, A, S and D go to the camera table, then the coaster table | Port: with the launcher's "W A S D move the camera" on, the plain four move the camera (PortWasdCameraKey) and the coaster table is not asked | Why: to move the map with W A S D instead of the mouse, as the maintainer asked
+            if (!PortWasdCameraKey(key, modifiers, false))
             if (gKeyTableCamera->KeyUp(key, modifiers) == 0) gKeyTableCoaster->KeyUp(key, modifiers);
         } else if (message < 0x1000b) {
             if (message >= 0x1000a) {
+                if (!PortWasdCameraKey(key, modifiers, true))
                 if (gKeyTableCamera->KeyDown(key, modifiers) == 0) gKeyTableCoaster->KeyDown(key, modifiers);
             }
         } else if (message == 0x1001d8) {

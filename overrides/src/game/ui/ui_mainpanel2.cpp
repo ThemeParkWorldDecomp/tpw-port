@@ -23,6 +23,7 @@
 #include "ParkTime.h"
 #include "platform/arena.h"
 #include "platform/msl.h"
+#include "port_wasd.h"
 #include "ppc_math.h"
 #include "std_deque_errorthingy.h"
 #include "TbGraphicFile.h"
@@ -985,6 +986,8 @@ int32_t bumhole(InterfaceWindow* window, int32_t message, int32_t a, int32_t b) 
     Will_HandleCameraMessages(message, a, b);
 
     if (message == 0x1000a) {
+        // TPW_PORT_FIX wasd-camera bumhole | Mac: W, A, S and D go to the camera table, and on their key up the game and shortcuts tables are asked | Port: with the launcher's "W A S D move the camera" on, the plain four move the camera (PortWasdCameraKey) and no table is asked | Why: to move the map with W A S D instead of the mouse, as the maintainer asked
+        if (!PortWasdCameraKey(a, (b >> 16) & 0xff, true))
         gKeyTableCamera->KeyDown(static_cast<int16_t>(a), static_cast<int16_t>((b >> 16) & 0xff));
     } else if (message < 0x1000a) {
         if (message == 0x10005) {
@@ -996,6 +999,7 @@ int32_t bumhole(InterfaceWindow* window, int32_t message, int32_t a, int32_t b) 
         }
     } else if (message < 0x1000c) {
         int32_t mods = (b >> 16) & 0xff;
+        if (PortWasdCameraKey(a, mods, false)) return 0;
         gKeyTableCamera->KeyUp(static_cast<int16_t>(a), static_cast<int16_t>(mods));
         if (gGameWorld->mF1DA738 == 4) {
             if (a == 0x1b && mods == 0) CreateMainMenu(0);

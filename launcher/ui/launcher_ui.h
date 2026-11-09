@@ -92,6 +92,10 @@ inline constexpr const char* kSoundPanKey = "sound_panning";
 // as on the PC, so two arrow keys walk and turn at once in first person; absent or "0": one key at a time, as the original
 // did, tpw::gPortSeveralKeys). Reported by Addable13.
 inline constexpr const char* kSeveralKeysKey = "several_keys";
+// launcher.ini's key for the Settings box's "W A S D move the camera" ("1": the plain W, A, S and D, by their place on the
+// keyboard, scroll the park and walk in first person, and do not open the screens or run the debug keys they did; absent or
+// "0": the original's keys, gPortWasdCamera in include/port_wasd.h). Asked for by the maintainer.
+inline constexpr const char* kWasdCameraKey = "wasd_camera";
 // launcher.ini's key for the Settings box's "Online server" ("HOST": the online screens connect to the online server at HOST,
 // which speaks the original protocol, include/platform/online_boss.h; absent or empty: the automatic one, updater.h
 // ChooseOnlineServer).
@@ -297,6 +301,8 @@ public:
     Rect SoundPanRect() const { return settingsOpen_ ? soundPanRect_ : Rect{}; }
     // The Settings box's Several keys at once switch where the last frame drew it, in points (empty when the box is closed).
     Rect SeveralKeysRect() const { return settingsOpen_ ? severalKeysRect_ : Rect{}; }
+    // The Settings box's W A S D move the camera switch where the last frame drew it, in points (empty when the box is closed).
+    Rect WasdCameraRect() const { return settingsOpen_ ? wasdCameraRect_ : Rect{}; }
     // The Settings box's "Online server" field where the last frame drew it, in points (empty when the box is closed),
     // whether it is being edited, and the greyed automatic server it shows while empty.
     Rect OnlineServerRect() const { return settingsOpen_ ? onlineServerRect_ : Rect{}; }
@@ -434,6 +440,7 @@ private:
     std::string onlineServerHint_;  // last frame's greyed automatic server
     bool smoothZoom_ = false;       // the Settings box's "Smooth wheel zoom", as launcher.ini keeps it
     bool severalKeys_ = false;      // the Settings box's "Several keys at once", as launcher.ini keeps it
+    bool wasdCamera_ = false;       // the Settings box's "W A S D move the camera", as launcher.ini keeps it
     int interfaceSize_ = 0;         // the Settings box's "Interface size": 0 100%, 1 85%, 2 70%
     std::vector<int> samChoices_;   // the Graphics section: for each of SamOptions(), 0 the detail level's own, else 1 + its choice
     int frameRate_ = 0;             // the Settings box's "Frame rate limit": 0 Monitor, else frames a second (FrameRateSetting)
@@ -505,6 +512,7 @@ private:
     Rect frameRateRect_;       // last frame's (FrameRateRect)
     Rect soundPanRect_;        // last frame's (SoundPanRect)
     Rect severalKeysRect_;     // last frame's (SeveralKeysRect)
+    Rect wasdCameraRect_;      // last frame's (WasdCameraRect)
     Rect onlineServerRect_;    // last frame's (OnlineServerRect)
     Rect rendererRect_;        // last frame's (RendererRect)
     bool settingsScrolls_ = false;   // last frame's (SettingsScrolls)

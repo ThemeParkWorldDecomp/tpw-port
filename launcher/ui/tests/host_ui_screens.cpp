@@ -2594,6 +2594,42 @@ void CheckSeveralKeysSwitch(SDL_Renderer* renderer) {
     CheckEq(b.Setting(kSeveralKeysKey), "0", "several keys: a launcher.ini with 1 shows it on, so one click turns it off");
 }
 
+// The Settings box's W A S D move the camera switch (launcher_ui.h kWasdCameraKey): off when launcher.ini has no key (the
+// original's keys), a click keeps "1", a second click "0", and a launcher.ini with "1" shows it on.
+void CheckWasdCameraSwitch(SDL_Renderer* renderer) {
+    FakeBackend b;
+    const float width = 1100, height = 2400;   // tall enough for the whole box
+    auto click = [&](LauncherUi& ui) {
+        const Rect r = ui.WasdCameraRect();
+        ui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+        ui.Frame(kDt, width, height, 1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+        ui.Frame(kDt, width, height, 1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+        ui.Frame(kDt, width, height, 1);
+    };
+    LauncherUi ui(renderer, b);
+    ui.ShowSettings(true);
+    ui.Frame(kDt, width, height, 1);
+    Check(ui.WasdCameraRect().w > 0, "wasd camera: the switch is in the Settings box");
+    Check(ui.WasdCameraRect().y > ui.SeveralKeysRect().y, "wasd camera: below Several keys at once");
+    CheckEq(b.Setting(kWasdCameraKey), "", "wasd camera: nothing is kept until the player chooses");
+    click(ui);
+    CheckEq(b.Setting(kWasdCameraKey), "1", "wasd camera: a click turns it on");
+    CheckEq(b.Setting(kSeveralKeysKey), "", "wasd camera: the click is not Several keys at once's");
+    click(ui);
+    CheckEq(b.Setting(kWasdCameraKey), "0", "wasd camera: a second click turns it off");
+    const float counted = ui.SettingsBodyCounted(), drawn = ui.SettingsBodyDrawn();
+    std::printf("wasd camera: the body counted %.2f points, drawn %.2f\n", counted, drawn);
+    Check(drawn > 0 && counted - drawn > -0.5f && counted - drawn < 0.5f, "wasd camera: the box's height counts the row");
+    b.settings[kWasdCameraKey] = "1";
+    LauncherUi again(renderer, b);
+    again.ShowSettings(true);
+    again.Frame(kDt, width, height, 1);
+    click(again);
+    CheckEq(b.Setting(kWasdCameraKey), "0", "wasd camera: a launcher.ini with 1 shows it on, so one click turns it off");
+}
+
 // The Settings box's Online server field (launcher_ui.h kOnlineServerKey, widgets.h TextField): empty by default with
 // the automatic address as its hint (the found one when launcher.ini has it, else the built-in one); a click edits it,
 // typed text is kept in launcher.ini as it changes, Backspace erases, only printable ASCII and 253 characters at most
@@ -3419,6 +3455,7 @@ int main(int argc, char** argv) {
         CheckSoundPanSwitch(renderer);
         CheckGameOptions(renderer);
         CheckSeveralKeysSwitch(renderer);
+        CheckWasdCameraSwitch(renderer);
         CheckOnlineServerField(renderer);
         CheckFrameRateSlider(renderer);
         CheckRendererRow(renderer);

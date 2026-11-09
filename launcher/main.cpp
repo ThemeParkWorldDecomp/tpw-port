@@ -32,6 +32,7 @@
 #endif
 
 #include "TPMain.h"
+#include "port_wasd.h"
 #include "tpw_probe.h"
 #include "ResolutionBalance.h"
 #include "OptionsBalance.h"
@@ -1167,6 +1168,9 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
     // The Settings box's "Several keys at once" (UGamework::Run, platform/gamework.cpp): off, one key at a time.
     tpw::gPortSeveralKeys = backend.Setting(tpw::ui::kSeveralKeysKey) == "1";
     if (tpw::gPortSeveralKeys) tpw::Log("several keys at once (the launcher's Settings)");
+    // The Settings box's "W A S D move the camera" (PortWasdCameraKey, include/port_wasd.h): off, the original's keys.
+    gPortWasdCamera = backend.Setting(tpw::ui::kWasdCameraKey) == "1";
+    if (gPortWasdCamera) tpw::Log("W A S D move the camera (the launcher's Settings)");
     gOnlineServerSetting = backend.Setting(tpw::ui::kOnlineServerKey);
     gOnlineServerFound = backend.Setting(tpw::ui::kOnlineServerFoundKey);
     // The Settings box's Graphics section: the original's options files' values the player chose (EngineStartup_OptionsFile).

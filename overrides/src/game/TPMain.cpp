@@ -15,6 +15,7 @@
 #include "OnlineBalance.h"
 #include "platform/macdoze.h"
 #include "platform/msl.h"
+#include "port_wasd.h"
 #include "ResolutionBalance.h"
 #include "SoundBalance.h"
 #include "tb_resource_display.h"
@@ -233,6 +234,8 @@ void ThemeParkWorld::HandleTyping(char character, char keyCode, uint32_t modifie
         UI_Keyup(tableKey(), (mods << 16) | 0x1000000);
         gKeyTable->KeyUp(tableKey(), static_cast<int16_t>(mods));
     }
+    // TPW_PORT_FIX wasd-camera HandleTyping | Mac: a key up goes only to the window that has the keyboard | Port: with the launcher's "W A S D move the camera" on, the key up of one of the four also lets go of the camera key its key down pressed (PortWasdLetGo), whichever window has the keyboard by then | Why: a W held while an edit box or a panel took the keyboard kept the camera moving after it was let go
+    if (!down) PortWasdLetGo(key != 0 ? key : tableKey());
 }
 
 // The window position is clamped to the display less 4 pixels and scaled to 2048 x 1536.

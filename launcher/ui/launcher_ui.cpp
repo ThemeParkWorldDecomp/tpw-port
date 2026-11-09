@@ -132,6 +132,7 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     backToLauncher_ = backend_.Setting(kBackToLauncherKey) == "1";
     smoothZoom_ = backend_.Setting(kSmoothZoomKey) == "1";   // tpw-port PR #20 by samueleagle91
     severalKeys_ = backend_.Setting(kSeveralKeysKey) == "1";
+    wasdCamera_ = backend_.Setting(kWasdCameraKey) == "1";
     for (const SamOption& option : SamOptions()) samChoices_.push_back(SamChoice(option, backend_.Setting(option.key)) + 1);
     samRects_.resize(SamOptions().size());
     frameRate_ = FrameRateSetting(backend_.Setting(kFrameRateKey));
@@ -1153,10 +1154,10 @@ void LauncherUi::DrawSettings(const Rect& w) {
     const float rowH = 50;
     float pw = std::min(w.w - 2 * metric::kMargin, 640.0f);
     float titleH = text_.LineHeight(style::kHeadline) + 12;
-    // Everything below the title, as drawn below: the Game section's 8 rows, the Renderer row (counted last) when shown.
+    // Everything below the title, as drawn below: the Game section's 9 rows, the Renderer row (counted last) when shown.
     // A row added below is counted here too; the Settings scroll test checks the sum against what is drawn.
     float bodyH = 2 * (text_.LineHeight(style::kBodyBold) + 4) + 40 + text_.LineHeight(style::kSmall) + 14 + 3 * rowH +
-                  4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + 8 * rowH +
+                  4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + 9 * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + static_cast<float>(SamOptions().size() + 1) * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH + (rendererRow_ ? rowH : 0.0f) +
@@ -1378,6 +1379,23 @@ void LauncherUi::DrawSettings(const Rect& w) {
         if (ui_.Toggle("several-keys", severalKeysRect_, severalKeys_)) {
             std::string err;
             if (!backend_.SaveSetting(kSeveralKeysKey, severalKeys_ ? "1" : "0", err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
+        }
+        y += rowH;
+    }
+    {
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, "W A S D move the camera", colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, "Scroll and walk with them; A and S no longer open All items, All staff",
+                             row.w - 12 - 56 - 24, false),
+                   colour::kInkSoft);
+        wasdCameraRect_ = {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32};
+        if (ui_.Toggle("wasd-camera", wasdCameraRect_, wasdCamera_)) {
+            std::string err;
+            if (!backend_.SaveSetting(kWasdCameraKey, wasdCamera_ ? "1" : "0", err))
                 settingsMessage_ = "Cannot keep the setting: " + err;
         }
         y += rowH;

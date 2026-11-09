@@ -22,6 +22,7 @@
 #include "Mouse.h"
 #include "online.h"
 #include "platform/samsutils.h"
+#include "port_wasd.h"
 #include "ppc_math.h"
 #include "RideDB.h"
 #include "TbDynamicStringTemplate.h"
@@ -446,6 +447,8 @@ int32_t OnlinePanelMsg(InterfaceWindow* window, int32_t message, int32_t a, int3
             }
         }
     } else if (message == 0x1000a) {
+        // TPW_PORT_FIX wasd-camera OnlinePanelMsg | Mac: W, A, S and D go to the camera table, and on their key up the shortcuts table is asked | Port: with the launcher's "W A S D move the camera" on, the plain four move the camera (PortWasdCameraKey) and no table is asked | Why: to move the map with W A S D instead of the mouse, as the maintainer asked
+        if (!PortWasdCameraKey(a, (static_cast<uint32_t>(b) >> 16) & 0xff, true))
         gKeyTableCamera->KeyDown(static_cast<int16_t>(a), static_cast<int16_t>((static_cast<uint32_t>(b) >> 16) & 0xff));
     } else if (message < 0x1000a) {
         if (message == 0x10007 && a == 0) {
@@ -454,6 +457,7 @@ int32_t OnlinePanelMsg(InterfaceWindow* window, int32_t message, int32_t a, int3
         }
     } else if (message < 0x1000c) {
         int16_t key = static_cast<int16_t>((static_cast<uint32_t>(b) >> 16) & 0xff);
+        if (PortWasdCameraKey(a, key, false)) return window->CallDefaultWindowHandler(message, a, b);
         if (a == 0x2f || a == 0xd || a == 9) {
             if (gOnlinePanelShown != 0 && key == 0) {
                 window->UnCaptureKb(0);

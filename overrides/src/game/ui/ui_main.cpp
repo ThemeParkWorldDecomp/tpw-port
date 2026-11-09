@@ -36,6 +36,7 @@
 #include "platform/msl.h"
 #include "platform/samsutils.h"
 #include "platform/upixels.h"
+#include "port_wasd.h"
 #include "Quickload.h"
 #include "RideDB.h"
 #include "rsse.h"
@@ -1450,6 +1451,8 @@ int32_t Engine_GameWinMsg(InterfaceWindow* window, int32_t message, int32_t a, i
         // The tables in the order debug, camera, game, shortcuts; the first that answers stops. None: the cheat table, when cheating.
         const int16_t key = static_cast<int16_t>(a);
         const int16_t modifiers = static_cast<int16_t>((static_cast<uint32_t>(b) >> 16) & 0xff);
+        // TPW_PORT_FIX wasd-camera Engine_GameWinMsg | Mac: W, A, S and D go to the debug, camera, game and shortcuts tables | Port: with the launcher's "W A S D move the camera" on, the plain four move the camera (PortWasdCameraKey) and no table is asked | Why: to move the map with W A S D instead of the mouse, as the maintainer asked
+        if (PortWasdCameraKey(key, modifiers, true)) return window->CallDefaultWindowHandler(message, a, b);
         if (gKeyTableDebug->KeyDown(key, modifiers) == 0 && gKeyTableCamera->KeyDown(key, modifiers) == 0 &&
             gKeyTableGame->KeyDown(key, modifiers) == 0 && gKeyTableShortcuts->KeyDown(key, modifiers) == 0) {
             if (GameWinCheat()->IsCheating() != 0) gKeyTableCheat->KeyDown(key, modifiers);
@@ -1457,6 +1460,7 @@ int32_t Engine_GameWinMsg(InterfaceWindow* window, int32_t message, int32_t a, i
     } else if (message == kMsgKeyUp) {
         const int16_t key = static_cast<int16_t>(a);
         const int16_t modifiers = static_cast<int16_t>((static_cast<uint32_t>(b) >> 16) & 0xff);
+        if (PortWasdCameraKey(key, modifiers, false)) return window->CallDefaultWindowHandler(message, a, b);
         if (gKeyTableDebug->KeyUp(key, modifiers) == 0 && gKeyTableCamera->KeyUp(key, modifiers) == 0 &&
             gKeyTableGame->KeyUp(key, modifiers) == 0 && gKeyTableShortcuts->KeyUp(key, modifiers) == 0) {
             if (GameWinCheat()->IsCheating() != 0) gKeyTableCheat->KeyUp(key, modifiers);
@@ -1474,12 +1478,18 @@ int32_t Engine_GameFirstPersonMsg(InterfaceWindow* window, int32_t message, int3
     } else if (message == kMsgButtonDown) {
         gKeyTableCamera->KeyDown(CameraKey(a), CheckShifts());
     } else if (message == kMsgKeyDown) {
+        // TPW_PORT_FIX wasd-camera Engine_GameFirstPersonMsg | Mac: W, A, S and D go to the camera table, and on their key up the shortcuts table may leave first person or take a postcard | Port: with the launcher's "W A S D move the camera" on, the plain four walk and turn as the arrows do (PortWasdCameraKey) and the shortcuts table is not asked | Why: to move the map with W A S D instead of the mouse, as the maintainer asked
+        if (!PortWasdCameraKey(a, (static_cast<uint32_t>(b) >> 16) & 0xff, true))
         gKeyTableCamera->KeyDown(static_cast<int16_t>(a), static_cast<int16_t>((static_cast<uint32_t>(b) >> 16) & 0xff));
     } else if (message == kMsgClick) {
         if (gPlayerSettings.mCurrent.mRMBCancelOn && a == 1 && (gFirstPersonFlags & kFirstPersonBits) != 0) LeaveFirstPerson(window);
     } else if (message == kMsgKeyUp) {
         const int16_t key = static_cast<int16_t>(a);
         const int16_t modifiers = static_cast<int16_t>((static_cast<uint32_t>(b) >> 16) & 0xff);
+        if (PortWasdCameraKey(key, modifiers, false)) {
+            Will_HandleCameraMessages(message, a, b);
+            return window->CallDefaultWindowHandler(message, a, b);
+        }
         gKeyTableCamera->KeyUp(key, modifiers);
         // Escape leaves without asking the shortcuts table; otherwise its answer (a short) 0x10 leaves and, asked AGAIN, 0xf is the postcard.
         if (a == kKeyEscape || static_cast<int16_t>(gKeyTableShortcuts->Search(key, modifiers)) == 0x10) {
@@ -1499,6 +1509,8 @@ int32_t Engine_GameFirstPersonMsg(InterfaceWindow* window, int32_t message, int3
 // forgets the panel first; everything else, and the key typed message, is the window's default handler's.
 int32_t UIMain_DefaultPanelMsg(InterfaceWindow* window, int32_t message, int32_t a, int32_t b) {
     const int16_t modifiers = static_cast<int16_t>((static_cast<uint32_t>(b) >> 16) & 0xff);
+    // TPW_PORT_FIX wasd-camera UIMain_DefaultPanelMsg | Mac: W, A, S and D go to the shortcuts table (A All items, S All staff) | Port: with the launcher's "W A S D move the camera" on, the plain four do nothing in a panel, as the arrows do nothing there, and let go of a camera key one still holds (PortWasdNothing) | Why: the four letters are the camera's while the setting is on
+    if ((message == kMsgKeyDown || message == kMsgKeyUp) && PortWasdNothing(a, modifiers)) return 0;
     if (message == kMsgKeyDown) {
         gKeyTableShortcuts->KeyDown(static_cast<int16_t>(a), modifiers);
         return 0;
