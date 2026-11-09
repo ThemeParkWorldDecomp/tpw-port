@@ -9,6 +9,7 @@
 ### Bug Fixes
 
 - Fixed a crash when a park is rebuilt from its building record and the record has a ride this game does not have, for example a park built in a full game loaded into an easy park
+- Dragging files over the launcher no longer makes a game's tile grow as if the files went into that game. The whole window now shows one drop area that says what it takes, since every file is checked by its content and added to the game it belongs to
 
 ## 0.4.0 (2026-11-09)
 

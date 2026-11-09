@@ -302,9 +302,15 @@ public:
     void ShowNotice(const std::string& message, bool problem);
     // Play's edition switch and Gold Edition toggle, as if clicked (the toggle's state is kept in launcher.ini, GoldKey).
     void ChoosePlay(assets::Edition edition, bool gold);
-    // Where the last frame drew the drop targets, in points (an empty rect when not shown). Index 0 US, 1 European,
-    // 2 Gold (empty on the all-confirmed home, whose two tiles are the US and European ones).
+    // Where the last frame laid out the edition tiles, in points (an empty rect when not shown). Index 0 US, 1
+    // European, 2 Gold (empty on the all-confirmed home, whose two tiles are the US and European ones).
     Rect TileRect(int index) const { return tilesShown_ ? tileRects_[index] : Rect{}; }
+    // Where the last frame drew that tile: its TileRect, a little grown only while the pointer is over it (never while
+    // a drag is over the window).
+    Rect TileDrawnRect(int index) const { return tilesShown_ ? tileDrawn_[index] : Rect{}; }
+    // The card the last frame showed while a drag was over the window (empty when none: no drag, or it left or
+    // dropped).
+    Rect DropOverlayRect() const { return dropOverlay_; }
     // The home with the drop field's Play button of a small tile (0 US, 1 European; never 2 Gold) in the last frame, in points
     // (empty when not shown: that edition is not playable, or this is another screen).
     Rect TilePlayRect(int index) const { return tilesShown_ ? tilePlay_[index] : Rect{}; }
@@ -418,7 +424,6 @@ private:
     void PollDialogs();
     void PollVerify();
     void Browse(bool folder, DialogPurpose purpose);
-    int DropTargetAt(float x, float y) const;   // 0..2 an edition tile, -1 the drop field, -2 nothing
     void RefreshStatus();
     bool AnyPlayable() const;
     bool AllConfirmed() const;   // US, European and Gold all unlocked: the home becomes two tiles to play from
@@ -439,7 +444,9 @@ private:
     void DrawBackdrop(const Rect& window);
     float DrawHeader(const Rect& window, bool buttons);
     float DrawUpdateBanner(const Rect& window, float top);   // returns where the screen goes on
-    void DrawTiles(const Rect& row, bool dropTargets);
+    void DrawTiles(const Rect& row);
+    // While a drag is over the window: one state for all of it (Ui::DropOverlay). Returns its card, or an empty rect.
+    Rect DrawDropOverlay(const Rect& window);
     void DrawHome(const Rect& window);
     void DrawReady(const Rect& window);
     void DrawChecking(const Rect& window);
@@ -501,12 +508,14 @@ private:
     std::string language_[2];       // the Language an edition (0 US, 1 European), as launcher.ini keeps it (LanguageKey)
     Updater* updater_ = nullptr;
 
-    // A drag over the window.
+    // A drag over the window. It goes to the window as a whole: the importer sorts each file by its content, so no tile
+    // or box under the pointer is its target.
     bool dragging_ = false;
-    int dropTarget_ = -2;
     std::vector<std::string> dropped_;
-    Rect fieldRect_;           // last frame's drop targets
+    Rect dropOverlay_;         // last frame's drag-over card (DropOverlayRect)
+    Rect fieldRect_;           // last frame's drop field and tiles
     Rect tileRects_[3];
+    Rect tileDrawn_[3];        // where the last frame drew them (TileDrawnRect)
     bool tilesShown_ = false;
     Rect tilePlay_[3];         // last frame's (TilePlayRect)
     Rect readyPlay_[2];
