@@ -3,12 +3,13 @@
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .github\origpc\win.ps1 STEP [NAME]
 #
-# STEP is one of: fetch, extract, hosts, build, probe, run NAME, trygame, hold, clean.
+# STEP is one of: fetch, extract, hosts, build, probe, run NAME, series, trygame, hold, clean.
 # The disc comes from the secrets (TPW_ORIGPC_DISC "URL MD5" if set, else the entries of TPW_FRESH_PC_DISCS "URL MD5;URL MD5"),
 # the first one that holds the login library is kept; the addresses are never printed. Only the library (weaauthr.dll) and
 # Online.sam's login lines are taken from it, into $env:RUNNER_TEMP\orig, which clean deletes. Everything kept for the run's
-# artifact goes to $env:RUNNER_TEMP\origpc-out: the harness logs, netstat, the packet capture (headers and the first bytes of
-# each packet only) and screenshots. No game file is ever put there.
+# artifact goes to $env:RUNNER_TEMP\origpc-out: the harness logs (message headers only, never the login body), netstat and
+# pktmon's packet lines (addresses other than the server's masked) and screenshots. No game file is ever put there, nor the
+# account name or password.
 #
 # Windows PowerShell 5.1 runs it. This file is plain ASCII on purpose.
 
@@ -59,6 +60,76 @@ function Save-Screen([string]$file) {
 function Get-PortLines([int]$port) {
     $lines = @(netstat -ano -p TCP | Where-Object { $_ -match ":$port\s" })
     return $lines
+}
+
+# Every IPv4 address in netstat and the capture text but the server's and the loopback ones (the runner's own, other peers).
+function Hide-Addresses([string]$text) {
+    $keep = @('127.0.0.1', '0.0.0.0', $script:Server)
+    $ev = [System.Text.RegularExpressions.MatchEvaluator] ({ param($m) if ($keep -contains $m.Value) { $m.Value } else { 'x.x.x.x' } }.GetNewClosure())
+    return [regex]::Replace($text, '\b\d{1,3}(\.\d{1,3}){3}\b', $ev)
+}
+
+# One harness run. NAME is real-name (the game's server name through the hosts entry, held HOLD_SECONDS), real-ip-all-N /
+# real-ip-cpu1-N (the address itself, on all CPUs or pinned to CPU 0), real-ip-retry (two attempts) or mock-all / mock-cpu1
+# (the stand-in server on 127.0.0.1). Netstat is polled while it runs; the real ones also get a packet capture, of which only
+# pktmon's one-line-per-packet text is kept (no packet bytes).
+function Invoke-Run([string]$Name) {
+    Write-Host "==== run $Name"
+    $port = 7598
+    $hargs = @('--dll', $Dll, '--log', (Join-Path $Out "harness-$Name.txt"))
+    $real = $Name.StartsWith('real')
+    if ($Name -eq 'real-name') { $hargs += @('--server', $GameHost, '--seconds', "$Hold") }
+    elseif ($Name -eq 'real-ip-retry') { $hargs += @('--server', $Server, '--seconds', '20', '--attempts', '2') }
+    elseif ($Name.StartsWith('real-ip-')) { $hargs += @('--server', $Server, '--seconds', '20') }
+    elseif ($Name.StartsWith('mock-')) {
+        $port = 17598
+        $hargs += @('--server', '127.0.0.1', '--port', "$port", '--seconds', '15', '--mock', '1')
+    } else { Fail "unknown run $Name" }
+    if ($Name -match 'cpu1') { $hargs += @('--affinity', '1') }
+    $etl = Join-Path $Temp "pktmon-$Name.etl"
+    if ($real) {
+        & pktmon.exe filter remove | Out-Null
+        & pktmon.exe filter add origpc -t TCP -p 7598 | Out-Null
+        & pktmon.exe start --capture --pkt-size 64 --file-name $etl | Out-Null
+        Write-Host "pktmon start: exit $LASTEXITCODE"
+    }
+    $net = Join-Path $Out "netstat-$Name.txt"
+    $p = Start-Process -FilePath $Exe -ArgumentList $hargs -PassThru -NoNewWindow `
+        -RedirectStandardOutput (Join-Path $Temp "harness-$Name-stdout.txt") -RedirectStandardError (Join-Path $Out "harness-$Name-stderr.txt")
+    $null = $p.Handle   # keeps the exit code readable after it ends
+    $last = ''
+    $states = @{}
+    $start = Get-Date
+    while (-not $p.HasExited) {
+        $lines = @(Get-PortLines $port | ForEach-Object { Hide-Addresses (($_.Trim() -split '\s+') -join ' ') })
+        $now = $lines -join "`n"
+        if ($now -ne $last) {
+            $stamp = '{0,6:N1}s' -f ((Get-Date) - $start).TotalSeconds
+            Add-Text $net "---- $stamp`n$now`n"
+            Write-Host "netstat $stamp"
+            $lines | ForEach-Object { Write-Host "  $_" }
+            $last = $now
+        }
+        foreach ($l in $lines) {
+            $f = $l -split ' '
+            if ($f.Count -ge 5 -and $f[4] -eq "$($p.Id)") { $states[$f[3]] = $true }
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    if ($real) {
+        & pktmon.exe stop | Out-Null
+        $txt = Join-Path $Temp "pktmon-$Name.txt"
+        & pktmon.exe etl2txt $etl --out $txt | Out-Null
+        if (Test-Path -LiteralPath $txt) { Write-Text (Join-Path $Out "pktmon-$Name.txt") (Hide-Addresses ([System.IO.File]::ReadAllText($txt))) }
+        Remove-Item -LiteralPath $etl, $txt -Force -ErrorAction SilentlyContinue
+        & pktmon.exe filter remove | Out-Null
+    }
+    $summary = @(Get-Content -LiteralPath (Join-Path $Out "harness-$Name.txt") | Where-Object {
+        $_ -match 'SUMMARY|CALLBACK|FAIL|WATCHDOG|MOCK a complete|MOCK received|commsThread|CreateThread|socket\(|WSAENOTSOCK|connect\(|send\(|recv\(|returned|==== attempt' })
+    $sl = "$Name`: harness exit $($p.ExitCode); its connection states seen in netstat: $(($states.Keys | Sort-Object) -join ', ')"
+    Write-Host $sl
+    $summary | ForEach-Object { Write-Host "  $_" }
+    Add-Text (Join-Path $Out 'summary.txt') ("$sl`n" + (($summary | ForEach-Object { "  $_" }) -join "`n") + "`n")
 }
 
 switch ($Step) {
@@ -139,9 +210,6 @@ switch ($Step) {
 
     # What the server does with a plain connection: it is expected to send nothing until it has a request.
     'probe' {
-        $ip = (& curl.exe -s --max-time 10 https://api.ipify.org)
-        Write-Host "this runner's public address: $ip"
-        Write-Text (Join-Path $Out 'runner-ip.txt') "$ip`n"
         $t = Test-NetConnection -ComputerName $Server -Port 7598 -WarningAction SilentlyContinue
         Write-Host "Test-NetConnection $Server 7598: TcpTestSucceeded = $($t.TcpTestSucceeded)"
         $c = New-Object System.Net.Sockets.TcpClient
@@ -157,63 +225,18 @@ switch ($Step) {
             $line = "a plain connection to $Server`:7598 got $n bytes from the server in 10 s without sending anything"
         } catch { $line = "a plain connection to $Server`:7598 failed: $_" } finally { $c.Close() }
         Write-Host $line
-        Write-Text (Join-Path $Out 'probe.txt') "$line`nTcpTestSucceeded $($t.TcpTestSucceeded)`n"
+        Write-Text (Join-Path $Out 'probe.txt') "$line`nTcpTestSucceeded $($t.TcpTestSucceeded)`nlogical processors $([Environment]::ProcessorCount)`n"
     }
 
-    # One harness run: NAME is real-name (the game's server name through the hosts entry), real-ip (the address itself) or
-    # mock-HEX / mock-none (the stand-in server on 127.0.0.1 sending HEX first, or nothing). Netstat is polled while it runs;
-    # the real ones also get a packet capture.
-    'run' {
-        $port = 7598
-        $hargs = @('--dll', $Dll, '--log', (Join-Path $Out "harness-$Name.txt"))
-        $real = $Name.StartsWith('real')
-        if ($Name -eq 'real-name') { $hargs += @('--server', $GameHost, '--seconds', "$Hold") }
-        elseif ($Name -eq 'real-ip') { $hargs += @('--server', $Server, '--seconds', '30') }
-        elseif ($Name.StartsWith('mock-')) {
-            $port = 17598
-            $hargs += @('--server', '127.0.0.1', '--port', "$port", '--seconds', '20', '--mock', $Name.Substring(5))
-        } else { Fail "unknown run $Name" }
-        $etl = Join-Path $Out "pktmon-$Name.etl"
-        if ($real) {
-            & pktmon.exe filter remove | Out-Null
-            & pktmon.exe filter add origpc -t TCP -p 7598 | Out-Null
-            & pktmon.exe start --capture --pkt-size 96 --file-name $etl | Out-Null
-            Write-Host "pktmon start: exit $LASTEXITCODE"
-        }
-        $net = Join-Path $Out "netstat-$Name.txt"
-        $p = Start-Process -FilePath $Exe -ArgumentList $hargs -PassThru -NoNewWindow `
-            -RedirectStandardOutput (Join-Path $Out "harness-$Name-stdout.txt") -RedirectStandardError (Join-Path $Out "harness-$Name-stderr.txt")
-        $null = $p.Handle   # keeps the exit code readable after it ends
-        $last = ''
-        $states = @{}
-        $start = Get-Date
-        while (-not $p.HasExited) {
-            $lines = Get-PortLines $port
-            $now = ($lines | ForEach-Object { ($_.Trim() -split '\s+') -join ' ' }) -join "`n"
-            if ($now -ne $last) {
-                $stamp = '{0,6:N1}s' -f ((Get-Date) - $start).TotalSeconds
-                Add-Text $net "---- $stamp`n$now`n"
-                Write-Host "netstat $stamp"
-                $lines | ForEach-Object { Write-Host "  $($_.Trim())" }
-                $last = $now
-            }
-            foreach ($l in $lines) {
-                $f = $l.Trim() -split '\s+'
-                if ($f.Count -ge 5 -and $f[4] -eq "$($p.Id)") { $states[$f[3]] = $true }
-            }
-            Start-Sleep -Milliseconds 500
-        }
-        if ($real) {
-            & pktmon.exe stop | Out-Null
-            & pktmon.exe etl2pcap $etl --out (Join-Path $Out "pktmon-$Name.pcapng") | Out-Null
-            & pktmon.exe etl2txt $etl --out (Join-Path $Out "pktmon-$Name.txt") | Out-Null
-            & pktmon.exe filter remove | Out-Null
-        }
-        $summary = @(Get-Content -LiteralPath (Join-Path $Out "harness-$Name.txt") | Where-Object { $_ -match 'SUMMARY|CALLBACK|FAIL|WATCHDOG|MOCK a complete|MOCK received|MOCK sent|connect\(|send\(|recv\(|returned' })
-        $sl = "$Name`: harness exit $($p.ExitCode); its connection states seen in netstat: $(($states.Keys | Sort-Object) -join ', ')"
-        Write-Host $sl
-        $summary | ForEach-Object { Write-Host "  $_" }
-        Add-Text (Join-Path $Out 'summary.txt') ("$sl`n" + (($summary | ForEach-Object { "  $_" }) -join "`n") + "`n")
+    'run' { Invoke-Run $Name }
+
+    # The race check: the login on all CPUs and pinned to one, three times each, one run with a second attempt (a second
+    # Accept), and the stand-in server both ways. Each run is its own process, so each one's first socket is a cold one.
+    'series' {
+        foreach ($n in 'real-ip-all-1', 'real-ip-cpu1-1', 'real-ip-all-2', 'real-ip-cpu1-2', 'real-ip-all-3', 'real-ip-cpu1-3',
+            'real-ip-retry', 'mock-all', 'mock-cpu1') { Invoke-Run $n }
+        Write-Host '---- the series in short'
+        Get-Content -LiteralPath (Join-Path $Out 'summary.txt') | Where-Object { $_ -match '^\S|SUMMARY' } | ForEach-Object { Write-Host $_ }
     }
 
     # The real game, as far as it gets on this machine: the disc mounted and its TP.EXE started, screenshots, then stopped.
@@ -231,6 +254,10 @@ switch ($Step) {
         Write-Host "mounted on $letter`:"
         $exe = "$letter`:\TP.EXE"
         Save-Screen (Join-Path $Out 'game-0-before.png')
+        # The game's (and SafeDisc's) OutputDebugString text, the way DebugView reads it.
+        $dbw = Start-Process -FilePath $Exe -ArgumentList @('--dbwin', '40', '--log', (Join-Path $Out 'dbwin-game.txt')) -PassThru -NoNewWindow `
+            -RedirectStandardOutput (Join-Path $Temp 'dbwin-stdout.txt')
+        Start-Sleep -Seconds 1
         $g = $null
         try { $g = Start-Process -FilePath $exe -WorkingDirectory "$letter`:\" -PassThru -ErrorAction Stop; $null = $g.Handle }
         catch { Write-Host "TP.EXE did not start: $_" }
@@ -266,6 +293,8 @@ switch ($Step) {
         Write-Host "secdrv service: $(if ($sd) { $sd.Status } else { 'not installed' })"
         foreach ($q in @(Get-GameTree)) { Write-Host "stopping $($q.Name)[$($q.ProcessId)]"; Stop-Process -Id $q.ProcessId -Force -ErrorAction SilentlyContinue }
         Save-Screen (Join-Path $Out 'game-2-after.png')
+        if (-not $dbw.WaitForExit(20000)) { Stop-Process -Id $dbw.Id -Force -ErrorAction SilentlyContinue }
+        Get-Content -LiteralPath (Join-Path $Out 'dbwin-game.txt') -ErrorAction SilentlyContinue | Select-Object -First 40 | ForEach-Object { Write-Host "  $_" }
         Dismount-DiskImage -ImagePath $iso | Out-Null
     }
 
@@ -283,9 +312,20 @@ switch ($Step) {
         }
         Remove-Item -LiteralPath $Orig -Recurse -Force -ErrorAction SilentlyContinue
         if (Test-Path -LiteralPath $Orig) { Fail "$Orig is still there" }
-        $bad = @(Get-ChildItem -LiteralPath $Out -Recurse -File | Where-Object { $_.Extension -match '^\.(dll|exe|sam|iso|img|icd)$' })
-        if ($bad.Count) { $bad | Remove-Item -Force; Fail 'a game file was in the artifact folder' }
+        $bad = @(Get-ChildItem -LiteralPath $Out -Recurse -File | Where-Object { $_.Extension -notmatch '^\.(txt|png)$' })
+        if ($bad.Count) { $bad | Remove-Item -Force; Fail 'a file other than text or a screenshot was in the artifact folder' }
         Write-Host 'the game files are deleted'
+        # The artifact is public: the account name and password must not be in it (the harness never writes them; this checks).
+        foreach ($secret in @($env:ORIGPC_NAME, $env:ORIGPC_PASS)) {
+            if (-not $secret -or $secret.Length -lt 3) { continue }
+            foreach ($f in @(Get-ChildItem -LiteralPath $Out -Recurse -File -Filter '*.txt')) {
+                $text = [System.IO.File]::ReadAllText($f.FullName)
+                if ($text.Contains($secret)) {
+                    Write-Text $f.FullName ($text.Replace($secret, '<redacted>'))
+                    Write-Host "::warning::a secret was found in $($f.Name) and is now replaced"
+                }
+            }
+        }
     }
 
     default { Fail "unknown step '$Step'" }

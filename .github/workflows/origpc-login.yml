@@ -1,9 +1,11 @@
 # Does the ORIGINAL Windows game reach our online server at login? The original TP.EXE is SafeDisc-protected and cannot run on
 # a 64-bit Windows, so its login library (weaauthr.dll, from the player's disc in the secrets) is loaded by a small harness
-# that calls it the way the game does, logs every socket call and holds the connection open (hold_seconds) for a look at the
-# server meanwhile; then the same library meets a stand-in server on the runner that sends a greeting first, or not.
+# that calls it the way the game does, logs every socket call and its comms thread's start and end (OutputDebugStringA), and
+# holds the connection open (hold_seconds) for a look at the server meanwhile. Then the race check: the same login on all CPUs
+# and pinned to one, repeated, and against a stand-in server on the runner that, like ours, sends nothing first.
 # The game itself is also started once, for the record (trygame). TEMPORARY: lives on the ci-origpc branch only, never on main.
-# The disc's address is a repository secret, never printed; the last step deletes the files.
+# The disc's address and the test account are repository secrets, never printed; the artifact holds no game file, no account
+# name or password and no address but the server's; the last steps delete the files.
 name: origpc-login
 
 on:
@@ -65,26 +67,10 @@ jobs:
         id: real
         timeout-minutes: 30
         run: '& .github\origpc\win.ps1 run real-name; exit $LASTEXITCODE'
-      - name: The library logs in to our server by its address
+      - name: The race check (all CPUs and one CPU, three times each, a second attempt, the stand-in server)
         if: always() && steps.real.outcome != 'skipped'
-        timeout-minutes: 5
-        run: '& .github\origpc\win.ps1 run real-ip; exit $LASTEXITCODE'
-      - name: A stand-in server that sends nothing first
-        if: always() && steps.real.outcome != 'skipped'
-        timeout-minutes: 3
-        run: '& .github\origpc\win.ps1 run mock-none; exit $LASTEXITCODE'
-      - name: A stand-in server that sends one zero byte first
-        if: always() && steps.real.outcome != 'skipped'
-        timeout-minutes: 3
-        run: '& .github\origpc\win.ps1 run mock-00; exit $LASTEXITCODE'
-      - name: A stand-in server that sends "B" first
-        if: always() && steps.real.outcome != 'skipped'
-        timeout-minutes: 3
-        run: '& .github\origpc\win.ps1 run mock-42; exit $LASTEXITCODE'
-      - name: A stand-in server that sends "Bs" first
-        if: always() && steps.real.outcome != 'skipped'
-        timeout-minutes: 3
-        run: '& .github\origpc\win.ps1 run mock-4273; exit $LASTEXITCODE'
+        timeout-minutes: 20
+        run: '& .github\origpc\win.ps1 series; exit $LASTEXITCODE'
       - name: Start the real game from the mounted disc
         if: always() && steps.real.outcome != 'skipped' && (github.event_name == 'push' || inputs.try_game)
         timeout-minutes: 5
