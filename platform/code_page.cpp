@@ -2,7 +2,8 @@
 // folder, "save:users:1Tess") with WideCharToMultiByte(CP_ACP) and widens it again when it lists the folders. The PC
 // editions ran on a Windows of their own language, so CP_ACP was 1255 for the Hebrew one and 932, 949, 950 or 936 for
 // the Japanese, Korean and Chinese ones; the Mac converted through its Latin script. Here code page 0 stands for that
-// Latin-1 of the shim (macdoze_misc.cpp) and is what every language but those five keeps.
+// Latin-1 of the shim (macdoze_misc.cpp) and is what every language but those five keeps. A file name the game makes is
+// the host's text in every code page: UTF-16 on Windows, UTF-8 elsewhere (HostNameOf), and read back by GameNameOf.
 //
 // The conversions are the host's: CoreFoundation's on the Mac, Windows' own on Windows (posix_win.cpp), iconv elsewhere.
 #include <cstring>
@@ -319,7 +320,15 @@ std::filesystem::path HostNameOf(const std::string& gameName) {
         DecodeCodePage(0, gameName, text);
     return std::filesystem::path(std::wstring(text.begin(), text.end()));
 #else
-    if (gCodePage == 0 || !DecodeCodePage(gCodePage, gameName, text)) return std::filesystem::path(gameName);
+    if (gCodePage != 0) {
+        if (!DecodeCodePage(gCodePage, gameName, text)) return std::filesystem::path(gameName);
+        return std::filesystem::path(Utf8Of(text));
+    }
+    // Code page 0: a name that is already UTF-8 (a host folder's own name, as GameNameOf leaves one Latin-1 cannot spell)
+    // keeps its bytes; any other is the game's Latin-1, written as UTF-8. Its bytes as they are would be no name at all on
+    // the Mac's APFS ("Illegal byte sequence", and the player's folder was never made) and no text in a Linux folder name.
+    if (Utf16Of(gameName, text)) return std::filesystem::path(gameName);
+    DecodeCodePage(0, gameName, text);
     return std::filesystem::path(Utf8Of(text));
 #endif
 }
@@ -338,15 +347,17 @@ std::string HostNarrowName(const std::filesystem::path& hostName) {
 }  // namespace
 
 std::string GameNameOf(const std::filesystem::path& hostName) {
-    if (gCodePage == 0) return HostNarrowName(hostName);
     std::u16string text;
 #ifdef _WIN32
+    if (gCodePage == 0) return HostNarrowName(hostName);
     const std::wstring& native = hostName.native();
     bool high = false;
     for (wchar_t c : native) high = high || c >= 0x80;
     if (!high) return tpw::PathText(hostName);
     text.assign(native.begin(), native.end());
 #else
+    // A UTF-8 name back in the game's code page; code page 0's Latin-1 too (HostNameOf), a name it cannot spell (a home
+    // folder's) keeping its bytes, as does a name that is not UTF-8 (a Latin player's folder made with the bytes before).
     const std::string& native = hostName.native();
     if (!HasHighByte(native) || !Utf16Of(native, text)) return native;
 #endif

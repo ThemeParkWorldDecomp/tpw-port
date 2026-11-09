@@ -228,7 +228,8 @@ void ThemeParkWorld::HandleTyping(char character, char keyCode, uint32_t modifie
         UI_Keyup(key, (mods << 16) | 0x1000000);
         gKeyTable->KeyUp(key, static_cast<int16_t>(mods));
     } else {
-        UI_KeyChar(ch, 0x1000000);
+        // TPW_PORT_FIX typedletters HandleTyping | Mac: the character typed goes to the edit boxes (UI_KeyChar) as a signed char, so one past 0x7f became 0xff80 and up there | Port: as the unsigned byte, which the platform gives only for a Latin-1 letter or sign (platform/gamework.cpp MacCharacter, 0xa0 to 0xff): its own UTF-16 code, as the PC's WM_CHAR gave it | Why: a letter such as an a or o with umlaut, a sharp s, an e with acute or an n with tilde could not be typed into a name (tpw-port issue #111); contributed by samueleagle91 (tpw-port PR #116)
+        UI_KeyChar(static_cast<int16_t>(static_cast<uint8_t>(ch)), 0x1000000);
         UI_Keyup(tableKey(), (mods << 16) | 0x1000000);
         gKeyTable->KeyUp(tableKey(), static_cast<int16_t>(mods));
     }

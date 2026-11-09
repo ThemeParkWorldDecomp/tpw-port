@@ -11,6 +11,7 @@
 - Fixed a crash when visiting an online park that has a ride the server does not list
 - A saved park that needs rides you have switched off (the Gold rides, or a mod's) is no longer replaced by a new park: the game says which rides it needs without opening it, and keeps it for when they are back
 - The camera no longer keeps scrolling by itself after the pointer leaves the game's window, in windowed mode or onto a second screen (Thanks slappyhead and @samueleagle91)
+- Fixed letters such as ä, ö, ü, ß, é and ñ not being typed in names (Thanks @johhnyjefferson34133 and @samueleagle91)
 
 ### Changes
 
