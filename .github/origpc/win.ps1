@@ -180,6 +180,8 @@ public static void Focus(System.IntPtr h) {
 // client's top left while the Windows pointer was elsewhere. So the window's client area is put at the screen's 0,0, pointer
 // acceleration is turned off (speed 10 is 1:1), and each click first pushes the pointer far up and left (both pointers stop at 0,0)
 // and then moves it by the target in small steps: the game's pointer and Windows' then agree, whichever the game reads.
+// Run 6: the game's pointer then ended on each target in three of the four runs (in the first, at exactly half of each
+// target, hence the warm-up run below); the first click of a run is lost (the pointer stays at 0,0), hence a first click on the sea.
 public static string Place(System.IntPtr h) {
     PT p = new PT(); RC w;
     if (!GetWindowRect(h, out w) || !ClientToScreen(h, ref p)) { return "window not placed"; }
@@ -201,7 +203,7 @@ public static string ClickGame(System.IntPtr h, int x, int y) {
     if (!GetClientRect(h, out r) || !ClientToScreen(h, ref p) || r.R <= 0 || r.B <= 0) { return "client area unknown, no click"; }
     int sx = p.X + x * r.R / 640, sy = p.Y + y * r.B / 480;
     Focus(h);
-    Move(-1600, -1600); System.Threading.Thread.Sleep(100);
+    Move(-2400, -2400); System.Threading.Thread.Sleep(100);
     Move(sx, sy); System.Threading.Thread.Sleep(100);
     SetCursorPos(sx, sy); System.Threading.Thread.Sleep(150);
     mouse_event(0x0002, 0, 0, 0, System.UIntPtr.Zero); System.Threading.Thread.Sleep(80);
@@ -295,10 +297,13 @@ function Invoke-Game([string]$Tag, [int]$Affinity, [string]$Game, [string[]]$Gam
     # lobby's globe button (rect 68,946-221,1099), and on the login panel (script 0x102b02fc) the name box 0x49 (632,463-1307,556);
     # Return in the name box moves to the password box and Return there logs in (OnlineLoginPanelDlgMsg, message 0x802); the
     # panel's tick (1376,524-1460,608) is pressed once more later in case Return did not take.
-    $keyAt = @{ 3 = 0x1B; 5 = 0x1B; 8 = 0x1B; 54 = 0x0D; 58 = 0x0D }
-    $clickAt = @{ 16 = @(414, 38); 22 = @(443, 177); 38 = @(45, 319); 50 = @(303, 159); 75 = @(443, 177) }
-    $typeAt = @{ 19 = 'ci'; 52 = 'origpcci'; 56 = 'not-a-secret' }
-    $shotAt = @(4, 8, 12, 15, 18, 21, 24, 27, 30, 33, 36, 40, 44, 48, 51, 53, 55, 57, 60, 63, 66, 70, 74, 78, 85, 95, 105, 115, 125)
+    # Run 6 showed the real flow: a Create New Player button opens the name dialog with the name box already taking keys, and
+    # Return there makes the player and goes to the island lobby within a second (no tick needed); the lobby's globe is at 45,319.
+    # Return in the lobby enters a park, so the only Returns after the lobby are the login panel's.
+    $keyAt = @{ 3 = 0x1B; 5 = 0x1B; 8 = 0x1B; 21 = 0x0D; 34 = 0x0D; 38 = 0x0D }
+    $clickAt = @{ 12 = @(150, 440); 16 = @(414, 38); 26 = @(45, 319); 31 = @(303, 159); 55 = @(443, 177) }
+    $typeAt = @{ 19 = 'ci'; 32 = 'origpcci'; 36 = 'not-a-secret' }
+    $shotAt = @(4, 8, 12, 14, 17, 18, 20, 22, 24, 27, 29, 30, 32, 33, 35, 37, 40, 44, 48, 52, 56, 60, 70, 80, 95, 110, 125)
     $net = Join-Path $Out "game-netstat-$Tag.txt"
     $lastNet = ''
     $sawWindow = $false
@@ -584,9 +589,10 @@ switch ($Step) {
         # Run 5: with cnc-ddraw the game ran 91 s in all three runs (windowed, the game's fullscreen in a window, one CPU) and showed
         # the player list. Native DirectDraw under full page heap stopped at 4 s on a 1-byte over-read in the game's pixel converter
         # (TP+0x239aba, a dword load of the last 3 bytes of a buffer: a read, not the corrupting write). These runs go on to the
-        # online login with the dummy account, on all CPUs and pinned to CPU 0, twice each.
+        # online login with the dummy account, on all CPUs and pinned to CPU 0, twice each, after one warm-up run (run 6's first
+        # game run alone moved the game's pointer at half speed).
         if ($cncOk) {
-            foreach ($r in @(@('cnc-all-1', 0), @('cnc-cpu1-1', 1), @('cnc-all-2', 0), @('cnc-cpu1-2', 1))) {
+            foreach ($r in @(@('cnc-warm', 0), @('cnc-all-1', 0), @('cnc-cpu1-1', 1), @('cnc-all-2', 0), @('cnc-cpu1-2', 1))) {
                 Invoke-Game $r[0] $r[1] $game @() '16BitColor' | Out-Null
                 # Each run starts from no player, so the Create New Player button stays where it was: every file the game wrote
                 # (robocopy kept the disc's dates) goes back to the disc's copy, or is removed if the disc has none.
@@ -597,6 +603,13 @@ switch ($Step) {
                         if (Test-Path -LiteralPath "$src$rel") { Copy-Item -LiteralPath "$src$rel" -Destination $_.FullName -Force; $how = 'restored' }
                         else { Remove-Item -LiteralPath $_.FullName -Force; $how = 'removed' }
                         Add-Text $summaryFile "after $($r[0]): the game wrote $rel, $how`n"
+                    }
+                # Run 6: a new player's folder also holds files copied with older dates, so the folder itself goes.
+                Get-ChildItem -LiteralPath (Join-Path $game 'save\users') -Directory -ErrorAction SilentlyContinue |
+                    Where-Object { -not (Test-Path -LiteralPath (Join-Path $src "save\users\$($_.Name)")) } |
+                    ForEach-Object {
+                        Remove-Item -LiteralPath $_.FullName -Recurse -Force
+                        Add-Text $summaryFile "after $($r[0]): removed the player folder save\users\$($_.Name)`n"
                     }
             }
         }
