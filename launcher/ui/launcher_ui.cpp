@@ -131,6 +131,7 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     skipIntro_ = backend_.Setting(kSkipIntroKey) == "1";
     backToLauncher_ = backend_.Setting(kBackToLauncherKey) == "1";
     smoothZoom_ = backend_.Setting(kSmoothZoomKey) == "1";   // tpw-port PR #20 by samueleagle91
+    farZoom_ = backend_.Setting(kFarZoomKey) == "1";
     severalKeys_ = backend_.Setting(kSeveralKeysKey) == "1";
     wasdCamera_ = backend_.Setting(kWasdCameraKey) == "1";
     for (const SamOption& option : SamOptions()) samChoices_.push_back(SamChoice(option, backend_.Setting(option.key)) + 1);
@@ -1362,6 +1363,22 @@ void LauncherUi::DrawSettings(const Rect& w) {
         if (ui_.Toggle("smooth-zoom", {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32}, smoothZoom_)) {
             std::string err;
             if (!backend_.SaveSetting(kSmoothZoomKey, smoothZoom_ ? "1" : "0", err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
+        }
+        y += rowH;
+    }
+    {
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, "Zoom out further", colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, "The wheel and the zoom keys can take the camera further out", row.w - 12 - 56 - 24,
+                             false),
+                   colour::kInkSoft);
+        if (ui_.Toggle("far-zoom", {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32}, farZoom_)) {
+            std::string err;
+            if (!backend_.SaveSetting(kFarZoomKey, farZoom_ ? "1" : "0", err))
                 settingsMessage_ = "Cannot keep the setting: " + err;
         }
         y += rowH;

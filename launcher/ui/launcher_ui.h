@@ -31,6 +31,9 @@ inline constexpr const char* kBackToLauncherKey = "back_to_launcher";
 // launcher.ini's key for the Settings box's "Smooth wheel zoom" ("1": the wheel eases the zoom toward the pointer; absent
 // or "0": the original's step toward the middle of the screen). From tpw-port PR #20 by samueleagle91.
 inline constexpr const char* kSmoothZoomKey = "smooth_wheel_zoom";
+// launcher.ini's key for the Settings box's "Zoom out further" ("1": the park view zooms out further than the original's
+// limit, gPortFarZoom; absent or "0": the original's limit).
+inline constexpr const char* kFarZoomKey = "far_zoom";
 // launcher.ini's key for the Settings box's "Interface size": 100, 85 or 70, the share of the screen's height the game's
 // panels are laid out in (absent: 100, as the original). From tpw-port PR #24 by samueleagle91.
 inline constexpr const char* kInterfaceSizeKey = "interface_size";
@@ -439,6 +442,7 @@ private:
     bool onlineServerEditing_ = false;   // the field has the keyboard (text input is on while it does)
     std::string onlineServerHint_;  // last frame's greyed automatic server
     bool smoothZoom_ = false;       // the Settings box's "Smooth wheel zoom", as launcher.ini keeps it
+    bool farZoom_ = false;          // the Settings box's "Zoom out further", as launcher.ini keeps it
     bool severalKeys_ = false;      // the Settings box's "Several keys at once", as launcher.ini keeps it
     bool wasdCamera_ = false;       // the Settings box's "W A S D move the camera", as launcher.ini keeps it
     int interfaceSize_ = 0;         // the Settings box's "Interface size": 0 100%, 1 85%, 2 70%

@@ -3409,6 +3409,7 @@ void CheckKeepSettings(const std::string& screens) {
         Check(backend.SaveSetting("mod.test-on", "1", err), "keep settings: a mod switched on is saved: " + err);
         Check(backend.SaveSetting("mod.test-off", "0", err), "keep settings: a mod switched off is saved: " + err);
         Check(backend.SaveSetting(kSkipIntroKey, "1", err), "keep settings: Skip the intro films is saved: " + err);
+        Check(backend.SaveSetting(kFarZoomKey, "1", err), "keep settings: Zoom out further is saved: " + err);
         Check(backend.SaveSetting("mod.test-unlisted", "1", err), "keep settings: another key is saved: " + err);
         CheckEq(saved("mod.test-on"), "1", "keep settings: the switch is in the file before Play");
         backend.SetLastChoice(assets::EditionName(assets::kEditionUs), err);   // what Play does
@@ -3416,6 +3417,7 @@ void CheckKeepSettings(const std::string& screens) {
         CheckEq(saved("mod.test-on"), "1", "keep settings: a mod switched on stays on after Play");
         CheckEq(saved("mod.test-off"), "0", "keep settings: a mod switched off stays off after Play");
         CheckEq(saved(kSkipIntroKey), "1", "keep settings: Skip the intro films stays after Play");
+        CheckEq(saved(kFarZoomKey), "1", "keep settings: Zoom out further stays after Play");
         CheckEq(saved("mod.test-unlisted"), "(absent)", "keep settings: only the keys named are written again");
         CheckEq(saved("mod.test-never"), "(absent)", "keep settings: a key never saved is not written");
     }

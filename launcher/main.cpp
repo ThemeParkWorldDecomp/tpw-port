@@ -47,6 +47,7 @@
 #include "UI_Base.h"
 #include "TPSettings.h"
 #include "TPAdvisor.h"
+#include "TPCamera.h"
 #include "AdvisorScoring.h"
 #include "TrueTypeRender.h"
 #include "analyser.h"
@@ -1154,6 +1155,9 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
     // The Settings box's "Smooth wheel zoom" (Will_HandleCameraMessages); off, the original's step, by default.
     gUISmoothWheelZoom = backend.Setting(tpw::ui::kSmoothZoomKey) == "1" ? 1 : 0;
     if (gUISmoothWheelZoom != 0) tpw::Log("smooth wheel zoom (the launcher's Settings)");
+    // The Settings box's "Zoom out further" (HandleCamera, include/TPCamera.h): off, the original's limit, by default.
+    gPortFarZoom = backend.Setting(tpw::ui::kFarZoomKey) == "1";
+    if (gPortFarZoom) tpw::Log("zoom out further (the launcher's Settings)");
     {   // the Settings box's interface size (UI_SetRealScreenRez)
         const std::string size = backend.Setting(tpw::ui::kInterfaceSizeKey);
         gUIScale = size == "85" ? 0.85f : size == "70" ? 0.7f : 1.0f;
