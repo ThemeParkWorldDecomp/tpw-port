@@ -1,5 +1,7 @@
 # Changelog
 
+## 0.4.1 (not released yet)
+
 ## 0.4.0 (2026-11-09)
 
 ### New Features
