@@ -132,6 +132,115 @@ function Invoke-Run([string]$Name) {
     Add-Text (Join-Path $Out 'summary.txt') ("$sl`n" + (($summary | ForEach-Object { "  $_" }) -join "`n") + "`n")
 }
 
+# The scripted input for the real game (the runner is a throwaway VM): move the pointer and click, and press a key. The game is
+# windowed at 0,0 (dialog.tcf below), so screen positions are the window's own. Only the dummy account is ever typed; no real
+# password is sent to the field, so a screenshot can never show one.
+$script:InputReady = $false
+function Ensure-Input {
+    if ($script:InputReady) { return }
+    Add-Type -Namespace Origpc -Name Input -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern void mouse_event(uint f, uint dx, uint dy, uint d, System.UIntPtr e);
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint f, System.UIntPtr e);
+public static void Click(int x, int y) {
+    SetCursorPos(x, y); System.Threading.Thread.Sleep(90);
+    mouse_event(0x0002, 0, 0, 0, System.UIntPtr.Zero); System.Threading.Thread.Sleep(50);
+    mouse_event(0x0004, 0, 0, 0, System.UIntPtr.Zero);
+}
+public static void Key(byte vk) {
+    keybd_event(vk, 0, 0, System.UIntPtr.Zero); System.Threading.Thread.Sleep(50);
+    keybd_event(vk, 0, 2, System.UIntPtr.Zero);
+}
+'@
+    $script:InputReady = $true
+}
+
+# One real-game run. TAG names its files; AFFINITY, when nonzero, pins the process (and so its comms thread) to those CPUs.
+# The game's own OutputDebugString (its comms thread's Started/Ended, and any SafeDisc text) is read by the harness in --dbwin
+# mode; netstat on 7598 is polled, masked, while it runs. The timeline presses Escape to skip the intro movies, takes
+# screenshots, and (once the online button's position is known from a screenshot) clicks through to the login and Accept with
+# the dummy account. A first run that only reaches the title screen and posts screenshots is enough; keep_open_minutes gives
+# time to read them and fill in the positions.
+function Invoke-Game([string]$Tag, [int]$Affinity, [string]$Game) {
+    Write-Host "==== game run $Tag (affinity $Affinity)"
+    Ensure-Input
+    $log = Join-Path $Out "game-$Tag.txt"
+    Write-Text $log "game run $Tag at $(Get-Date -Format o); affinity $Affinity; cwd $Game`n"
+    $gameExe = Join-Path $Game 'TP.EXE'
+    $dbwLog = Join-Path $Out "dbwin-$Tag.txt"
+    # The dbwin reader is the harness (module-level $Exe), not the game.
+    $dbw = Start-Process -FilePath $Exe -ArgumentList @('--dbwin', '80', '--log', $dbwLog) -PassThru -NoNewWindow `
+        -RedirectStandardOutput (Join-Path $Temp "dbwin-$Tag-stdout.txt")
+    Start-Sleep -Milliseconds 700
+    $g = $null
+    try { $g = Start-Process -FilePath $gameExe -WorkingDirectory $Game -PassThru -ErrorAction Stop; $null = $g.Handle }
+    catch { Add-Text $log "TP.EXE did not start: $_`n"; Write-Host "TP.EXE did not start: $_" }
+    if ($g -and $Affinity -gt 0) {
+        try { $g.ProcessorAffinity = [IntPtr]$Affinity; Add-Text $log ("affinity set to 0x{0:x}`n" -f $Affinity) }
+        catch { Add-Text $log "could not set affinity: $_`n" }
+    }
+    # Only TP.EXE and what it starts (by parent) are watched and stopped: no other process on the runner.
+    $watch = $g
+    function Get-GameTree {
+        if ($null -eq $watch) { return @() }
+        $all = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+        $ids = @($watch.Id)
+        do {
+            $n = $ids.Count
+            $ids = @($ids + @($all | Where-Object { $ids -contains $_.ParentProcessId } | ForEach-Object { $_.ProcessId }) | Select-Object -Unique)
+        } while ($ids.Count -ne $n)
+        return @($all | Where-Object { $ids -contains $_.ProcessId })
+    }
+    # time (s) -> what to do. Keys skip the EA and intro movies; the clicks are placeholders to fill in from the screenshots
+    # (the JP UI is navigated by position). Escape is virtual-key 0x1B, Return 0x0D, Space 0x20.
+    $keyAt = @{ 3 = 0x1B; 5 = 0x1B; 8 = 0x1B; 11 = 0x0D; 20 = 0x1B }
+    $shotAt = 4, 8, 14, 22, 32, 45, 60
+    $net = Join-Path $Out "game-netstat-$Tag.txt"
+    $lastNet = ''
+    $sawWindow = $false
+    $start = Get-Date
+    for ($t = 1; $t -le 62; $t++) {
+        Start-Sleep -Seconds 1
+        $elapsed = [int]((Get-Date) - $start).TotalSeconds
+        if ($keyAt.ContainsKey($t)) {
+            try { [Origpc.Input]::Key([byte]$keyAt[$t]); Add-Text $log "t${t}s key 0x$('{0:x}' -f $keyAt[$t])`n" } catch {}
+        }
+        if ($shotAt -contains $t) { Save-Screen (Join-Path $Out "game-$Tag-${t}s.png") }
+        $lines = @(Get-PortLines 7598 | ForEach-Object { Hide-Addresses (($_.Trim() -split '\s+') -join ' ') })
+        $now = $lines -join "`n"
+        if ($now -ne $lastNet) {
+            Add-Text $net ("---- {0,4}s`n{1}`n" -f $elapsed, $now)
+            if ($now) { Write-Host "t${t}s netstat 7598:"; $lines | ForEach-Object { Write-Host "  $_" } }
+            $lastNet = $now
+        }
+        if ($t % 7 -eq 0 -or $shotAt -contains $t) {
+            $tree = @(Get-GameTree)
+            foreach ($q in $tree) {
+                $w = Get-Process -Id $q.ProcessId -ErrorAction SilentlyContinue
+                if ($w -and $w.MainWindowTitle) {
+                    $sawWindow = $true
+                    $titleLine = "t${t}s window of $($q.Name): '$($w.MainWindowTitle)'"
+                    Add-Text $log "$titleLine`n"; Write-Host "  $titleLine"
+                }
+            }
+            $state = if ($null -ne $g -and $g.HasExited) { "exited code $($g.ExitCode)" } else { 'running' }
+            Add-Text $log "t${t}s TP.EXE $state; tree: $(($tree | ForEach-Object { "$($_.Name)[$($_.ProcessId)]" }) -join ', ')`n"
+            if ($null -ne $g -and $g.HasExited -and $tree.Count -eq 0) { Write-Host "  TP.EXE $state, nothing left; ending this run"; break }
+        }
+    }
+    Save-Screen (Join-Path $Out "game-$Tag-final.png")
+    $exitInfo = if ($null -eq $g) { 'never started' } elseif ($g.HasExited) { "exited code $($g.ExitCode) (0x$('{0:x}' -f $g.ExitCode))" } else { 'still running' }
+    Add-Text $log "result: TP.EXE $exitInfo; a window was seen: $sawWindow`n"
+    Write-Host "game run $Tag`: TP.EXE $exitInfo; window seen: $sawWindow"
+    foreach ($q in @(Get-GameTree)) { Stop-Process -Id $q.ProcessId -Force -ErrorAction SilentlyContinue }
+    if (-not $dbw.WaitForExit(25000)) { Stop-Process -Id $dbw.Id -Force -ErrorAction SilentlyContinue }
+    $dbt = @(Get-Content -LiteralPath $dbwLog -ErrorAction SilentlyContinue)
+    $comms = @($dbt | Where-Object { $_ -match 'commsThread|Started|Ended|WSAE|login|Login|connect|Connect' })
+    if ($comms.Count) { Write-Host "  dbwin lines of note:"; $comms | Select-Object -First 30 | ForEach-Object { Write-Host "    $_" } }
+    Add-Text (Join-Path $Out 'summary.txt') "game $Tag`: $exitInfo; window seen $sawWindow; dbwin lines of note: $($comms.Count)`n"
+    return $sawWindow
+}
+
 switch ($Step) {
     'fetch' {
         $entries = @()
@@ -239,7 +348,11 @@ switch ($Step) {
         Get-Content -LiteralPath (Join-Path $Out 'summary.txt') | Where-Object { $_ -match '^\S|SUMMARY' } | ForEach-Object { Write-Host $_ }
     }
 
-    # The real game, as far as it gets on this machine: the disc mounted and its TP.EXE started, screenshots, then stopped.
+    # The real game, as far as it gets on this machine. An unprotected pressing (no TP.ICD, e.g. the JP EA Best Selections disc)
+    # is copied to a writable folder and its TP.EXE is run for real: windowed 640x480 software rendering (dialog.tcf), the CD
+    # kept mounted for the disc check (volume label TPWORLD), the language forced to Japanese, screenshots taken, input scripted,
+    # the comms thread and netstat watched, and a second run pinned to one CPU. A SafeDisc disc (TP.ICD present) cannot run on a
+    # modern Windows, so it is only noted; the login library harness (the series step) covers it. No game file is kept.
     'trygame' {
         $disc = (Get-Content -LiteralPath (Join-Path $Orig 'disc.txt') -TotalCount 1).Trim()
         $iso = $disc
@@ -249,52 +362,69 @@ switch ($Step) {
             Write-Text (Join-Path $Orig 'disc.txt') $iso
         }
         $m = Mount-DiskImage -ImagePath $iso -PassThru
-        $letter = ($m | Get-Volume).DriveLetter
+        $vol = $m | Get-Volume
+        $letter = $vol.DriveLetter
         if (-not $letter) { Fail 'the disc did not mount' }
-        Write-Host "mounted on $letter`:"
-        $exe = "$letter`:\TP.EXE"
-        Save-Screen (Join-Path $Out 'game-0-before.png')
-        # The game's (and SafeDisc's) OutputDebugString text, the way DebugView reads it.
-        $dbw = Start-Process -FilePath $Exe -ArgumentList @('--dbwin', '40', '--log', (Join-Path $Out 'dbwin-game.txt')) -PassThru -NoNewWindow `
-            -RedirectStandardOutput (Join-Path $Temp 'dbwin-stdout.txt')
-        Start-Sleep -Seconds 1
-        $g = $null
-        try { $g = Start-Process -FilePath $exe -WorkingDirectory "$letter`:\" -PassThru -ErrorAction Stop; $null = $g.Handle }
-        catch { Write-Host "TP.EXE did not start: $_" }
-        # Only TP.EXE and what it started (by parent) are looked at and stopped: no other process on the runner.
-        function Get-GameTree {
-            if ($null -eq $g) { return @() }
-            $all = @(Get-CimInstance Win32_Process)
-            $ids = @($g.Id)
-            do {
-                $n = $ids.Count
-                $ids = @($ids + @($all | Where-Object { $ids -contains $_.ParentProcessId } | ForEach-Object { $_.ProcessId }) | Select-Object -Unique)
-            } while ($ids.Count -ne $n)
-            return @($all | Where-Object { $ids -contains $_.ProcessId })
+        $label = $vol.FileSystemLabel
+        Write-Host "mounted on $letter`: (volume label '$label')"
+        $src = "$letter`:"
+        $icd = Test-Path -LiteralPath "$src\TP.ICD"
+        $summaryFile = Join-Path $Out 'trygame.txt'
+        Write-Text $summaryFile "trygame at $(Get-Date -Format o)`nmounted $letter`: label '$label'; TP.ICD (SafeDisc) present: $icd`n"
+        Write-Host "disc has TP.ICD (SafeDisc): $icd"
+
+        if ($icd) {
+            Add-Text $summaryFile "the disc is SafeDisc-protected, so TP.EXE cannot run on this Windows; the login library harness covers it`n"
+            Save-Screen (Join-Path $Out 'game-safedisc-desktop.png')
+            Dismount-DiskImage -ImagePath $iso | Out-Null
+            break
         }
-        $at = 0
-        foreach ($t in 5, 15, 30) {
-            Start-Sleep -Seconds ($t - $at)
-            $at = $t
-            Save-Screen (Join-Path $Out "game-1-at-${t}s.png")
-            $tree = @(Get-GameTree)
-            $state = '-'
-            if ($null -ne $g) { $state = "exited: $($g.HasExited)"; if ($g.HasExited) { $state += " (code $($g.ExitCode))" } }
-            Write-Host "at $t s: TP.EXE $state; its processes: $(($tree | ForEach-Object { "$($_.Name)[$($_.ProcessId)]" }) -join ', ')"
-            foreach ($q in $tree) {
-                $w = Get-Process -Id $q.ProcessId -ErrorAction SilentlyContinue
-                if ($w -and $w.MainWindowTitle) { Write-Host "  window of $($q.Name): '$($w.MainWindowTitle)'" }
-            }
+
+        # Unprotected pressing: copy the whole game to a writable folder (TP.EXE writes saves and dialog.tcf beside itself).
+        $game = 'C:\TPW'
+        Write-Host "copying the game to $game"
+        & robocopy.exe $src $game /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
+        if (-not (Test-Path -LiteralPath (Join-Path $game 'TP.EXE'))) { Dismount-DiskImage -ImagePath $iso | Out-Null; Fail 'TP.EXE was not copied to the runner' }
+        Add-Text $summaryFile "copied $((Get-ChildItem -LiteralPath $game -Recurse -File | Measure-Object -Sum Length).Sum) bytes to $game`n"
+
+        # Japanese: the game reads its language from the registry (default 0x809 English). 0x11 is Japanese. It is 32-bit, so the
+        # real key on a 64-bit Windows is under WOW6432Node; the plain and HKCU paths are set too for safety.
+        $rel = 'Bullfrog Productions Ltd\Theme Park World'
+        foreach ($root in 'HKLM:\SOFTWARE\WOW6432Node', 'HKLM:\SOFTWARE', 'HKCU:\SOFTWARE') {
+            $key = Join-Path $root $rel
+            try {
+                New-Item -Path $key -Force | Out-Null
+                New-ItemProperty -Path $key -Name 'Language' -Value 0x11 -PropertyType DWord -Force | Out-Null
+                Add-Text $summaryFile "registry $key Language=0x11`n"
+            } catch { Add-Text $summaryFile "registry $key could not be set: $_`n" }
         }
-        $ev = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; StartTime = (Get-Date).AddMinutes(-3) } -ErrorAction SilentlyContinue |
-            Where-Object { $_.Message -match 'secdrv|SafeDisc|driver' } | Select-Object -First 5)
-        $ev | ForEach-Object { Write-Host "  system event $($_.Id): $($_.Message.Split("`n")[0])" }
+
+        # dialog.tcf: a dev config the game reads from its working directory. 28 bytes of little-endian u32:
+        #   version 2, gameOptions 0x000c0e14 (the default 0xc0e15 minus bit 0 FULLSCREEN, so windowed 640x480), dialogOptions
+        #   0x00000840 (0x800 show the front end + 0x40 force the software renderer), 0, CURRENTTheme 1, 0, 0.
+        $tcf = [byte[]](0x02,0x00,0x00,0x00, 0x14,0x0e,0x0c,0x00, 0x40,0x08,0x00,0x00, 0x00,0x00,0x00,0x00,
+                        0x01,0x00,0x00,0x00, 0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00)
+        [System.IO.File]::WriteAllBytes((Join-Path $game 'dialog.tcf'), $tcf)
+        Add-Text $summaryFile "wrote dialog.tcf (windowed 640x480, software renderer, front end on)`n"
+
+        Save-Screen (Join-Path $Out 'game-before.png')
+        # Windowed run. If no window ever appears (dialog mode may misbehave, or GDI capture of DirectDraw comes back black),
+        # fall back to a fullscreen run without dialog.tcf.
+        $sawWindow = Invoke-Game 'windowed' 0 $game
+        if (-not $sawWindow) {
+            Write-Host 'no window in the windowed run; retrying fullscreen (no dialog.tcf)'
+            Add-Text $summaryFile "windowed run showed no window; retrying fullscreen without dialog.tcf`n"
+            Remove-Item -LiteralPath (Join-Path $game 'dialog.tcf') -Force -ErrorAction SilentlyContinue
+            Invoke-Game 'fullscreen' 0 $game | Out-Null
+            # restore dialog.tcf for the pinned run
+            [System.IO.File]::WriteAllBytes((Join-Path $game 'dialog.tcf'), $tcf)
+        }
+        # The race check on the real game: the whole process (and so its comms thread) pinned to CPU 0.
+        Invoke-Game 'cpu1' 1 $game | Out-Null
+
         $sd = Get-Service -Name secdrv -ErrorAction SilentlyContinue
-        Write-Host "secdrv service: $(if ($sd) { $sd.Status } else { 'not installed' })"
-        foreach ($q in @(Get-GameTree)) { Write-Host "stopping $($q.Name)[$($q.ProcessId)]"; Stop-Process -Id $q.ProcessId -Force -ErrorAction SilentlyContinue }
-        Save-Screen (Join-Path $Out 'game-2-after.png')
-        if (-not $dbw.WaitForExit(20000)) { Stop-Process -Id $dbw.Id -Force -ErrorAction SilentlyContinue }
-        Get-Content -LiteralPath (Join-Path $Out 'dbwin-game.txt') -ErrorAction SilentlyContinue | Select-Object -First 40 | ForEach-Object { Write-Host "  $_" }
+        Add-Text $summaryFile "secdrv service: $(if ($sd) { $sd.Status } else { 'not installed' })`n"
+        Save-Screen (Join-Path $Out 'game-after.png')
         Dismount-DiskImage -ImagePath $iso | Out-Null
     }
 
@@ -312,6 +442,12 @@ switch ($Step) {
         }
         Remove-Item -LiteralPath $Orig -Recurse -Force -ErrorAction SilentlyContinue
         if (Test-Path -LiteralPath $Orig) { Fail "$Orig is still there" }
+        # The copied real game (trygame): no game file is ever kept or uploaded.
+        if (Test-Path -LiteralPath 'C:\TPW') {
+            Remove-Item -LiteralPath 'C:\TPW' -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath 'C:\TPW') { Fail 'C:\TPW is still there' }
+            Write-Host 'the copied real game (C:\TPW) is deleted'
+        }
         $bad = @(Get-ChildItem -LiteralPath $Out -Recurse -File | Where-Object { $_.Extension -notmatch '^\.(txt|png)$' })
         if ($bad.Count) { $bad | Remove-Item -Force; Fail 'a file other than text or a screenshot was in the artifact folder' }
         Write-Host 'the game files are deleted'

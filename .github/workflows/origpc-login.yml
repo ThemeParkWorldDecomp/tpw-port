@@ -73,7 +73,7 @@ jobs:
         run: '& .github\origpc\win.ps1 series; exit $LASTEXITCODE'
       - name: Start the real game from the mounted disc
         if: always() && steps.real.outcome != 'skipped' && (github.event_name == 'push' || inputs.try_game)
-        timeout-minutes: 5
+        timeout-minutes: 30
         run: '& .github\origpc\win.ps1 trygame; exit $LASTEXITCODE'
       - name: Hold the runner
         if: always()
