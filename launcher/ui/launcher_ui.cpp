@@ -764,34 +764,6 @@ void LauncherUi::DrawTiles(const Rect& row, bool dropTargets) {
     tilesShown_ = dropTargets;
 }
 
-// The footer of both homes: the descriptive line and the disclaimer, word for word, with the launcher's version in the
-// bottom right corner, small and soft, beside the disclaimer's last line (which wraps short of it), out of the way of
-// the tiles and their Play buttons above. A player reads it from there for a bug report.
-Rect LauncherUi::DrawFooter(const Rect& w) {
-    const float m = metric::kMargin;
-    const std::string version = kVersionLabel;
-    const float vw = text_.Width(style::kSmall, version);
-    float footerW = w.w - 2 * m - 24;
-    std::vector<std::string> disclaimer = text_.Wrap(style::kSmall, kDisclaimer, footerW - vw - 16);
-    std::vector<std::string> tagline = text_.Wrap(style::kSmallBold, kTagline, footerW);
-    float lh = text_.LineHeight(style::kSmall);
-    float footerH = (disclaimer.size() + tagline.size()) * lh + 18;
-    Rect footer{m, w.Bottom() - m - footerH, w.w - 2 * m, footerH};
-    canvas_.FillRound(footer, 12, colour::kPaper.WithAlpha(215));
-    float y = footer.y + 9;
-    for (const std::string& line : tagline) {
-        text_.Draw(style::kSmallBold, footer.x + 12, y, line, colour::kInk);
-        y += lh;
-    }
-    for (const std::string& line : disclaimer) {
-        text_.Draw(style::kSmall, footer.x + 12, y, line, colour::kInkSoft);
-        y += lh;
-    }
-    versionRect_ = {footer.Right() - 12 - vw, y - lh, vw, lh};
-    text_.Draw(style::kSmall, versionRect_.x, versionRect_.y, version, colour::kInkSoft);
-    return footer;
-}
-
 void LauncherUi::DrawHome(const Rect& w) {
     if (AllConfirmed()) {
         DrawReady(w);
@@ -800,10 +772,8 @@ void LauncherUi::DrawHome(const Rect& w) {
     float top = DrawUpdateBanner(w, DrawHeader(w, true));
     const float m = metric::kMargin;
 
-    // The footer: the descriptive line and the disclaimer, word for word, and the version.
-    const Rect footer = DrawFooter(w);
-
-    Rect tiles{m, footer.y - metric::kGap - TileHeight(), w.w - 2 * m, TileHeight()};
+    // The tiles at the bottom, a margin above the window's edge.
+    Rect tiles{m, w.Bottom() - m - TileHeight(), w.w - 2 * m, TileHeight()};
     Rect field{m, top, w.w - 2 * m, tiles.y - metric::kGap - top - 4};
     fieldRect_ = field;
     bool fieldHover = dragging_ && dropTarget_ == -1;
@@ -857,12 +827,10 @@ void LauncherUi::DrawReady(const Rect& w) {
     float top = DrawUpdateBanner(w, DrawHeader(w, true));
     const float m = metric::kMargin;
 
-    // The footer, as on the home with the drop field.
-    const Rect footer = DrawFooter(w);
-
-    // The row above the footer: "Game data" on the left; while a drag is over the window, what letting go does.
+    // The bottom row, a margin above the window's edge: "Game data" on the left; while a drag is over the window, what
+    // letting go does.
     const float rowH = 34;
-    Rect row{m, footer.y - metric::kGap - rowH, w.w - 2 * m, rowH};
+    Rect row{m, w.Bottom() - m - rowH, w.w - 2 * m, rowH};
     float gw = ui_.ButtonWidth("Game data");
     if (ui_.Button("game-data", {row.x, row.y, gw, rowH}, "Game data", ButtonKind::Quiet)) {
         settingsOpen_ = true;
@@ -1994,7 +1962,7 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
     ui_.SetInteractive(!overlay && !dragging_);
     tilesShown_ = false;
     readyShown_ = false;
-    versionRect_ = showLogsRect_ = titleRect_ = titleVersionRect_ = headerButtonsRect_ = updateBannerRect_ = Rect{};
+    showLogsRect_ = titleRect_ = titleVersionRect_ = headerButtonsRect_ = updateBannerRect_ = Rect{};
     exportLogsRect_ = openDownloadsRect_ = modsButtonRect_ = modsOnRect_ = Rect{};
     for (Rect& r : editedBadge_) r = Rect{};
     for (Rect& r : tilePlay_) r = Rect{};

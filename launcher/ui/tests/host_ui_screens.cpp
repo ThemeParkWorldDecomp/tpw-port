@@ -1983,7 +1983,7 @@ void CheckTilePlay(SDL_Renderer* renderer) {
         Check(ui.TilePlayRect(0).w == 0 && ui.TilePlayRect(1).w == 0 && ui.TilePlayRect(2).w == 0,
               "all confirmed: no small tile's Play");
         const Rect us = ui.ReadyPlayRect(0), eu = ui.ReadyPlayRect(1);
-        Check(us.Contains(205, 373) && eu.Contains(595, 373), "all confirmed: the large Play buttons where the play test clicks");
+        Check(us.Contains(205, 456) && eu.Contains(595, 456), "all confirmed: the large Play buttons where the play test clicks");
         std::printf("all confirmed: Play buttons %.0f,%.0f %.0fx%.0f and %.0f,%.0f %.0fx%.0f\n", us.x, us.y, us.w, us.h, eu.x,
                     eu.y, eu.w, eu.h);
     }
@@ -3018,8 +3018,9 @@ void CheckMods(SDL_Renderer* renderer) {
     }
 }
 
-// The launcher's version in the footer's corner, clear of the tiles and their Play buttons at the start size and the
-// smallest, on both homes; and the About box's Show logs button, there only when the window has a logs folder.
+// No footer on either home (the maintainer, 2026-11-08): the tiles, or on the all-confirmed home the "Game data" row under them,
+// sit a margin above the window's bottom edge at the start size and the smallest, and the version is the one beside the
+// title; and the About box's Show logs button, there only when the window has a logs folder.
 void CheckVersionAndLogs(SDL_Renderer* renderer) {
     for (bool ready : {false, true}) {
         for (int size = 0; size < 2; ++size) {
@@ -3031,13 +3032,12 @@ void CheckVersionAndLogs(SDL_Renderer* renderer) {
             if (ready) FillEverything(b);
             LauncherUi ui(renderer, b);
             ui.Frame(kDt, w, h, 1);
-            const Rect v = ui.VersionRect();
-            Check(v.w > 0 && v.h > 0, what + ": the version is drawn");
-            Check(v.x >= 0 && v.Right() <= w && v.Bottom() <= h && v.y > h * 0.75f,
-                  what + ": the version is in the bottom corner");
-            for (int i = 0; i < 3; ++i) Check(!Overlaps(v, ui.TileRect(i)), what + ": the version is clear of tile " + std::to_string(i));
-            for (int i = 0; i < 2; ++i)
-                Check(!Overlaps(v, ui.ReadyPlayRect(i)), what + ": the version is clear of Play " + std::to_string(i));
+            const Rect v = ui.TitleVersionRect();
+            Check(v.w > 0 && v.h > 0 && v.Bottom() < h * 0.25f, what + ": the version is drawn beside the title");
+            const float bottom = h - metric::kMargin - (ready ? 34 + metric::kGap : 0);
+            for (int i = 0; i < (ready ? 2 : 3); ++i)
+                Check(std::abs(ui.TileRect(i).Bottom() - bottom) < 0.5f,
+                      what + ": tile " + std::to_string(i) + " sits " + (ready ? "above the Game data row" : "a margin above the bottom"));
             if (ready) Check(ui.ReadyPlayRect(0).w > 0, what + ": the Play buttons are drawn");
         }
     }

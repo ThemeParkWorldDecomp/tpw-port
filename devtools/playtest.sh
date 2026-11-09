@@ -128,10 +128,10 @@ for e in $editions; do
   [ -z "$display" ] || common="$common --display $display"
   start=$(date +%s)
   if [ "$e" = gold ]; then
-    # The launcher's window (no --play) and a click on the US tile's Play (window point 205,373 of its 800 x 560; the European tile's is 595,373), which
+    # The launcher's window (no --play) and a click on the US tile's Play (window point 205,456 of its 800 x 560; the European tile's is 595,456), which
     # starts the game with the Gold rides switched on when all three editions are ready.
     # shellcheck disable=SC2086
-    sh "$here/run_launcher.sh" "$build" "$name" 900 $common --window-click 205,373@30 $recipe
+    sh "$here/run_launcher.sh" "$build" "$name" 900 $common --window-click 205,456@30 $recipe
   else
     # shellcheck disable=SC2086
     sh "$here/run_launcher.sh" "$build" "$name" 900 $common --play "$e" $recipe

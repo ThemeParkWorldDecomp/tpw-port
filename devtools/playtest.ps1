@@ -136,9 +136,9 @@ try {
     $fdir = Join-Path $work "frames-$e"; New-Item -ItemType Directory -Force -Path $fdir | Out-Null
     $common = @('--data', $data, '--mute', '--no-movies', '--windowed', '--display', '0', '--aspect', '4:3', '--resolution', '1024x768')
     $tail = @('--frames', "$Frames", '--dump-frames', $fdir, '--dump-every', '150')
-    # Gold: the launcher's window (no --play) and a click on the US tile's Play (window point 205,373 of its 800 x 560; the European tile's is 595,373),
+    # Gold: the launcher's window (no --play) and a click on the US tile's Play (window point 205,456 of its 800 x 560; the European tile's is 595,456),
     # which starts the game with the Gold rides switched on when all three editions are ready.
-    $mode = if ($e -eq 'gold') { @('--window-click', '205,373@30') } else { @('--play', $e) }
+    $mode = if ($e -eq 'gold') { @('--window-click', '205,456@30') } else { @('--play', $e) }
     $so = Join-Path $work "play-$e-out.txt"; $se = Join-Path $work "play-$e-err.txt"
     $before = Get-LastRun
     $start = Get-Date

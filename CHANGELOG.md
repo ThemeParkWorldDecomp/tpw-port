@@ -12,6 +12,10 @@
 - A saved park that needs rides you have switched off (the Gold rides, or a mod's) is no longer replaced by a new park: the game says which rides it needs without opening it, and keeps it for when they are back
 - The camera no longer keeps scrolling by itself after the pointer leaves the game's window, in windowed mode or onto a second screen (Thanks slappyhead and @samueleagle91)
 
+### Changes
+
+- The launcher's home screen no longer has the panel along its bottom with the port's description and the disclaimer (they stay in the About box), so the tiles have more room. The version is still shown beside the title
+
 ## 0.3.3 (2026-11-08)
 
 ### Bug Fixes

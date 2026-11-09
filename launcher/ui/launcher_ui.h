@@ -315,9 +315,6 @@ public:
     // box is closed).
     float SettingsBodyCounted() const { return settingsOpen_ ? settingsBodyCounted_ : 0.0f; }
     float SettingsBodyDrawn() const { return settingsOpen_ ? settingsBodyDrawn_ : 0.0f; }
-    // Where the last frame drew the launcher's version ("v" and the version, the footer's bottom right corner), in
-    // points; empty when not shown.
-    Rect VersionRect() const { return versionRect_; }
     // The About box's Show logs button in the last frame, in points (empty when not shown).
     Rect ShowLogsRect() const { return showLogsRect_; }
     // The About box's Export logs button, and the Open Downloads button that follows a saved export, in the last frame, in
@@ -391,7 +388,6 @@ private:
     float DrawHeader(const Rect& window, bool buttons);
     float DrawUpdateBanner(const Rect& window, float top);   // returns where the screen goes on
     void DrawTiles(const Rect& row, bool dropTargets);
-    Rect DrawFooter(const Rect& window);   // the tagline, the disclaimer and the version; returns where it drew
     void DrawHome(const Rect& window);
     void DrawReady(const Rect& window);
     void DrawChecking(const Rect& window);
@@ -460,7 +456,6 @@ private:
     Rect readyPlay_[2];
     Rect readyGold_[2];        // the all-confirmed home's Gold Edition switches
     bool readyShown_ = false;
-    Rect versionRect_;         // last frame's version text (VersionRect)
     Rect showLogsRect_;        // last frame's Show logs button
     Rect exportLogsRect_;      // last frame's Export logs button
     Rect openDownloadsRect_;   // last frame's Open Downloads button (after a saved export)

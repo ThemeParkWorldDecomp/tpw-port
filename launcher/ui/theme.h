@@ -24,7 +24,7 @@ inline constexpr const char* kDataFolderName = "STP-TPW Launcher";
 #define TPW_UI_VERSION "unknown"
 #endif
 inline constexpr const char* kLauncherVersion = TPW_UI_VERSION;
-// "v" and the version: the label beside the home screen's title and in the footer.
+// "v" and the version: the label beside the home screen's title.
 inline constexpr const char* kVersionLabel = "v" TPW_UI_VERSION;
 // The product name, " v" and the version: the application's name as the system shows it (window title, the macOS
 // application menu while the launcher window is up, the About title, the first line of --version and of the log).
@@ -34,7 +34,7 @@ inline constexpr const char* kProductNameWithVersion = TPW_UI_PRODUCT_NAME " v" 
 // How the games are mentioned: descriptively, never as a logo (launcher-design section 5, "Trademark naming").
 inline constexpr const char* kTagline =
     "An unofficial port for playing your own copy of Sim Theme Park or Theme Park World (Mac or Windows).";
-// Shown on the first screen and in the About box, word for word.
+// Shown in the About box, word for word.
 inline constexpr const char* kDisclaimer =
     "Not affiliated with or endorsed by Electronic Arts. Sim Theme Park and Theme Park World are trademarks of their "
     "respective owners. No game content is included; you need your own discs.";
