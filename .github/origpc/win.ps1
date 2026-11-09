@@ -172,9 +172,16 @@ function Invoke-Game([string]$Tag, [int]$Affinity, [string]$Game) {
     $dbw = Start-Process -FilePath $Exe -ArgumentList @('--dbwin', '80', '--log', $dbwLog) -PassThru -NoNewWindow `
         -RedirectStandardOutput (Join-Path $Temp "dbwin-$Tag-stdout.txt")
     Start-Sleep -Milliseconds 700
+    # Run 1 (no shims): both windowed runs crashed (0xc0000005) right after the game logged the desktop's 32-bit pixel format,
+    # and fullscreen exited with code 1. A 1999 DirectDraw game expects a 16-bit display, so it runs under Windows' own
+    # compatibility layers for that (reduced colour, and DirectDraw's 8/16-bit mitigation), set only for this child process.
+    $run = Get-Date
+    $env:__COMPAT_LAYER = 'DWM8And16BitMitigation 16BitColor'
+    Add-Text $log "compatibility layers: $env:__COMPAT_LAYER`n"
     $g = $null
     try { $g = Start-Process -FilePath $gameExe -WorkingDirectory $Game -PassThru -ErrorAction Stop; $null = $g.Handle }
     catch { Add-Text $log "TP.EXE did not start: $_`n"; Write-Host "TP.EXE did not start: $_" }
+    Remove-Item Env:\__COMPAT_LAYER -ErrorAction SilentlyContinue
     if ($g -and $Affinity -gt 0) {
         try { $g.ProcessorAffinity = [IntPtr]$Affinity; Add-Text $log ("affinity set to 0x{0:x}`n" -f $Affinity) }
         catch { Add-Text $log "could not set affinity: $_`n" }
@@ -232,6 +239,15 @@ function Invoke-Game([string]$Tag, [int]$Affinity, [string]$Game) {
     $exitInfo = if ($null -eq $g) { 'never started' } elseif ($g.HasExited) { "exited code $($g.ExitCode) (0x$('{0:x}' -f $g.ExitCode))" } else { 'still running' }
     Add-Text $log "result: TP.EXE $exitInfo; a window was seen: $sawWindow`n"
     Write-Host "game run $Tag`: TP.EXE $exitInfo; window seen: $sawWindow"
+    # A crash's faulting module, offset and exception code, from Windows Error Reporting's Application log entry.
+    Start-Sleep -Seconds 2
+    $crash = @(Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000, 1001, 1005; StartTime = $run } -ErrorAction SilentlyContinue |
+        Where-Object { $_.Message -match 'TP\.EXE' } | Select-Object -First 3)
+    foreach ($e in $crash) {
+        $text = ($e.Message -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 12) -join ' | '
+        Add-Text $log "event $($e.Id) $($e.ProviderName): $text`n"
+        Write-Host "  event $($e.Id): $text"
+    }
     foreach ($q in @(Get-GameTree)) { Stop-Process -Id $q.ProcessId -Force -ErrorAction SilentlyContinue }
     if (-not $dbw.WaitForExit(25000)) { Stop-Process -Id $dbw.Id -Force -ErrorAction SilentlyContinue }
     $dbt = @(Get-Content -LiteralPath $dbwLog -ErrorAction SilentlyContinue)
