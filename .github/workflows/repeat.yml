@@ -18,6 +18,9 @@ permissions:
 env:
   RUNS: 12
   TESTS: assets importer replay_missing_ride launcher_ui
+  # replay_missing_ride is one of the sliced platform tests, which the Windows build does not make without a libclang
+  # (build.cmd TOOLS=fetch has none, as in build.yml).
+  TESTS_WINDOWS: assets importer launcher_ui
 
 jobs:
   # The ctest tests: one build per runner kind, then each test alone RUNS times in a row.
@@ -65,7 +68,7 @@ jobs:
             pass=0; failed=""
             for i in $(seq 1 "$RUNS"); do
               if run ctest --test-dir build -R "^$t\$" --output-on-failure > "repeat-logs/$t-$i.log" 2>&1 \
-                 && grep -q '100% tests passed, 0 tests failed out of 1' "repeat-logs/$t-$i.log"; then
+                 && grep -Eq '100% tests passed(, 0 tests failed)? out of 1' "repeat-logs/$t-$i.log"; then
                 pass=$((pass + 1))
               else
                 failed="$failed $i"; bad=1
@@ -116,11 +119,11 @@ jobs:
           bad=0
           echo "| test | passed | failed runs |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          for t in $TESTS; do
+          for t in $TESTS_WINDOWS; do
             pass=0; failed=""
             for i in $(seq 1 "$RUNS"); do
               if "$ctest" --test-dir build -R "^$t\$" --output-on-failure > "repeat-logs/$t-$i.log" 2>&1 \
-                 && grep -q '100% tests passed, 0 tests failed out of 1' "repeat-logs/$t-$i.log"; then
+                 && grep -Eq '100% tests passed(, 0 tests failed)? out of 1' "repeat-logs/$t-$i.log"; then
                 pass=$((pass + 1))
               else
                 failed="$failed $i"; bad=1
