@@ -3,9 +3,14 @@
 # Every run's output is kept (the run's artifacts) and counted in the job's summary.
 name: repeat
 
+# Started by hand only (after its first run): `only` names the one job to run again, or is empty for all of them.
 on:
-  push:
   workflow_dispatch:
+    inputs:
+      only:
+        description: 'ctest-unix, ctest-windows, real-unix or real-windows; empty for all'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -17,6 +22,7 @@ env:
 jobs:
   # The ctest tests: one build per runner kind, then each test alone RUNS times in a row.
   ctest-unix:
+    if: inputs.only == '' || inputs.only == 'ctest-unix'
     strategy:
       fail-fast: false
       matrix:
@@ -77,6 +83,7 @@ jobs:
           path: repeat-logs
 
   ctest-windows:
+    if: inputs.only == '' || inputs.only == 'ctest-windows'
     strategy:
       fail-fast: false
       matrix:
@@ -89,8 +96,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      # build.cmd test is the only way build.yml builds the tests on Windows (fetched tools); its own one pass of the
-      # whole suite is not counted here, whatever its result.
+      # As build.yml: the tools are fetched by build.cmd from the Command Prompt first (from PowerShell 7, the Windows
+      # PowerShell that build.cmd starts cannot load Get-FileHash, so the fetch's checksum fails); then build.cmd test,
+      # the only way build.yml builds the tests on Windows. Its own one pass of the whole suite is not counted here,
+      # whatever its result.
+      - name: Build the launcher (Command Prompt)
+        shell: cmd
+        run: build.cmd TOOLS=fetch
       - name: Build the tests (build.cmd TOOLS=fetch test)
         shell: pwsh
         continue-on-error: true
@@ -128,6 +140,7 @@ jobs:
   # installer-broad's real case (its new step: the project's release tags fetched first), alone, once per job: a real
   # build takes too long to repeat in one job, so each runner kind runs it in ten jobs.
   real-unix:
+    if: inputs.only == '' || inputs.only == 'real-unix'
     strategy:
       fail-fast: false
       matrix:
@@ -167,6 +180,7 @@ jobs:
         run: bash .github/installer-ci/linux.sh real
 
   real-windows:
+    if: inputs.only == '' || inputs.only == 'real-windows'
     strategy:
       fail-fast: false
       matrix:
