@@ -1,0 +1,203 @@
+# Temporary test branch only (never main): each test that 0.4.1 adds or changes, run alone again and again on every
+# runner kind build.yml and installer-broad.yml use. A test counts as passing only when every one of its runs is green.
+# Every run's output is kept (the run's artifacts) and counted in the job's summary.
+name: repeat
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RUNS: 12
+  TESTS: assets importer replay_missing_ride launcher_ui
+
+jobs:
+  # The ctest tests: one build per runner kind, then each test alone RUNS times in a row.
+  ctest-unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: The build's packages (Linux, as build.yml)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build python3 git \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxkbcommon-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
+            libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev libudev-dev libibus-1.0-dev \
+            xvfb mesa-vulkan-drivers libvulkan1 glslang-tools libclang-18-dev
+      - name: Build (Linux, as build.yml)
+        if: runner.os == 'Linux'
+        run: |
+          cmake -S . -B build -G Ninja
+          cmake --build build
+      - name: Build (Mac, as build.yml)
+        if: runner.os == 'macOS'
+        run: |
+          make
+          cmake --build build
+      - name: Each test alone, ${{ env.RUNS }} times
+        env:
+          SDL_AUDIO_DRIVER: dummy
+        run: |
+          mkdir -p repeat-logs
+          run() { if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 1280x800x24" "$@"; else "$@"; fi; }
+          bad=0
+          echo "| test | passed | failed runs |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          for t in $TESTS; do
+            pass=0; failed=""
+            for i in $(seq 1 "$RUNS"); do
+              if run ctest --test-dir build -R "^$t\$" --output-on-failure > "repeat-logs/$t-$i.log" 2>&1 \
+                 && grep -q '100% tests passed, 0 tests failed out of 1' "repeat-logs/$t-$i.log"; then
+                pass=$((pass + 1))
+              else
+                failed="$failed $i"; bad=1
+                echo "::error::$t run $i failed"; tail -n 40 "repeat-logs/$t-$i.log"
+              fi
+            done
+            echo "$t: $pass of $RUNS passed${failed:+ (failed:$failed)}"
+            echo "| $t | $pass of $RUNS |${failed:- none} |" >> "$GITHUB_STEP_SUMMARY"
+          done
+          exit $bad
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: repeat-logs-${{ matrix.os }}
+          path: repeat-logs
+
+  ctest-windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 300
+    steps:
+      - name: Keep line endings as stored
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      # build.cmd test is the only way build.yml builds the tests on Windows (fetched tools); its own one pass of the
+      # whole suite is not counted here, whatever its result.
+      - name: Build the tests (build.cmd TOOLS=fetch test)
+        shell: pwsh
+        continue-on-error: true
+        run: .\build.cmd TOOLS=fetch test
+      - name: Each test alone, ${{ env.RUNS }} times
+        shell: bash
+        run: |
+          mkdir -p repeat-logs
+          ctest=$(find build/tools -name ctest.exe | head -n 1)
+          [ -n "$ctest" ] || { echo "::error::no ctest.exe under build/tools"; exit 1; }
+          bad=0
+          echo "| test | passed | failed runs |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          for t in $TESTS; do
+            pass=0; failed=""
+            for i in $(seq 1 "$RUNS"); do
+              if "$ctest" --test-dir build -R "^$t\$" --output-on-failure > "repeat-logs/$t-$i.log" 2>&1 \
+                 && grep -q '100% tests passed, 0 tests failed out of 1' "repeat-logs/$t-$i.log"; then
+                pass=$((pass + 1))
+              else
+                failed="$failed $i"; bad=1
+                echo "::error::$t run $i failed"; tail -n 40 "repeat-logs/$t-$i.log"
+              fi
+            done
+            echo "$t: $pass of $RUNS passed${failed:+ (failed:$failed)}"
+            echo "| $t | $pass of $RUNS |${failed:- none} |" >> "$GITHUB_STEP_SUMMARY"
+          done
+          exit $bad
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: repeat-logs-${{ matrix.os }}
+          path: repeat-logs
+
+  # installer-broad's real case (its new step: the project's release tags fetched first), alone, once per job: a real
+  # build takes too long to repeat in one job, so each runner kind runs it in ten jobs.
+  real-unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel, ubuntu-24.04]
+        run: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: The project's release tags, as on a tag push
+        shell: bash
+        run: |
+          tags=$(git ls-remote --tags --refs origin 'v*')
+          if [ -n "$tags" ]; then
+            git fetch -q --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'
+          else
+            echo "origin has no release tags; skipped"
+          fi
+      - name: One real build by the installer (run ${{ matrix.run }})
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          TPW_CI_WORK: ${{ runner.temp }}/tpw-broad
+          TPW_CI_SOURCE: ${{ github.workspace }}
+          TPW_CI_VERSION: 0.0.99
+        run: bash .github/installer-ci/mac.sh real
+      - name: One real build by the installer, then the Update button's run (run ${{ matrix.run }})
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          TPW_CI_WORK: ${{ runner.temp }}/tpw-broad
+          TPW_CI_SOURCE: ${{ github.workspace }}
+          TPW_CI_VERSION: 0.0.99
+          TPW_CI_UPDATE: 1
+        run: bash .github/installer-ci/linux.sh real
+
+  real-windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025, windows-11-arm]
+        run: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.os == 'windows-11-arm' && 90 || 60 }}
+    steps:
+      - name: Keep line endings as stored
+        shell: powershell
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: The project's release tags, as on a tag push
+        shell: powershell
+        run: |
+          $tags = git ls-remote --tags --refs origin 'v*'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($tags) {
+            git fetch -q --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'
+            exit $LASTEXITCODE
+          }
+          'origin has no release tags; skipped'
+      - name: One real build by the installer (run ${{ matrix.run }})
+        shell: powershell
+        env:
+          TPW_CI_WORK: ${{ runner.temp }}\tpw-broad
+          TPW_CI_SOURCE: ${{ github.workspace }}
+          TPW_CI_VERSION: 0.0.99
+        run: |
+          $ErrorActionPreference = 'Continue'
+          & .\.github\installer-ci\win.ps1 real
+          exit $LASTEXITCODE
