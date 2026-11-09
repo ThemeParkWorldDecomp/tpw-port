@@ -472,6 +472,20 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
       add_test(NAME truncated_save COMMAND tpw_host_truncated_save)
     endif()
   endif()
+  # Old parks' pylon codes (the port's fix loopcode): recordings of coaster building as the game writes them, with the 0s the
+  # Mac's recorder wrote for the pylon types and undos, put back by the real PortRepairOldPylonCodes of src/game/ActionRecorder.cpp.
+  # The original has no such repair, so it is made only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_pylon_codes ${TPW_DECOMP_DIR}/tests/host_pylon_codes.cpp ${TPW_DECOMP_DIR}/src/game/ActionRecorder.cpp)
+    target_include_directories(tpw_host_pylon_codes PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    tpw_slice(TARGET tpw_host_pylon_codes NAME pylon_codes KEEP
+      __Z23PortRepairOldPylonCodesPhjPKj)   # PortRepairOldPylonCodes(unsigned char*, unsigned int, unsigned int const*)
+    if(tpw_platform_tests_skipped)
+      set_target_properties(tpw_host_pylon_codes PROPERTIES EXCLUDE_FROM_ALL ON)
+    else()
+      add_test(NAME pylon_codes COMMAND tpw_host_pylon_codes)
+    endif()
+  endif()
   # The options panel's Screen resolution slider in the launcher (the port's fix resslider): the real DoScroll,
   # CPlayerSettings::SetResolution and PortApplyGameSize, the windows and the clock being the test's stand-ins. Made only with
   # the port's fixes: the original has no such choice of sizes.

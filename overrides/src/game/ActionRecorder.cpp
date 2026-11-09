@@ -39,6 +39,7 @@
 #include <cstring>
 #include <new>
 #include <string>
+#include <vector>
 
 // ActionRecorder_CActionRecorder_CActionRecorder.cpp (main app): CActionRecorder constructor 0x10143658, destructor 0x10143880,
 // Serialise 0x101439dc and RecordAction 0x1014430c (unit v5075).
@@ -114,6 +115,163 @@ void CActionRecorder::Destruct() {
     reinterpret_cast<CMemFile*>(mActionFile)->CMemFile::~CMemFile();
 }
 
+// TPW_PORT_FIX loopcode PortRepairOldPylonCodes | Mac: RecordAction(RecordedAction) wrote 0 for each of its three actions (0x37, a normal pylon; 0x38, a loop pylon; 0x41, the last brace undone), and the port's replay (arcode) skips such a 0 | Port: the recording a park loads has each such 0 put back as the action it stands for, read from the actions around it | Why: a park begun before 0.3.3 lost its coaster loops (rebuilt as normal pylons, their supports at the wrong height) and its Backspaces, after which every later brace edit hit the wrong brace and most of a layout was lost (0.3.3, Addable13)
+// Each such 0 is followed by a halfword above 0xff (the next action, never a mode), which tells it from a mode change. The
+// actions around it give it away, as the game records them:
+//   - a pylon button press (or the panel opening) records the mode, 0x44, the ride (0x1e), the pylon type, then 0x43;
+//     DoDeleteMultiPylons records 0x3f, then the pylon type: a 0 after 0x1e or 0x3f is a pylon type (a press);
+//   - Backspace records 0x41 (then 0x43), and a 0x37 straight after when the brace it undid began a loop (RefreshButtons): two
+//     0s in a row are 0x41 then 0x37, and a 0 after 0x41 is 0x37;
+//   - a loop ends (UIHandleEndLoop records 0x37) as its last pylon is placed: a pylon's click (0x14, or 0x2d with shift, then
+//     0x44) the loop's count of placements after its press. SetPylonType(2) asks for two; a Backspace that undoes a loop's
+//     last brace (the brace placed with its end) leaves one to go (DeleteLastTrackBrace), and a press then keeps it at one;
+//   - any other 0 is a Backspace (0x41).
+// The presses of a loop that ends, or whose first brace is undone, are its loop pylon presses (0x38); the others stay normal ones
+// (0x37). A Backspace right after a normal press's first two pylons reads as a loop's end: the recording does not tell them apart.
+// The recording is read as ReadAndProcessNextAction reads it (kinds: mActionKind). Answers the number of bytes changed.
+uint32_t PortRepairOldPylonCodes(uint8_t* data, uint32_t size, const uint32_t* kinds) {
+    constexpr int32_t kOld = -1;
+    struct Entry {
+        uint32_t at;
+        int32_t code;
+        int32_t mode;   // action 0's halfword, else -1
+        bool old;       // a 0 the Mac's recorder wrote
+        bool press;
+        bool loopEnd;
+    };
+    std::vector<Entry> e;
+    uint32_t i = 0;
+    while (i < size) {
+        const uint8_t action = data[i];
+        const uint32_t at = i++;
+        uint32_t need = 0;
+        switch (kinds[action]) {
+            case 0: need = 2; break;
+            case 1:
+                if (i + 2 <= size && action == 0 && (data[i] | (data[i + 1] << 8)) > 0xff) {
+                    e.push_back({at, kOld, -1, true, false, false});   // the replay goes on at the byte after the 0
+                    continue;
+                }
+                need = 2;
+                break;
+            case 2: need = 4; break;
+            case 3: need = 3; break;
+            case 4: need = 6; break;
+            case 5: need = 10; break;
+            case 6: need = 4; break;
+            case 7: need = 6; break;
+            case 8: need = 0; break;
+            case 9: need = i + 1 > size ? 1 : 1 + 2 * static_cast<uint32_t>(data[i]); break;
+            case 10: need = i + 3 > size ? 3 : 3 + 2 * static_cast<uint32_t>(data[i + 2]); break;
+            case 11: need = 0x80; break;
+            default: need = 0; break;
+        }
+        if (i + need > size) break;
+        const int32_t mode = (action == 0 && need == 2) ? (data[i] | (data[i + 1] << 8)) : -1;
+        e.push_back({at, static_cast<int32_t>(action), mode, false, false, false});
+        i += need;
+    }
+    const long count = static_cast<long>(e.size());
+    auto code = [&e, count](long j) -> int32_t { return (j < 0 || j >= count) ? -2 : e[static_cast<size_t>(j)].code; };
+    auto isClick = [&code](long j) { return code(j) == 0x14 || code(j) == 0x2d; };
+    auto afterClick = [&](long j) { return isClick(j - 1) || (code(j - 1) == 0x44 && isClick(j - 2)); };
+    auto isPress = [&](long j) {
+        return e[static_cast<size_t>(j)].press || ((code(j) == 0x37 || code(j) == 0x38) && (code(j - 1) == 0x1e || code(j - 1) == 0x3f));
+    };
+    auto isEnd = [&](long j) { return e[static_cast<size_t>(j)].loopEnd || (code(j) == 0x37 && afterClick(j)); };
+    auto isType = [&code](long j) { return code(j) == 0x37 || code(j) == 0x38 || code(j) == 0x41; };
+    // j undid a loop's last brace (one placement to go): back from j, each click placed a brace and each 0x41 undid one; the brace
+    // j undid is a loop's last when the loop's end comes right after its click (DoDeleteMultiPylons undoes an unknown number)
+    auto resumes = [&](long j) {
+        if (code(j) != 0x41) return false;
+        long undone = 1;
+        for (long k = j - 1; k >= 0; --k) {
+            if (isClick(k)) {
+                if (--undone == 0) return false;
+            } else if (code(k) == 0x41) {
+                ++undone;
+            } else if (code(k) == 0x3f) {
+                return false;
+            } else if (undone == 1 && isEnd(k)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    // a 0 after a pylon's click at j: the loop's end when the clicks since its press are the loop's count; marks its presses 0x38
+    auto endsLoop = [&](long j) {
+        int32_t clicks = 0;
+        long stop = -1;
+        long first = -1;   // the farthest press of the loop, two clicks back
+        std::vector<long> seen;
+        for (long k = j - 1; k >= 0; --k) {
+            if (isClick(k)) {
+                if (first >= 0) break;
+                if (++clicks > 2) return false;
+            } else if (isPress(k)) {
+                seen.push_back(k);
+                if (clicks == 2 && first < 0) first = k;
+            } else if (isType(k) || (code(k) == 0 && e[static_cast<size_t>(k)].mode != 0x15)) {
+                stop = k;
+                break;
+            }
+        }
+        const bool resumed = stop >= 0 && resumes(stop);
+        if (clicks == 1 && resumed) {
+            first = seen.empty() ? -1 : seen.back();
+        } else if (!(clicks == 2 && !resumed && first >= 0)) {
+            return false;
+        }
+        for (long k : seen) {
+            if (e[static_cast<size_t>(k)].press) e[static_cast<size_t>(k)].code = 0x38;   // a real code stays
+            if (k == first) break;
+        }
+        return true;
+    };
+    // the Backspace at j undid a loop's first brace: the presses since the pylon before it and the one that placed it were loop presses
+    auto undidLoopStart = [&](long j) {
+        bool placed = false;
+        for (long k = j - 1; k >= 0; --k) {
+            if (isClick(k)) {
+                if (placed) return;
+                placed = true;
+            } else if (isPress(k)) {
+                if (e[static_cast<size_t>(k)].press) e[static_cast<size_t>(k)].code = 0x38;
+                if (placed) return;
+            } else if (isType(k) || (code(k) == 0 && e[static_cast<size_t>(k)].mode != 0x15)) {
+                return;
+            }
+        }
+    };
+    for (long j = 0; j < count; ++j) {
+        Entry& z = e[static_cast<size_t>(j)];
+        if (z.code != kOld) continue;
+        const int32_t prev = code(j - 1);
+        if (prev == 0x1e || prev == 0x3f) {
+            z.code = 0x37;
+            z.press = true;
+        } else if (code(j + 1) == kOld) {
+            z.code = 0x41;
+            e[static_cast<size_t>(++j)].code = 0x37;
+            undidLoopStart(j - 1);
+        } else if (prev == 0x41) {
+            z.code = 0x37;
+        } else if (afterClick(j) && endsLoop(j)) {
+            z.code = 0x37;
+            z.loopEnd = true;
+        } else {
+            z.code = 0x41;
+        }
+    }
+    uint32_t changed = 0;
+    for (const Entry& z : e) {
+        if (!z.old) continue;
+        data[z.at] = static_cast<uint8_t>(z.code);
+        ++changed;
+    }
+    return changed;
+}
+
 int32_t CActionRecorder::Serialise(void* file, int32_t saving, int32_t version, uint32_t) {
     CFile* memory = FileOf(mActionFile);
     if (saving != 0) {
@@ -154,6 +312,8 @@ int32_t CActionRecorder::Serialise(void* file, int32_t saving, int32_t version, 
                 delete[] buffer;
                 return 1;
             }
+            // TPW_PORT_FIX loopcode CActionRecorder::Serialise | Mac: the recording is kept as the file has it | Port: the 0s the Mac's recorder wrote for the pylon types and undos are put back as their actions (PortRepairOldPylonCodes) | Why: a park begun before 0.3.3 replayed without its coaster loops and undos, and visitors saw its coasters with track missing and supports at the wrong height (0.3.3, Addable13)
+            static_cast<void>(PortRepairOldPylonCodes(buffer, size, mActionKind));
             memory->Write(buffer, size);
             memory->Seek(0, 2);
             delete[] buffer;
