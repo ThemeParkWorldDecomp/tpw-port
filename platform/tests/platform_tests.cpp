@@ -1588,7 +1588,8 @@ static void TestCodePages(const fs::path& scratch) {
     CHECK(NS_MacDoze::MultiByteToWideChar(0, 0, "a\x83", -1, wide, 16) == 3 && std::u16string(wide) == u"a?");   // a lead byte at the end
     tpw::SetGameCodePage(0);
 
-    // Latin languages: today's bytes, and today's folder names (the raw bytes), with nothing new in the way.
+    // Latin languages: today's bytes, with nothing new in the way; off Windows the folder's name is those bytes' letters in
+    // UTF-8 (the Mac's APFS refuses a name that is not UTF-8).
     CHECK(tpw::GameCodePage() == 0);
     const std::pair<std::u16string, std::string> latin[] = {
         {u"Tess", "Tess"}, {u"José", "Jos\xE9"}, {u"Jürgen", "J\xFCrgen"}, {u"ש", "?"}, {u"ソ", "?"}};
@@ -1598,8 +1599,18 @@ static void TestCodePages(const fs::path& scratch) {
         CHECK(NS_MacDoze::WideCharToMultiByte(0, 0, text.c_str(), -1, out, sizeof out, nullptr, &used) ==
                   static_cast<int32_t>(text.size()) + 1 &&
               std::string(out) == bytes);
+#ifdef _WIN32
         CHECK(tpw::HostNameOf("1" + bytes) == fs::path("1" + bytes));
-
+#else
+        std::string utf8 = "1";
+        for (const char c : bytes) {   // Latin-1 to UTF-8
+            const auto byte = static_cast<uint8_t>(c);
+            if (byte < 0x80) utf8 += c;
+            else utf8 += {static_cast<char>(0xC0 | byte >> 6), static_cast<char>(0x80 | (byte & 0x3F))};
+        }
+        CHECK(tpw::HostNameOf("1" + bytes) == fs::path(utf8));
+        CHECK(tpw::GameNameOf(fs::path(utf8)) == "1" + bytes);
+#endif
     }
     CHECK(NS_MacDoze::MultiByteToWideChar(0, 0, "Jos\xE9", -1, wide, 16) == 5 && std::u16string(wide) == u"José");
     CHECK(NS_MacDoze::IsDBCSLeadByte(0x83) == 0 && NS_MacDoze::IsDBCSLeadByte(0xE9) == 0);
@@ -1614,8 +1625,42 @@ static void TestCodePages(const fs::path& scratch) {
     CHECK(Same(tpw::FindHostPath("save:users:1tess"), config.userDir / "save" / "users" / "1Tess"));
     CHECK(tpw::ListGameFolder("save:users").size() == 1 && tpw::ListGameFolder("save:users")[0].name == "1Tess");
     tpw::SetGameCodePage(0);
-
     fs::remove_all(config.userDir / "save");
+
+    // A Latin player whose name has an accent (a German keyboard's "Jürgen"): the folder is made, and listed and found again by
+    // the game's own bytes. On Windows only where the system's code page is Latin-1's (1252), whose letter the name's byte is.
+#ifdef _WIN32
+    const bool latinHost = tpw_win_game_code_page() == 1252;
+#else
+    const bool latinHost = true;
+#endif
+    if (latinHost) {
+        const std::string jurgen = "1J\xFCrgen";
+        const fs::path made = tpw::HostPathForWriting("save:users:" + jurgen);
+        std::error_code ec;
+        fs::create_directories(made, ec);
+        CHECK(!ec && fs::is_directory(made));
+        CHECK(tpw::GameNameOf(made.filename()) == jurgen);
+#ifndef _WIN32
+        CHECK(fs::is_directory(config.userDir / "save" / "users" / "1J\xC3\xBCrgen"));   // "1Jürgen" in UTF-8
+#endif
+        bool listed = false;
+        for (const tpw::DirEntry& entry : tpw::ListGameFolder("save:users"))
+            if (entry.name == jurgen && entry.isDirectory) listed = true;
+        CHECK(listed);
+        CHECK(Same(tpw::FindHostPath("save:users:" + jurgen), made));
+        CHECK(Same(tpw::FindHostPath("save:users:1j\xFCrgen"), made));   // the lookup ignores the case of the plain letters
+        fs::remove_all(config.userDir / "save");
+    }
+#ifndef _WIN32
+    // A host name that is already UTF-8 keeps its bytes both ways when Latin-1 cannot spell it (a home folder's "日本"), and is
+    // its Latin-1 when it can, which HostNameOf turns back to the same UTF-8.
+    CHECK(tpw::GameNameOf(fs::path("\xE6\x97\xA5\xE6\x9C\xAC")) == "\xE6\x97\xA5\xE6\x9C\xAC");
+    CHECK(tpw::HostNameOf("\xE6\x97\xA5\xE6\x9C\xAC") == fs::path("\xE6\x97\xA5\xE6\x9C\xAC"));
+    CHECK(tpw::GameNameOf(fs::path("Jos\xC3\xA9")) == "Jos\xE9" && tpw::HostNameOf("Jos\xE9") == fs::path("Jos\xC3\xA9"));
+    CHECK(tpw::GameNameOf(fs::path("Jos\xE9")) == "Jos\xE9");   // a name that is not UTF-8 keeps its bytes
+#endif
+
     config.gameDir = oldGame;
     config.userDir = oldUser;
 }
