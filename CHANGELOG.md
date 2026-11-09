@@ -6,6 +6,10 @@
 
 - The launcher now opens .7z and .rar archives, as it opens zips: drop a downloaded 7-Zip or RAR archive of your disc (a RAR in several parts too) and it is checked like the files in it. A password-protected or damaged archive gets a message saying so
 
+### Bug Fixes
+
+- Fixed a crash when a park is rebuilt from its building record and the record has a ride this game does not have, for example a park built in a full game loaded into an easy park
+
 ## 0.4.0 (2026-11-09)
 
 ### New Features

@@ -486,6 +486,27 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
       add_test(NAME pylon_codes COMMAND tpw_host_pylon_codes)
     endif()
   endif()
+  # A park's recording that selects a ride type the ride database does not have (the port's fix replayride): the real
+  # selection and click replays of src/game/ActionRecorder.cpp, LLCC_SystemSetRide, CWorld::FlagItemAsSelected and
+  # CRideDatabase::GetRideInfo on a database of two types. The original selects the missing type and faults as the game did, so
+  # ctest runs it only with the port's fixes; a build without them makes it, and it fails.
+  add_executable(tpw_host_replay_missing_ride ${TPW_DECOMP_DIR}/tests/host_replay_missing_ride.cpp
+    ${TPW_DECOMP_DIR}/src/game/ActionRecorder.cpp ${TPW_DECOMP_DIR}/src/game/park/LLCellSystem.cpp
+    ${TPW_DECOMP_DIR}/src/game/World.cpp ${TPW_DECOMP_DIR}/src/game/rides/RideDB.cpp)
+  target_include_directories(tpw_host_replay_missing_ride PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+  tpw_slice(TARGET tpw_host_replay_missing_ride NAME replay_missing_ride KEEP
+    __ZN15CActionRecorder13ProcessActionEith   # CActionRecorder::ProcessAction(int, unsigned short, unsigned char)
+    __ZN15CActionRecorder13ProcessActionEihh   # CActionRecorder::ProcessAction(int, unsigned char, unsigned char)
+    __ZN15CActionRecorder13ProcessActionEihht   # CActionRecorder::ProcessAction(int, unsigned char, unsigned char, unsigned short)
+    __Z18LLCC_SystemSetRideRK12tag_IDX_TYPEI25IDXTYPEUniqueNameObjectIdtEi   # LLCC_SystemSetRide(tag_IDX_TYPE<...> const&, int)
+    __Z17LLCC_SystemIsModei   # LLCC_SystemIsMode(int)
+    __ZN6CWorld18FlagItemAsSelectedE12tag_IDX_TYPEI25IDXTYPEUniqueNameObjectIdtE   # CWorld::FlagItemAsSelected(tag_IDX_TYPE<...>)
+    __ZN13CRideDatabase11GetRideInfoE12tag_IDX_TYPEI25IDXTYPEUniqueNameObjectIdtE)   # CRideDatabase::GetRideInfo(tag_IDX_TYPE<...>)
+  if(tpw_platform_tests_skipped)
+    set_target_properties(tpw_host_replay_missing_ride PROPERTIES EXCLUDE_FROM_ALL ON)
+  elseif(TPW_PORT_FIX)
+    add_test(NAME replay_missing_ride COMMAND tpw_host_replay_missing_ride)
+  endif()
   # The options panel's Screen resolution slider in the launcher (the port's fix resslider): the real DoScroll,
   # CPlayerSettings::SetResolution and PortApplyGameSize, the windows and the clock being the test's stand-ins. Made only with
   # the port's fixes: the original has no such choice of sizes.
