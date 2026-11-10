@@ -452,6 +452,12 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     add_executable(tpw_host_wasd_camera ${TPW_DECOMP_DIR}/tests/host_wasd_camera.cpp)
     target_include_directories(tpw_host_wasd_camera PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
     add_test(NAME wasd_camera COMMAND tpw_host_wasd_camera)
+    # The same through the real run loop (platform/gamework.cpp, the port's fix wasd-stuck): a held A with another key
+    # pressed and let go before it, as --hold and the host's key events send them, leaves no camera key down.
+    add_executable(tpw_host_wasd_keys ${TPW_DECOMP_DIR}/tests/host_wasd_keys.cpp)
+    target_include_directories(tpw_host_wasd_keys PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    target_link_libraries(tpw_host_wasd_keys PRIVATE tpw_platform)
+    add_test(NAME wasd_keys COMMAND tpw_host_wasd_keys)
   endif()
   # A park file's packed block cut short or damaged, unpacked with the block's length (the port's fixes parkload and
   # truncsave): no read past the block, and only a whole block unpacks. The program builds the packing and that unpacking of

@@ -59,3 +59,20 @@ inline bool PortWasdNothing(int32_t key, int32_t modifiers) {
     PortWasdLetGo(key);
     return modifiers == 0 && PortWasdIndex(key) >= 0;
 }
+// TPW_PORT_FIX wasd-stuck PortWasdLetGoAll | Mac: no such setting | Port: with gPortWasdCamera on, every camera key the four still hold is let go when the game loses the focus (ThemeParkWorld::HandleActivateWindow) and when the park's window goes (Engine_GameWinMsg) | Why: a camera key must never outlive its key; one left held kept the camera scrolling through a trip to the lobby (reported by the maintainer)
+inline void PortWasdLetGoAll() {
+    for (int16_t& held : gPortWasdHeld) {
+        if (held == 0) continue;
+        gKeyTableCamera->KeyUp(held, 0);
+        held = 0;
+    }
+}
+// TPW_PORT_FIX wasd-stuck PortWasdStrayKeyUp | Mac: no such setting | Port: with gPortWasdCamera on, the run loop (tpw::gPortStrayKeyUp, platform/gamework.cpp) passes the key-up of a key it had no longer remembered, by its Mac key code; one of the four places (W A S D on a US keyboard) lets go of the camera key it still holds | Why: such a key-up reached no window, and the camera key its key down pressed stayed down (reported by the maintainer)
+inline void PortWasdStrayKeyUp(uint8_t macKeyCode) {
+    static constexpr uint8_t kPlaces[4] = {0x0d, 0x00, 0x01, 0x02};
+    for (int i = 0; i < 4; ++i) {
+        if (macKeyCode != kPlaces[i] || gPortWasdHeld[i] == 0) continue;
+        gKeyTableCamera->KeyUp(gPortWasdHeld[i], 0);
+        gPortWasdHeld[i] = 0;
+    }
+}
