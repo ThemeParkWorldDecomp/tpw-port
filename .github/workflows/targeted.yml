@@ -5,13 +5,12 @@
 # (the far zoom's tb_hfield.cpp and the run loop's changes, in the Mac's behaviour). Every run's output is kept.
 name: targeted
 
+# Dispatch only (a push starts nothing), so a rerun runs only what is asked for.
 on:
-  push:
-    branches: [ci-041-fixes]
   workflow_dispatch:
     inputs:
       only:
-        description: 'unix or windows; empty for both'
+        description: 'unix, windows, or windows-off (only the Windows build with the fixes OFF); empty for all'
         type: string
         default: ''
 
@@ -25,7 +24,7 @@ env:
 
 jobs:
   unix:
-    if: github.event_name == 'push' || inputs.only == '' || inputs.only == 'unix'
+    if: inputs.only == '' || inputs.only == 'unix'
     strategy:
       fail-fast: false
       matrix:
@@ -92,7 +91,7 @@ jobs:
           path: repeat-logs
 
   windows:
-    if: github.event_name == 'push' || inputs.only == '' || inputs.only == 'windows'
+    if: inputs.only == '' || inputs.only == 'windows' || inputs.only == 'windows-off'
     strategy:
       fail-fast: false
       matrix:
@@ -111,10 +110,12 @@ jobs:
         shell: cmd
         run: build.cmd TOOLS=fetch
       - name: Build the tests (build.cmd TOOLS=fetch test)
+        if: inputs.only != 'windows-off'
         shell: pwsh
         continue-on-error: true
         run: .\build.cmd TOOLS=fetch test
       - name: Each test alone
+        if: inputs.only != 'windows-off'
         shell: bash
         run: |
           mkdir -p repeat-logs
@@ -138,19 +139,20 @@ jobs:
             echo "| $t | $pass of $n |" >> "$GITHUB_STEP_SUMMARY"
           done
           exit $bad
-      # The same tools build.cmd fetched, configured as devtools/win/build.ps1 does, with the fixes OFF.
+      # The same tools build.cmd fetched, configured as devtools/win/build.ps1 does, with the fixes OFF. cmake needs
+      # full paths for the compilers, so each one is made absolute (cygpath -a), not only Windows-style.
       - name: Build, fixes OFF (the launcher and everything it links)
         if: always()
         shell: bash
         run: |
-          w() { cygpath -m "$1"; }
+          w() { cygpath -am "$1"; }
           cmake=$(find build/tools -path '*bin*' -name cmake.exe | head -n 1)
           ninja=$(find build/tools -name ninja.exe | head -n 1)
           clang=$(find build/tools -path '*llvm-mingw*' -name clang.exe | head -n 1)
           py=$(find build/tools -name python.exe | head -n 1)
           for x in "$cmake" "$ninja" "$clang" "$py"; do [ -n "$x" ] || { echo "::error::a fetched tool is missing"; exit 1; }; done
-          bin=$(dirname "$clang")
-          export PATH="$bin:$(dirname "$cmake"):$(dirname "$ninja"):$PATH"
+          bin=$(cd "$(dirname "$clang")" && pwd)
+          export PATH="$bin:$(cd "$(dirname "$cmake")" && pwd):$(cd "$(dirname "$ninja")" && pwd):$PATH"
           "$cmake" -S . -B build-off -G Ninja "-DCMAKE_MAKE_PROGRAM=$(w "$ninja")" "-DCMAKE_C_COMPILER=$(w "$clang")" \
             "-DCMAKE_CXX_COMPILER=$(w "$bin/clang++.exe")" "-DPython3_EXECUTABLE=$(w "$py")" -DTPW_PORT_FIX=OFF
           "$cmake" --build build-off --target tpw_launcher
