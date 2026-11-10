@@ -219,17 +219,13 @@ void Ui::DrawBadge(Badge badge, float cx, float cy, float radius, float fraction
     }
 }
 
-void Ui::Tile(const std::string& id, const Rect& r, const TileView& v) {
-    float drop = Spring(id + "#drop", v.highlight ? 1.0f : 0.0f);
+Rect Ui::Tile(const std::string& id, const Rect& r, const TileView& v) {
+    // No tile is a drop target: a drag over the window sets the widgets still (SetInteractive), so the tile rests.
     float hover = Spring(id + "#hover", interactive_ && Hovered(r) ? 1.0f : 0.0f);
-    Rect d = Grown(r, 1.0f + 0.035f * drop + 0.012f * hover).Moved(0, -3.0f * drop - 1.5f * hover);
-    const float radius = metric::kRadius, outline = metric::kOutline + 1.5f * Clamp01(drop);
-    if (drop > 0.01f)
-        canvas_.Shadow(d.Inset(-7 * Clamp01(drop)), radius + 7, 16, colour::kLimeBright.WithAlpha(
-                                                                         static_cast<uint8_t>(200 * Clamp01(drop))));
-    canvas_.Shadow(d.Moved(0, metric::kShadowDrop + 2 * drop), radius, metric::kShadowBlur, colour::kShadow);
-    Rgba line = Mix(colour::kInk, colour::kLimeDeep, Clamp01(drop));
-    Rgba body = Mix(colour::kCream, colour::kPaper, Clamp01(drop));
+    Rect d = hover == 0 ? r : Grown(r, 1.0f + 0.012f * hover).Moved(0, -1.5f * hover);
+    const float radius = metric::kRadius, outline = metric::kOutline;
+    canvas_.Shadow(d.Moved(0, metric::kShadowDrop), radius, metric::kShadowBlur, colour::kShadow);
+    const Rgba line = colour::kInk, body = colour::kCream;
     canvas_.Outlined(d, radius, outline, body, line);
 
     // The header band: the inner shape's top, its rounded bottom covered by the body.
@@ -266,6 +262,7 @@ void Ui::Tile(const std::string& id, const Rect& r, const TileView& v) {
         if (v.fraction > 0)
             canvas_.FillRound({bar.x, bar.y, std::max(bar.h, bar.w * Clamp01(v.fraction)), bar.h}, 4, colour::kOrange);
     }
+    return d;
 }
 
 void Ui::ProgressBar(const Rect& r, float fraction) {
@@ -510,30 +507,78 @@ bool Ui::DropList(const std::string& id, const Rect& field, const Rect& bounds, 
     return chosen;
 }
 
-void Ui::DropField(const std::string& id, const Rect& r, bool dropHover, float iconTop, bool icon) {
-    float k = Clamp01(Spring(id, dropHover ? 1.0f : 0.0f));
+void Ui::DropField(const Rect& r, float iconTop, bool icon) {
     const float radius = 22;
     canvas_.Shadow(r.Moved(0, metric::kShadowDrop), radius, metric::kShadowBlur, colour::kShadow);
-    canvas_.Outlined(r, radius, metric::kOutline, Mix(colour::kCream, colour::kYellowSoft, k),
-                     Mix(colour::kInk, colour::kLimeDeep, k));
-    canvas_.DashedRound(r.Inset(9), radius - 6, 3, 14, 9, Mix(colour::kOrange, colour::kLimeDeep, k));
+    canvas_.Outlined(r, radius, metric::kOutline, colour::kCream, colour::kInk);
+    canvas_.DashedRound(r.Inset(9), radius - 6, 3, 14, 9, colour::kOrange);
+    if (icon) DropIcon(r.CentreX(), iconTop, 44, 0, 0, colour::kInk);
+}
 
-    // The icon: a tray with an arrow dropping into it, bouncing while a drag is over the field.
-    float size = 44, cx = r.CentreX();
-    float cy = iconTop + size * 0.5f + 4 * k * std::sin(static_cast<float>(time_) * 6.0f);
-    if (dropHover) animating_ = true;
-    if (!icon) return;
-    float trayY = iconTop + size * 0.72f;
+void Ui::DropIcon(float cx, float top, float size, float k, float bounce, Rgba ink) {
+    const Rgba arrow = Mix(colour::kOrangeDeep, colour::kLimeDeep, k).WithAlpha(ink.a);
+    float cy = top + size * 0.5f + bounce;
+    float trayY = top + size * 0.72f;
     canvas_.Polyline({{cx - size * 0.5f, trayY - size * 0.12f},
                       {cx - size * 0.5f, trayY + size * 0.18f},
                       {cx + size * 0.5f, trayY + size * 0.18f},
                       {cx + size * 0.5f, trayY - size * 0.12f}},
-                     5, colour::kInk);
+                     5, ink);
     float ay = cy - size * 0.55f;
-    canvas_.Polyline({{cx, ay}, {cx, cy + size * 0.02f}}, 6, Mix(colour::kOrangeDeep, colour::kLimeDeep, k));
+    canvas_.Polyline({{cx, ay}, {cx, cy + size * 0.02f}}, 6, arrow);
     canvas_.Polyline({{cx - size * 0.2f, cy - size * 0.16f}, {cx, cy + size * 0.06f}, {cx + size * 0.2f,
                       cy - size * 0.16f}},
-                     6, Mix(colour::kOrangeDeep, colour::kLimeDeep, k));
+                     6, arrow);
+}
+
+Rect Ui::DropOverlay(const std::string& id, const Rect& window, bool on, std::string_view heading,
+                     std::string_view line, std::string_view note, bool takes) {
+    // Fades in with a little spring; gone the moment the drag leaves the window or the drop lands.
+    float k = Clamp01(Spring(id, on ? 1.0f : 0.0f));
+    if (!on || k < 0.01f) return Rect{};
+    if (takes) animating_ = true;   // the arrow bobs
+    const auto faded = [k](Rgba c) { return c.WithAlpha(static_cast<uint8_t>(c.a * k)); };
+
+    // The window: dimmed, and a dashed frame just inside its edge that says all of it takes the drop.
+    canvas_.FillRound(window, 0, faded(colour::kDim));
+    const float frameRadius = 22;
+    Rect frame = window.Inset(metric::kMargin * 0.5f);
+    canvas_.DashedRound(frame, frameRadius, 4, 16, 10, faded(takes ? colour::kLimeBright : colour::kOrange));
+
+    // The card: as wide as its words want, kept inside the frame.
+    const float pad = 22, iconSize = 44;
+    const float headH = text_.LineHeight(style::kHeading), lineH = text_.LineHeight(style::kBodyBold),
+                noteH = text_.LineHeight(style::kSmall);
+    float want = std::max({text_.Width(style::kHeading, heading), text_.Width(style::kBodyBold, line),
+                           text_.Width(style::kSmall, note)}) + 2 * pad;
+    float w = std::min(std::max(want, 360.0f), frame.w - 2 * metric::kMargin);
+    float h = pad + iconSize + 12 + headH + (line.empty() ? 0 : 6 + lineH) + (note.empty() ? 0 : 4 + noteH) + pad;
+    h = std::min(h, frame.h - 2 * metric::kMargin);
+    Rect card = Grown({window.CentreX() - w * 0.5f, window.CentreY() - h * 0.5f, w, h}, 0.94f + 0.06f * k);
+    canvas_.Shadow(card.Moved(0, metric::kShadowDrop), 22, metric::kShadowBlur, faded(colour::kShadow));
+    canvas_.Outlined(card, 22, metric::kOutline, faded(takes ? colour::kYellowSoft : colour::kCream),
+                     faded(takes ? colour::kLimeDeep : colour::kOrangeDeep));
+
+    float y = card.y + pad;
+    float bounce = takes ? 4 * k * std::sin(static_cast<float>(time_) * 6.0f) : 0;
+    DropIcon(card.CentreX(), y, iconSize, takes ? 1.0f : 0.0f, bounce, faded(colour::kInk));
+    y += iconSize + 12;
+    const float tw = card.w - 2 * pad;
+    text_.DrawCentred(style::kHeading, {card.x, y, card.w, headH}, text_.Fit(style::kHeading, heading, tw, false),
+                      faded(colour::kInk));
+    y += headH;
+    if (!line.empty()) {
+        y += 6;
+        text_.DrawCentred(style::kBodyBold, {card.x, y, card.w, lineH}, text_.Fit(style::kBodyBold, line, tw, false),
+                          faded(colour::kInk));
+        y += lineH;
+    }
+    if (!note.empty()) {
+        y += 4;
+        text_.DrawCentred(style::kSmall, {card.x, y, card.w, noteH}, text_.Fit(style::kSmall, note, tw, false),
+                          faded(colour::kInkSoft));
+    }
+    return card;
 }
 
 void Ui::Notice(const Rect& window, std::string_view message, Rgba fill) {

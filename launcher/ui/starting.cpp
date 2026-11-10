@@ -26,6 +26,7 @@ void LauncherUi::FrameStarting(float dt, float width, float height, float scale)
     ui_.Begin(dt, Input{});   // nothing on it reacts to the pointer
     ui_.SetInteractive(false);
     tilesShown_ = false;
+    dropOverlay_ = Rect{};
     if (!startingBehind_) DrawBackdrop(window);
     DrawStarting(window);
     ui_.End();

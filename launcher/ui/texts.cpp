@@ -55,6 +55,13 @@ std::string FileUrl(const std::string& path) {
 #endif
 }
 
+std::string DropKinds(bool sentence) {
+    std::string kinds = kDropKinds;
+    if (sentence && !kinds.empty() && kinds[0] >= 'a' && kinds[0] <= 'z')
+        kinds[0] = static_cast<char>(kinds[0] - 'a' + 'A');
+    return kinds;
+}
+
 std::string FormatCount(uint64_t n) {
     std::string digits = std::to_string(n), out;
     for (size_t i = 0; i < digits.size(); ++i) {

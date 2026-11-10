@@ -1183,7 +1183,29 @@ std::vector<Shot> Shots() {
                      },
                      Screen::Home, {}});
 
-    // Settings taller than the window: scrolled to its end with the wheel (the pointer in the box's left margin), and
+    // A drag over the window, in the smallest window: the drop-field home and the all-confirmed home with the pointer
+    // over a tile, and the Game data box open. The whole window takes the drop, whatever is under the pointer.
+    const auto dragOverTile = [](int index) {
+        return [index](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
+            const Rect t = ui.TileRect(index);
+            ui.HandleEvent(DropEvent(SDL_EVENT_DROP_BEGIN));
+            ui.HandleEvent(DropEvent(SDL_EVENT_DROP_POSITION, t.CentreX(), t.CentreY()));
+        };
+    };
+    shots.push_back({"46-drag-over-tile-smallest", metric::kMinWidth, metric::kMinHeight, nullptr, dragOverTile(1),
+                     Screen::Home, {}});
+    shots.push_back({"46-all-confirmed-drag-over-smallest", metric::kMinWidth, metric::kMinHeight, FillEverything,
+                     dragOverTile(1), Screen::Home, {}});
+    shots.push_back({"46-game-data-drag-over", metric::kStartWidth, metric::kStartHeight, nullptr,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         ui.ShowGameData(true);
+                         frames(1);
+                         ui.HandleEvent(DropEvent(SDL_EVENT_DROP_BEGIN));
+                         ui.HandleEvent(DropEvent(SDL_EVENT_DROP_POSITION, 400, 300));
+                     },
+                     Screen::Home, {}});
+
+    // Settings taller than the window:scrolled to its end with the wheel (the pointer in the box's left margin), and
     // in the smallest window at its top, the last row cut off under the bar.
     shots.push_back({"20-settings-scrolled-down", metric::kStartWidth, metric::kStartHeight, PartialUsEur,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
@@ -1711,7 +1733,93 @@ void CheckDrops(SDL_Renderer* renderer) {
     Check(!ui.TakePlay(choice), "no play before the button");
 }
 
-// The all-confirmed home: the two tiles are the drop targets (the Gold one is gone), each Play button starts its
+bool SameRect(const Rect& a, const Rect& b) {
+    return a.x == b.x && a.y == b.y && a.w == b.w && a.h == b.h;
+}
+
+// A drag over the window is one state for all of it (the maintainer, 2026-11-09): the card shows wherever the pointer is, no tile
+// grows or lights up under it, and the card goes when the drag leaves the window and when the drop lands.
+void CheckDropOverlay(SDL_Renderer* renderer) {
+    const auto run = [&](const std::string& what, const std::function<void(FakeBackend&)>& fill, int width, int height,
+                         int tiles) {
+        FakeBackend b;
+        if (fill) fill(b);
+        LauncherUi ui(renderer, b);
+        auto frames = [&](int n) {
+            for (int i = 0; i < n; ++i) ui.Frame(kDt, static_cast<float>(width), static_cast<float>(height), 1);
+        };
+        frames(1);
+        Check(ui.DropOverlayRect().w == 0, what + ": no card before a drag");
+        const Rect t = ui.TileRect(1);
+        Check(t.w > 0, what + ": the European tile is shown");
+
+        // The pointer alone over a tile grows it a little (so the check below would see a grown tile).
+        ui.HandleEvent(MotionEvent(t.CentreX(), t.CentreY()));
+        frames(60);
+        Check(ui.TileDrawnRect(1).w > t.w, what + ": the pointer over a tile grows it");
+
+        // A drag over that tile: the card, and every tile drawn where it is laid out.
+        ui.HandleEvent(DropEvent(SDL_EVENT_DROP_BEGIN));
+        ui.HandleEvent(DropEvent(SDL_EVENT_DROP_POSITION, t.CentreX(), t.CentreY()));
+        frames(2);
+        const Rect card = ui.DropOverlayRect();
+        Check(card.w > 0 && card.h > 0, what + ": a drag over a tile shows the card");
+        Check(card.x >= 0 && card.y >= 0 && card.Right() <= width && card.Bottom() <= height,
+              what + ": the card is inside the window");
+        frames(120);
+        for (int i = 0; i < tiles; ++i)
+            Check(SameRect(ui.TileDrawnRect(i), ui.TileRect(i)),
+                  what + ": tile " + std::to_string(i) + " neither grows nor moves under a drag");
+        Check(ui.DropOverlayRect().w > 0, what + ": the card stays while the drag does");
+        ui.HandleEvent(DropEvent(SDL_EVENT_DROP_POSITION, 5, 5));
+        frames(2);
+        Check(ui.DropOverlayRect().w > 0, what + ": the card stays in the window's corner");
+
+        // It leaves the window (SDL sends DROP_COMPLETE with no file): the card goes at once, nothing is checked.
+        ui.HandleEvent(DropEvent(SDL_EVENT_DROP_COMPLETE));
+        frames(1);
+        Check(ui.DropOverlayRect().w == 0, what + ": the card goes when the drag leaves");
+        Check(b.Started().empty() && ui.CurrentScreen() == LauncherUi::Screen::Home,
+              what + ": a drag that leaves checks nothing");
+
+        // Dropped on the tile: the card goes, and the import has the file.
+        b.Queue(FakeBackend::Script());
+        ui.HandleEvent(DropEvent(SDL_EVENT_DROP_BEGIN));
+        ui.HandleEvent(DropEvent(SDL_EVENT_DROP_POSITION, t.CentreX(), t.CentreY()));
+        frames(2);
+        Check(ui.DropOverlayRect().w > 0, what + ": a second drag shows the card again");
+        ui.HandleEvent(DropEvent(SDL_EVENT_DROP_FILE, t.CentreX(), t.CentreY(), "/a/disc.iso"));
+        ui.HandleEvent(DropEvent(SDL_EVENT_DROP_COMPLETE));
+        frames(1);
+        Check(ui.DropOverlayRect().w == 0, what + ": the card goes when the drop lands");
+        Check(b.Started().size() == 1 && b.Started()[0] == std::vector<std::string>{"/a/disc.iso"},
+              what + ": the drop on a tile is imported like any other");
+    };
+    run("drag, drop-field home", nullptr, metric::kStartWidth, metric::kStartHeight, 3);
+    run("drag, drop-field home, smallest window", nullptr, metric::kMinWidth, metric::kMinHeight, 3);
+    run("drag, all-confirmed home", FillEverything, metric::kStartWidth, metric::kStartHeight, 2);
+    run("drag, all-confirmed home, smallest window", FillEverything, metric::kMinWidth, metric::kMinHeight, 2);
+
+    // Over the Game data box: the same card, and the box is still open when the drag leaves.
+    FakeBackend b;
+    LauncherUi ui(renderer, b);
+    auto frames = [&](int n) {
+        for (int i = 0; i < n; ++i) ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+    };
+    frames(1);
+    ui.ShowGameData(true);
+    frames(1);
+    const Rect box = ui.GameDataBoxRect();
+    ui.HandleEvent(DropEvent(SDL_EVENT_DROP_BEGIN));
+    ui.HandleEvent(DropEvent(SDL_EVENT_DROP_POSITION, box.CentreX(), box.CentreY()));
+    frames(2);
+    Check(ui.DropOverlayRect().w > 0, "drag over the Game data box: the card shows");
+    ui.HandleEvent(DropEvent(SDL_EVENT_DROP_COMPLETE));
+    frames(1);
+    Check(ui.DropOverlayRect().w == 0 && ui.GameDataOpen(), "drag over the Game data box: it leaves, the box stays");
+}
+
+// The all-confirmed home: two large tiles (the Gold one is gone), each Play button starts its
 // edition with the Gold rides, and the startup check's notice is shown.
 void CheckReady(SDL_Renderer* renderer) {
     FakeBackend b;
@@ -1735,11 +1843,12 @@ void CheckReady(SDL_Renderer* renderer) {
                 euPlay.CentreY(), ui.ReadyGoldRect(0).CentreX(), ui.ReadyGoldRect(0).CentreY(),
                 ui.ReadyGoldRect(1).CentreX(), ui.ReadyGoldRect(1).CentreY());
 
-    // a drag over the European tile names it; anywhere else is still the window's drop
+    // a drag over the European tile is the window's drop like anywhere else: the tile stays as it is
     b.Queue(FakeBackend::Script());
     ui.HandleEvent(DropEvent(SDL_EVENT_DROP_BEGIN));
     ui.HandleEvent(DropEvent(SDL_EVENT_DROP_POSITION, eu.CentreX(), eu.CentreY()));
     frames(1);
+    Check(ui.DropOverlayRect().w > 0, "all confirmed: a drag over a tile shows the window's drop card");
     ui.HandleEvent(DropEvent(SDL_EVENT_DROP_FILE, eu.CentreX(), eu.CentreY(), "/a/eu.iso"));
     ui.HandleEvent(DropEvent(SDL_EVENT_DROP_COMPLETE));
     frames(3);
@@ -3758,6 +3867,7 @@ int main(int argc, char** argv) {
         CheckButton(renderer);
         CheckDrops(renderer);
         CheckReady(renderer);
+        CheckDropOverlay(renderer);
         CheckWindowsReady(renderer);
         CheckTilePlay(renderer);
         CheckScroll(renderer);

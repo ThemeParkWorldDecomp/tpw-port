@@ -1,7 +1,8 @@
 // widgets.h: the launcher screen's widgets, immediate mode: each frame the screen code calls them in drawing order and
 // they draw themselves and report clicks. About ten kinds: panel, button, tile, progress bar, log list, toggle,
-// segmented switch, slider, drop-down, a one-line text field and the drop field, plus badges, a notice and what scrolling needs (an offset the wheel moves, a
-// clip and a bar). Hover and press move through damped springs, which gives buttons and tiles their bouncy hover.
+// segmented switch, slider, drop-down, a one-line text field and the drop field (with the overlay a drag over the
+// window shows), plus badges, a notice and what scrolling needs (an offset the wheel moves, a clip and a bar). Hover
+// and press move through damped springs, which gives buttons and tiles their bouncy hover.
 // Everything is in points (draw.h).
 #pragma once
 #include <cstdint>
@@ -45,7 +46,6 @@ struct TileView {
     Rgba accent;            // the tile's header band
     Badge badge = Badge::None;
     float fraction = 0;     // files confirmed, for the partial badge and bar
-    bool highlight = false; // a drag is over the tile
     float footer = 0;       // room kept free at the bottom for the screen's own button (Customized settings)
 };
 
@@ -81,7 +81,8 @@ public:
     bool Button(const std::string& id, const Rect& r, std::string_view label, ButtonKind kind, bool enabled = true,
                 Style labelStyle = style::kButton);
     float ButtonWidth(std::string_view label) const;   // a comfortable width for the label
-    void Tile(const std::string& id, const Rect& r, const TileView& view);
+    // Returns where it drew the tile: `r`, a little grown while the pointer is over it (never while a drag is).
+    Rect Tile(const std::string& id, const Rect& r, const TileView& view);
     // `fraction` < 0: busy without a known amount (a block sweeps back and forth).
     void ProgressBar(const Rect& r, float fraction);
     // Rows of path and status; keeps the newest row in view unless the player scrolled up.
@@ -110,8 +111,15 @@ public:
     // empty. Returns true when `value` changed.
     bool TextField(const std::string& id, const Rect& r, std::string& value, size_t maxLength, std::string_view hint,
                    bool& editing, bool enabled = true);
-    // The big dashed field the player drops discs on, its icon's top at `iconTop`; `dropHover` while a drag is over it.
-    void DropField(const std::string& id, const Rect& r, bool dropHover, float iconTop, bool icon = true);
+    // The big dashed field the player drops discs on, its icon's top at `iconTop`. It looks the same while a drag is
+    // over the window: DropOverlay shows that.
+    void DropField(const Rect& r, float iconTop, bool icon = true);
+    // While a drag is over the window (`on`): the whole window dimmed inside a dashed frame, and a card in its middle
+    // with the drop icon, `heading`, `line` and `note` (empty: left out). It fades in, and goes as soon as `on` is
+    // false. `takes` false: a drop now is turned away, so the frame and card are orange and the icon stays still.
+    // Returns the card, or an empty rect when nothing was drawn.
+    Rect DropOverlay(const std::string& id, const Rect& window, bool on, std::string_view heading,
+                     std::string_view line, std::string_view note, bool takes);
     void DrawBadge(Badge badge, float cx, float cy, float radius, float fraction);
     // A message in a pill at the bottom of the window.
     void Notice(const Rect& window, std::string_view message, Rgba fill);
@@ -128,6 +136,10 @@ public:
     void ScrollBar(const Rect& track, float shown, float total, float offset, Rgba trackColour);
 
 private:
+    // The drop field's icon: a tray, and an arrow dropping into it, `size` square from `top`; `k` 1 is the lime of a
+    // drop taken, and `bounce` how far the arrow bobs.
+    void DropIcon(float cx, float top, float size, float k, float bounce, Rgba ink);
+
     struct SpringState {
         float x = 0, v = 0;
         uint64_t frame = 0;

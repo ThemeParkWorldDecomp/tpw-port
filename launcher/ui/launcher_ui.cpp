@@ -209,13 +209,6 @@ void LauncherUi::PollDialogs() {
 
 // ---- events
 
-int LauncherUi::DropTargetAt(float x, float y) const {
-    if (tilesShown_)
-        for (int i = 0; i < 3; ++i)
-            if (tileRects_[i].Contains(x, y)) return i;
-    return -1;   // anywhere else in the window takes the drop too
-}
-
 void LauncherUi::HandleEvent(const SDL_Event& e) {
     switch (e.type) {
         case SDL_EVENT_MOUSE_MOTION:
@@ -277,14 +270,13 @@ void LauncherUi::HandleEvent(const SDL_Event& e) {
                 else if (screen_ == Screen::Result || screen_ == Screen::Play) screen_ = Screen::Home;
             }
             break;
+        // The whole window takes a drop, wherever the pointer is: no position is kept (DrawDropOverlay).
         case SDL_EVENT_DROP_BEGIN:
             dragging_ = true;
             dropped_.clear();
-            dropTarget_ = -1;
             break;
         case SDL_EVENT_DROP_POSITION:
             dragging_ = true;
-            dropTarget_ = DropTargetAt(e.drop.x, e.drop.y);
             break;
         case SDL_EVENT_DROP_FILE:
             // Some systems send the files with no DROP_BEGIN first (macOS "Open With" and Dock drops).
@@ -296,7 +288,6 @@ void LauncherUi::HandleEvent(const SDL_Event& e) {
             std::vector<std::string> paths;
             paths.swap(dropped_);
             dragging_ = false;
-            dropTarget_ = -2;
             if (!paths.empty()) OfferPaths(paths);
             break;
         }
@@ -764,19 +755,30 @@ void LauncherUi::EditedBadge(int i, const Rect& r) {
         ShowEdited(i);
 }
 
-void LauncherUi::DrawTiles(const Rect& row, bool dropTargets) {
+void LauncherUi::DrawTiles(const Rect& row) {
     float tw = (row.w - 2 * metric::kGap) / 3;
     const float bw = text_.Width(style::kSmallBold, kEditedLabel) + 28;
     for (int i = 0; i < 3; ++i) {
         Rect r{row.x + i * (tw + metric::kGap), row.y, tw, row.h};
         tileRects_[i] = r;
         TileView v = TileFor(i);
-        v.highlight = dropTargets && dragging_ && dropTarget_ == i;
         if (status_[i].edited > 0) v.footer = kEditedBadgeH + 8;
-        ui_.Tile(std::string("tile-") + assets::EditionName(kEditions[i]), r, v);
+        tileDrawn_[i] = ui_.Tile(std::string("tile-") + assets::EditionName(kEditions[i]), r, v);
         EditedBadge(i, {r.x + 16, r.Bottom() - 16 - kEditedBadgeH, std::min(bw, r.w - 32), kEditedBadgeH});
     }
-    tilesShown_ = dropTargets;
+    tilesShown_ = true;
+}
+
+// A drag over the window is one state for all of it, on every screen and over any box: the window dimmed in a dashed
+// frame, and a card that says what letting go does. Nothing under the pointer lights up, because nothing there is the
+// target: the importer sorts every dropped file by its content into the game it belongs to (OfferPaths).
+Rect LauncherUi::DrawDropOverlay(const Rect& w) {
+    if (verify_.valid())   // OfferPaths turns the drop away until the check is done
+        return ui_.DropOverlay("drop-overlay", w, dragging_, "Wait for the check of an edition to finish",
+                               "Files dropped now are not taken", "", false);
+    const char* note = backend_.Running() ? "They are checked as soon as the current check is done."
+                                          : "Each file is checked by its content and added to the game it belongs to.";
+    return ui_.DropOverlay("drop-overlay", w, dragging_, "Drop to add game data", DropKinds(true), note, true);
 }
 
 void LauncherUi::DrawHome(const Rect& w) {
@@ -791,7 +793,6 @@ void LauncherUi::DrawHome(const Rect& w) {
     Rect tiles{m, w.Bottom() - m - TileHeight(), w.w - 2 * m, TileHeight()};
     Rect field{m, top, w.w - 2 * m, tiles.y - metric::kGap - top - 4};
     fieldRect_ = field;
-    bool fieldHover = dragging_ && dropTarget_ == -1;
 
     // The field's content, centred: icon, heading, one line, the two Browse buttons.
     const float iconH = 44, buttonH = 38;
@@ -801,9 +802,9 @@ void LauncherUi::DrawHome(const Rect& w) {
     const bool icon = field.h >= block + 28;
     if (!icon) block -= iconH + 10;
     float cy = field.y + std::max(14.0f, (field.h - block) * 0.5f);
-    ui_.DropField("field", field, fieldHover, cy, icon);
+    ui_.DropField(field, cy, icon);
     if (icon) cy += iconH + 10;
-    const char* heading = fieldHover ? "Let go to check them" : "Drop your game discs, images, zips or folders here";
+    const std::string heading = "Drop your " + DropKinds(false) + " here";
     text_.DrawCentred(style::kHeading, {field.x, cy, field.w, headH},
                       text_.Fit(style::kHeading, heading, field.w - 40, false), colour::kInk);
     cy += headH + 4;
@@ -828,7 +829,7 @@ void LauncherUi::DrawHome(const Rect& w) {
         if (ui_.Button("game-data", gameDataButtonRect_, "Game data", ButtonKind::Quiet)) ShowGameData(true);
     }
 
-    DrawTiles(tiles, true);
+    DrawTiles(tiles);
 
     // A playable edition's own Play, in its tile's header band: there at every window size, where the header's gives way
     // to Mods, Settings and About, and without taking height from the drop field. This home has no Gold Edition switch, so
@@ -844,26 +845,21 @@ void LauncherUi::DrawHome(const Rect& w) {
 }
 
 // The home once every edition is confirmed: no drop field, two large tiles (the US edition, then the European one), each
-// with its Gold Edition switch and its Play button. The whole window still takes a drop; the tiles light up under it as the small
-// ones do, and "Game data" opens the Game data box.
+// with its Gold Edition switch and its Play button. The whole window still takes a drop (DrawDropOverlay), and "Game
+// data" opens the Game data box.
 void LauncherUi::DrawReady(const Rect& w) {
     float top = DrawUpdateBanner(w, DrawHeader(w, true));
     const float m = metric::kMargin;
 
-    // The bottom row, a margin above the window's edge: "Game data" on the left, unless the header has it (DrawHeader);
-    // while a drag is over the window, what letting go does. The row keeps its place either way, so the tiles' Play
-    // buttons stay where the play test clicks them (devtools/playtest.sh).
+    // The bottom row, a margin above the window's edge: "Game data" on the left, unless the header has it (DrawHeader).
+    // The row keeps its place either way, so the tiles' Play buttons stay where the play test clicks them
+    // (devtools/playtest.sh).
     const float rowH = 34;
     Rect row{m, w.Bottom() - m - rowH, w.w - 2 * m, rowH};
     float gw = ui_.ButtonWidth("Game data");
     if (!gameDataInHeader_) {
         gameDataButtonRect_ = {row.x, row.y, gw, rowH};
         if (ui_.Button("game-data", gameDataButtonRect_, "Game data", ButtonKind::Quiet)) ShowGameData(true);
-    }
-    if (dragging_) {
-        float tx = gameDataInHeader_ ? row.x : row.x + gw + 16;
-        text_.Draw(style::kBodyBold, tx, row.y + (rowH - text_.LineHeight(style::kBodyBold)) * 0.5f,
-                   text_.Fit(style::kBodyBold, "Let go to check them", row.Right() - tx, false), colour::kInk);
     }
 
     // The two tiles: US on the left, European on the right (Sim Theme Park is always named first, the maintainer, 2026-10-25).
@@ -872,7 +868,7 @@ void LauncherUi::DrawReady(const Rect& w) {
     static constexpr int kOrder[2] = {0, 1};   // status_ index of the left and the right tile
     static constexpr const char* kGames[2] = {"Sim Theme Park", "Theme Park World"};   // by status_ index
     const float pad = 16, playH = 52, pillH = 34;
-    tileRects_[2] = Rect{};
+    tileRects_[2] = tileDrawn_[2] = Rect{};
     for (int k = 0; k < 2; ++k) {
         int i = kOrder[k];
         Rect r{area.x + k * (tw + metric::kGap), area.y, tw, area.h};
@@ -888,8 +884,7 @@ void LauncherUi::DrawReady(const Rect& w) {
         v.accent = kAccents[i];
         v.badge = Badge::Check;
         v.fraction = 1;
-        v.highlight = dragging_ && dropTarget_ == i;
-        ui_.Tile(std::string("ready-") + assets::EditionName(kEditions[i]), r, v);
+        tileDrawn_[i] = ui_.Tile(std::string("ready-") + assets::EditionName(kEditions[i]), r, v);
 
         // Inside, at the bottom: the Gold Edition switch (this home shows only once the Gold bonus rides are confirmed
         // too; off plays the plain edition), then the Play button. The switch is the Play screen's card's: one state an
@@ -1018,7 +1013,7 @@ void LauncherUi::DrawResult(const Rect& w) {
     if (ui_.Button("result-more", {x, by2, dw, buttonH}, "Drop more discs", ButtonKind::Plain))
         screen_ = Screen::Home;
 
-    DrawTiles(tiles, true);
+    DrawTiles(tiles);
 }
 
 void LauncherUi::DrawPlay(const Rect& w) {
@@ -2209,7 +2204,7 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
         case Screen::Starting: DrawStarting(window); break;
     }
     if (overlay) {
-        tilesShown_ = false;   // drops on an open box go to the field
+        tilesShown_ = false;   // under the box
         readyShown_ = false;
         ui_.SetInteractive(!dragging_);
         if (settingsOpen_) DrawSettings(window);
@@ -2218,6 +2213,7 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
         if (aboutOpen_) DrawAbout(window);
         if (editedOpen_ >= 0) DrawEdited(window);
     }
+    dropOverlay_ = DrawDropOverlay(window);
     if (!settingsOpen_) onlineServerEditing_ = false;
     if (onlineServerEditing_ != wasEditing && window_ != nullptr) {   // the system sends typed text only while it is on
         if (onlineServerEditing_) SDL_StartTextInput(window_);
