@@ -20,6 +20,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <vector>
 
 // gameplay_leaves.cpp (main, unit v5L07): small leaves a park run reaches, from different Mac files: CellIsRide 0x1006d718
 // (the inventory's Debug.cpp range), LocatorByeByeKid 0x101bf98c (ui_staffPanel.cpp), CObject::IsCoaster 0x10110cd8 (Object.cpp) and CAdvisor::FinalDestroy 0x1000a0ec (Advisor.cpp).
@@ -671,6 +672,35 @@ void StoreNodeList(tag_sNode* node, int32_t count, const uint16_t* list) {
     if (data != nullptr && count != 0) std::memcpy(data, list, static_cast<size_t>(count) * 2);
 }
 
+// TPW_PORT_FIX mods BlendPs1Ground | Mac: no such function | Port: TPW_MOD_HOOK ps1_ground, CalcSkirtTextureDirnFlags forced (0x800 on every face set of the top node), then each face set that no cell of the footprint took as its ground face gets its 0x800 back as before the call | Why: tpw-mods ps1-rides, the ride's see-through parts (leaves, railings) stay see-through
+// The ps1_ground hook's blend (CalculateSkirtVertices): the forced CalcSkirtTextureDirnFlags puts 0x800 (plain blending) on the
+// texture record of every face set of the mesh's top node, which on a PlayStation ride also holds its still parts, whose
+// see-through textures (leaves, railings) would then draw solid. So a face set that no cell of the footprint took as its ground
+// face gets its 0x800 back as it was before the call; a record shared with a ground face set keeps it.
+void BlendPs1Ground(tag_sRideAnimSet* set, RideShape* shape, int32_t width, int32_t height) {
+    tag_sMesh* mesh = set->mHeads;
+    tag_sNode* node = mesh->mRootNode != nullptr ? mesh->mRootNode : mesh->mHeader->mF78.get();
+    sFaceSet* sets = node->mFaceSets.get();
+    const uint32_t count = node->mFaceSetCount;
+    std::vector<uint16_t> before(count);
+    for (uint32_t n = 0; n < count; ++n) before[n] = static_cast<uint16_t>(sets[n].mTexture.get()->mF00 & 0x800);
+    CalcSkirtTextureDirnFlags(set, shape, width, height, 1);
+    std::vector<bool> ground(count, false);
+    for (int32_t row = 0; row < height; ++row) {
+        for (int32_t col = 0; col < width; ++col) {
+            int32_t taken = gSkirtCells[row][col].mFaceSet;
+            if (taken >= 0 && static_cast<uint32_t>(taken) < count) ground[static_cast<uint32_t>(taken)] = true;
+        }
+    }
+    for (uint32_t n = 0; n < count; ++n) {
+        sTexture* texture = sets[n].mTexture.get();
+        if (!ground[n]) texture->mF00 = static_cast<uint16_t>((texture->mF00 & 0xf7ff) | before[n]);
+    }
+    for (uint32_t n = 0; n < count; ++n) {
+        if (ground[n]) sets[n].mTexture.get()->mF00 = static_cast<uint16_t>(sets[n].mTexture.get()->mF00 | 0x800);
+    }
+}
+
 }  // namespace
 
 // The third argument is the ride's shape (null: no edges are decided), 4th and 5th its size. Unused local at 0x2d8 (a copy of
@@ -733,6 +763,9 @@ void CalculateSkirtVertices(tag_sRideAnimSet* set, tag_sM3D2Header* header, void
         if ((flags & 8) == 0) {
             ERRORBox("Ride %s has not been exported with 'has procedural base' selected\nFull reexport recommended\n",
                      mesh->mHeader->mName);
+        // TPW_PORT_FIX mods CalculateSkirtVertices | Mac: a base is blended only with a deform root node or header flag 0x80 (every cell), and only the edge cells of the ride shape's hoarding-like cells otherwise (LLCC_GetRideBlendInfo) | Port: TPW_MOD_HOOK ps1_ground (gModPs1Ground, include/ThingReceivers.h), a header with flag 0x40000000, which only the PlayStation rides' converter writes, has every cell blended too, from its deform node (the top node, which holds the ground, whose edge is the skirt), without 0x80's other effects (no deform edges, flat height lookups), and only the ground's face sets keep the plain blending that marks (BlendPs1Ground); off or without the flag, the Mac's | Why: tpw-mods ps1-rides: each cell of the ride's own ground gets its texture laid over the park's ground under it (GetBlendedBaseTextures), so the park's grass shows where the disc's grass was keyed out
+        } else if (gModPs1Ground && (flags & kHeaderPs1Ground) != 0) {
+            BlendPs1Ground(set, static_cast<RideShape*>(a), w, h);
         } else if (mesh->mRootNode != nullptr || (flags & 0x80) != 0) {
             CalcSkirtTextureDirnFlags(set, static_cast<RideShape*>(a), w, h, static_cast<int32_t>(flags & 0x80));
         }

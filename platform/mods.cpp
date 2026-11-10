@@ -11,6 +11,7 @@ void Apply(const Hooks& hooks) {
     gModStrikeMessages = hooks.strikeMessages;
     gModStaffBridgeWander = hooks.staffBridgeWander;
     gModPs1Badge = hooks.ps1Badge;
+    gModPs1Ground = hooks.ps1Ground;
 }
 
 }  // namespace tpw::mods
