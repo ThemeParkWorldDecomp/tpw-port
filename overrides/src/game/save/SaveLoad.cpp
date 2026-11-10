@@ -31,7 +31,9 @@
 #include "platform/msl.h"
 #include "platform/samsutils.h"
 #include "ppc_math.h"
+#include "Ps1SaveRepair.h"
 #include "Ptr32.h"
+#include "RideBadges.h"
 #include "RideDB.h"
 #include "rsse.h"
 #include "SaveLegalText.inc"
@@ -55,6 +57,7 @@
 #include "UIInterface.h"
 #include "VanillaTime.h"
 #include "World.h"
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -634,6 +637,154 @@ void MoveFinishedResearchOn() {
 }
 }  // namespace
 
+namespace {
+// TPW_PORT_FIX mods RepairPs1Rides | Mac: no such pass | Port: TPW_MOD_HOOK ps1_save_repair: moves the doors of the ps1-rides mod's rides whose saved entry and exit cells are not their record's | Why: see CSaveLoad::PostLoadOperations, below
+// The map's cells as include/Ps1SaveRepair.h's grid: the world's map cells by their 1 based id, changed as the cell
+// system changes them, with no cost, no cell system state and no ride deleted (CMapCell::Modify's 0x87 and ModifyType
+// are not used); each cell whose type changes gets a new time stamp, as CalculateNeighbours gives a queue cell that
+// becomes a path. Each cell it changes is kept in mTouched, for Redraw.
+struct Ps1RepairGrid {
+    using MapId = tag_IDX_TYPE<IDXTYPEUniqueNameMapId, uint16_t>;
+    std::vector<uint16_t> mTouched;
+    static CMapCell* Cell(uint16_t id) { return &gGameWorld->mMapCells[id - 1]; }
+    static void Stamp(uint16_t id) {
+        CMap* map = gGameWorld->GetMap();
+        MapId cell;
+        cell.mIndex = id;
+        map->SetTimeStamp(map->MakeNewTimeStamp(), cell);
+    }
+    void Touch(uint16_t id) {
+        if (std::find(mTouched.begin(), mTouched.end(), id) == mTouched.end()) mTouched.push_back(id);
+    }
+    void SetType(uint16_t id, int32_t type) {
+        Touch(id);
+        CMapCell* cell = Cell(id);
+        if (static_cast<int32_t>(cell->mType) == type) return;
+        cell->mType = static_cast<CELL_MODES>(type);
+        Stamp(id);
+    }
+
+    uint16_t Step(uint16_t id, uint8_t dir) const {
+        int32_t x = static_cast<int32_t>((id - 1u) & 0x7f), y = static_cast<int32_t>((id - 1u) >> 7);
+        if ((dir & (1 | 2 | 0x80)) != 0) --y;
+        if ((dir & (0x10 | 8 | 0x20)) != 0) ++y;
+        if ((dir & (4 | 2 | 8)) != 0) ++x;
+        if ((dir & (0x40 | 0x20 | 0x80)) != 0) --x;
+        if (CMap::IsXYValid(x, y) == 0) return 0;
+        return static_cast<uint16_t>(x + (y << 7) + 1);
+    }
+    int32_t Type(uint16_t id) const { return static_cast<int32_t>(Cell(id)->mType); }
+    uint8_t Links(uint16_t id) const { return Cell(id)->GetNeighbours(); }
+    uint8_t Direction(uint16_t id) const { return Cell(id)->GetDirection(); }
+    uint16_t Parent(uint16_t id) const { return Cell(id)->mParentID; }
+    bool Plain(uint16_t id) const { return Cell(id)->GetTrackCellEquiv()->IsTrack() == 0; }
+    bool Free(uint16_t id) const {
+        const CMapCell* cell = Cell(id);
+        return static_cast<int32_t>(cell->mType) == ps1repair::kGrass && cell->mParentID == 0 && (cell->mFlags & 0x160) == 0 &&
+               Plain(id);
+    }
+    void SetDoor(uint16_t id, int32_t type, uint8_t out) {
+        SetType(id, type);
+        Cell(id)->RemoveNeighbour(0xff);
+        Cell(id)->ModifyDirection(out);
+    }
+    void SetBody(uint16_t id) {
+        SetType(id, ps1repair::kRide);
+        Cell(id)->RemoveNeighbour(0xff);
+        Cell(id)->ModifyDirection(0);
+    }
+    void Unlink(uint16_t id, uint8_t mask) {
+        Touch(id);
+        Cell(id)->RemoveNeighbour(mask);
+    }
+    void Link(uint16_t id, uint8_t mask) {
+        Touch(id);
+        Cell(id)->ModifyNeighbours(mask);
+    }
+    // A queue cell as LLCR_PlaceRideBlock makes the one in front of a ride's entrance.
+    void SetQueue(uint16_t id, uint8_t dir, uint16_t parent, bool front) {
+        CMapCell* cell = Cell(id);
+        SetType(id, ps1repair::kQueue);
+        cell->RemoveNeighbour(0xff);
+        cell->ModifyDirection(dir);
+        MapId owner;
+        owner.mIndex = parent;
+        cell->ModifyParentID(owner);
+        if (front) cell->SetFlag(0x20);
+    }
+    // A path as JoinQueueCell (src/game/park/LLCellRide.cpp) makes one: joined by CalculateNeighbours of mode 1, and its
+    // path neighbours recalculated.
+    void MakePath(uint16_t id) {
+        CMapCell* cell = Cell(id);
+        SetType(id, ps1repair::kPath);
+        MapId none;
+        none.mIndex = 0;
+        cell->ModifyParentID(none);
+        cell->CalculateNeighbours(static_cast<CELL_MODES>(1), 0, 0, true);
+        for (uint8_t dir : ps1repair::kStraight) {
+            if ((cell->GetNeighbours() & dir) == 0) continue;
+            const uint16_t next = Step(id, dir);
+            if (next == 0 || Type(next) != ps1repair::kPath) continue;
+            Touch(next);
+            Cell(next)->CalculateNeighbours(static_cast<CELL_MODES>(1), 0, 0, true);
+        }
+    }
+    void SetEdgeFlag(uint16_t id, bool on) {
+        if (on) Cell(id)->SetFlag(0x20);
+        else Cell(id)->UnSetFlag(0x20);
+    }
+    // Each changed cell drawn again as the cell system draws a cell it changes (CMapCell::SetHFieldTile): its tile data
+    // from its new type and links, its queue mesh (if any) destroyed, and a new one made if it is now a queue cell.
+    void Redraw() {
+        for (uint16_t id : mTouched) Cell(id)->SetHFieldTile();
+        mTouched.clear();
+    }
+};
+
+// Each ride of the mod that switched the hook on (gPs1SaveRepairRides) with a queue, whose saved entry and exit cells are
+// not the ones its record gives at its place and rotation, has its doors moved (RepairPs1RideDoors), and its queue counted
+// again (RecalculateBackOfQueue, which also has the visitors in it look at the queue again, as after the player edits it).
+void RepairPs1Rides() {
+    if (!gModPs1SaveRepair || gPs1SaveRepairRides.empty()) return;
+    Ps1RepairGrid grid;
+    for (CThingArrayEntry* entry = gUsedThingHead; entry != nullptr; entry = entry->mNextUsed) {
+        CThing* thing = static_cast<CThing*>(entry->mThing);
+        if (thing == nullptr || thing->mDead != 0 || thing->mKind != 3) continue;
+        CObject* object = reinterpret_cast<CObject*>(thing);
+        if ((object->mFlags & 8) == 0) continue;
+        const RideInfo* info = object->GetDBInfo();
+        if (info == nullptr) continue;
+        const std::string key = RideBadgeKey(info->mFolder);
+        bool mine = false;
+        for (const std::string& ride : gPs1SaveRepairRides) mine = mine || ride == key;
+        if (!mine) continue;
+        ps1repair::Doors want;
+        if (!ps1repair::DoorsFor(object->mF30, object->mRotation, info->mEntryX, info->mEntryY, info->mEntryFlag, info->mExitX,
+                                 info->mExitY, info->mExitFlag, &want))
+            continue;
+        if (object->mF32 == want.entrance.cell && object->mF34 == want.exit.cell) continue;
+        if (object->mF32 == 0 || object->mF34 == 0) continue;
+        const uint16_t parent = grid.Parent(object->mF32);
+        const ps1repair::Result result = ps1repair::RepairPs1RideDoors(grid, parent, object->mF32, object->mF34, want);
+        if (result.outcome != ps1repair::Outcome::kRepaired) {
+            grid.Redraw();
+            std::fprintf(stderr, "port: ps1-rides: %s at rotation %d keeps its doors (not a ride the repair knows)\n", key.c_str(),
+                         static_cast<int>(object->mRotation));
+            continue;
+        }
+        grid.Redraw();
+        object->mF32 = want.entrance.cell;
+        object->mF34 = want.exit.cell;
+        object->RecalculateBackOfQueue();
+        std::fprintf(stderr,
+                     "port: ps1-rides: %s at rotation %d: doors moved, %d queue cells now paths, %d cells laid, queue %s, exit %s\n",
+                     key.c_str(), static_cast<int>(object->mRotation), static_cast<int>(result.oldQueueCells),
+                     static_cast<int>(result.laidCells), result.queueJoined ? "joined" : "to be built",
+                     result.exitJoined ? "joined" : "to be built");
+    }
+}
+}  // namespace
+
 // Rebuilds what the engine holds after a park is read. The particle system is low spec when the current detail is 0.
 void CSaveLoad::PostLoadOperations() {
     InitialiseWeather();
@@ -641,6 +792,8 @@ void CSaveLoad::PostLoadOperations() {
     FLY_RestoreMeshes();
     gGameWorld->RestoreEngineObjects();
     gGameWorld->GetMap()->UpdateMapInEngine();
+    // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a ride's doors are where its record put them) | Port: TPW_MOD_HOOK ps1_save_repair: each ride of the ps1-rides mod whose saved doors are not its record's has them moved (RepairPs1Rides, include/Ps1SaveRepair.h), once the map's tiles and queue meshes are back in the engine, and the cells it changes drawn again | Why: tpw-mods ps1-rides 0.4.1 turns its rides half a turn and gives the entrance and the exit their right roles, so parks saved with 0.4.0 keep queues and exit paths on cells that are no longer the doors; off (the default), a park loads as it was saved
+    RepairPs1Rides();
     gGameWorld->GetControlManager()->CheckAllControlsInitialised();
     RecalculateParkDarkening();
     gRestartParkClocks = 1;

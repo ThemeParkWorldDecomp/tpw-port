@@ -453,6 +453,14 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     target_include_directories(tpw_host_wasd_camera PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
     add_test(NAME wasd_camera COMMAND tpw_host_wasd_camera)
   endif()
+  # The ps1-rides mod's repair of parks saved with its 0.4.0 rides (TPW_MOD_HOOK ps1_save_repair, include/Ps1SaveRepair.h)
+  # on a stand-in for the map's cells: each way a door moved, a door with nothing to join, and a second run that changes
+  # nothing. The original has no such repair, so it is made only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_ps1_save_repair ${TPW_DECOMP_DIR}/tests/host_ps1_save_repair.cpp)
+    target_include_directories(tpw_host_ps1_save_repair PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME ps1_save_repair COMMAND tpw_host_ps1_save_repair)
+  endif()
   # A park file's packed block cut short or damaged, unpacked with the block's length (the port's fixes parkload and
   # truncsave): no read past the block, and only a whole block unpacks. The program builds the packing and that unpacking of
   # src/bullfrog/LbZLib.cpp, with the host's zlib; the original has no such call, so it is made only with the port's fixes.

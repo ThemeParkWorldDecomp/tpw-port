@@ -11,6 +11,7 @@
 - Fixed a crash when a park is rebuilt from its building record and the record has a ride this game does not have, for example a park built in a full game loaded into an easy park
 - Dragging files over the launcher no longer makes a game's tile grow as if the files went into that game. The whole window now shows one drop area that says what it takes, since every file is checked by its content and added to the game it belongs to
 - The PlayStation rides now stand on their own ground from the disc, such as Diplo-Dip's pool and its sandy shore, instead of plain grass and path. The disc's grass lets the park's own ground show through, its grass, dirt patches and wear, under the ride's water, shore and rocks (with Ground blending on, as the PC rides' own bases are), so the ride's square no longer stands out. They are no longer the mirror image of the PlayStation's (Aztec Bounce and Diplo-Dip faced the wrong way), and every ride's entrance and exit are where the PlayStation has them (they were the other way round, and Diplo-Dip's exit was on the far side). Drop your PlayStation disc on the launcher again to update rides you have already imported
+- Parks saved with 0.4.0 that have PlayStation rides now load with each of those rides' queue and exit path joined again to its entrance and exit, which 0.4.1 moves to where the PlayStation has them. Drop your PlayStation disc on the launcher again first, so the rides are converted again
 
 ## 0.4.0 (2026-11-09)
 
