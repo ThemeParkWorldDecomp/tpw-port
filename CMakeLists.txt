@@ -810,9 +810,13 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
       set_property(TARGET tpw_launcher APPEND PROPERTY LINK_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/Info.plist)
     endif()
   endif()
-  # The About box's versions (launcher/ui/versions.cpp) come from the libraries' own headers: libjpeg's and FFmpeg's
-  # (headers only; the game's platform layer links them), and the stb headers' first lines, which carry their versions.
+  # The About box's versions (launcher/ui/versions.cpp) come from the libraries' own headers: libjpeg's, libarchive's,
+  # liblzma's and FFmpeg's (headers only; the game's platform layer and tpw_assets link them), and the stb headers' first
+  # lines, which carry their versions.
   target_include_directories(tpw_launcher_ui PRIVATE $<TARGET_PROPERTY:tpw_libjpeg,INTERFACE_INCLUDE_DIRECTORIES>)
+  target_include_directories(tpw_launcher_ui SYSTEM PRIVATE $<TARGET_PROPERTY:tpw_archive,INTERFACE_INCLUDE_DIRECTORIES>
+                             $<TARGET_PROPERTY:tpw_lzma,INTERFACE_INCLUDE_DIRECTORIES>)
+  target_compile_definitions(tpw_launcher_ui PRIVATE LIBARCHIVE_STATIC LZMA_API_STATIC)
   if(TPW_MOVIES)
     target_include_directories(tpw_launcher_ui SYSTEM PRIVATE $<TARGET_PROPERTY:tpw_ffmpeg,INTERFACE_INCLUDE_DIRECTORIES>)
     target_compile_definitions(tpw_launcher_ui PRIVATE TPW_HAVE_FFMPEG=1)
@@ -830,6 +834,9 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   # written as PNG files for a look by eye: to TPW_UI_SCREENS_DIR, or to ui-screens/ in the build folder.
   add_executable(tpw_launcher_ui_tests launcher/ui/tests/host_ui_screens.cpp)
   target_link_libraries(tpw_launcher_ui_tests PRIVATE tpw_launcher_ui)
+  target_include_directories(tpw_launcher_ui_tests SYSTEM PRIVATE $<TARGET_PROPERTY:tpw_archive,INTERFACE_INCLUDE_DIRECTORIES>
+                             $<TARGET_PROPERTY:tpw_lzma,INTERFACE_INCLUDE_DIRECTORIES>)
+  target_compile_definitions(tpw_launcher_ui_tests PRIVATE LIBARCHIVE_STATIC LZMA_API_STATIC)
   if(TPW_MOVIES)
     target_compile_definitions(tpw_launcher_ui_tests PRIVATE TPW_TEST_FFMPEG=1)
   endif()

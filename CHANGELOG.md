@@ -2,6 +2,10 @@
 
 ## 0.4.1 (not released yet)
 
+### New Features
+
+- The launcher now opens .7z and .rar archives, as it opens zips: drop a downloaded 7-Zip or RAR archive of your disc (a RAR in several parts too) and it is checked like the files in it. A password-protected or damaged archive gets a message saying so
+
 ## 0.4.0 (2026-11-09)
 
 ### New Features
