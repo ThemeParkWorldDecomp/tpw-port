@@ -19,8 +19,8 @@ permissions:
 
 env:
   RUNS: 12
-  TESTS: wasd_keys importer
-  ONCE: wasd_camera
+  TESTS: importer
+  ONCE: ""
 
 jobs:
   unix:
