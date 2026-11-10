@@ -452,6 +452,12 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     add_executable(tpw_host_wasd_camera ${TPW_DECOMP_DIR}/tests/host_wasd_camera.cpp)
     target_include_directories(tpw_host_wasd_camera PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
     add_test(NAME wasd_camera COMMAND tpw_host_wasd_camera)
+    # The same through the real run loop (platform/gamework.cpp, the port's fix wasd-stuck): a held A with another key
+    # pressed and let go before it, as --hold and the host's key events send them, leaves no camera key down.
+    add_executable(tpw_host_wasd_keys ${TPW_DECOMP_DIR}/tests/host_wasd_keys.cpp)
+    target_include_directories(tpw_host_wasd_keys PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    target_link_libraries(tpw_host_wasd_keys PRIVATE tpw_platform)
+    add_test(NAME wasd_keys COMMAND tpw_host_wasd_keys)
   endif()
   # The ps1-rides mod's repair of parks saved with its 0.4.0 rides (TPW_MOD_HOOK ps1_save_repair, include/Ps1SaveRepair.h)
   # on a stand-in for the map's cells: each way a door moved, a door with nothing to join, and a second run that changes

@@ -1424,6 +1424,8 @@ int32_t Engine_GameWinMsg(InterfaceWindow* window, int32_t message, int32_t a, i
         gGameWinPointerIn = 0;
     } else if (message == kMsgDestroyed) {
         gGameWindow = nullptr;
+        // TPW_PORT_FIX wasd-stuck Engine_GameWinMsg | Mac: the camera table keeps its keys' state when the park's window goes (to the lobby) | Port: with the launcher's "W A S D move the camera" on, the camera keys the four still hold are let go (PortWasdLetGoAll) | Why: a camera key left held kept the next park's camera scrolling (reported by the maintainer)
+        PortWasdLetGoAll();
     } else if (message == kMsgButtonDown) {
         CKeyTable* camera = gKeyTableCamera;
         camera->KeyDown(CameraKey(a), CheckShifts());

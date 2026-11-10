@@ -36,6 +36,21 @@ int32_t gFrames = 0;
 // With the launcher's "Several keys at once" (tpw::gPortSeveralKeys): the keys that went down before the remembered one
 // (gKey) and are still down, each with the modifiers it went down with.
 std::vector<KeyState> gHeldKeys;
+
+// TPW_PORT_FIX wasd-stuck UGamework::Run | Mac: 0x100054c4 tests the remembered key's key code, so a held A (key code 0) is not released before the next key goes down, and that key's key-up then leaves nothing remembered for A's own key-up to release: in the game A stayed down | Port: with the launcher's "W A S D move the camera" on (gPortReleaseKeyA, gPortStrayKeyUp), A is released before the next key as every other key is, and a key-up that releases no key of its own is passed to the game, which lets go of what that key still holds; off, the Mac's | Why: with A held, any other key going down (W, S, D, Escape) left the camera scrolling left for good after A was let go, even through a trip to the lobby (reported by the maintainer)
+// Whether a key is remembered that a key going down releases first.
+bool KeyStillDown() {
+    return gKey.keyCode != 0 || (tpw::gPortReleaseKeyA && gKey.character != 0);
+}
+// Whether this key-up releases the remembered key as its own key.
+bool OwnKeyUp(int32_t scancode) {
+    return gKey.scancode == scancode && (gKey.character != 0 || gKey.keyCode != 0);
+}
+void StrayKeyUp(int32_t scancode) {
+    if (tpw::gPortStrayKeyUp == nullptr) return;
+    const uint8_t macKey = tpw::MacKeyCodeFromScancode(scancode);
+    if (macKey != 0xff) tpw::gPortStrayKeyUp(macKey);
+}
 #endif
 
 // The autoKey events the Mac's Event Manager sent while the key that went down last stayed down: the first after the
@@ -291,7 +306,11 @@ void UGamework::Run() {
 #endif
                 // 0x100054c4: a key still down is released first (the Mac reported one key
                 // at a time), with a Process pass in between.
+#ifdef TPW_PORT_FIX
+                if (KeyStillDown()) {   // wasd-stuck
+#else
                 if (gKey.keyCode != 0) {
+#endif
                     releaseKey();
                     if (!Process()) {
                         mRunning = false;
@@ -308,9 +327,10 @@ void UGamework::Run() {
                 if (sdl.key.scancode == gAutoKey.scancode) gAutoKey = AutoKey();
 #ifdef TPW_PORT_FIX
                 if (tpw::gPortSeveralKeys) {   // severalkeys: only the key that came up
-                    releaseHeldKey(static_cast<int32_t>(sdl.key.scancode));
+                    if (!releaseHeldKey(static_cast<int32_t>(sdl.key.scancode))) StrayKeyUp(sdl.key.scancode);   // wasd-stuck
                     break;
                 }
+                if (!OwnKeyUp(sdl.key.scancode)) StrayKeyUp(sdl.key.scancode);   // wasd-stuck
 #endif
                 if (gKey.character != 0 || gKey.keyCode != 0) releaseKey();
                 break;
@@ -395,16 +415,19 @@ void UGamework::Run() {
                 gAutoKey = AutoKey();
 #ifdef TPW_PORT_FIX
                 if (tpw::gPortSeveralKeys) keepKeys(key.scancode);   // severalkeys
-#endif
+                if (KeyStillDown()) releaseKey();   // wasd-stuck
+#else
                 if (gKey.keyCode != 0) releaseKey();
+#endif
                 if (pressKey(sdlKey)) gAutoKey = StartAutoKey(sdlKey.scancode, true);
             } else {
                 if (sdlKey.scancode == gAutoKey.scancode) gAutoKey = AutoKey();
 #ifdef TPW_PORT_FIX
                 if (tpw::gPortSeveralKeys) {   // severalkeys: only the key that came up
-                    releaseHeldKey(key.scancode);
+                    if (!releaseHeldKey(key.scancode)) StrayKeyUp(key.scancode);   // wasd-stuck
                     continue;
                 }
+                if (!OwnKeyUp(key.scancode)) StrayKeyUp(key.scancode);   // wasd-stuck
 #endif
                 if (gKey.character != 0 || gKey.keyCode != 0) releaseKey();
             }

@@ -303,6 +303,8 @@ void ThemeParkWorld::HandleActivateWindow(GrafPort* window, bool active) {   // 
         UI_Activate();
         if (gLobby != nullptr) SOUND_UnPause();
     } else {
+        // TPW_PORT_FIX wasd-stuck ThemeParkWorld::HandleActivateWindow | Mac: the camera keys keep their state when the game loses the focus | Port: with the launcher's "W A S D move the camera" on, the camera keys the four still hold are let go (PortWasdLetGoAll) | Why: a key let go while another window had the focus sent the game no key-up, and the camera kept moving
+        PortWasdLetGoAll();
         gTPWFlags &= ~8u;
         MOVIE_Stop();
         UI_DeActivate();
