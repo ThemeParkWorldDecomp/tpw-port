@@ -25,6 +25,7 @@
 #include "TbTList.h"
 #include "ThingReceivers.h"
 #include "TPCoaster.h"
+#include "TPEngine.h"
 #include "TPSound.h"
 #include "TPString.h"
 #include "UI_Base.h"
@@ -650,8 +651,14 @@ void CActionRecorder::EndReplay() {
     gGameWorld->GetBankAccount()->mWithdrawalsEnabled = 1;
     CTRACE(0x499602d2, "[[[[ Finished layout replay ]]]]\n");
 }
+namespace {
+// TPW_PORT_FIX replayride gPortReplayRideMissing | Mac: no such state | Port: set while the ride the replay last selected (action 5) is a type the ride database does not have, which the replay neither selects nor places | Why: an easy park's database has only the ride types with an easy file, and a park recorded in a full game replayed into one crashed the game (0.4.0, coaster040)
+bool gPortReplayRideMissing = false;
+}  // namespace
 void CActionRecorder::ReplayRecording(ReplayType type) {
     if (mRecording != 0) return;
+    // TPW_PORT_FIX replayride CActionRecorder::ReplayRecording | Mac: no such state | Port: a replay starts with no missing ride | Why: the ride a replay last selected is no ride of the next replay
+    gPortReplayRideMissing = false;
     mReplayType = type;
     mRecording = 1;
     gGameWorld->GetBankAccount()->mWithdrawalsEnabled = 0;
@@ -853,6 +860,8 @@ void CActionRecorder::ProcessAction(int32_t action) {
 // 0x10145d34
 void CActionRecorder::ProcessAction(int32_t action, uint8_t a, uint8_t b, uint16_t c) {
     CTRACE(2, "AR replay - %d (%d, %d, %d)\n", action, a, b, c);
+    // TPW_PORT_FIX replayride CActionRecorder::ProcessAction | Mac: the click (with a modifier) is played in every mode | Port: in the ride modes (4, a ride placed; 0x3b, a ride moved) it is not played while the selected ride is missing (its selection was skipped) | Why: the click would place the ride selected before the missing one
+    if ((action == 0x2d || action == 0x28) && gPortReplayRideMissing && (LLCC_SystemIsMode(4) != 0 || LLCC_SystemIsMode(0x3b) != 0)) return;
     if (action == 0x2d) LLCM_LeftMouseButtonUp(a, b, c, 0);
     else if (action == 0x28) LLCM_LeftMouseButtonDown(a, b, c, 0);
     else CTRACE(2, AR_ERR);
@@ -861,6 +870,8 @@ void CActionRecorder::ProcessAction(int32_t action, uint8_t a, uint8_t b, uint16
 // 0x10145c24
 void CActionRecorder::ProcessAction(int32_t action, uint8_t a, uint8_t b) {
     CTRACE(2, "AR replay - %d (%d, %d)\n", action, a, b);
+    // TPW_PORT_FIX replayride CActionRecorder::ProcessAction | Mac: the click is played in every mode | Port: in the ride modes (4, a ride placed; 0x3b, a ride moved) it is not played while the selected ride is missing (its selection was skipped) | Why: the click would place the ride selected before the missing one
+    if ((action == 0x14 || action == 0xf) && gPortReplayRideMissing && (LLCC_SystemIsMode(4) != 0 || LLCC_SystemIsMode(0x3b) != 0)) return;
     if (action == 0x14) LLCM_LeftMouseButtonUp(a, b, 0, 0);
     else if (action == 0xf) LLCM_LeftMouseButtonDown(a, b, 0, 0);
     else CTRACE(2, AR_ERR);
@@ -872,6 +883,12 @@ void CActionRecorder::ProcessAction(int32_t action, uint16_t a, uint8_t b) {
     if (action == 5) {
         tag_IDX_TYPE<IDXTYPEUniqueNameObjectId, uint16_t> id;
         id.mIndex = a;
+        // TPW_PORT_FIX replayride CActionRecorder::ProcessAction | Mac: selects the ride whatever its type: CWorld::FlagItemAsSelected reads the record GetRideInfo gives, NULL for a type the ride database does not have (a read of low memory on the Mac) | Port: a type the database does not have is not selected, and the clicks that would place it are not played (the click overloads) until the next ride the database has | Why: an easy park's database has only the ride types with an easy file (CRideDatabase::ScanDirectory), so a park recorded in a full game and replayed into an easy park (Ctrl+F9, quickload_layout) faulted at address 0x128 in FlagItemAsSelected (0.4.0, coaster040); a damaged or crafted online park could do the same
+        gPortReplayRideMissing = gRideDatabase.GetRideInfo(id) == nullptr;
+        if (gPortReplayRideMissing) {
+            CTRACE(2, AR_ERR);
+            return;
+        }
         LLCC_SystemSetRide(id, b);
     } else {
         CTRACE(2, AR_ERR);
