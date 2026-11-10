@@ -1,0 +1,161 @@
+# Temporary test branch only (never main): the playtest round's new and changed things, alone, on every runner kind
+# build.yml uses. wasd_keys (new) and importer (its TestPs1Grass changed and TestPs1PlainGround new; the disc's
+# TestPs1Cameras is skipped here, no disc) each run alone RUNS times in a row, stopping at a test's first failure;
+# wasd_camera (unchanged, its header changed) runs alone once. Then the same tree is built with the port's fixes OFF
+# (the far zoom's tb_hfield.cpp and the run loop's changes, in the Mac's behaviour). Every run's output is kept.
+name: targeted
+
+on:
+  push:
+    branches: [ci-041-fixes]
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'unix or windows; empty for both'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  RUNS: 12
+  TESTS: wasd_keys importer
+  ONCE: wasd_camera
+
+jobs:
+  unix:
+    if: github.event_name == 'push' || inputs.only == '' || inputs.only == 'unix'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: The build's packages (Linux, as build.yml)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build python3 git \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxkbcommon-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
+            libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev libudev-dev libibus-1.0-dev \
+            xvfb mesa-vulkan-drivers libvulkan1 glslang-tools libclang-18-dev
+      - name: Build, fixes ON (Linux, as build.yml)
+        if: runner.os == 'Linux'
+        run: |
+          cmake -S . -B build -G Ninja
+          cmake --build build
+      - name: Build, fixes ON (Mac, as build.yml)
+        if: runner.os == 'macOS'
+        run: |
+          make
+          cmake --build build
+      - name: Each test alone
+        env:
+          SDL_AUDIO_DRIVER: dummy
+        run: |
+          mkdir -p repeat-logs
+          run() { if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 1280x800x24" "$@"; else "$@"; fi; }
+          bad=0
+          echo "| test | passed |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          for t in $TESTS $ONCE; do
+            n=$RUNS; case " $ONCE " in *" $t "*) n=1 ;; esac
+            pass=0
+            for i in $(seq 1 "$n"); do
+              if run ctest --test-dir build -R "^$t\$" --output-on-failure > "repeat-logs/$t-$i.log" 2>&1 \
+                 && grep -Eq '100% tests passed(, 0 tests failed)? out of 1' "repeat-logs/$t-$i.log"; then
+                pass=$((pass + 1))
+              else
+                bad=1; echo "::error::$t run $i failed"; tail -n 60 "repeat-logs/$t-$i.log"; break
+              fi
+            done
+            echo "$t: $pass of $n passed"
+            echo "| $t | $pass of $n |" >> "$GITHUB_STEP_SUMMARY"
+          done
+          exit $bad
+      - name: Build, fixes OFF (the launcher and everything it links)
+        if: always()
+        run: |
+          gen=""; [ "$RUNNER_OS" = Linux ] && gen="-G Ninja"
+          cmake -S . -B build-off $gen -DTPW_PORT_FIX=OFF
+          cmake --build build-off --target tpw_launcher --parallel 4
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: repeat-logs-${{ matrix.os }}
+          path: repeat-logs
+
+  windows:
+    if: github.event_name == 'push' || inputs.only == '' || inputs.only == 'windows'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    steps:
+      - name: Keep line endings as stored
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      # As build.yml: the tools are fetched by build.cmd from the Command Prompt first, then build.cmd test, the only way
+      # build.yml builds the tests on Windows. Its own one pass of the whole suite is not counted here, whatever its result.
+      - name: Build the launcher, fixes ON (Command Prompt)
+        shell: cmd
+        run: build.cmd TOOLS=fetch
+      - name: Build the tests (build.cmd TOOLS=fetch test)
+        shell: pwsh
+        continue-on-error: true
+        run: .\build.cmd TOOLS=fetch test
+      - name: Each test alone
+        shell: bash
+        run: |
+          mkdir -p repeat-logs
+          ctest=$(find build/tools -name ctest.exe | head -n 1)
+          [ -n "$ctest" ] || { echo "::error::no ctest.exe under build/tools"; exit 1; }
+          bad=0
+          echo "| test | passed |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          for t in $TESTS $ONCE; do
+            n=$RUNS; case " $ONCE " in *" $t "*) n=1 ;; esac
+            pass=0
+            for i in $(seq 1 "$n"); do
+              if "$ctest" --test-dir build -R "^$t\$" --output-on-failure > "repeat-logs/$t-$i.log" 2>&1 \
+                 && grep -Eq '100% tests passed(, 0 tests failed)? out of 1' "repeat-logs/$t-$i.log"; then
+                pass=$((pass + 1))
+              else
+                bad=1; echo "::error::$t run $i failed"; tail -n 60 "repeat-logs/$t-$i.log"; break
+              fi
+            done
+            echo "$t: $pass of $n passed"
+            echo "| $t | $pass of $n |" >> "$GITHUB_STEP_SUMMARY"
+          done
+          exit $bad
+      # The same tools build.cmd fetched, configured as devtools/win/build.ps1 does, with the fixes OFF.
+      - name: Build, fixes OFF (the launcher and everything it links)
+        if: always()
+        shell: bash
+        run: |
+          w() { cygpath -m "$1"; }
+          cmake=$(find build/tools -path '*bin*' -name cmake.exe | head -n 1)
+          ninja=$(find build/tools -name ninja.exe | head -n 1)
+          clang=$(find build/tools -path '*llvm-mingw*' -name clang.exe | head -n 1)
+          py=$(find build/tools -name python.exe | head -n 1)
+          for x in "$cmake" "$ninja" "$clang" "$py"; do [ -n "$x" ] || { echo "::error::a fetched tool is missing"; exit 1; }; done
+          bin=$(dirname "$clang")
+          export PATH="$bin:$(dirname "$cmake"):$(dirname "$ninja"):$PATH"
+          "$cmake" -S . -B build-off -G Ninja "-DCMAKE_MAKE_PROGRAM=$(w "$ninja")" "-DCMAKE_C_COMPILER=$(w "$clang")" \
+            "-DCMAKE_CXX_COMPILER=$(w "$bin/clang++.exe")" "-DPython3_EXECUTABLE=$(w "$py")" -DTPW_PORT_FIX=OFF
+          "$cmake" --build build-off --target tpw_launcher
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: repeat-logs-${{ matrix.os }}
+          path: repeat-logs
