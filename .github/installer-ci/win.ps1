@@ -1336,6 +1336,9 @@ function New-RealRelease([string]$version) {
     & git.exe clone -q $source $repo 2>&1 | Out-Host
     if ($LASTEXITCODE -ne 0) { Bad 'cannot copy the checkout' }
     [void](Invoke-Git $repo @('checkout', '-q', '-B', 'main'))
+    # a checkout with the project's tags (a tag push's, or a clone of one) would offer its newest release instead of this one
+    $tags = @((Invoke-Git $repo @('tag', '-l')) | Where-Object { $_ })
+    if ($tags.Count -gt 0) { [void](Invoke-Git $repo (@('tag', '-d') + $tags)) }
     Write-Text (Join-Path $repo 'launcher\VERSION.txt') "$version`n"
     [void](Invoke-Git $repo @('add', 'launcher/VERSION.txt'))
     [void](Invoke-Git $repo @('commit', '-q', '-m', "Release $version"))
