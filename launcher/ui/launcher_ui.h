@@ -180,6 +180,8 @@ struct ModRow {
                                    // its switch cannot be turned on, and launcher.ini's key is kept for when it unlocks
     std::string content;           // mod.json's "content" ("ps1": the PlayStation rides), empty for a mod without
     std::vector<std::string> rides;   // its content folder's rides as the Game data box names them (Aztec Bounce, ...)
+    bool stale = false;            // its rides were converted by an older converter and the launcher could not convert
+                                   // them again (launcher/ps1_refresh.h): the home asks for the disc until a drop does
 };
 inline std::string ModKey(const std::string& id) { return "mod." + id; }
 
@@ -236,6 +238,8 @@ public:
     // The mods of the build (a build with the port's fixes, launcher/main.cpp): the header gets a Mods button, which
     // opens the Mods box and, while any mod is on, says how many ("1 mod on"). Never called (a build without the fixes): no button.
     void SetMods(const std::vector<ModRow>& mods);
+    // Whether a content mod's rides wait for the disc again (ModRow::stale): the home shows kPs1StaleNotice.
+    bool Ps1Stale() const;
     // Reread content locks after an import or a change of data folder, so a disc drop unlocks its mod immediately.
     void SetModsReader(std::function<std::vector<ModRow>()> reader);
     // The game's own settings (a build with the port's fixes, launcher/main.cpp): the Settings box gets the Game options

@@ -493,6 +493,12 @@ void LauncherUi::ChoosePlay(Edition edition, bool gold) {
     SetGold(i, gold);
 }
 
+bool LauncherUi::Ps1Stale() const {
+    for (const ModRow& m : mods_)
+        if (m.stale) return true;
+    return false;
+}
+
 void LauncherUi::SetMods(const std::vector<ModRow>& mods) {
     modsShown_ = true;
     mods_ = mods;
@@ -1206,6 +1212,10 @@ std::vector<GameDataRow> GameDataRows(const EditionStatus all[6], const std::vec
         if (m.content == "ps1") mod = &m;
     if (mod == nullptr) {
         ps1.line = mods.empty() ? "This build has no mods" : "This build does not have it";
+    } else if (!mod->rides.empty() && mod->stale) {
+        ps1.unlocked = true;
+        ps1.fraction = 1;
+        ps1.line = kPs1StaleLine;
     } else if (!mod->rides.empty()) {
         ps1.unlocked = true;
         ps1.fraction = 1;
@@ -1500,7 +1510,7 @@ void LauncherUi::DrawSettings(const Rect& w) {
         float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
         text_.Draw(style::kBodyBold, row.x + 12, ty, "W A S D move the camera", colour::kInk);
         text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
-                   text_.Fit(style::kSmall, "Scroll and walk with them; A and S no longer open All items, All staff",
+                   text_.Fit(style::kSmall, "Scroll and walk with them, two at once for diagonals; A and S no longer open All items",
                              row.w - 12 - 56 - 24, false),
                    colour::kInkSoft);
         wasdCameraRect_ = {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32};
@@ -2221,6 +2231,8 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
     }
     if (noticeLeft_ > 0 && !notice_.empty())
         ui_.Notice(window, notice_, noticeProblem_ ? Mix(colour::kRed, colour::kPaper, 0.55f) : colour::kYellowSoft);
+    else if (Ps1Stale())   // kept until a drop converts the rides again (RefreshStatus reads the mods' rows after one)
+        ui_.Notice(window, kPs1StaleNotice, colour::kYellowSoft);
     ui_.End();
 }
 

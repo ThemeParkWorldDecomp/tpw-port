@@ -62,8 +62,9 @@ The Settings box has these rows:
 - Stereo panning: off by default, which plays every sound in the middle, as the original did. On, a sound placed in the
   park is heard louder in the speaker on its side of the camera, and a little in the other (never in one ear only).
 - W A S D move the camera: off by default, the original's keys. On, W, A, S and D scroll the park (as the keypad's 8, 4,
-  2 and 6 do) and, in first person, walk and turn (as the arrow keys do), in your own parks and on online visits. The
-  keys go by their place on the keyboard (Z Q S D on AZERTY). On, the four letters on their own do nothing else: A and S
+  2 and 6 do) and, in first person, walk and turn (as the arrow keys do), in your own parks and on online visits. Two
+  of them held together scroll diagonally (W with A, S with D and so on) and in first person walk and turn at once,
+  whether Several keys at once is on or off. The keys go by their place on the keyboard (Z Q S D on AZERTY). On, the four letters on their own do nothing else: A and S
   no longer open All items and All staff, and the debug keys W and D no longer act. With Shift, Cmd, Ctrl or Option they
   keep their meanings (Cmd-S staff locations, Option-S quick save), and typing in a text box is unchanged.
 - Interface size: 100% by default, the original. 85% or 70% shrink the panels so the park shows more, with the panels
@@ -315,7 +316,7 @@ on the Mac, bugs included. This repository adds what it takes to play:
   game's window: OpenGL (platform/gl_backend.cpp, platform/offscreen.cpp), or on Linux the port's own Vulkan renderer
   (platform/vulkan/), which draws the OpenGL 1.1 calls the game makes. On Linux those calls are the platform layer's own
   (platform/gl_entry.cpp), handed to the Vulkan renderer or to the system's OpenGL.
-- overrides/: the port's fixes, 438 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
+- overrides/: the port's fixes, 439 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
   the port does and why. Each file there is built in place of the tpw-decomp file of the same path. Headers are read
   from a copy of tpw-decomp's headers in the build folder with the overridden ones laid over it.
 - mods/: the [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) submodule, for optional changes to how the game plays (Mods, above). Its

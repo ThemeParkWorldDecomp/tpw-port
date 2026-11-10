@@ -25,6 +25,11 @@ std::string FormatBytes(uint64_t bytes);
 std::string Files(uint64_t n);
 // The Mods box's locked content line. A content mod unlocks when the player's disc supplies its rides.
 std::string ContentModLockedText(const std::string& content);
+// The home's notice, and the Game data box's PlayStation line, while the converted rides are an older converter's
+// and the launcher could not convert the remembered disc again (launcher/ps1_refresh.h).
+inline constexpr const char* kPs1StaleNotice =
+    "Your PlayStation rides were converted by an older version. Drop your PlayStation disc on the launcher again to update them.";
+inline constexpr const char* kPs1StaleLine = "Converted by an older version: drag in your PlayStation disc again to update them";
 
 // The three tiles, in order: the US game, the European game, the Gold rides. A tile's settings keys and saves are its
 // game's; the edition it shows is its Mac one or its Windows one (SlotStatus).

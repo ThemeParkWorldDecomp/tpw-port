@@ -51,6 +51,18 @@ void StrayKeyUp(int32_t scancode) {
     const uint8_t macKey = tpw::MacKeyCodeFromScancode(scancode);
     if (macKey != 0xff) tpw::gPortStrayKeyUp(macKey);
 }
+
+// TPW_PORT_FIX wasd-diagonal UGamework::Run | Mac: 0x100054c4 releases the key that is down before it presses the next one, and 0x100056a0 releases it at any key's key-up, so two camera keys were never down at once | Port: with the launcher's "W A S D move the camera" on (tpw::gPortKeyTogether names the four by their Mac key codes), one of the four going down while another of the four is down keeps it down, as "Several keys at once" keeps every key, and each of the four comes up at its own key-up; any other key going down releases the four first, the original's way, and with the setting off nothing changes | Why: W with A (any two of the four) scroll the park diagonally, and in first person walk and turn at once, as the maintainer asked
+// Whether a key is one of the four that stay down together.
+bool KeyTogether(int32_t scancode) {
+    if (tpw::gPortKeyTogether == nullptr) return false;
+    const uint8_t macKey = tpw::MacKeyCodeFromScancode(scancode);
+    return macKey != 0xff && tpw::gPortKeyTogether(macKey);
+}
+// Whether this key going down keeps the remembered key down: both of the four, or no key remembered.
+bool KeysTogether(int32_t scancode) {
+    return KeyTogether(scancode) && (!KeyStillDown() || KeyTogether(gKey.scancode));
+}
 #endif
 
 // The autoKey events the Mac's Event Manager sent while the key that went down last stayed down: the first after the
@@ -249,6 +261,12 @@ void UGamework::Run() {
         if (gKey.character != 0 || gKey.keyCode != 0) gHeldKeys.push_back(gKey);
         gKey = KeyState();
     };
+    // wasd-diagonal: before any other key goes down, the four that are still down come up, each with the modifiers it
+    // went down with (one key at a time: the list holds only them).
+    auto releaseHeldKeys = [this]() {
+        for (const KeyState& held : gHeldKeys) HandleTyping(held.character, held.keyCode, held.modifiers, false);
+        gHeldKeys.clear();
+    };
 #endif
     while (mRunning) {
         SDL_Event sdl;
@@ -298,11 +316,13 @@ void UGamework::Run() {
                 if (sdl.key.repeat || IsModifierKey(sdl.key.scancode)) break;
                 gAutoKey = AutoKey();
 #ifdef TPW_PORT_FIX
-                if (tpw::gPortSeveralKeys) {   // severalkeys: the keys already down stay down
+                // severalkeys: the keys already down stay down; wasd-diagonal: one of the four keeps another of the four
+                if (tpw::gPortSeveralKeys || KeysTogether(static_cast<int32_t>(sdl.key.scancode))) {
                     keepKeys(static_cast<int32_t>(sdl.key.scancode));
                     if (pressKey(sdl.key)) gAutoKey = StartAutoKey(sdl.key.scancode, false);
                     break;
                 }
+                releaseHeldKeys();   // wasd-diagonal
 #endif
                 // 0x100054c4: a key still down is released first (the Mac reported one key
                 // at a time), with a Process pass in between.
@@ -326,7 +346,8 @@ void UGamework::Run() {
                 if (IsModifierKey(sdl.key.scancode)) break;
                 if (sdl.key.scancode == gAutoKey.scancode) gAutoKey = AutoKey();
 #ifdef TPW_PORT_FIX
-                if (tpw::gPortSeveralKeys) {   // severalkeys: only the key that came up
+                // severalkeys: only the key that came up; wasd-diagonal: one of the four, only itself
+                if (tpw::gPortSeveralKeys || KeyTogether(static_cast<int32_t>(sdl.key.scancode))) {
                     if (!releaseHeldKey(static_cast<int32_t>(sdl.key.scancode))) StrayKeyUp(sdl.key.scancode);   // wasd-stuck
                     break;
                 }
@@ -414,7 +435,11 @@ void UGamework::Run() {
             if (key.down == pass) {
                 gAutoKey = AutoKey();
 #ifdef TPW_PORT_FIX
-                if (tpw::gPortSeveralKeys) keepKeys(key.scancode);   // severalkeys
+                if (tpw::gPortSeveralKeys || KeysTogether(key.scancode)) {   // severalkeys, wasd-diagonal
+                    keepKeys(key.scancode);
+                } else {
+                    releaseHeldKeys();   // wasd-diagonal
+                }
                 if (KeyStillDown()) releaseKey();   // wasd-stuck
 #else
                 if (gKey.keyCode != 0) releaseKey();
@@ -423,7 +448,7 @@ void UGamework::Run() {
             } else {
                 if (sdlKey.scancode == gAutoKey.scancode) gAutoKey = AutoKey();
 #ifdef TPW_PORT_FIX
-                if (tpw::gPortSeveralKeys) {   // severalkeys: only the key that came up
+                if (tpw::gPortSeveralKeys || KeyTogether(key.scancode)) {   // severalkeys, wasd-diagonal: only the key that came up
                     if (!releaseHeldKey(key.scancode)) StrayKeyUp(key.scancode);   // wasd-stuck
                     continue;
                 }

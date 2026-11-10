@@ -229,7 +229,7 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   endif()
 
   add_library(tpw_launcher_objects OBJECT launcher/main.cpp launcher/app_bundle.cpp launcher/app_icon.cpp launcher/app_icon_standin.cpp launcher/asset_packs.cpp
-              launcher/game_app.cpp launcher/game_app_mac.cpp launcher/game_app_win.cpp launcher/installed_icon.cpp launcher/pending_manual.cpp
+              launcher/game_app.cpp launcher/game_app_mac.cpp launcher/game_app_win.cpp launcher/installed_icon.cpp launcher/pending_manual.cpp launcher/ps1_refresh.cpp
               launcher/static_init.cpp launcher/startup.cpp)
   target_include_directories(tpw_launcher_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
   if(APPLE)
@@ -932,6 +932,12 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     target_link_libraries(tpw_installed_icon_tests PRIVATE shell32 ole32)   # TellExplorer
   endif()
   add_test(NAME installed_icon COMMAND tpw_installed_icon_tests)
+  # The PlayStation rides an older converter wrote (launcher/ps1_refresh.h): converted again from the remembered disc at
+  # the launcher's start, or the disc asked for again; the converter's stamp beside the rides.
+  add_executable(tpw_ps1_refresh_tests launcher/tests/ps1_refresh_tests.cpp launcher/ps1_refresh.cpp)
+  target_include_directories(tpw_ps1_refresh_tests PRIVATE launcher)
+  target_link_libraries(tpw_ps1_refresh_tests PRIVATE tpw_platform tpw_assets)
+  add_test(NAME ps1_refresh COMMAND tpw_ps1_refresh_tests)
   # Which icon.png the launcher shows: the run's data folder's, the per-user folder's, or the stand-in (launcher/app_icon.h).
   add_test(NAME launcher_icon COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/launcher/tests/icon_choice_test.py $<TARGET_FILE:tpw_launcher>)
   # No function of the game or the launcher is looked up by its symbol at run time (a Linux launcher exports none of its

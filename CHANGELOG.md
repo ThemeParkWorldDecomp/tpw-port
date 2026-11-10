@@ -2,6 +2,14 @@
 
 ## 0.4.2 (not released yet)
 
+### New Features
+
+- With "W A S D move the camera" on, two of the keys held together now scroll the park diagonally (W with A, W with D, S with A and S with D), and in first person walk and turn at once, whether "Several keys at once" is on or off. Asked for by the maintainer
+
+### Bug Fixes
+
+- PlayStation rides converted by 0.4.0 are updated on their own: the launcher now converts them again at its start from the disc file it remembers, and when it has none (a disc dropped before 0.4.2) it asks for the disc again on its home screen instead of keeping the old rides (the mirrored Aztec Bounce, the doors on the wrong side) quietly
+
 ## 0.4.1 (2026-11-09)
 
 ### New Features

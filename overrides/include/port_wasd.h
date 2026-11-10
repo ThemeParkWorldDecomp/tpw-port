@@ -67,6 +67,14 @@ inline void PortWasdLetGoAll() {
         held = 0;
     }
 }
+// TPW_PORT_FIX wasd-diagonal PortWasdPlace | Mac: no such setting | Port: with gPortWasdCamera on, the run loop's tpw::gPortKeyTogether (platform/gamework.cpp): whether a Mac key code is one of the four places (W A S D on a US keyboard), which then stay down together so that two of them scroll the park diagonally | Why: the camera reads its table's keys every frame, so keypad 8 with keypad 4 held together already scroll diagonally; only the run loop's one key at a time kept the two from being down at once (asked for by the maintainer)
+inline bool PortWasdPlace(uint8_t macKeyCode) {
+    static constexpr uint8_t kPlaces[4] = {0x0d, 0x00, 0x01, 0x02};
+    for (const uint8_t place : kPlaces) {
+        if (macKeyCode == place) return true;
+    }
+    return false;
+}
 // TPW_PORT_FIX wasd-stuck PortWasdStrayKeyUp | Mac: no such setting | Port: with gPortWasdCamera on, the run loop (tpw::gPortStrayKeyUp, platform/gamework.cpp) passes the key-up of a key it had no longer remembered, by its Mac key code; one of the four places (W A S D on a US keyboard) lets go of the camera key it still holds | Why: such a key-up reached no window, and the camera key its key down pressed stayed down (reported by the maintainer)
 inline void PortWasdStrayKeyUp(uint8_t macKeyCode) {
     static constexpr uint8_t kPlaces[4] = {0x0d, 0x00, 0x01, 0x02};

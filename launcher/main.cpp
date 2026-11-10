@@ -67,6 +67,9 @@
 #include "path_text.h"
 #ifdef TPW_PORT_FIX
 #include "content_overlay.h"
+#include "ps1_convert.h"
+#include "ps1_disc.h"
+#include "ps1_refresh.h"
 #include "mods.h"
 #include "ride_badges.h"
 #include "Ps1SaveRepair.h"
@@ -930,6 +933,28 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
         if (!check.edited.empty()) tpw::Log("startup check: %s", check.Kept().c_str());
         LogEditedFiles("startup check", backend);
     }
+#ifdef TPW_PORT_FIX
+    // The PlayStation rides converted by an older converter (launcher/ps1_refresh.h): converted again from the disc the
+    // importer remembered, before the window reads the mods' rides and before the game's folder is laid out.
+    for (const tpw::mods::Mod& mod : tpw::mods::Catalog()) {
+        if (mod.content != "ps1") continue;
+        const std::filesystem::path dataRoot = std::filesystem::u8path(backend.DataFolder());
+        const tpw::launcher::Ps1Refresh done = tpw::launcher::RefreshPs1Rides(
+            ModContentFolder(backend, mod), dataRoot, backend.IniExtra(tpw::assets::kPs1DiscPathKey),
+            backend.IniExtra(tpw::assets::kPs1DiscSha256Key), [&dataRoot](const std::string& path, std::string& reason) {
+                std::shared_ptr<tpw::assets::Blob> blob = tpw::assets::OpenFileBlob(path, reason);
+                if (!blob) return false;
+                tpw::assets::Ps1Disc disc;
+                if (tpw::assets::RecognisePs1(blob, disc, reason) != tpw::assets::Ps1Status::Supported) {
+                    if (reason.empty()) reason = "not a supported PlayStation disc any more";
+                    return false;
+                }
+                return tpw::assets::ConvertPs1(disc, dataRoot, reason);
+            });
+        if (!done.line.empty()) tpw::Log("%s", done.line.c_str());
+        break;
+    }
+#endif
     tpw::ui::LaunchChoice choice;
     if (!play.empty()) {
         tpw::assets::EditionFromName(play.c_str(), choice.edition);   // one of the four the option takes
@@ -1024,6 +1049,10 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
                         row.rides.push_back(!ride.title.empty() ? ride.title
                                                                 : ride.folder.substr(ride.folder.find_last_of('/') + 1));
                     if (row.rides.empty()) row.locked = ModLockedText(mod);
+                    // Rides an older converter wrote (launcher/ps1_refresh.h): the home asks for the disc again.
+                    if (mod.content == "ps1")
+                        row.stale = tpw::launcher::Ps1RidesStale(ModContentFolder(backend, mod),
+                                                                 std::filesystem::u8path(backend.DataFolder()));
                 }
                 rows.push_back(row);
             }
@@ -1193,6 +1222,8 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
     // camera key that key still holds (TPW_PORT_FIX wasd-stuck, platform/gamework.cpp).
     tpw::gPortReleaseKeyA = gPortWasdCamera;
     tpw::gPortStrayKeyUp = gPortWasdCamera ? PortWasdStrayKeyUp : nullptr;
+    // And two of the four stay down together, for the diagonals (TPW_PORT_FIX wasd-diagonal, platform/gamework.cpp).
+    tpw::gPortKeyTogether = gPortWasdCamera ? PortWasdPlace : nullptr;
     gOnlineServerSetting = backend.Setting(tpw::ui::kOnlineServerKey);
     gOnlineServerFound = backend.Setting(tpw::ui::kOnlineServerFoundKey);
     // The Settings box's Graphics section: the original's options files' values the player chose (EngineStartup_OptionsFile).
