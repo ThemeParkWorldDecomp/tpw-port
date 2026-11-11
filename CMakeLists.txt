@@ -264,12 +264,33 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     get_filename_component(nm_dir ${CMAKE_NM} DIRECTORY)
     find_program(TPW_CXXFILT NAMES c++filt llvm-cxxfilt HINTS ${nm_dir} REQUIRED)
     set(TPW_STUB_SYSLIBS --cxxfilt ${TPW_CXXFILT})
+    # The libraries' folders come from the compiler itself, read as UTF-8. CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES alone is
+    # not enough: CMake decodes the compiler's output in the console code page when it probes them, so under a user
+    # folder with an accented letter they are garbled (tpw-port #124), nothing was found, and the generator stood in for
+    # the C runtime ("illegal initializer" on atexit in stubs_generated.cpp). Now a library not found fails here.
+    execute_process(COMMAND ${CMAKE_CXX_COMPILER} -print-search-dirs OUTPUT_VARIABLE tpw_search_dirs
+                    RESULT_VARIABLE tpw_search_result ERROR_QUIET ENCODING UTF-8)
+    set(tpw_win_lib_dirs)
+    set(tpw_win_lib_hints)
+    if(tpw_search_result EQUAL 0 AND tpw_search_dirs MATCHES "(^|\n)libraries: =([^\r\n]*)")
+      file(TO_CMAKE_PATH "${CMAKE_MATCH_2}" tpw_win_lib_dirs)
+    endif()
+    foreach(dir IN LISTS tpw_win_lib_dirs CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES)
+      get_filename_component(dir "${dir}" ABSOLUTE)
+      if(IS_DIRECTORY "${dir}")
+        list(APPEND tpw_win_lib_hints "${dir}")
+      endif()
+    endforeach()
+    list(REMOVE_DUPLICATES tpw_win_lib_hints)
     foreach(lib mingw32 mingwex ucrt kernel32 user32 gdi32 opengl32 glu32 advapi32 shell32 ole32 oleaut32 imm32 winmm
                 version setupapi ws2_32 c++ unwind)
-      find_library(TPW_WIN_LIB_${lib} NAMES ${lib} HINTS ${CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES})
-      if(TPW_WIN_LIB_${lib})
-        list(APPEND TPW_STUB_SYSLIBS --provides ${TPW_WIN_LIB_${lib}})
+      find_library(TPW_WIN_LIB_${lib} NAMES ${lib} HINTS ${tpw_win_lib_hints} NO_DEFAULT_PATH)
+      if(NOT TPW_WIN_LIB_${lib})
+        list(JOIN tpw_win_lib_hints "\n    " tpw_tried)
+        message(FATAL_ERROR "The library lib${lib} of the compiler ${CMAKE_CXX_COMPILER} was not found. "
+                            "Folders tried:\n    ${tpw_tried}\n(-print-search-dirs exit code: ${tpw_search_result})")
       endif()
+      list(APPEND TPW_STUB_SYSLIBS --provides ${TPW_WIN_LIB_${lib}})
     endforeach()
   elseif(TPW_LINUX)
     # The OpenGL calls are the platform layer's own (platform/gl_entry.cpp), and the C and C++ runtimes are dlsym'ed by the
@@ -285,17 +306,26 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     set(TPW_STUB_SYSLIBS --syslib libGL.so.1)
   endif()
   set(TPW_STUBS ${CMAKE_CURRENT_BINARY_DIR}/stubs_generated.cpp)
-  add_custom_command(
-    OUTPUT ${TPW_STUBS}
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/launcher/gen_stubs.py
-            --out ${TPW_STUBS} --include-dir ${TPW_INCLUDE_DIR}
-            --nm ${CMAKE_NM} --provides $<TARGET_FILE:SDL3-static> --provides $<TARGET_FILE:tpw_zlib> --provides $<TARGET_FILE:tpw_libjpeg>
-            --provides $<TARGET_FILE:tpw_launcher_ui> --provides $<TARGET_FILE:tpw_assets> ${TPW_STUB_SYSLIBS} ${TPW_MOVIE_SYSLIBS}
-            $<TARGET_FILE:tpw> $<TARGET_FILE:tpw_platform> $<TARGET_OBJECTS:tpw_launcher_objects>
-    DEPENDS tpw tpw_platform SDL3-static tpw_zlib tpw_libjpeg tpw_launcher_ui tpw_assets $<TARGET_OBJECTS:tpw_launcher_objects>
-            launcher/gen_stubs.py
-    COMMAND_EXPAND_LISTS VERBATIM
-    COMMENT "Generating stand-ins for untranslated and unimplemented functions")
+  # gen_stubs takes its arguments from a file, one per line (UTF-8), and the command line holds only that file's name. On
+  # Windows a command line that long would make CMake's Ninja generator run it from a .bat file, and cmd reads a .bat file
+  # in the console's code page, so a build folder with an accented letter in its path broke there (tpw-port #124).
+  function(tpw_gen_stubs out objects comment)
+    set(args_file ${out}.args)
+    list(JOIN TPW_STUB_SYSLIBS "\n" syslibs)
+    list(JOIN TPW_MOVIE_SYSLIBS "\n" movie_syslibs)
+    file(GENERATE OUTPUT ${args_file} CONTENT "--out\n${out}\n--include-dir\n${TPW_INCLUDE_DIR}\n--nm\n${CMAKE_NM}
+--provides\n$<TARGET_FILE:SDL3-static>\n--provides\n$<TARGET_FILE:tpw_zlib>\n--provides\n$<TARGET_FILE:tpw_libjpeg>
+--provides\n$<TARGET_FILE:tpw_launcher_ui>\n--provides\n$<TARGET_FILE:tpw_assets>\n${syslibs}\n${movie_syslibs}
+$<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objects}>,\n>\n")
+    add_custom_command(
+      OUTPUT ${out}
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/launcher/gen_stubs.py @${args_file}
+      DEPENDS tpw tpw_platform SDL3-static tpw_zlib tpw_libjpeg tpw_launcher_ui tpw_assets $<TARGET_OBJECTS:${objects}>
+              launcher/gen_stubs.py ${args_file}
+      VERBATIM
+      COMMENT "${comment}")
+  endfunction()
+  tpw_gen_stubs(${TPW_STUBS} tpw_launcher_objects "Generating stand-ins for untranslated and unimplemented functions")
   add_executable(tpw_launcher $<TARGET_OBJECTS:tpw_launcher_objects> ${TPW_STUBS})
   target_include_directories(tpw_launcher PRIVATE ${TPW_INCLUDE_DIR} launcher)
   target_link_libraries(tpw_launcher PRIVATE tpw tpw_platform tpw_launcher_ui)
@@ -648,17 +678,7 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     add_library(tpw_host_chat_satellites_objects OBJECT ${TPW_DECOMP_DIR}/tests/host_chat_satellites.cpp launcher/pending_manual.cpp)
     target_include_directories(tpw_host_chat_satellites_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
     set(TPW_CHAT_SATELLITES_STUBS ${CMAKE_CURRENT_BINARY_DIR}/stubs_chat_satellites.cpp)
-    add_custom_command(
-      OUTPUT ${TPW_CHAT_SATELLITES_STUBS}
-      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/launcher/gen_stubs.py
-              --out ${TPW_CHAT_SATELLITES_STUBS} --include-dir ${TPW_INCLUDE_DIR}
-              --nm ${CMAKE_NM} --provides $<TARGET_FILE:SDL3-static> --provides $<TARGET_FILE:tpw_zlib> --provides $<TARGET_FILE:tpw_libjpeg>
-              --provides $<TARGET_FILE:tpw_launcher_ui> --provides $<TARGET_FILE:tpw_assets> ${TPW_STUB_SYSLIBS} ${TPW_MOVIE_SYSLIBS}
-              $<TARGET_FILE:tpw> $<TARGET_FILE:tpw_platform> $<TARGET_OBJECTS:tpw_host_chat_satellites_objects>
-      DEPENDS tpw tpw_platform SDL3-static tpw_zlib tpw_libjpeg tpw_launcher_ui tpw_assets $<TARGET_OBJECTS:tpw_host_chat_satellites_objects>
-              launcher/gen_stubs.py
-      COMMAND_EXPAND_LISTS VERBATIM
-      COMMENT "Generating stand-ins for the chat satellites test")
+    tpw_gen_stubs(${TPW_CHAT_SATELLITES_STUBS} tpw_host_chat_satellites_objects "Generating stand-ins for the chat satellites test")
     add_executable(tpw_host_chat_satellites $<TARGET_OBJECTS:tpw_host_chat_satellites_objects> ${TPW_CHAT_SATELLITES_STUBS})
     target_include_directories(tpw_host_chat_satellites PRIVATE ${TPW_INCLUDE_DIR} launcher)
     target_link_libraries(tpw_host_chat_satellites PRIVATE tpw tpw_platform tpw_launcher_ui)
@@ -678,17 +698,7 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     target_include_directories(tpw_host_no_sound_device_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
     target_link_libraries(tpw_host_no_sound_device_objects PRIVATE SDL3::SDL3)
     set(TPW_NO_SOUND_DEVICE_STUBS ${CMAKE_CURRENT_BINARY_DIR}/stubs_no_sound_device.cpp)
-    add_custom_command(
-      OUTPUT ${TPW_NO_SOUND_DEVICE_STUBS}
-      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/launcher/gen_stubs.py
-              --out ${TPW_NO_SOUND_DEVICE_STUBS} --include-dir ${TPW_INCLUDE_DIR}
-              --nm ${CMAKE_NM} --provides $<TARGET_FILE:SDL3-static> --provides $<TARGET_FILE:tpw_zlib> --provides $<TARGET_FILE:tpw_libjpeg>
-              --provides $<TARGET_FILE:tpw_launcher_ui> --provides $<TARGET_FILE:tpw_assets> ${TPW_STUB_SYSLIBS} ${TPW_MOVIE_SYSLIBS}
-              $<TARGET_FILE:tpw> $<TARGET_FILE:tpw_platform> $<TARGET_OBJECTS:tpw_host_no_sound_device_objects>
-      DEPENDS tpw tpw_platform SDL3-static tpw_zlib tpw_libjpeg tpw_launcher_ui tpw_assets $<TARGET_OBJECTS:tpw_host_no_sound_device_objects>
-              launcher/gen_stubs.py
-      COMMAND_EXPAND_LISTS VERBATIM
-      COMMENT "Generating stand-ins for the no sound device test")
+    tpw_gen_stubs(${TPW_NO_SOUND_DEVICE_STUBS} tpw_host_no_sound_device_objects "Generating stand-ins for the no sound device test")
     add_executable(tpw_host_no_sound_device $<TARGET_OBJECTS:tpw_host_no_sound_device_objects> ${TPW_NO_SOUND_DEVICE_STUBS})
     target_include_directories(tpw_host_no_sound_device PRIVATE ${TPW_INCLUDE_DIR} launcher)
     target_link_libraries(tpw_host_no_sound_device PRIVATE tpw tpw_platform tpw_launcher_ui)

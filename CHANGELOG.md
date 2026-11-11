@@ -5,6 +5,7 @@
 ### Bug Fixes
 
 - A PlayStation ride picked from Buy Ride now starts facing the same way as every other ride, with its entrance at the bottom of the screen, instead of the opposite way. Rides already in a park are not changed
+- Fixed the launcher failing to install or update on Windows when the user name has an accented letter, such as é (Thanks @Jerome67)
 
 ## 0.4.2 (2026-11-10)
 

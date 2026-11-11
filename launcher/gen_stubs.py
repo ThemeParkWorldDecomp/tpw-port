@@ -46,7 +46,9 @@ SPECIAL_PREFIXES = ("vtable for ", "typeinfo for ", "typeinfo name for ", "VTT f
 
 
 def run(cmd, text_in=None):
-    return subprocess.run(cmd, input=text_in, capture_output=True, text=True, check=True).stdout
+    # UTF-8 whatever the PC's code page: an archive's or a folder's name in the tools' output may have accented letters
+    # (tpw-port #124), and Python on Windows would read it in the ANSI code page, where some UTF-8 bytes do not decode.
+    return subprocess.run(cmd, input=text_in, capture_output=True, encoding="utf-8", errors="replace", check=True).stdout
 
 
 def symbols(nm, files):
@@ -110,6 +112,19 @@ def reserved(name):
     return name.startswith("__") or re.match(r"_[A-Z]", name) is not None
 
 
+def expand_args(argv):
+    """An argument @FILE stands for that file's lines, one argument each, read as UTF-8 (empty lines are skipped). CMake
+    writes the arguments there so that the command line stays short (CMakeLists.txt, tpw_gen_stubs)."""
+    expanded = []
+    for arg in argv:
+        if arg.startswith("@"):
+            with open(arg[1:], encoding="utf-8") as f:
+                expanded.extend(line for line in f.read().splitlines() if line)
+        else:
+            expanded.append(arg)
+    return expanded
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
@@ -120,7 +135,7 @@ def main():
     ap.add_argument("--nm", default="nm")
     ap.add_argument("--cxxfilt", default="c++filt")
     ap.add_argument("inputs", nargs="+")
-    args = ap.parse_args()
+    args = ap.parse_args(expand_args(sys.argv[1:]))
 
     undefined, weak, defined = symbols(args.nm, args.inputs)
     labels = []
