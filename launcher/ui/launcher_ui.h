@@ -178,15 +178,19 @@ struct ModRow {
     std::string locked;            // why it cannot be on yet (a content mod before the player's own disc is converted:
                                    // launcher/main.cpp), shown in its row; empty when it can. A locked mod shows off and
                                    // its switch cannot be turned on, and launcher.ini's key is kept for when it unlocks
-    std::string content;           // mod.json's "content" ("ps1": the PlayStation rides), empty for a mod without
-    std::vector<std::string> rides;   // its content folder's rides as the Game data box names them (Aztec Bounce, ...)
-    bool stale = false;            // its rides were converted by an older converter and the launcher could not convert
-                                   // them again (launcher/ps1_refresh.h): the home asks for the disc until a drop does
+    std::string content;           // mod.json's "content" ("ps1": the PlayStation rides, "tpi": the Theme Park Inc
+                                   // worlds), empty for a mod without
+    std::vector<std::string> rides;   // its content folder's rides as the Game data box names them (Aztec Bounce, ...),
+                                      // or for "tpi" its worlds (Arabian Nights, Polar Zone, Land of Invention)
+    bool stale = false;            // its content was converted by an older converter and the launcher could not convert
+                                   // it again (launcher/ps1_refresh.h, tpi_refresh.h): the home asks for the disc until
+                                   // a drop does
 };
 inline std::string ModKey(const std::string& id) { return "mod." + id; }
 
-// A row of the Game data box: one of the five things the player's own discs unlock, in the box's order (Sim Theme Park,
-// Theme Park World, Gold Edition, the PlayStation rides mod, Languages), and whether its data is in the data folder.
+// A row of the Game data box: one of the six things the player's own discs unlock, in the box's order (Sim Theme Park,
+// Theme Park World, Gold Edition, the PlayStation rides mod, the TPI Worlds and Rides mod, Languages), and whether its
+// data is in the data folder.
 struct GameDataRow {
     std::string name;     // "Sim Theme Park"
     std::string tag;      // what it is, beside the name: "US edition"
@@ -194,8 +198,9 @@ struct GameDataRow {
     float fraction = 0;   // how much of it is there, for the badge: 0 none (a lock), 1 all (a check)
     std::string line;     // unlocked: what is there ("Mac release, 1,683 files confirmed"); locked: how to unlock it
 };
-// The five rows from the editions' six statuses (StatusIndex order), the data folder's languages
-// (ImportBackend::Languages()) and the build's mods (the PlayStation rides are the mod whose content is "ps1").
+// The six rows from the editions' six statuses (StatusIndex order), the data folder's languages
+// (ImportBackend::Languages()) and the build's mods (the PlayStation rides are the mod whose content is "ps1", the
+// Theme Park Inc worlds the one whose content is "tpi").
 std::vector<GameDataRow> GameDataRows(const assets::EditionStatus all[6],
                                       const std::vector<assets::LanguageStatus>& languages,
                                       const std::vector<ModRow>& mods);
@@ -238,7 +243,9 @@ public:
     // The mods of the build (a build with the port's fixes, launcher/main.cpp): the header gets a Mods button, which
     // opens the Mods box and, while any mod is on, says how many ("1 mod on"). Never called (a build without the fixes): no button.
     void SetMods(const std::vector<ModRow>& mods);
-    // Whether a content mod's rides wait for the disc again (ModRow::stale): the home shows kPs1StaleNotice.
+    // The first content mod whose content waits for its disc again (ModRow::stale), or null: the home shows that
+    // content's notice (ContentStaleNotice). Ps1Stale() is the yes-or-no form, kept for the tests.
+    const ModRow* StaleContent() const;
     bool Ps1Stale() const;
     // Reread content locks after an import or a change of data folder, so a disc drop unlocks its mod immediately.
     void SetModsReader(std::function<std::vector<ModRow>()> reader);

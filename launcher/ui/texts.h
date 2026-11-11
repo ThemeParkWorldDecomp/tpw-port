@@ -23,13 +23,20 @@ std::string FormatCount(uint64_t n);
 std::string FormatBytes(uint64_t bytes);
 // "1 file", "12 files"
 std::string Files(uint64_t n);
-// The Mods box's locked content line. A content mod unlocks when the player's disc supplies its rides.
+// The Mods box's locked content line. A content mod unlocks when the player's disc supplies its content: the
+// PlayStation rides ("ps1") or the Theme Park Inc worlds ("tpi").
 std::string ContentModLockedText(const std::string& content);
 // The home's notice, and the Game data box's PlayStation line, while the converted rides are an older converter's
 // and the launcher could not convert the remembered disc again (launcher/ps1_refresh.h).
 inline constexpr const char* kPs1StaleNotice =
     "Your PlayStation rides were converted by an older version. Drop your PlayStation disc on the launcher again to update them.";
 inline constexpr const char* kPs1StaleLine = "Converted by an older version: drag in your PlayStation disc again to update them";
+// The same two for the Theme Park Inc worlds (launcher/tpi_refresh.h). The disc or its installed folder both do.
+inline constexpr const char* kTpiStaleNotice =
+    "Your Theme Park Inc worlds are from an older version. Drop the disc again to update them.";
+inline constexpr const char* kTpiStaleLine = "Converted by an older version: drag in your Theme Park Inc disc again to update them";
+// The home's stale notice for a content mod's folder ("ps1", "tpi"): kPs1StaleNotice or kTpiStaleNotice.
+const char* ContentStaleNotice(const std::string& content);
 
 // The three tiles, in order: the US game, the European game, the Gold rides. A tile's settings keys and saves are its
 // game's; the edition it shows is its Mac one or its Windows one (SlotStatus).

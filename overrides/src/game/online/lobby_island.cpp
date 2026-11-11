@@ -38,6 +38,12 @@
 #include "ui_publishParkPanel.h"
 #include "UIInterface.h"
 #include "World.h"
+// TPW_PORT_FIX mods lobby_island | Mac: none | Port: TPW_MOD_HOOK tpi_islands: the mod's switch and worlds (include/TpiWorlds.h), the pure ring functions (include/tpi_island_ring.h) and the UI headers the ring hint draws with | Why: tpw-mods tpi-worlds: the second ring's code below uses them | Off: nothing
+#include "TpiWorlds.h"
+#include "tpi_island_ring.h"
+#include "Text.h"
+#include "UI_Base.h"
+#include "ui_DrawObject.h"
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -151,6 +157,9 @@ constexpr int32_t kMessageKey = 0x1000b;
 constexpr int32_t kKeyLeft = 0x2500;
 constexpr int32_t kKeyRight = 0x2700;
 constexpr int32_t kKeyReturn = 0x0d;
+// TPW_PORT_FIX mods lobby_island | Mac: no key or button flies to another ring (there is one ring) | Port: TPW_MOD_HOOK tpi_islands: the Tab key and the right mouse button that fly between the rings (CLBScreenComponentThemeIslands::WindowMessagesFn) | Why: tpw-mods tpi-worlds: the mod's three worlds form a second ring | Off: nothing
+constexpr int32_t kKeyTab = 0x09;        // TPW_MOD_HOOK tpi_islands: the key that flies between the rings (TPMain's HandleTyping sends Tab as its virtual key)
+constexpr int32_t kRightButton = 1;      // the mouse way to the same (UI_DeviceButtonDown: 0 left, 1 right, 2 middle)
 
 }  // namespace
 
@@ -313,6 +322,9 @@ float Pick(CLBLobby& lobby, float centre, float size) {
     return centre + ppc_fmsubs(size, draw, half);
 }
 
+// TPW_PORT_FIX mods GotoIsland | Mac: none | Port: TPW_MOD_HOOK tpi_islands: TpiNextInRing (defined further down) declared ahead of GotoIsland, which browses the ring in view with it | Why: tpw-mods tpi-worlds | Off: nothing
+CLBIsland* TpiNextInRing(const CLBScreenComponentIslands& screen, CLBIsland* island, bool forwards);   // TPW_MOD_HOOK tpi_islands, below
+
 // GotoNextIsland and GotoPreviousIsland: when the screen is idle (state 0) and has islands, the
 // island after (before) the current one, wrapping round, becomes the current one and its two
 // sounds replace the old island's.
@@ -328,7 +340,12 @@ void GotoIsland(CLBScreenComponentIslands& screen, bool forwards) {
     CLBIsland* island = screen.mCurrent;
     if (island == nullptr) {
         screen.SetCurrentIsland(forwards ? list->mHead->mData : list->mTail->mData);
-    } else if (island == (forwards ? list->mTail->mData : list->mHead->mData)) {
+    }
+    // TPW_PORT_FIX mods GotoIsland | Mac: the island after (before) the current one in the list, wrapping round | Port: TPW_MOD_HOOK tpi_islands (gModTpiIslands, include/TpiWorlds.h; include/tpi_island_ring.h): with the mod on, the next (previous) island of the current island's ring, wrapping round that ring | Why: tpw-mods tpi-worlds: the arrows browse the ring in view, Tab changes ring | Off: the list
+    else if (gModTpiIslands) {
+        screen.SetCurrentIsland(TpiNextInRing(screen, island, forwards));
+    }
+    else if (island == (forwards ? list->mTail->mData : list->mHead->mData)) {
         screen.SetCurrentIsland(forwards ? list->mHead->mData : list->mTail->mData);
     } else {
         auto* node = static_cast<TbPtrList<CLBIsland>::CNode*>(list->Find(island));
@@ -339,6 +356,124 @@ void GotoIsland(CLBScreenComponentIslands& screen, bool forwards) {
     island->mSound1 = SOUND_SendEvent(island->mSound1, gLobbyIslandSounds[(island->mSoundSet) * 2 + 1], 1, 0, 0, 0);
     island->mSound2 = SOUND_SendEvent(island->mSound2, gLobbyIslandSounds[(island->mSoundSet) * 2], 2, 0, 0, 0);
     SOUND_Tick();
+}
+
+// TPW_PORT_FIX mods lobby_island | Mac: one ring of four islands | Port: TPW_MOD_HOOK tpi_islands (gModTpiIslands, include/TpiWorlds.h; include/tpi_island_ring.h): with the mod on the screen's list holds a
+// second ring, the mod's worlds (platform/tpi_content.h, told by the island's world folder), placed by ParseThemeDescriptor;
+// these helpers keep the arrows in one ring, fly the camera between the rings on Tab or a right click (up, across in open air
+// and down to the near side of the island, include/tpi_island_ring.h's TpiPlanFlight), remember the island last looked at in
+// each ring, and show a hint line (the game's small font, under the screen's top) that the other ring exists
+// | Why: tpw-mods tpi-worlds: the original four keep their places and the three new worlds have their own ring | Off: none of
+// this runs (the list is the original four and the arrows walk it as the Mac did)
+int32_t TpiRing(const CLBIsland* island) { return tpw::TpiIslandRing(island->mName.mData); }
+
+// The island last looked at in each ring, forgotten when the screen is shown (its islands are made anew every time).
+CLBIsland* gTpiRingLast[2] = {nullptr, nullptr};
+// Tab's flight: the waypoints still ahead, and the island it goes to (null when there is no flight; CalcCamera drops it once
+// the current island is another or the camera stops browsing).
+tpw::TpiFlight gTpiFlight = {};
+const CLBIsland* gTpiFlightIsland = nullptr;
+// The hint window (a child of the lobby's window), or null while there is none.
+InterfaceWindow* gTpiRingHint = nullptr;
+constexpr int32_t kTpiRingHintId = 0x7b1a51;   // not one of the lobby's window ids (0x1e0e8.. are the island panel's, 0x8cfd55 the version's)
+constexpr int16_t kTpiRingHintTop = 0x1c;      // in the interface's 2048 x 1536 units
+
+// The screen's islands in list order, with their rings; how many (at most kTpiIslandMax).
+size_t TpiCollect(const CLBScreenComponentIslands& screen, CLBIsland** islands, int32_t* rings) {
+    size_t count = 0;
+    for (auto* node = screen.mIslands->mHead; node != nullptr && count < tpw::kTpiIslandMax; node = node->mNext) {
+        islands[count] = node->mData;
+        rings[count] = TpiRing(node->mData);
+        ++count;
+    }
+    return count;
+}
+
+// The next (previous) island of the current island's ring, as GotoIsland walks the whole list.
+CLBIsland* TpiNextInRing(const CLBScreenComponentIslands& screen, CLBIsland* island, bool forwards) {
+    CLBIsland* islands[tpw::kTpiIslandMax];
+    int32_t rings[tpw::kTpiIslandMax];
+    const size_t count = TpiCollect(screen, islands, rings);
+    for (size_t i = 0; i < count; ++i)
+        if (islands[i] == island) return islands[tpw::TpiNextInRing(rings, count, i, forwards)];
+    return island;
+}
+
+// Whether the list has an island of ring two (the mod's content is there); without one Tab and the hint do nothing.
+bool TpiHasRingTwo(const CLBScreenComponentIslands& screen) {
+    for (auto* node = screen.mIslands->mHead; node != nullptr; node = node->mNext)
+        if (TpiRing(node->mData) != 0) return true;
+    return false;
+}
+
+void TpiHideHint() {
+    if (gTpiRingHint == nullptr) return;
+    UI_SendMessage(gTpiRingHint, 4, 0, 0);
+    gTpiRingHint = nullptr;
+}
+
+// The hint, as UI_CreateVersionNumber (src/game/ui/ui_main.cpp) draws the version under the lobby: measured in font 6, scaled
+// from the screen's pixels to the interface's units, centred under the screen's top. Which text depends on the ring in view.
+void TpiShowHint(const CLBScreenComponentIslands& screen) {
+    TpiHideHint();
+    if (!gModTpiIslands || gLobby == nullptr || gLobby->mWindow == nullptr || screen.mCurrent == nullptr) return;
+    if (!TpiHasRingTwo(screen)) return;
+    const char16_t* label = TpiRing(screen.mCurrent) == 0 ? tpw::kTpiRingHintToTwo : tpw::kTpiRingHintToOne;
+    const TbRect limit = {0, 0, 32000, 32000};
+    TbRect size = {0, 0, 0, 0};
+    UI_MeasureText(label, limit, 6, 0, 0, 0, &size);
+    if (gUIRealScreenWidth == 0 || gUIRealScreenHeight == 0) return;
+    const int32_t width = ((size.right - size.left) * 0x800) / static_cast<int32_t>(gUIRealScreenWidth);
+    const int32_t height = ((size.bottom - size.top) * 0x600) / static_cast<int32_t>(gUIRealScreenHeight);
+    const int32_t left = 0x400 - width / 2;
+    const int32_t top = kTpiRingHintTop;
+    InterfaceWindow* window = gLobby->mWindow->CreateObject(1, 3, kTpiRingHintId, static_cast<int16_t>(left), static_cast<int16_t>(top),
+                                                            static_cast<int16_t>(left + width), static_cast<int16_t>(top + height));
+    if (window == nullptr) return;
+    window->SetClientDrawObject(new InterfaceTextObjectSprite(nullptr));
+    window->SetFont(&gText.mFonts[gText.mResolutionGroup * 13 + 6]);
+    window->SetClientDrawText(const_cast<char16_t*>(label));
+    gTpiRingHint = window;
+}
+
+// Tab (or a right click on the view) while browsing: the camera flies to the other ring, to the island last looked at there
+// (the ring's first in list order the first time), and the current island's sounds give way to that island's, as GotoIsland
+// swaps them. The camera's circle is turned to face where the camera is, and the flight goes over the islands between. Nothing happens while the camera zooms, in the easy mode (whose arrows do nothing either) or without ring two.
+void TpiSwitchRing(CLBScreenComponentThemeIslands& screen) {
+    if (!gModTpiIslands || screen.mCameraState != 0 || screen.mCurrent == nullptr) return;
+    if (TheGameType().mType == kGameTypeEasy) return;
+    CLBIsland* islands[tpw::kTpiIslandMax];
+    int32_t rings[tpw::kTpiIslandMax];
+    const size_t count = TpiCollect(screen, islands, rings);
+    CLBIsland* old = screen.mCurrent;
+    const int32_t ring = TpiRing(old);
+    const int32_t target = ring == 0 ? 1 : 0;
+    long remembered = -1;
+    for (size_t i = 0; i < count; ++i)
+        if (gTpiRingLast[target] != nullptr && islands[i] == gTpiRingLast[target]) remembered = static_cast<long>(i);
+    const long landing = tpw::TpiRingLanding(rings, count, target, remembered);
+    if (landing < 0) return;
+    gTpiRingLast[ring] = old;
+    SOUND_FadeSoundEffect(old->mSound1);
+    SOUND_FadeSoundEffect(old->mSound2);
+    old->mSound2 = 0;
+    old->mSound1 = 0;
+    screen.SetCurrentIsland(islands[landing]);
+    CLBIsland* island = screen.mCurrent;
+    const tpw::TpiPoint camera = {screen.mCameraPos.x, screen.mCameraPos.y, screen.mCameraPos.z};
+    screen.mAngle = Wrap(tpw::TpiFacingAngle(camera, island->mPosition.x, island->mPosition.z));
+    const tpw::TpiPoint goal = {
+        ppc_fmadds(screen.mRadius, static_cast<float>(std::sin(static_cast<double>(screen.mAngle))), island->mPosition.x),
+        island->mPosition.y + screen.mHeight,
+        ppc_fmadds(screen.mRadius, static_cast<float>(std::cos(static_cast<double>(screen.mAngle))), island->mPosition.z)};
+    gTpiFlight = tpw::TpiPlanFlight(camera, goal);
+    gTpiFlightIsland = island;
+    island->mSound1 = SOUND_SendEvent(island->mSound1, gLobbyIslandSounds[(island->mSoundSet) * 2 + 1], 1, 0, 0, 0);
+    island->mSound2 = SOUND_SendEvent(island->mSound2, gLobbyIslandSounds[(island->mSoundSet) * 2], 2, 0, 0, 0);
+    SOUND_Tick();
+    ShowIslandLobbyController();
+    UpdateIslandLobbyUI();
+    TpiShowHint(screen);
 }
 }  // namespace
 
@@ -355,6 +490,17 @@ void CLBScreenComponentIslands::CalcCamera() {
     mCameraGoal.y = mCameraGoal.y + mHeight;
     const float cosine = static_cast<float>(std::cos(static_cast<double>(mAngle)));
     mCameraGoal.z = ppc_fmadds(mRadius, cosine, mCameraGoal.z);
+    // TPW_PORT_FIX mods CalcCamera | Mac: the camera makes straight for its point round the island | Port: TPW_MOD_HOOK tpi_islands (gModTpiIslands, include/TpiWorlds.h; include/tpi_island_ring.h): with the mod on, while Tab's flight to the current island lasts, the camera makes for the flight's next waypoint (tpw::TpiFlightGoal: up, across, then down to that point); another island or a zoom ends the flight | Why: tpw-mods tpi-worlds: the long glide between the rings went through the islands on the way | Off: the point round the island, as the Mac
+    if (gModTpiIslands && gTpiFlightIsland != nullptr) {
+        const tpw::TpiPoint camera = {mCameraPos.x, mCameraPos.y, mCameraPos.z};
+        const tpw::TpiPoint* way = gTpiFlightIsland == mCurrent && mCameraState == 0 ? tpw::TpiFlightGoal(gTpiFlight, camera) : nullptr;
+        if (way == nullptr) gTpiFlightIsland = nullptr;
+        else {
+            mCameraGoal.x = way->x;
+            mCameraGoal.y = way->y;
+            mCameraGoal.z = way->z;
+        }
+    }
     Approach(mCameraPos, mCameraGoal, 0.1f * gLobby->mTickUnits);
     Approach(mLookAt, mLookAtGoal, 0.2f * gLobby->mTickUnits);
     gLobbyView->mPosition = mCameraPos;
@@ -553,6 +699,8 @@ void CLBScreenComponentIslands::TickIslands() {
             for (auto* node = mIslands->mHead; node != nullptr;) {
                 CLBIsland* island = node->mData;
                 node = node->mNext;
+                // TPW_PORT_FIX mods TickIslands | Mac: the wandering camera (no player) looks at the nearest island, and every rainy island counts in the rain | Port: TPW_MOD_HOOK tpi_islands (gModTpiIslands, include/TpiWorlds.h; include/tpi_island_ring.h): with the mod on, only the original four do either (the second ring stands outside the camera's box) | Why: tpw-mods tpi-worlds: the original screen's wander and weather stay as they were | Off: every island
+                if (gModTpiIslands && TpiRing(island) != 0) continue;
                 const float distance = SquaredLength(Subtract(island->mPosition, mCameraPos));
                 if (distance < nearest) {
                     mLookGoal = island->mPosition;
@@ -588,6 +736,7 @@ void CLBScreenComponentIslands::TickIslands() {
     for (auto* node = mIslands->mHead; node != nullptr;) {
         CLBIsland* island = node->mData;
         node = node->mNext;
+        if (gModTpiIslands && TpiRing(island) != 0) continue;   // TPW_MOD_HOOK tpi_islands (see TickIslands' wander above)
         if (island->mRain != 0) {
             ++rainy;
             const float dx = island->mPosition.x - view.mPosition.x;
@@ -659,8 +808,11 @@ void CLBScreenComponentThemeIslands::WindowMessagesFn(int32_t message, int32_t a
         if (a == kKeyLeft) GotoPreviousIsland();
         else if (a == kKeyRight) GotoNextIsland();
         else if (a == kKeyReturn) SelectCurrentIsland();
+        // TPW_PORT_FIX mods CLBScreenComponentThemeIslands::WindowMessagesFn | Mac: the arrows, Return and a left click | Port: TPW_MOD_HOOK tpi_islands (gModTpiIslands, include/TpiWorlds.h; include/tpi_island_ring.h): with the mod on, Tab and a right click on the view fly the camera to the other ring of islands | Why: tpw-mods tpi-worlds: a way to the second ring that leaves the original keys and panel as they are | Off: Tab and the right button do nothing, as on the Mac
+        else if (gModTpiIslands && a == kKeyTab) TpiSwitchRing(*this);
     } else if (message == kMessageClick) {
         if (a == 0) SelectCurrentIsland();
+        else if (gModTpiIslands && a == kRightButton) TpiSwitchRing(*this);
     }
 }
 
@@ -676,6 +828,7 @@ uint32_t CLBScreenComponentThemeIslands::ProcessCancel() {
     }
     ShowIslandLobbyController();
     UpdateIslandLobbyUI();
+    if (gModTpiIslands) TpiShowHint(*this);   // TPW_MOD_HOOK tpi_islands: the hint comes back with the panels
     return handled;
 }
 
@@ -701,6 +854,11 @@ void CLBScreenComponentThemeIslands::Show() {
     UpdateIslandLobbyUI();
     ResetAdvisorTimeout();
     UpdateSigns();
+    // TPW_PORT_FIX mods CLBScreenComponentThemeIslands::Show | Mac: (none) | Port: TPW_MOD_HOOK tpi_islands (gModTpiIslands, include/TpiWorlds.h; include/tpi_island_ring.h): with the mod on, the islands last looked at in each ring and Tab's flight are forgotten (the islands were made anew) and the hint goes up | Why: tpw-mods tpi-worlds | Off: nothing
+    gTpiRingLast[0] = nullptr;
+    gTpiRingLast[1] = nullptr;
+    gTpiFlightIsland = nullptr;
+    if (gModTpiIslands) TpiShowHint(*this);
     CLBIsland* island = mCurrent;
     if (island != nullptr) {
         island->mSound1 = SOUND_SendEvent(island->mSound1, gLobbyIslandSounds[island->mSoundSet * 2 + 1], 1, 0, 0, 0);
@@ -720,6 +878,7 @@ void CLBScreenComponentThemeIslands::Hide() {
     gLobbyMeshes->DeleteMeshInstanceListEntries();
     HidePanels();
     RemoveIslandLobbyController();
+    TpiHideHint();   // TPW_MOD_HOOK tpi_islands: the hint goes with the panels (null when there was none)
 }
 
 void CLBScreenComponentThemeIslands::ShowPanels() { ShowIslandLobbyController(); }
@@ -751,6 +910,7 @@ void CLBScreenComponentThemeIslands::StartCurrentIslandZoom() {
     mCameraState = 1;
     KeyParticlePOUFFE();
     HideIslandLobbyController();
+    TpiHideHint();   // TPW_MOD_HOOK tpi_islands: the hint goes with the panel while the camera zooms in
 }
 
 // The zoom has finished: the theme of the island becomes the current theme and the lobby is done (state 2).

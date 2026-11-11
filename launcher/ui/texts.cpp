@@ -11,9 +11,12 @@ using assets::ImportProgress;
 using assets::ImportReport;
 
 std::string ContentModLockedText(const std::string& content) {
+    if (content == "tpi") return "Drop your Theme Park Inc disc or its folder on the launcher to unlock.";
     return "Drop your own " + std::string(content == "ps1" ? "PlayStation disc" : "disc") +
            " on the launcher to unlock.";
 }
+
+const char* ContentStaleNotice(const std::string& content) { return content == "tpi" ? kTpiStaleNotice : kPs1StaleNotice; }
 
 std::string FileUrl(const std::string& path, bool windows) {
     static const char kHex[] = "0123456789ABCDEF";
@@ -330,6 +333,9 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
     } else if (!report.playStation.empty()) {
         r.headline = report.playStationConverted ? "PlayStation rides ready" : "PlayStation disc recognised";
         r.good = report.playStationConverted;
+    } else if (!report.themeParkInc.empty()) {
+        r.headline = report.themeParkIncConverted ? "TPI worlds ready" : "Theme Park Inc disc recognised";
+        r.good = report.themeParkIncConverted;
     } else if (report.written == 0 && !report.errors.empty()) {
         // A damaged or unreadable drop must not read as "nothing new": name the file and the reason first.
         r.headline = report.errors.size() == 1 ? "A file could not be read" : "Some files could not be read";
@@ -376,6 +382,7 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
                               FormatCount(shown.files) + " files confirmed");
     }
     for (const std::string& line : report.playStation) r.lines.push_back(line);
+    for (const std::string& line : report.themeParkInc) r.lines.push_back(line);
     if (report.written) r.lines.push_back(Files(report.written) + " put in place");
     if (report.alreadyThere) r.lines.push_back(Files(report.alreadyThere) + " already in place");
     if (!report.differentVersions.empty() && !LooksLikeOlderPressing(report) && !LooksLikeFirstRelease(report))

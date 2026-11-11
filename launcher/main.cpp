@@ -37,6 +37,7 @@
 #include "ResolutionBalance.h"
 #include "OptionsBalance.h"
 #include "ChallengeBalance.h"
+#include "CoasterBalance.h"
 #include "FS_MasterSave.h"
 #include "HoardingsBalance.h"
 #include "MainBalance.h"
@@ -70,6 +71,9 @@
 #include "ps1_convert.h"
 #include "ps1_disc.h"
 #include "ps1_refresh.h"
+#include "tpi_content.h"
+#include "tpi_convert.h"
+#include "tpi_refresh.h"
 #include "mods.h"
 #include "ride_badges.h"
 #include "Ps1PickRotation.h"
@@ -725,14 +729,27 @@ std::filesystem::path ModContentFolder(const tpw::ui::ImporterBackend& backend, 
     return std::filesystem::path(backend.DataFolder()) / "assets" / mod.content;
 }
 
-// Whether a mod can be on: one without content always, a content mod once its folder holds a ride (the Mods box shows
-// it locked until then).
+// Whether a mod can be on: one without content always, a content mod once its folder holds its content (the Mods box
+// shows it locked until then): a ride for the PlayStation rides (platform/content_overlay.h), the stamp and all three
+// worlds for the Theme Park Inc worlds (platform/tpi_content.h).
 bool ModContentReady(const tpw::ui::ImporterBackend& backend, const tpw::mods::Mod& mod) {
-    return mod.content.empty() || !tpw::FindContentRides(ModContentFolder(backend, mod)).empty();
+    if (mod.content.empty()) return true;
+    if (mod.content == "tpi") return tpw::TpiContentReady(ModContentFolder(backend, mod));
+    return !tpw::FindContentRides(ModContentFolder(backend, mod)).empty();
+}
+
+// A content mod's content as the Game data box names it: the PlayStation rides' titles, or the Theme Park Inc worlds'.
+std::vector<std::string> ModContentNames(const tpw::ui::ImporterBackend& backend, const tpw::mods::Mod& mod) {
+    if (mod.content == "tpi") return tpw::FindTpiWorlds(ModContentFolder(backend, mod));
+    std::vector<std::string> names;
+    for (const tpw::ContentRide& ride : tpw::FindContentRides(ModContentFolder(backend, mod)))
+        names.push_back(!ride.title.empty() ? ride.title : ride.folder.substr(ride.folder.find_last_of('/') + 1));
+    return names;
 }
 
 // The Mods box's line under a content mod until then: what unlocks it, on one line of the box. ps1 is the content made
-// by converting a PlayStation disc (platform/content_overlay.h).
+// by converting a PlayStation disc (platform/content_overlay.h), tpi the one made by converting a Theme Park Inc disc or
+// its installed folder (platform/tpi_content.h).
 std::string ModLockedText(const tpw::mods::Mod& mod) {
     return tpw::ui::ContentModLockedText(mod.content);
 }
@@ -877,6 +894,7 @@ void RegisterSamTables() {
     add({"low.sam", "med.sam", "high.sam"}, gOptionsBalanceDescriptions, std::size(gOptionsBalanceDescriptions));
     add({"_resolution.sam"}, gResolutionBalanceDescriptions, std::size(gResolutionBalanceDescriptions));
     add({"challenges.sam"}, gChallengeBalanceDescriptions, std::size(gChallengeBalanceDescriptions));
+    add({"coaster.sam"}, gCoasterBalanceDescriptions, std::size(gCoasterBalanceDescriptions));
     add({"rides.sam", "shops.sam", "sideshow.sam", "features.sam", "upgrades.sam", "online_rides.sam"},
         gRideBalanceDescriptions, std::size(gRideBalanceDescriptions));
     add({"advisor.sam"}, gAdvisorBalanceDescriptions, std::size(gAdvisorBalanceDescriptions));
@@ -936,24 +954,39 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
     }
 #ifdef TPW_PORT_FIX
     // The PlayStation rides converted by an older converter (launcher/ps1_refresh.h): converted again from the disc the
-    // importer remembered, before the window reads the mods' rides and before the game's folder is laid out.
-    for (const tpw::mods::Mod& mod : tpw::mods::Catalog()) {
-        if (mod.content != "ps1") continue;
-        const std::filesystem::path dataRoot = std::filesystem::u8path(backend.DataFolder());
-        const tpw::launcher::Ps1Refresh done = tpw::launcher::RefreshPs1Rides(
-            ModContentFolder(backend, mod), dataRoot, backend.IniExtra(tpw::assets::kPs1DiscPathKey),
-            backend.IniExtra(tpw::assets::kPs1DiscSha256Key), [&dataRoot](const std::string& path, std::string& reason) {
-                std::shared_ptr<tpw::assets::Blob> blob = tpw::assets::OpenFileBlob(path, reason);
-                if (!blob) return false;
-                tpw::assets::Ps1Disc disc;
-                if (tpw::assets::RecognisePs1(blob, disc, reason) != tpw::assets::Ps1Status::Supported) {
-                    if (reason.empty()) reason = "not a supported PlayStation disc any more";
-                    return false;
-                }
-                return tpw::assets::ConvertPs1(disc, dataRoot, reason);
-            });
-        if (!done.line.empty()) tpw::Log("%s", done.line.c_str());
-        break;
+    // importer remembered, before the window reads the mods' rides and before the game's folder is laid out. The Theme
+    // Park Inc worlds the same (launcher/tpi_refresh.h), from the remembered disc or installed folder. Once per content.
+    {
+        bool ps1Done = false, tpiDone = false;
+        for (const tpw::mods::Mod& mod : tpw::mods::Catalog()) {
+            const std::filesystem::path dataRoot = std::filesystem::u8path(backend.DataFolder());
+            if (mod.content == "ps1" && !ps1Done) {
+                ps1Done = true;
+                const tpw::launcher::Ps1Refresh done = tpw::launcher::RefreshPs1Rides(
+                    ModContentFolder(backend, mod), dataRoot, backend.IniExtra(tpw::assets::kPs1DiscPathKey),
+                    backend.IniExtra(tpw::assets::kPs1DiscSha256Key),
+                    [&dataRoot](const std::string& path, std::string& reason) {
+                        std::shared_ptr<tpw::assets::Blob> blob = tpw::assets::OpenFileBlob(path, reason);
+                        if (!blob) return false;
+                        tpw::assets::Ps1Disc disc;
+                        if (tpw::assets::RecognisePs1(blob, disc, reason) != tpw::assets::Ps1Status::Supported) {
+                            if (reason.empty()) reason = "not a supported PlayStation disc any more";
+                            return false;
+                        }
+                        return tpw::assets::ConvertPs1(disc, dataRoot, reason);
+                    });
+                if (!done.line.empty()) tpw::Log("%s", done.line.c_str());
+            } else if (mod.content == "tpi" && !tpiDone) {
+                tpiDone = true;
+                const tpw::launcher::TpiRefresh done = tpw::launcher::RefreshTpiWorlds(
+                    ModContentFolder(backend, mod), dataRoot, backend.IniExtra(tpw::assets::kTpiDiscPathKey),
+                    backend.IniExtra(tpw::assets::kTpiDiscSha256Key),
+                    [&dataRoot](const std::string& path, std::string& reason) {
+                        return tpw::assets::ConvertTpiFromPath(path, dataRoot, reason);
+                    });
+                if (!done.line.empty()) tpw::Log("%s", done.line.c_str());
+            }
+        }
     }
 #endif
     tpw::ui::LaunchChoice choice;
@@ -1043,17 +1076,19 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
                 row.changesSaves = mod.changesSaves;
                 row.conflicts = mod.conflicts;
                 row.content = mod.content;
-                // A content mod's rides, read once: the Game data box names them, and none keeps the mod locked
-                // (ModContentReady).
+                // A content mod's rides (or the Theme Park Inc worlds), read once: the Game data box names them, and the
+                // content not being whole keeps the mod locked (ModContentReady).
                 if (!mod.content.empty()) {
-                    for (const tpw::ContentRide& ride : tpw::FindContentRides(ModContentFolder(backend, mod)))
-                        row.rides.push_back(!ride.title.empty() ? ride.title
-                                                                : ride.folder.substr(ride.folder.find_last_of('/') + 1));
-                    if (row.rides.empty()) row.locked = ModLockedText(mod);
-                    // Rides an older converter wrote (launcher/ps1_refresh.h): the home asks for the disc again.
+                    row.rides = ModContentNames(backend, mod);
+                    if (!ModContentReady(backend, mod)) row.locked = ModLockedText(mod);
+                    // Content an older converter wrote (launcher/ps1_refresh.h, tpi_refresh.h): the home asks for the
+                    // disc again.
                     if (mod.content == "ps1")
                         row.stale = tpw::launcher::Ps1RidesStale(ModContentFolder(backend, mod),
                                                                  std::filesystem::u8path(backend.DataFolder()));
+                    else if (mod.content == "tpi")
+                        row.stale = tpw::launcher::TpiWorldsStale(ModContentFolder(backend, mod),
+                                                                  std::filesystem::u8path(backend.DataFolder()));
                 }
                 rows.push_back(row);
             }
@@ -1304,7 +1339,8 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
                                                       (choice.gold ? tpw::mods::kGold : 0));
         tpw::mods::Hooks hooks;
         std::vector<const tpw::mods::Mod*> on;
-        std::vector<std::filesystem::path> content;
+        std::vector<std::filesystem::path> content;   // the PlayStation rides' folders (and any other ride content)
+        std::filesystem::path tpiContent;             // the TPI Worlds and Rides mod's folder, when it is on
         std::vector<std::filesystem::path> ps1Content;   // the content of the mod that switched ps1_badge on
         std::vector<std::filesystem::path> repairContent;   // the content of the mod that switched ps1_save_repair on
         std::vector<std::filesystem::path> pickContent;   // the content of the mod that switched ps1_pick_rotation on
@@ -1346,7 +1382,8 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
             if (hooks.ps1PickRotation && !ps1PickRotation && !mod.content.empty())
                 pickContent.push_back(ModContentFolder(backend, mod));
             on.push_back(&mod);
-            if (!mod.content.empty()) content.push_back(ModContentFolder(backend, mod));
+            if (mod.content == "tpi") tpiContent = ModContentFolder(backend, mod);
+            else if (!mod.content.empty()) content.push_back(ModContentFolder(backend, mod));
             tpw::Log("mods: %s %s on", mod.id.c_str(), mod.version.c_str());
             line += (line.empty() ? "" : ", ") + mod.id + " " + mod.version;
         }
@@ -1358,6 +1395,10 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
             tpw::Log("mods: %zu content rides overlaid", rides);
             for (const std::string& why : refused) tpw::Log("mods: content ride left out: %s", why.c_str());
         }
+        // The Theme Park Inc worlds, laid over the game folder with their mod on (platform/tpi_content.h), taken away
+        // otherwise so a build's earlier run leaves nothing behind.
+        const size_t worlds = tpw::UseTpiContent(tpiContent);
+        if (!tpiContent.empty()) tpw::Log("mods: tpi-worlds on, %zu worlds", worlds);
         // The rides the ps1_save_repair hook may touch (include/Ps1SaveRepair.h): those of the mod that switched it on,
         // whatever "Show Ride Badges" says.
         gPs1SaveRepairRides = tpw::ContentRideKeys(tpw::ContentRides(), repairContent);
@@ -1477,6 +1518,7 @@ int ImportFromOptions(const std::string& dataDir, const std::vector<std::string>
              static_cast<unsigned long long>(report.alreadyThere), static_cast<unsigned long long>(report.unknownFiles));
     for (const std::string& error : report.errors) tpw::Log("import: error: %s", error.c_str());
     for (const std::string& line : report.playStation) tpw::Log("import: %s", line.c_str());
+    for (const std::string& line : report.themeParkInc) tpw::Log("import: %s", line.c_str());
     for (const std::string& dest : report.differentVersions) tpw::Log("import: a different version (not used): %s", dest.c_str());
     if (report.cancelled || report.aborted) tpw::Log("import: stopped before the end%s", report.aborted ? " by a write error" : "");
     tpw::launcher::RefreshInstalledIcon(backend.DataFolder());   // the import may have written the game's icon

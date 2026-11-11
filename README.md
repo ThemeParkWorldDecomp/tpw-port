@@ -179,6 +179,15 @@ original. When any is on, the button says how many (1 mod on), and launcher.log 
 | --- | --- | --- |
 | Enable strikes | Staff can go on strike in an open park, as Bullfrog's code was written to do before the release blocked it. Strikes still need a park older than 24 months and staff with a real grievance. The advisor also gives the two strike messages the original never used: a last warning a week before a strike, and word when a strike is over. | US, European, Gold |
 | Patrolling staff can cross bridges | Staff walking their rounds can cross a footbridge, like the bridge over the stream in the Lost Kingdom. In the original they only crossed one when sent to a job on the other side. A bridge outside a worker's patrol area is still never taken. | US, European, Gold |
+| PlayStation rides | The seven rides only the PlayStation edition had, and its Tower as Halloween scenery, converted from your own USA, European or Japanese PlayStation disc dropped on the launcher. Locked until the disc's rides are in the data folder. A park that uses one of them needs the mod to load. | US, European, Gold |
+| TPI Worlds and Rides | Three worlds from Theme Park Inc (SimCoaster), the game's sequel: Arabian Nights, Polar Zone and Land of Invention, each with its own rides, shops, sideshows and scenery, converted from your own Theme Park Inc disc, disc image or installed game folder dropped on the launcher. The worlds play by Theme Park World's rules, with Theme Park World's visitors and staff; the island screen gets a second ring of islands for them (Tab flies between the rings). They are free to enter. Locked until the worlds are in the data folder. A park in one of them needs the mod to load and cannot be published online. | US, European, Gold |
+
+Two of the mods add content from another game you own, the way the launcher adds the game itself from your disc: the
+repositories hold none of it. Drop the disc, image, archive or installed folder on the launcher window (or on the Game
+data page), and the converter writes what the mod needs into the data folder (assets/ps1, assets/tpi) and unlocks the
+mod's switch. The Game data page shows each converted game with Convert again and Forget. A park saved with such a mod
+on needs it on to load; without it the game says what the park needs and goes back to the menu, and nothing is saved
+over the park.
 
 ### Updates
 
@@ -316,7 +325,7 @@ on the Mac, bugs included. This repository adds what it takes to play:
   game's window: OpenGL (platform/gl_backend.cpp, platform/offscreen.cpp), or on Linux the port's own Vulkan renderer
   (platform/vulkan/), which draws the OpenGL 1.1 calls the game makes. On Linux those calls are the platform layer's own
   (platform/gl_entry.cpp), handed to the Vulkan renderer or to the system's OpenGL.
-- overrides/: the port's fixes, 441 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
+- overrides/: the port's fixes, 468 so far, each one listed in [FIXES.md](FIXES.md) with what the Mac does, what
   the port does and why. Each file there is built in place of the tpw-decomp file of the same path. Headers are read
   from a copy of tpw-decomp's headers in the build folder with the overridden ones laid over it.
 - mods/: the [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) submodule, for optional changes to how the game plays (Mods, above). Its

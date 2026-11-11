@@ -29,6 +29,8 @@ struct Hooks {
     bool ps1Ground = false;           // ps1_ground: a PlayStation ride's own ground is blended into the park's ground cell by cell (CalculateSkirtVertices)
     bool ps1SaveRepair = false;       // ps1_save_repair: a park's PlayStation rides whose saved doors are not their record's have them moved as it loads (include/Ps1SaveRepair.h)
     bool ps1PickRotation = false;     // ps1_pick_rotation: a PlayStation ride picked from Buy Ride starts half a turn round, its entrance at the bottom like a PC ride's (include/Ps1PickRotation.h)
+    bool tpiWorlds = false;           // tpi_worlds: the game's worlds are the original four and the three made from the player's Theme Park Inc copy (include/TpiWorlds.h)
+    bool tpiIslands = false;          // tpi_islands: the island screen has a second group of islands for those worlds, and a switch between the groups (include/TpiWorlds.h)
 };
 
 // A compiled-in mod, as its mod.json describes it.
@@ -44,7 +46,7 @@ struct Mod {
     bool changesSaves = false;            // a saved game made with it on differs from the original's
     std::vector<std::string> hooks;       // the TPW_MOD_HOOK names it switches on
     void (*switchOn)(Hooks& hooks) = nullptr;   // its own code: sets the fields of its hooks
-    std::string content;   // its content's folder in the data folder's assets (mod.json's "content", optional): ps1.
+    std::string content;   // its content's folder in the data folder's assets (mod.json's "content", optional): ps1, tpi.
                            // The launcher lays it over the game folder (platform/content_overlay.h) with the mod on,
                            // and keeps the mod locked until the folder holds it
 };
@@ -58,7 +60,8 @@ inline std::string Key(const Mod& mod) { return "mod." + mod.id; }
 
 // Puts `hooks` into the game (the hooks' flags, include/ThingReceivers.h's gModStrikeGate, gModStrikeMessages and
 // gModStaffBridgeWander and gModPs1Ground, include/RideBadges.h's gModPs1Badge, include/Ps1SaveRepair.h's gModPs1SaveRepair
-// and include/Ps1PickRotation.h's gModPs1PickRotation). Before the game starts, once; never called, the
+// include/Ps1PickRotation.h's gModPs1PickRotation and
+// include/TpiWorlds.h's gModTpiWorlds and gModTpiIslands). Before the game starts, once; never called, the
 // game's hooks stay off.
 void Apply(const Hooks& hooks);
 

@@ -25,6 +25,7 @@
 #include "TbTList.h"
 #include "Text.h"
 #include "TPGlobals.h"
+#include "TpiWorlds.h"
 #include "TPMain.h"
 #include "TPString.h"
 #include "ui_ErrorDisplay.h"
@@ -1273,6 +1274,13 @@ void CFSOnlineSystem::RequestUpload(const char* file, int32_t f344, const char16
     mF370 = f370;
     mF374 = PointerWord(reinterpret_cast<const void*>(callback));
     mF378 = PointerWord(context);
+    // TPW_PORT_FIX mods CFSOnlineSystem::RequestUpload | Mac: every park may be published; the world's online id comes from the server's list of the four, an unknown name getting the first world's (CFSOnlineList::ReturnOnlineThemeID) | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiWorlds.h): a park in one of the mod's worlds (the world SetPublishing kept) is refused here, before any login, the way the child lock refuses one (error 0x4e, CompleteUpload shows it and runs the caller's callback as a failed upload), so it is never sent as another world's park; off, the Mac's | Why: tpw-mods tpi-worlds, offline only in this release
+    if (gModTpiWorlds && tpw::TpiWorldOf(mF10C.mData) != nullptr) {
+        mF37C = 0x4e;
+        mF380 = 0;
+        CompleteUpload(1);
+        return;
+    }
     if (mLoggedIn == 0) {
         mF320 = 1;
         mLoginCallback = UploadPostLoginCallbackFn;

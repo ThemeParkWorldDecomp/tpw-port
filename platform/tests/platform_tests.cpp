@@ -28,6 +28,7 @@
 #include "email.h"
 #include "content_overlay.h"
 #include "gold_rides.h"
+#include "tpi_content.h"
 #include "language_pack.h"
 #include "packs.h"
 #include "TbAudioSystem.h"
@@ -555,6 +556,190 @@ static void TestContentRides(const fs::path& scratch) {
     config.gameDir = gameDir;
     config.userDir = userDir;
 }
+
+// The TPI Worlds mod's content folder laid over the game folder (tpi_content.h): its worlds list in data:levels after
+// the game's, a file the game folder has stays the game folder's, a file of one of its worlds that nothing holds is the
+// donor world's except in the folders that never fall back, names with the world's three letters map to the donor's
+// and back, and with the folder taken away every lookup and listing is as before.
+static void TestTpiContent(const fs::path& scratch) {
+    tpw::Config& config = tpw::config();
+    const fs::path gameDir = config.gameDir;
+    const fs::path userDir = config.userDir;
+    config.gameDir = scratch / "game";
+    config.userDir = scratch / "user";
+    const fs::path levels = fs::path("data") / "levels";
+    const fs::path jungle = config.gameDir / levels / "jungle";
+    Touch(jungle / "global.sam", "jungle global");
+    Touch(jungle / "Standard.sam", "jungle standard");
+    Touch(jungle / "Easy_Standard.sam", "jungle easy");
+    Touch(jungle / "Easymode.TPWI", "jungle easy park");
+    Touch(jungle / "Sound" / "AmbientHD.sdt", "jungle ambient");
+    Touch(jungle / "Speech" / "speechHD.SDT", "jungle speech");
+    Touch(jungle / "Advisor" / "Advisor_jun.md2", "jungle advisor");
+    Touch(jungle / "Advisor" / "textures" / "adv_JUN01.tga", "jungle advisor texture");
+    Touch(jungle / "rides" / "Rides.sam", "jungle ride defaults");
+    Touch(jungle / "rides" / "_snake_1.wad", "jungle snake");
+    Touch(jungle / "shops" / "_cola_7.wad", "jungle cola");
+    Touch(config.gameDir / levels / "hallow" / "global.sam", "hallow global");
+    Touch(config.gameDir / levels / "hallow" / "Standard.sam", "hallow standard");
+    Touch(config.gameDir / levels / "space" / "global.sam", "space global");
+    Touch(config.gameDir / levels / "space" / "Standard.sam", "space standard");
+    Touch(config.gameDir / levels / "space" / "Music" / "MusicHD.sdt", "space music");
+    Touch(config.gameDir / levels / "fantasy" / "global.sam", "fantasy global");
+    Touch(config.gameDir / "data" / "lobby.wad", "the island screen");
+    // The content folder as the converter writes it: the stamp, the three worlds (one with its own ride, sound and sky,
+    // one bare), a lobby descriptor, and a copy of a game file (ignored: the game folder's stays). Its names are in mixed
+    // case, one spelling each as a converter writes them, so that on a disk that tells the cases apart (Linux) the
+    // lookups' case folding is what finds them.
+    const fs::path tpi = scratch / "tpi";
+    Touch(tpi / "Converter.txt", "3\n");
+    const fs::path tpiLevels = tpi / "Data" / "Levels";
+    const fs::path arabian = tpiLevels / "Arabian";
+    Touch(arabian / "global.sam", "arabian global");
+    Touch(arabian / "rides" / "magic.wad", "arabian magic carpet");
+    Touch(arabian / "rides" / "Rides.sam", "arabian ride defaults");
+    Touch(arabian / "Sound" / "RideHD.sdt", "arabian rides sound");
+    Touch(arabian / "sky" / "sky.tga", "arabian sky");
+    Touch(tpiLevels / "water" / "global.sam", "water global");
+    Touch(tpiLevels / "science" / "global.sam", "science global");
+    Touch(tpiLevels / "science" / "features" / "tesla.wad", "science tesla");
+    Touch(tpiLevels / "jungle" / "global.sam", "NOT the game's");
+    Touch(tpi / "Data" / "lobby" / "arabian.txt", "arabian island");
+    auto names = [](const std::vector<tpw::DirEntry>& entries) {
+        std::string text;
+        for (const tpw::DirEntry& entry : entries) text += entry.name + (entry.isDirectory ? "/ " : " ");
+        return text;
+    };
+
+    // The table and the helpers.
+    CHECK(tpw::TpiWorldOf("ARABIAN") != nullptr && std::string(tpw::TpiWorldOf("ARABIAN")->donor) == "jungle");
+    CHECK(tpw::TpiWorldOf("water") != nullptr && std::string(tpw::TpiWorldOf("water")->donor) == "hallow");
+    CHECK(tpw::TpiWorldOf("Science") != nullptr && std::string(tpw::TpiWorldOf("Science")->donor) == "space");
+    CHECK(tpw::TpiWorldOf("jungle") == nullptr && tpw::TpiWorldOf("") == nullptr && tpw::TpiWorldOf("arabians") == nullptr);
+    std::string first, second;
+    tpw::TpiGateNames(tpw::kTpiWorlds[0], first, second);
+    CHECK(first == "Arabian" && second == "Nights");
+    tpw::TpiGateNames(tpw::kTpiWorlds[1], first, second);
+    CHECK(first == "Polar" && second == "Zone");
+    tpw::TpiGateNames(tpw::kTpiWorlds[2], first, second);
+    CHECK(first == "Land of" && second == "Invention");
+    CHECK(std::string(tpw::TpiSettingsThemeFolder(3)) == "fantasy" && std::string(tpw::TpiSettingsThemeFolder(1)) == "jungle");
+    CHECK(std::string(tpw::TpiSettingsThemeFolder(2)) == "hallow" && std::string(tpw::TpiSettingsThemeFolder(4)) == "space");
+    CHECK(std::string(tpw::TpiSettingsThemeFolder(0)) == "jungle" && std::string(tpw::TpiSettingsThemeFolder(5)) == "jungle" &&
+          std::string(tpw::TpiSettingsThemeFolder(-1)) == "jungle");
+    std::vector<std::string> donor;
+    CHECK((tpw::TpiDonorParts({"data", "levels", "arabian", "Advisor", "Advisor_ARA.md2"}, donor) &&
+           donor == std::vector<std::string>{"data", "levels", "jungle", "Advisor", "Advisor_JUN.md2"}));
+    CHECK((tpw::TpiDonorParts({"DATA", "LEVELS", "Water", "Standard.sam"}, donor) &&
+           donor == std::vector<std::string>{"DATA", "LEVELS", "hallow", "Standard.sam"}));
+    CHECK((tpw::TpiDonorParts({"data", "levels", "science"}, donor) && donor == std::vector<std::string>{"data", "levels", "space"}));
+    CHECK(!tpw::TpiDonorParts({"data", "levels", "arabian", "Rides", "Rides.sam"}, donor));
+    CHECK(!tpw::TpiDonorParts({"data", "levels", "arabian", "shops"}, donor));
+    CHECK(!tpw::TpiDonorParts({"data", "levels", "arabian", "sideshow", "x.wad"}, donor));
+    CHECK(!tpw::TpiDonorParts({"data", "levels", "arabian", "features"}, donor));
+    CHECK(!tpw::TpiDonorParts({"data", "levels", "arabian", "upgrades", "u.wad"}, donor));
+    CHECK(!tpw::TpiDonorParts({"data", "levels", "arabian", "EASYMODE.TPWI"}, donor));
+    CHECK(!tpw::TpiDonorParts({"data", "levels", "arabian", "easymode"}, donor));
+    CHECK(tpw::TpiDonorParts({"data", "levels", "arabian", "Easy_Standard.sam"}, donor));
+    CHECK(!tpw::TpiDonorParts({"data", "levels", "jungle", "Standard.sam"}, donor));
+    CHECK(!tpw::TpiDonorParts({"data", "levels"}, donor) && !tpw::TpiDonorParts({"data", "lobby", "arabian.txt"}, donor));
+    CHECK(!tpw::TpiDonorParts({"users", "Tess", "arabian", "park.tpwi"}, donor));
+    CHECK(tpw::TpiWorldName(tpw::kTpiWorlds[2], "Advisor_spa.md2") == "Advisor_sci.md2");
+    CHECK(tpw::TpiWorldName(tpw::kTpiWorlds[1], "ADV_HAL01.TGA") == "ADV_WAT01.TGA");
+    CHECK(tpw::TpiWorldName(tpw::kTpiWorlds[0], "global.sam") == "global.sam");
+
+    // Not laid over: the game folder alone.
+    CHECK(tpw::TpiContentRoot().empty());
+    CHECK(tpw::FindHostPath("data:levels:arabian:global.sam").empty());
+    CHECK(tpw::FindHostPath("data:lobby:arabian.txt").empty());
+    CHECK(names(tpw::ListGameFolder("data:levels")) == "fantasy/ hallow/ jungle/ space/ ");
+    CHECK(tpw::ListGameFolder("data:levels:arabian").empty());
+    // Not whole (a world missing, or no stamp): nothing is laid over.
+    CHECK((tpw::FindTpiWorlds(tpi) == std::vector<std::string>{"Arabian Nights", "Polar Zone", "Land of Invention"}));
+    CHECK(tpw::FindTpiWorlds(scratch / "nowhere").empty());
+    Touch(scratch / "unstamped" / "data" / "levels" / "arabian" / "global.sam");
+    CHECK(tpw::FindTpiWorlds(scratch / "unstamped").empty() && !tpw::TpiContentReady(scratch / "unstamped"));
+    Touch(scratch / "partial" / "converter.txt", "1\n");
+    Touch(scratch / "partial" / "data" / "levels" / "arabian" / "global.sam");
+    CHECK((tpw::FindTpiWorlds(scratch / "partial") == std::vector<std::string>{"Arabian Nights"}));
+    CHECK(tpw::UseTpiContent(scratch / "partial") == 0 && tpw::TpiContentRoot().empty());
+    CHECK(tpw::UseTpiContent(scratch / "unstamped") == 0 && tpw::TpiContentRoot().empty());
+
+    // Laid over.
+    CHECK(tpw::TpiContentReady(tpi) && tpw::UseTpiContent(tpi) == 3 && Same(tpw::TpiContentRoot(), tpi));
+    CHECK(names(tpw::ListGameFolder("data:levels")) == "fantasy/ hallow/ jungle/ space/ Arabian/ science/ water/ ");
+    CHECK(names(tpw::ListGameFolder("data")) == "levels/ lobby.wad lobby/ ");
+    CHECK(Same(tpw::FindHostPath("data:levels:arabian:global.sam"), arabian / "global.sam"));
+    CHECK(Same(tpw::FindHostPath("data:levels:ARABIAN:rides:magic.wad"), arabian / "rides" / "magic.wad"));
+    CHECK(Same(tpw::FindHostPath("data:lobby:arabian.txt"), tpi / "Data" / "lobby" / "arabian.txt"));
+    CHECK(Same(tpw::FindHostPath("data:levels:jungle:global.sam"), jungle / "global.sam"));   // the game folder's
+    CHECK(Same(tpw::FindHostPath("data:levels:arabian"), arabian));
+    // The donor: a file the world lacks, in any case, with the world's letters mapped; not in the ride folders, not
+    // the easy mode's park, not outside the mod's worlds.
+    CHECK(Same(tpw::FindHostPath("data:levels:arabian:Standard.sam"), jungle / "Standard.sam"));
+    CHECK(Same(tpw::FindHostPath("DATA:LEVELS:ARABIAN:EASY_STANDARD.SAM"), jungle / "Easy_Standard.sam"));
+    CHECK(Same(tpw::FindHostPath("data:levels:arabian:Sound:AmbientHD.sdt"), jungle / "Sound" / "AmbientHD.sdt"));
+    CHECK(Same(tpw::FindHostPath("data:levels:arabian:Sound:RideHD.sdt"), arabian / "Sound" / "RideHD.sdt"));
+    CHECK(Same(tpw::FindHostPath("data:levels:arabian:Speech:speechHD.SDT"), jungle / "Speech" / "speechHD.SDT"));
+    CHECK(Same(tpw::FindHostPath("data:levels:arabian:Speech"), jungle / "Speech"));
+    CHECK(Same(tpw::FindHostPath("data:levels:arabian:Advisor:Advisor_ara.md2"), jungle / "Advisor" / "Advisor_jun.md2"));
+    CHECK(Same(tpw::FindHostPath("data:levels:arabian:Advisor:textures:adv_ARA01.tga"),
+               jungle / "Advisor" / "textures" / "adv_JUN01.tga"));
+    CHECK(Same(tpw::FindHostPath("data:levels:water:Standard.sam"), config.gameDir / levels / "hallow" / "Standard.sam"));
+    CHECK(Same(tpw::FindHostPath("data:levels:science:Music:MusicHD.sdt"), config.gameDir / levels / "space" / "Music" / "MusicHD.sdt"));
+    CHECK(Same(tpw::FindHostPath("data:levels:science:global.sam"), tpiLevels / "science" / "global.sam"));
+    CHECK(tpw::FindHostPath("data:levels:arabian:rides:_snake_1.wad").empty());
+    CHECK(tpw::FindHostPath("data:levels:arabian:shops:_cola_7.wad").empty());
+    CHECK(tpw::FindHostPath("data:levels:arabian:shops").empty());
+    CHECK(tpw::FindHostPath("data:levels:water:rides:Rides.sam").empty());
+    CHECK(tpw::FindHostPath("data:levels:arabian:Easymode.TPWI").empty());
+    CHECK(tpw::FindHostPath("data:levels:arabian:nothing.sam").empty());
+    CHECK(tpw::FindHostPath("data:levels:jungle:Advisor:Advisor_ara.md2").empty());
+    CHECK(tpw::FindHostPath("data:levels:fantasy:Standard.sam").empty());
+    // Listings: the world's own entries first, then the donor's it lacks (never the ride folders' contents nor the
+    // easy mode's park), the donor's names under the world's letters, a bare world as the donor's.
+    CHECK(names(tpw::ListGameFolder("data:levels:arabian")) ==
+          "global.sam rides/ sky/ Sound/ Advisor/ Easy_Standard.sam Speech/ Standard.sam ");
+    CHECK(names(tpw::ListGameFolder("data:levels:arabian:rides")) == "magic.wad Rides.sam ");
+    CHECK(tpw::ListGameFolder("data:levels:arabian:shops").empty());
+    CHECK(tpw::ListGameFolder("data:levels:water:rides").empty());
+    CHECK(names(tpw::ListGameFolder("data:levels:science:features")) == "tesla.wad ");
+    CHECK(names(tpw::ListGameFolder("data:levels:arabian:Sound")) == "RideHD.sdt AmbientHD.sdt ");
+    CHECK(names(tpw::ListGameFolder("data:levels:arabian:Advisor")) == "Advisor_ara.md2 textures/ ");
+    CHECK(names(tpw::ListGameFolder("data:levels:arabian:Advisor:textures")) == "adv_ARA01.tga ");
+    CHECK(names(tpw::ListGameFolder("data:levels:water")) == "global.sam Standard.sam ");
+    CHECK(names(tpw::ListGameFolder("data:levels:science")) == "features/ global.sam Music/ Standard.sam ");
+    CHECK(names(tpw::ListGameFolder("data:levels:jungle")) ==
+          "Advisor/ Easy_Standard.sam Easymode.TPWI global.sam rides/ shops/ Sound/ Speech/ Standard.sam ");
+    CHECK(names(tpw::ListGameFolder("data:lobby")) == "arabian.txt ");
+    // The user folder still comes first, for a file of a mod world too.
+    Touch(config.userDir / levels / "arabian" / "global.sam", "the player's");
+    CHECK(Same(tpw::FindHostPath("data:levels:arabian:global.sam"), config.userDir / levels / "arabian" / "global.sam"));
+    std::error_code ignored;
+    fs::remove_all(config.userDir / "data", ignored);
+
+    // Taken away: as before.
+    CHECK(tpw::UseTpiContent({}) == 0 && tpw::TpiContentRoot().empty());
+    CHECK(tpw::FindHostPath("data:levels:arabian:Standard.sam").empty());
+    CHECK(tpw::FindHostPath("data:lobby:arabian.txt").empty());
+    CHECK(names(tpw::ListGameFolder("data:levels")) == "fantasy/ hallow/ jungle/ space/ ");
+    CHECK(tpw::ListGameFolder("data:levels:arabian").empty());
+    CHECK(names(tpw::ListGameFolder("data")) == "levels/ lobby.wad ");
+#ifdef TPW_PORT_FIX
+    // The launcher's "mod off" call keeps the TPW_TPI_ROOT test hook's folder (a scripted play needs no Mods box
+    // entry); unset, or naming no whole content folder, the worlds go away as before.
+    setenv("TPW_TPI_ROOT", tpi.string().c_str(), 1);
+    CHECK(tpw::UseTpiContent({}) == 3 && Same(tpw::TpiContentRoot(), tpi) && tpw::TpiContentForced());
+    CHECK(names(tpw::ListGameFolder("data:levels")) == "fantasy/ hallow/ jungle/ space/ Arabian/ science/ water/ ");
+    setenv("TPW_TPI_ROOT", (scratch / "partial").string().c_str(), 1);
+    CHECK(tpw::UseTpiContent({}) == 0 && tpw::TpiContentRoot().empty() && !tpw::TpiContentForced());
+    unsetenv("TPW_TPI_ROOT");
+    CHECK(tpw::UseTpiContent({}) == 0 && tpw::TpiContentRoot().empty() && !tpw::TpiContentForced());
+    CHECK(names(tpw::ListGameFolder("data:levels")) == "fantasy/ hallow/ jungle/ space/ ");
+#endif
+    config.gameDir = gameDir;
+    config.userDir = userDir;
+}
 #endif
 
 // The chosen language laid over the game folder (language_pack.h): data:Language: lists its folder first, so the game
@@ -974,6 +1159,13 @@ static void TestFileHandles() {
     // the file in the user folder, and the loaders' CreateFile (TextFile::Open) reads the same file back (the port fix v5L48; the
     // Mac's open takes the colon path as it is).
     {
+        // The checks that no file was made under the colon path as it is are relative to the working directory, so the
+        // block runs in an empty folder of its own: a run from a folder that holds such a file (left by a build before the
+        // fix) would otherwise see it.
+        const fs::path keptCwd = fs::current_path();
+        const fs::path literalCwd = config.userDir.parent_path() / "cwd";
+        fs::create_directories(literalCwd);
+        fs::current_path(literalCwd);
         const char* const kBook = "TPW:Theme Park Data:save:users:T5L48:addrbook.dat";
         SaveStream out;
         SaveStreamCtor(&out);
@@ -1015,6 +1207,8 @@ static void TestFileHandles() {
         outbox_callee::StreamDestroy(&in);
         CHECK(!fs::exists(config.userDir / "save" / "users" / "U5L48"));
         CHECK(!fs::exists(kMail));
+        CHECK(fs::is_empty(literalCwd));
+        fs::current_path(keptCwd);
     }
 #endif
 
@@ -4201,6 +4395,7 @@ int main() {
     TestGoldRides(scratch / "gold");
 #ifdef TPW_PORT_FIX
     TestContentRides(scratch / "content");
+    TestTpiContent(scratch / "tpi");
 #endif
     TestLanguagePack(scratch / "language");
     TestEdition(scratch / "edition");

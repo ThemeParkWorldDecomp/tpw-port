@@ -13,6 +13,7 @@
 
 #ifdef TPW_PORT_FIX
 #include "content_overlay.h"
+#include "tpi_content.h"
 #endif
 #include "gold_rides.h"
 #include "language_pack.h"
@@ -171,6 +172,8 @@ static fs::path FindUnder(const fs::path& root, const std::vector<std::string>& 
     return fs::exists(current, ec) ? current : fs::path();
 }
 
+fs::path FindHostPathUnder(const fs::path& root, const std::vector<std::string>& parts) { return FindUnder(root, parts); }
+
 std::vector<fs::path>& PackDirs() {
     static std::vector<fs::path> dirs;
     return dirs;
@@ -245,8 +248,19 @@ static fs::path FindHostPathOf(const std::vector<std::string>& parts) {
         found = FindUnder(content, rest);
         if (!found.empty()) return found;
     }
-#endif
+    found = FindUnder(config().gameDir, parts);
+    if (!found.empty()) return found;
+    // The TPI Worlds mod's content (tpi_content.h): a file the game folder does not have, and for a file of one of its
+    // worlds that nothing holds, the donor world's.
+    const fs::path& tpi = TpiContentRoot();
+    if (tpi.empty()) return found;
+    found = FindUnder(tpi, parts);
+    if (!found.empty()) return found;
+    std::vector<std::string> donor;
+    return TpiDonorParts(parts, donor) ? FindHostPathOf(donor) : found;
+#else
     return FindUnder(config().gameDir, parts);
+#endif
 }
 
 fs::path FindHostPath(const std::string& gamePath) {
@@ -319,8 +333,9 @@ std::vector<DirEntry> ListGameFolder(const std::string& gamePath) {
     // from a pack only the files a pack may hold. The Gold rides (gold_rides.h) are listed with the game folder, as the
     // Gold installer's copies would be in it: a Gold copy of a base ride takes the base entry's place, a new ride is
     // sorted in among the base ones. A mod's content rides (content_overlay.h) are listed with the game folder too, each
-    // ride's folder in its parent's place, and the inside of a ride's folder from the content folder.
-    enum class Root { kUser, kLanguage, kPack, kContent, kGame };
+    // ride's folder in its parent's place, and the inside of a ride's folder from the content folder. The TPI Worlds mod's
+    // content (tpi_content.h) is listed after the game folder, and under one of its worlds the donor's entries follow.
+    enum class Root { kUser, kLanguage, kPack, kContent, kGame, kTpi };
     std::vector<std::pair<fs::path, Root>> roots{{config().userDir, Root::kUser}};
     if (LanguagePackCovers(parts) || LanguagePackLists(parts, LanguagePackName()))
         roots.emplace_back(LanguagePackFolder(), Root::kLanguage);
@@ -331,6 +346,9 @@ std::vector<DirEntry> ListGameFolder(const std::string& gamePath) {
     if (!content.empty()) roots.emplace_back(content, Root::kContent);
 #endif
     roots.emplace_back(config().gameDir, Root::kGame);
+#ifdef TPW_PORT_FIX
+    if (!TpiContentRoot().empty()) roots.emplace_back(TpiContentRoot(), Root::kTpi);
+#endif
     std::vector<DirEntry> entries;
     for (size_t r = 0; r < roots.size(); ++r) {
         const auto& [root, source] = roots[r];
@@ -382,6 +400,25 @@ std::vector<DirEntry> ListGameFolder(const std::string& gamePath) {
         });
         entries.insert(entries.end(), found.begin(), found.end());
     }
+#ifdef TPW_PORT_FIX
+    // Under a TPI Worlds mod world, the donor's entries the world lacks, under the world's names; in the world's own
+    // folder not the folders that never fall back nor the easy mode's park (tpi_content.h's table).
+    std::vector<std::string> donor;
+    if (!TpiContentRoot().empty() && TpiDonorParts(parts, donor)) {
+        const TpiWorld* world = TpiWorldOf(parts[2]);
+        for (const DirEntry& theirs : ListGameFolder(JoinParts(donor))) {
+            DirEntry entry = theirs;
+            entry.name = TpiWorldName(*world, theirs.name);
+            std::vector<std::string> below = parts;
+            below.push_back(entry.name);
+            std::vector<std::string> unused;
+            if (!TpiDonorParts(below, unused)) continue;
+            const bool seen = std::any_of(entries.begin(), entries.end(),
+                                          [&](const DirEntry& e) { return EqualNoCase(e.name, entry.name); });
+            if (!seen) entries.push_back(entry);
+        }
+    }
+#endif
     return entries;
 }
 

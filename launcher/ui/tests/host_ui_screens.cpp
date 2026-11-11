@@ -745,6 +745,34 @@ ModRow Ps1RidesConverted() {
                  "Tower"};
     return row;
 }
+// The TPI Worlds and Rides mod (tpw-mods tpi-worlds, content "tpi") before the player's own Theme Park Inc disc is
+// converted: locked, as launcher/main.cpp gives it.
+ModRow TpiWorlds() {
+    ModRow row;
+    row.id = "tpi-worlds";
+    row.name = "TPI Worlds and Rides";
+    row.version = "0.1.0";
+    row.author = "TPW Decomp";
+    row.text = "Adds Theme Park Inc's three worlds and their rides, converted from your own Theme Park Inc disc.";
+    row.editions[0] = row.editions[1] = row.editions[2] = true;
+    row.changesSaves = true;
+    row.locked = ContentModLockedText("tpi");
+    row.content = "tpi";
+    return row;
+}
+// The same once the disc is converted: its three worlds, as launcher/main.cpp reads them (platform/tpi_content.h).
+ModRow TpiWorldsConverted() {
+    ModRow row = TpiWorlds();
+    row.locked.clear();
+    row.rides = {"Arabian Nights", "Polar Zone", "Land of Invention"};
+    return row;
+}
+// The same converted by an older converter that the launcher could not run again (launcher/tpi_refresh.h).
+ModRow TpiWorldsStale() {
+    ModRow row = TpiWorldsConverted();
+    row.stale = true;
+    return row;
+}
 ModRow NoStrikes() {
     ModRow row;
     row.id = "no-strikes";
@@ -1356,6 +1384,29 @@ std::vector<Shot> Shots() {
                          ui.ShowMods(true);
                      },
                      Screen::Home, {}});
+    // Both content mods: the Theme Park Inc one locked under the converted PlayStation one, then both unlocked and on.
+    shots.push_back({"37-mods-tpi-locked", metric::kStartWidth, metric::kStartHeight,
+                     [](FakeBackend& b) {
+                         FillEverything(b);
+                         b.settings[ModKey("ps1-rides")] = "1";
+                         b.settings[ModKey("tpi-worlds")] = "1";
+                     },
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
+                         ui.SetMods({Ps1RidesConverted(), TpiWorlds()});
+                         ui.ShowMods(true);
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"38-mods-tpi-unlocked", metric::kStartWidth, metric::kStartHeight,
+                     [](FakeBackend& b) {
+                         FillEverything(b);
+                         b.settings[ModKey("ps1-rides")] = "1";
+                         b.settings[ModKey("tpi-worlds")] = "1";
+                     },
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
+                         ui.SetMods({Ps1RidesConverted(), TpiWorldsConverted()});
+                         ui.ShowMods(true);
+                     },
+                     Screen::Home, {}});
 
     // The update banner under the title (updater.h), in the smallest window: on the home with the drop field (whose
     // icon makes room for it) and on the all-confirmed one.
@@ -1420,13 +1471,36 @@ std::vector<Shot> Shots() {
         b.languages = MixedLanguages();
     };
     shots.push_back({"60-gamedata-locked", metric::kStartWidth, metric::kStartHeight, nullptr,
-                     gameData({EnableStrikes(), Ps1Rides()}), Screen::Home, {}});
+                     gameData({EnableStrikes(), Ps1Rides(), TpiWorlds()}), Screen::Home, {}});
     shots.push_back({"61-gamedata-unlocked", metric::kStartWidth, metric::kStartHeight, everything,
-                     gameData({EnableStrikes(), Ps1RidesConverted()}), Screen::Home, {}});
+                     gameData({EnableStrikes(), Ps1RidesConverted(), TpiWorldsConverted()}), Screen::Home, {}});
     shots.push_back({"62-gamedata-mixed", metric::kStartWidth, metric::kStartHeight, mixed,
-                     gameData({EnableStrikes(), Ps1Rides()}), Screen::Home, {}});
+                     gameData({EnableStrikes(), Ps1Rides(), TpiWorlds()}), Screen::Home, {}});
     shots.push_back({"63-gamedata-unlocked-smallest", metric::kMinWidth, metric::kMinHeight, everything,
-                     gameData({EnableStrikes(), Ps1RidesConverted()}), Screen::Home, {}});
+                     gameData({EnableStrikes(), Ps1RidesConverted(), TpiWorldsConverted()}), Screen::Home, {}});
+    // The Theme Park Inc worlds alone unlocked (the PlayStation disc not dropped yet), and the home's notice while they
+    // were converted by an older version and the launcher could not convert them again (launcher/tpi_refresh.h).
+    shots.push_back({"67-gamedata-tpi-unlocked", metric::kStartWidth, metric::kStartHeight, everything,
+                     gameData({EnableStrikes(), Ps1Rides(), TpiWorldsConverted()}), Screen::Home, {}});
+    shots.push_back({"68-home-tpi-stale-notice", metric::kStartWidth, metric::kStartHeight, everything,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         ui.SetMods({EnableStrikes(), Ps1RidesConverted(), TpiWorldsStale()});
+                         frames(1);
+                     },
+                     Screen::Home, {}});
+    // The result screen after a Theme Park Inc disc drop: the converter's own lines, and nothing about the editions.
+    shots.push_back({"69-result-tpi-ready", metric::kStartWidth, metric::kStartHeight, everything,
+                     [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>&) {
+                         FakeBackend::Script s;
+                         s.finish = [](FakeBackend&, ImportReport& r) {
+                             r.themeParkIncConverted = true;
+                             r.themeParkInc.push_back("Theme Park Inc: 3 worlds converted from the European disc.");
+                             r.themeParkInc.push_back("Arabian Nights, Polar Zone and Land of Invention are in the Mods box.");
+                         };
+                         b.Queue(s);
+                         ui.OfferPaths({"/media/Theme Park Inc"});
+                     },
+                     Screen::Result, {}});
     shots.push_back({"64-home-gamedata-button-smallest", metric::kMinWidth, metric::kMinHeight, nullptr, nullptr,
                      Screen::Home, "found"});
     // A wide window: the button in the header, where its Play was, on both homes.
@@ -1538,6 +1612,31 @@ void CheckWindowsTexts() {
 void CheckTexts() {
     CheckEq(ContentModLockedText("ps1"), "Drop your own PlayStation disc on the launcher to unlock.",
             "content mod: how to unlock PlayStation rides");
+    CheckEq(ContentModLockedText("tpi"), "Drop your Theme Park Inc disc or its folder on the launcher to unlock.",
+            "content mod: how to unlock the Theme Park Inc worlds");
+    Check(ContentStaleNotice("ps1") == std::string(kPs1StaleNotice) && ContentStaleNotice("tpi") == std::string(kTpiStaleNotice),
+          "content mod: each content's stale notice");
+    {
+        ImportReport tpi;
+        EditionStatus before[6] = {};
+        tpi.themeParkInc.push_back("Theme Park Inc: 3 worlds converted from the European disc.");
+        tpi.themeParkIncConverted = true;
+        ResultText result = DescribeResult(tpi, before);
+        CheckEq(result.headline, "TPI worlds ready", "TPI conversion headline");
+        Check(result.good && result.lines.size() == 1 && result.lines.front() == tpi.themeParkInc.front(),
+              "TPI conversion reports its own content without changing edition counts");
+        tpi.themeParkIncConverted = false;
+        result = DescribeResult(tpi, before);
+        Check(!result.good && result.headline == "Theme Park Inc disc recognised", "TPI recognised but not converted stays honest");
+        // Both discs in one drop: the PlayStation headline first, both converters' lines.
+        tpi.themeParkIncConverted = true;
+        tpi.playStation.push_back("PlayStation rides: 7 rides and the Tower converted.");
+        tpi.playStationConverted = true;
+        result = DescribeResult(tpi, before);
+        Check(result.headline == "PlayStation rides ready" && result.lines.size() == 2 &&
+                  result.lines.back() == tpi.themeParkInc.front(),
+              "both discs: the PlayStation headline, then both converters' lines");
+    }
     {
         ImportReport ps1;
         EditionStatus before[6] = {};
@@ -3252,6 +3351,38 @@ void CheckMods(SDL_Renderer* renderer) {
         frames(3);
         Check(ui.ModOn(1), "mods: a completed disc drop unlocks content without restarting the launcher");
     }
+    {   // the Theme Park Inc worlds the same: locked until a drop of the disc (or its installed folder) converts them
+        FakeBackend b;
+        FillEverything(b);
+        b.settings[ModKey("tpi-worlds")] = "1";
+        LauncherUi ui(renderer, b);
+        auto frames = [&](int n) {
+            for (int i = 0; i < n; ++i) ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        };
+        ui.SetMods({EnableStrikes(), Ps1RidesConverted(), TpiWorlds()});
+        ui.ShowMods(true);
+        frames(1);
+        Check(!ui.ModOn(2) && ui.ModsOn() == 0, "mods: the locked TPI mod shows off, though launcher.ini has it on");
+        press(ui, ui.ModSwitchRect(2), frames);
+        Check(!ui.ModOn(2), "mods: the locked TPI mod's switch cannot be turned on");
+        CheckEq(b.Setting(ModKey("tpi-worlds")), "1", "mods: the locked TPI mod's key is kept for when it unlocks");
+        bool contentReady = false;
+        ui.SetModsReader([&] {
+            ModRow content = contentReady ? TpiWorldsConverted() : TpiWorlds();
+            return std::vector<ModRow>{EnableStrikes(), Ps1RidesConverted(), content};
+        });
+        FakeBackend::Script conversion;
+        conversion.finish = [&](FakeBackend&, ImportReport& report) {
+            contentReady = true;
+            report.themeParkIncConverted = true;
+            report.themeParkInc.push_back("Theme Park Inc: 3 worlds converted.");
+        };
+        b.Queue(std::move(conversion));
+        ui.OfferPaths({"/media/Theme Park Inc"});
+        frames(3);
+        Check(ui.ModOn(2), "mods: a completed Theme Park Inc drop unlocks the worlds without restarting the launcher");
+        Check(ui.ModsOn() == 1, "mods: the unlocked TPI mod counts as on");
+    }
     {   // a build with no mods folder: the box says so
         FakeBackend b;
         FillEverything(b);
@@ -3263,7 +3394,7 @@ void CheckMods(SDL_Renderer* renderer) {
     }
 }
 
-// The Game data box: both homes' Game data button opens it (not Settings), with the five rows in order, locked on a fresh
+// The Game data box: both homes' Game data button opens it (not Settings), with the six rows in order, locked on a fresh
 // download, unlocked with everything, and mixed; a drop made in it is checked and the box comes back with the rows
 // refreshed; its Open Settings button opens Settings; it fits the smallest window, the button clear of the tiles. In a
 // wide window the button is in the header, where its Play was (there is no Play there now), and not in the home's body.
@@ -3277,7 +3408,7 @@ void CheckGameData(SDL_Renderer* renderer) {
         frames(1);
     };
     const std::vector<std::string> kNames = {"Sim Theme Park", "Theme Park World", "Gold Edition",
-                                             "PlayStation rides mod", "Languages"};
+                                             "PlayStation rides mod", "TPI Worlds and Rides mod", "Languages"};
     const auto names = [](const std::vector<GameDataRow>& rows) {
         std::vector<std::string> out;
         for (const GameDataRow& r : rows) out.push_back(r.name);
@@ -3313,7 +3444,7 @@ void CheckGameData(SDL_Renderer* renderer) {
             const std::string what = "game data, fresh" + at;
             FakeBackend b;
             LauncherUi ui(renderer, b);
-            ui.SetMods({EnableStrikes(), Ps1Rides()});
+            ui.SetMods({EnableStrikes(), Ps1Rides(), TpiWorlds()});
             auto frames = [&](int n) {
                 for (int i = 0; i < n; ++i) ui.Frame(kDt, w, h, 1);
             };
@@ -3329,12 +3460,13 @@ void CheckGameData(SDL_Renderer* renderer) {
             Check(box.y >= metric::kMargin - 1 && box.Bottom() <= h - metric::kMargin + 1 && box.x >= 0 && box.Right() <= w,
                   what + ": the box fits the window");
             const std::vector<GameDataRow> rows = ui.GameData();
-            Check(names(rows) == kNames, what + ": the five rows, in order");
+            Check(names(rows) == kNames, what + ": the six rows, in order");
             for (const GameDataRow& r : rows) Check(!r.unlocked && r.fraction == 0, what + ": " + r.name + " is locked");
             CheckEq(rows[0].line, "Drag in the US Mac CD or the US Windows CD to unlock", what + ": Sim Theme Park's line");
             Check(starts(rows[1].line, "Drag in ") && starts(rows[2].line, "Drag in "), what + ": how to unlock the others");
             CheckEq(rows[3].line, "Unlock a game above first, then drag in your PlayStation disc", what + ": the PS1 line");
-            CheckEq(rows[4].line, "Drag in a disc in another language, such as French or German, to unlock",
+            CheckEq(rows[4].line, "Unlock a game above first, then drag in your Theme Park Inc disc", what + ": the TPI line");
+            CheckEq(rows[5].line, "Drag in a disc in another language, such as French or German, to unlock",
                     what + ": the Languages line");
             const Rect settings = ui.GameDataSettingsRect();
             Check(settings.w > 0 && box.Contains(settings.CentreX(), settings.CentreY()), what + ": Open Settings is in the box");
@@ -3385,7 +3517,7 @@ void CheckGameData(SDL_Renderer* renderer) {
             b.languages = {Language("English"), Language("American"), Language("French"), Language("German"),
                            Language("Danish"), Language("Swedish")};
             LauncherUi ui(renderer, b);
-            ui.SetMods({EnableStrikes(), Ps1RidesConverted()});
+            ui.SetMods({EnableStrikes(), Ps1RidesConverted(), TpiWorldsConverted()});
             auto frames = [&](int n) {
                 for (int i = 0; i < n; ++i) ui.Frame(kDt, w, h, 1);
             };
@@ -3407,7 +3539,7 @@ void CheckGameData(SDL_Renderer* renderer) {
             press(ui, ui.GameDataButtonRect(), frames);
             Check(ui.GameDataOpen() && ui.SettingsBodyCounted() == 0, what + ": Game data opens its box, not Settings");
             const std::vector<GameDataRow> rows = ui.GameData();
-            Check(names(rows) == kNames, what + ": the five rows, in order");
+            Check(names(rows) == kNames, what + ": the six rows, in order");
             for (const GameDataRow& r : rows) Check(r.unlocked && r.fraction == 1, what + ": " + r.name + " is unlocked");
             Check(starts(rows[0].line, "Mac and Windows releases, ") && starts(rows[1].line, "Mac and Windows releases, "),
                   what + ": both releases of both games");
@@ -3416,7 +3548,9 @@ void CheckGameData(SDL_Renderer* renderer) {
                     "8 from your PlayStation disc: Crazy Clown, Jumping Skulls, Eye Slide, Aztec Bounce, Diplo-Dip, Inca "
                     "Pot, Romper Stomper and Tower",
                     what + ": the PS1 line names its rides");
-            CheckEq(rows[4].line, "Fran\xC3\xA7" "ais, Deutsch, Dansk and Svenska, besides English",
+            CheckEq(rows[4].line, "3 worlds from your Theme Park Inc disc: Arabian Nights, Polar Zone and Land of Invention",
+                    what + ": the TPI line names its worlds");
+            CheckEq(rows[5].line, "Fran\xC3\xA7" "ais, Deutsch, Dansk and Svenska, besides English",
                     what + ": the Languages line names them");
         }
 
@@ -3428,7 +3562,7 @@ void CheckGameData(SDL_Renderer* renderer) {
             b.FillAll(assets::kEditionUsPc);
             b.languages = MixedLanguages();
             LauncherUi ui(renderer, b);
-            ui.SetMods({Ps1Rides()});
+            ui.SetMods({Ps1Rides(), TpiWorlds()});
             auto frames = [&](int n) {
                 for (int i = 0; i < n; ++i) ui.Frame(kDt, w, h, 1);
             };
@@ -3436,18 +3570,20 @@ void CheckGameData(SDL_Renderer* renderer) {
             press(ui, ui.GameDataButtonRect(), frames);
             Check(ui.GameDataOpen(), what + ": the box opens");
             const std::vector<GameDataRow> rows = ui.GameData();
-            Check(names(rows) == kNames, what + ": the five rows, in order");
+            Check(names(rows) == kNames, what + ": the six rows, in order");
             Check(rows[0].unlocked && starts(rows[0].line, "Mac and Windows releases, "), what + ": Sim Theme Park unlocked");
             Check(!rows[1].unlocked && rows[1].fraction > 0 && rows[1].fraction < 1 &&
                       rows[1].line.find(" confirmed. Drag in ") != std::string::npos,
                   what + ": Theme Park World partly there, with how to unlock it");
             Check(!rows[2].unlocked && rows[2].fraction == 0, what + ": Gold locked");
             Check(!rows[3].unlocked && starts(rows[3].line, "Drag in your PlayStation disc"), what + ": PS1 locked");
-            Check(rows[4].unlocked, what + ": Languages unlocked");
+            Check(!rows[4].unlocked && starts(rows[4].line, "Drag in your Theme Park Inc disc or its installed folder"),
+                  what + ": TPI locked");
+            Check(rows[5].unlocked, what + ": Languages unlocked");
             for (const char* name : {"Fran\xC3\xA7" "ais", "Deutsch", "Italiano", "Korean"})
-                Check(rows[4].line.find(name) != std::string::npos, what + ": Languages names " + name);
+                Check(rows[5].line.find(name) != std::string::npos, what + ": Languages names " + name);
             for (const char* name : {"Dansk", "Espa\xC3\xB1" "ol"})
-                Check(rows[4].line.find(name) == std::string::npos, what + ": Languages leaves out " + name);
+                Check(rows[5].line.find(name) == std::string::npos, what + ": Languages leaves out " + name);
         }
     }
 
@@ -3459,7 +3595,8 @@ void CheckGameData(SDL_Renderer* renderer) {
         b.AllStatuses(all);
         const std::vector<GameDataRow> rows = GameDataRows(all, b.languages, {});
         CheckEq(rows[3].line, "This build has no mods", "game data: a build without mods says so");
-        Check(!rows[4].unlocked && rows[4].fraction > 0 && starts(rows[4].line, "Partly there: Fran"),
+        CheckEq(rows[4].line, "This build has no mods", "game data: a build without mods says so for the TPI row too");
+        Check(!rows[5].unlocked && rows[5].fraction > 0 && starts(rows[5].line, "Partly there: Fran"),
               "game data: a language partly there");
         LauncherUi ui(renderer, b);
         std::unique_ptr<Updater> updater = MakeUpdater(b, "found");
@@ -3470,6 +3607,54 @@ void CheckGameData(SDL_Renderer* renderer) {
         for (int i = 0; i < 3; ++i)
             Check(!Overlaps(ui.GameDataButtonRect(), ui.TileRect(i)),
                   "game data: under the update banner, the button is clear of tile " + std::to_string(i));
+    }
+
+    // Stale content (converted by an older version that the launcher could not convert again): the row is unlocked
+    // with the stale line, and the home shows that content's notice until a drop converts it again.
+    {
+        FakeBackend b;
+        FillEverything(b);
+        EditionStatus all[6];
+        b.AllStatuses(all);
+        std::vector<GameDataRow> rows = GameDataRows(all, b.languages, {EnableStrikes(), Ps1RidesConverted(), TpiWorldsStale()});
+        Check(rows[4].unlocked && rows[4].fraction == 1 && rows[4].line == kTpiStaleLine, "game data: stale TPI worlds say so");
+        Check(rows[3].unlocked && starts(rows[3].line, "8 from your PlayStation disc"), "game data: the PS1 row is not touched");
+        ModRow ps1Stale = Ps1RidesConverted();
+        ps1Stale.stale = true;
+        rows = GameDataRows(all, b.languages, {ps1Stale, TpiWorldsConverted()});
+        Check(rows[3].line == kPs1StaleLine && starts(rows[4].line, "3 worlds from your Theme Park Inc disc"),
+              "game data: stale PS1 rides leave the TPI row alone");
+        LauncherUi ui(renderer, b);
+        ui.SetMods({EnableStrikes(), Ps1RidesConverted(), TpiWorldsConverted()});
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(!ui.Ps1Stale() && ui.StaleContent() == nullptr, "stale notice: none while both contents are current");
+        ui.SetMods({EnableStrikes(), Ps1RidesConverted(), TpiWorldsStale()});
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(ui.Ps1Stale() && ui.StaleContent() != nullptr && ui.StaleContent()->content == "tpi",
+              "stale notice: the stale TPI worlds are found");
+        Check(std::string(ContentStaleNotice(ui.StaleContent()->content)) == kTpiStaleNotice,
+              "stale notice: the home's notice is the Theme Park Inc one");
+        ui.SetMods({EnableStrikes(), ps1Stale, TpiWorldsConverted()});
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(ui.StaleContent() != nullptr && ui.StaleContent()->content == "ps1" &&
+                  std::string(ContentStaleNotice(ui.StaleContent()->content)) == kPs1StaleNotice,
+              "stale notice: stale PlayStation rides give the PlayStation one");
+        // A drop that converts the worlds again clears it: the mods are read again after the import.
+        bool converted = false;
+        ui.SetMods({EnableStrikes(), Ps1RidesConverted(), TpiWorldsStale()});
+        ui.SetModsReader([&] {
+            return std::vector<ModRow>{EnableStrikes(), Ps1RidesConverted(), converted ? TpiWorldsConverted() : TpiWorldsStale()};
+        });
+        FakeBackend::Script conversion;
+        conversion.finish = [&](FakeBackend&, ImportReport& report) {
+            converted = true;
+            report.themeParkIncConverted = true;
+            report.themeParkInc.push_back("Theme Park Inc: 3 worlds converted.");
+        };
+        b.Queue(std::move(conversion));
+        ui.OfferPaths({"/media/Theme Park Inc"});
+        for (int i = 0; i < 3; ++i) ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(ui.StaleContent() == nullptr, "stale notice: gone once a drop converts the worlds again");
     }
 }
 
