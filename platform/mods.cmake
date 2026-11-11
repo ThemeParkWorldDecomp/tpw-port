@@ -5,7 +5,7 @@
 # folder as mods_catalog.cpp. Without the folder the build has no mods, and the launcher's Mods box says so.
 set(TPW_MODS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../tpw-mods CACHE PATH "The tpw-mods folder whose mods the launcher is built with")
 # The hooks a mod.json may name (its "hooks"), each a TPW_MOD_HOOK comment in the game's code and a field of mods.h's Hooks.
-set(TPW_MOD_HOOKS strike_gate strike_messages staff_bridge_wander ps1_badge ps1_ground ps1_save_repair)
+set(TPW_MOD_HOOKS strike_gate strike_messages staff_bridge_wander ps1_badge ps1_ground ps1_save_repair ps1_pick_rotation)
 set_property(GLOBAL PROPERTY TPW_MOD_IDS)
 
 # A string of mod.json as a C++ string literal.

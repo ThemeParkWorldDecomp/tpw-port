@@ -467,6 +467,14 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     target_include_directories(tpw_host_ps1_save_repair PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME ps1_save_repair COMMAND tpw_host_ps1_save_repair)
   endif()
+  # The ps1-rides mod's starting turn of its rides picked from Buy Ride (TPW_MOD_HOOK ps1_pick_rotation,
+  # include/Ps1PickRotation.h): each rotation with no ride held and with a PC or a PlayStation ride held, and the
+  # player's steps (pick, turn, pick again, place). The original has no such turn, so it is made only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_ps1_pick_rotation ${TPW_DECOMP_DIR}/tests/host_ps1_pick_rotation.cpp)
+    target_include_directories(tpw_host_ps1_pick_rotation PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME ps1_pick_rotation COMMAND tpw_host_ps1_pick_rotation)
+  endif()
   # A park file's packed block cut short or damaged, unpacked with the block's length (the port's fixes parkload and
   # truncsave): no read past the block, and only a whole block unpacks. The program builds the packing and that unpacking of
   # src/bullfrog/LbZLib.cpp, with the host's zlib; the original has no such call, so it is made only with the port's fixes.

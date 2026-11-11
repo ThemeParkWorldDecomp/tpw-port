@@ -17,6 +17,7 @@
 #include "ParkTime.h"
 #include "platform/msl.h"
 #include "ppc_math.h"
+#include "Ps1PickRotation.h"
 #include "RideBadges.h"
 #include "RideDB.h"
 #include "TbColour.h"
@@ -418,9 +419,24 @@ void SetMouseMode(CMouseMode* mode) {
 
 // The tail the two ways of placing a ride share (the ride is chosen and affordable).
 int32_t PlaceRide(CMMPathDraw* draw, RideTag id) {
+    const bool held = gModPs1PickRotation && LLCC_SystemGetMode() == 4;   // a ride picked before is still held (ps1_pick_rotation below)
     SetMouseMode(draw);
     RemoveRideListPanel();
     RideInfo* ride = gRideDatabase.GetRideInfo(id);
+    // TPW_PORT_FIX mods PlaceRide | Mac: the ride picked starts with the rotation the cell system has (0, or that of a ride still held) | Port: TPW_MOD_HOOK ps1_pick_rotation, while a tpw-mods mod that switches it on is on: one of that mod's rides starts half a turn round from that, so its entrance comes up at the bottom at the default camera like a PC ride's; the half turn added for a ride still held is taken away first (include/Ps1PickRotation.h) | Why: the PlayStation rides' entrance is on the north side of their footprint, a PC ride's on the south, so they came up facing the other way; only the pick changes, not the rides, saves or rides placed
+    if (gModPs1PickRotation) {
+        bool ps1 = false;
+        if (ride != nullptr && ride->mFolder[0] != 0) {
+            const std::string key = RideBadgeKey(ride->mFolder);
+            for (const std::string& known : gPs1PickRotationRides)
+                if (known == key) ps1 = true;
+        }
+        const int32_t current = LLCC_GetRideRotation();
+        int32_t turn = 0;
+        const int32_t rotation = Ps1PickRotation(current, held, gPs1PickTurn, ps1, turn);
+        gPs1PickTurn = turn;
+        if (rotation != current) LLCC_SetRideRotation(rotation, true);
+    }
     if (ride->mBalance.mValues[kRideSlot_WhichUIType].mInteger == 0) {
         if (UI_IterateThingNext(kUIIterRides, nullptr) == nullptr)
             UIMain_AdvisorMessage(static_cast<AdvisorMessage>(0xc9));

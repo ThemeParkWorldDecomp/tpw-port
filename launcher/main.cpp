@@ -72,6 +72,7 @@
 #include "ps1_refresh.h"
 #include "mods.h"
 #include "ride_badges.h"
+#include "Ps1PickRotation.h"
 #include "Ps1SaveRepair.h"
 #include "RideBadges.h"
 #endif
@@ -1306,6 +1307,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
         std::vector<std::filesystem::path> content;
         std::vector<std::filesystem::path> ps1Content;   // the content of the mod that switched ps1_badge on
         std::vector<std::filesystem::path> repairContent;   // the content of the mod that switched ps1_save_repair on
+        std::vector<std::filesystem::path> pickContent;   // the content of the mod that switched ps1_pick_rotation on
         std::string line;
         // Every content mod, on or off, for the message of a park that needs its rides (include/platform/missing_rides.h).
         std::vector<tpw::ContentMod> known;
@@ -1336,10 +1338,13 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
             }
             const bool ps1Badge = hooks.ps1Badge;
             const bool ps1SaveRepair = hooks.ps1SaveRepair;
+            const bool ps1PickRotation = hooks.ps1PickRotation;
             mod.switchOn(hooks);
             if (hooks.ps1Badge && !ps1Badge && !mod.content.empty()) ps1Content.push_back(ModContentFolder(backend, mod));
             if (hooks.ps1SaveRepair && !ps1SaveRepair && !mod.content.empty())
                 repairContent.push_back(ModContentFolder(backend, mod));
+            if (hooks.ps1PickRotation && !ps1PickRotation && !mod.content.empty())
+                pickContent.push_back(ModContentFolder(backend, mod));
             on.push_back(&mod);
             if (!mod.content.empty()) content.push_back(ModContentFolder(backend, mod));
             tpw::Log("mods: %s %s on", mod.id.c_str(), mod.version.c_str());
@@ -1357,6 +1362,10 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
         // whatever "Show Ride Badges" says.
         gPs1SaveRepairRides = tpw::ContentRideKeys(tpw::ContentRides(), repairContent);
         if (gModPs1SaveRepair) tpw::Log("mods: ps1_save_repair on for %zu rides", gPs1SaveRepairRides.size());
+        // The rides the ps1_pick_rotation hook turns when picked from Buy Ride (include/Ps1PickRotation.h): those of the
+        // mod that switched it on.
+        gPs1PickRotationRides = tpw::ContentRideKeys(tpw::ContentRides(), pickContent);
+        if (gModPs1PickRotation) tpw::Log("mods: ps1_pick_rotation on for %zu rides", gPs1PickRotationRides.size());
         if (!line.empty())
             std::snprintf(gModsOnLine, sizeof gModsOnLine, "launcher: mods on: %s\n", line.c_str());
         // The Settings box's "Show Ride Badges" (include/RideBadges.h, platform/ride_badges.h): on unless launcher.ini

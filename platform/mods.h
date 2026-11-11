@@ -28,6 +28,7 @@ struct Hooks {
     bool ps1Badge = false;            // ps1_badge: the PlayStation rides have the "PS1" tag on the Buy Ride panel (include/RideBadges.h), while "Show Ride Badges" is on
     bool ps1Ground = false;           // ps1_ground: a PlayStation ride's own ground is blended into the park's ground cell by cell (CalculateSkirtVertices)
     bool ps1SaveRepair = false;       // ps1_save_repair: a park's PlayStation rides whose saved doors are not their record's have them moved as it loads (include/Ps1SaveRepair.h)
+    bool ps1PickRotation = false;     // ps1_pick_rotation: a PlayStation ride picked from Buy Ride starts half a turn round, its entrance at the bottom like a PC ride's (include/Ps1PickRotation.h)
 };
 
 // A compiled-in mod, as its mod.json describes it.
@@ -56,7 +57,8 @@ const std::vector<Mod>& Catalog();
 inline std::string Key(const Mod& mod) { return "mod." + mod.id; }
 
 // Puts `hooks` into the game (the hooks' flags, include/ThingReceivers.h's gModStrikeGate, gModStrikeMessages and
-// gModStaffBridgeWander and gModPs1Ground, and include/RideBadges.h's gModPs1Badge). Before the game starts, once; never called, the
+// gModStaffBridgeWander and gModPs1Ground, include/RideBadges.h's gModPs1Badge, include/Ps1SaveRepair.h's gModPs1SaveRepair
+// and include/Ps1PickRotation.h's gModPs1PickRotation). Before the game starts, once; never called, the
 // game's hooks stay off.
 void Apply(const Hooks& hooks);
 

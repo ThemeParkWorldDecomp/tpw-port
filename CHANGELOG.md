@@ -2,6 +2,10 @@
 
 ## 0.4.3 (not released yet)
 
+### Bug Fixes
+
+- A PlayStation ride picked from Buy Ride now starts facing the same way as every other ride, with its entrance at the bottom of the screen, instead of the opposite way. Rides already in a park are not changed
+
 ## 0.4.2 (2026-11-10)
 
 ### New Features
