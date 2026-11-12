@@ -1,5 +1,7 @@
 # Changelog
 
+## 0.5.1 (not released yet)
+
 ## 0.5.0 (2026-11-12)
 
 ### New Features
