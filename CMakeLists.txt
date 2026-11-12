@@ -447,6 +447,21 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   elseif(TPW_PORT_FIX)
     add_test(NAME sound_pools COMMAND tpw_host_sound_pools)
   endif()
+  # The PCM samples of a streaming bank played by an endless sentence, the bank's file left at its end (the crash in Land of
+  # Invention): each sample's own bytes, no read past the pull buffer, the chain of one pull bounded. The program builds only
+  # the pipes' and codecs' functions of their src files (tests/host_sound_wavfile_keep.cmake). The original reads from the
+  # wrong place and chains without end, so ctest runs it only with the port's fixes; a build without them makes it, and it fails.
+  add_executable(tpw_host_sound_wavfile ${TPW_DECOMP_DIR}/tests/host_sound_wavfile.cpp)
+  include(${TPW_DECOMP_DIR}/tests/host_sound_wavfile_keep.cmake)
+  list(TRANSFORM TPW_SOUND_WAVFILE_SOURCES PREPEND ${TPW_DECOMP_DIR}/src/)
+  target_sources(tpw_host_sound_wavfile PRIVATE ${TPW_SOUND_WAVFILE_SOURCES})
+  target_include_directories(tpw_host_sound_wavfile PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+  tpw_slice(TARGET tpw_host_sound_wavfile NAME sound_wavfile KEEP ${TPW_SOUND_WAVFILE_KEEP})
+  if(tpw_platform_tests_skipped)
+    set_target_properties(tpw_host_sound_wavfile PROPERTIES EXCLUDE_FROM_ALL ON)
+  elseif(TPW_PORT_FIX)
+    add_test(NAME sound_wavfile COMMAND tpw_host_sound_wavfile)
+  endif()
   # Quitting with the park map open: the map's destroy message cancels its advisor message after the world is deleted. The
   # program builds only UIMain_CancelAdvisorMessage of src/game/ui/ui_main.cpp (the world and the advisor are the test's
   # stand-ins). The original asks the null world, so ctest runs it only with the port's fixes; a build without them fails.
