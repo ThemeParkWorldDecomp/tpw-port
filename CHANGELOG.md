@@ -5,6 +5,7 @@
 ### Bug Fixes
 
 - The TPI Worlds and Rides mod's rides, shops and scenery now have the names Theme Park Inc shows for them, such as Bellows Bouncer and InvenTiVe World, instead of working names like bellows and TV sim
+- Fixed pieces of ground flashing on the islands of the TPI Worlds and Rides mod's three worlds on the island screen
 
 ## 0.5.0 (2026-11-12)
 
