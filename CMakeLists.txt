@@ -229,7 +229,7 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   endif()
 
   add_library(tpw_launcher_objects OBJECT launcher/main.cpp launcher/app_bundle.cpp launcher/app_icon.cpp launcher/app_icon_standin.cpp launcher/asset_packs.cpp
-              launcher/game_app.cpp launcher/game_app_mac.cpp launcher/game_app_win.cpp launcher/installed_icon.cpp launcher/pending_manual.cpp launcher/ps1_refresh.cpp
+              launcher/game_app.cpp launcher/game_app_mac.cpp launcher/game_app_win.cpp launcher/installed_icon.cpp launcher/pending_manual.cpp launcher/ps1_refresh.cpp launcher/tpi_refresh.cpp
               launcher/static_init.cpp launcher/startup.cpp)
   target_include_directories(tpw_launcher_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
   if(APPLE)
@@ -489,6 +489,14 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_link_libraries(tpw_host_wasd_keys PRIVATE tpw_platform)
     add_test(NAME wasd_keys COMMAND tpw_host_wasd_keys)
   endif()
+  # The TPI Worlds and Rides mod's second ring of islands (TPW_MOD_HOOK tpi_islands, include/tpi_island_ring.h): which ring a
+  # world is in, where the arrows go inside a ring, where Tab lands, and that ring two stands out of ring one's fog. The original
+  # has one ring, so the program is made only with the port's fixes. No game data.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_tpi_island_ring ${TPW_DECOMP_DIR}/tests/host_tpi_island_ring.cpp)
+    target_include_directories(tpw_host_tpi_island_ring PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    add_test(NAME tpi_island_ring COMMAND tpw_host_tpi_island_ring)
+  endif()
   # The ps1-rides mod's repair of parks saved with its 0.4.0 rides (TPW_MOD_HOOK ps1_save_repair, include/Ps1SaveRepair.h)
   # on a stand-in for the map's cells: each way a door moved, a door with nothing to join, and a second run that changes
   # nothing. The original has no such repair, so it is made only with the port's fixes.
@@ -504,6 +512,14 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     add_executable(tpw_host_ps1_pick_rotation ${TPW_DECOMP_DIR}/tests/host_ps1_pick_rotation.cpp)
     target_include_directories(tpw_host_ps1_pick_rotation PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME ps1_pick_rotation COMMAND tpw_host_ps1_pick_rotation)
+  endif()
+  # The TPI Worlds and Rides mod's hook helpers (TPW_MOD_HOOK tpi_worlds, include/TpiWorlds.h): the world table and its
+  # lookups, each title's gate words, the settings file's theme numbers, and the wide-text helpers the hooks answer with,
+  # without game data. The original has no such mod, so it is made only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_tpi_worlds ${TPW_DECOMP_DIR}/tests/host_tpi_worlds.cpp)
+    target_include_directories(tpw_host_tpi_worlds PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_worlds COMMAND tpw_host_tpi_worlds)
   endif()
   # A park file's packed block cut short or damaged, unpacked with the block's length (the port's fixes parkload and
   # truncsave): no read past the block, and only a whole block unpacks. The program builds the packing and that unpacking of
@@ -956,6 +972,11 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   target_include_directories(tpw_ps1_refresh_tests PRIVATE launcher)
   target_link_libraries(tpw_ps1_refresh_tests PRIVATE tpw_platform tpw_assets)
   add_test(NAME ps1_refresh COMMAND tpw_ps1_refresh_tests)
+  # The same for the Theme Park Inc worlds (launcher/tpi_refresh.h): from the remembered disc or installed folder.
+  add_executable(tpw_tpi_refresh_tests launcher/tests/tpi_refresh_tests.cpp launcher/tpi_refresh.cpp launcher/ps1_refresh.cpp)
+  target_include_directories(tpw_tpi_refresh_tests PRIVATE launcher)
+  target_link_libraries(tpw_tpi_refresh_tests PRIVATE tpw_platform tpw_assets)
+  add_test(NAME tpi_refresh COMMAND tpw_tpi_refresh_tests)
   # Which icon.png the launcher shows: the run's data folder's, the per-user folder's, or the stand-in (launcher/app_icon.h).
   add_test(NAME launcher_icon COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/launcher/tests/icon_choice_test.py $<TARGET_FILE:tpw_launcher>)
   # No function of the game or the launcher is looked up by its symbol at run time (a Linux launcher exports none of its

@@ -67,6 +67,8 @@ void Merge(ImportReport& into, const ImportReport& r) {
     into.errors.insert(into.errors.end(), r.errors.begin(), r.errors.end());
     into.playStation.insert(into.playStation.end(), r.playStation.begin(), r.playStation.end());
     into.playStationConverted = into.playStationConverted || r.playStationConverted;
+    into.themeParkInc.insert(into.themeParkInc.end(), r.themeParkInc.begin(), r.themeParkInc.end());
+    into.themeParkIncConverted = into.themeParkIncConverted || r.themeParkIncConverted;
 }
 
 // What Play hands the game for an edition's Language (LaunchChoice::language): the kept one while the data folder still
@@ -493,11 +495,13 @@ void LauncherUi::ChoosePlay(Edition edition, bool gold) {
     SetGold(i, gold);
 }
 
-bool LauncherUi::Ps1Stale() const {
+const ModRow* LauncherUi::StaleContent() const {
     for (const ModRow& m : mods_)
-        if (m.stale) return true;
-    return false;
+        if (m.stale) return &m;
+    return nullptr;
 }
+
+bool LauncherUi::Ps1Stale() const { return StaleContent() != nullptr; }
 
 void LauncherUi::SetMods(const std::vector<ModRow>& mods) {
     modsShown_ = true;
@@ -1227,6 +1231,30 @@ std::vector<GameDataRow> GameDataRows(const EditionStatus all[6], const std::vec
     }
     rows.push_back(ps1);
 
+    // The Theme Park Inc worlds: the same for the mod whose content folder the player's Theme Park Inc disc (or its
+    // installed folder) is converted into, unlocked once that folder holds its three worlds (platform/tpi_content.h).
+    GameDataRow tpi{"TPI Worlds and Rides mod", "switched on in Mods", false, 0, {}};
+    mod = nullptr;
+    for (const ModRow& m : mods)
+        if (m.content == "tpi") mod = &m;
+    if (mod == nullptr) {
+        tpi.line = mods.empty() ? "This build has no mods" : "This build does not have it";
+    } else if (!mod->rides.empty() && mod->stale) {
+        tpi.unlocked = true;
+        tpi.fraction = 1;
+        tpi.line = kTpiStaleLine;
+    } else if (!mod->rides.empty()) {
+        tpi.unlocked = true;
+        tpi.fraction = 1;
+        tpi.line = FormatCount(mod->rides.size()) + (mod->rides.size() == 1 ? " world" : " worlds") +
+                   " from your Theme Park Inc disc: " + join(mod->rides);
+    } else if (!rows[0].unlocked && !rows[1].unlocked) {
+        tpi.line = "Unlock a game above first, then drag in your Theme Park Inc disc";
+    } else {
+        tpi.line = "Drag in your Theme Park Inc disc or its installed folder to unlock";
+    }
+    rows.push_back(tpi);
+
     // Languages: every one besides English and American (the editions' own) that the Settings box's Language rows offer
     // for either edition (LanguageChoices).
     GameDataRow lang{"Languages", "chosen in Settings", false, 0, {}};
@@ -1908,7 +1936,7 @@ void LauncherUi::DrawMods(const Rect& w) {
     }
 }
 
-// The Game data box: the five things the player's discs unlock, each locked or unlocked with one line, from the editions'
+// The Game data box: the six things the player's discs unlock, each locked or unlocked with one line, from the editions'
 // statuses (every frame) and the data folder's languages (read when it opens and after an import). A drop on it is checked as
 // anywhere (OfferPaths), and the box opens again after; removing and checking an edition again stay in Settings.
 void LauncherUi::DrawGameData(const Rect& w) {
@@ -1930,16 +1958,18 @@ void LauncherUi::DrawGameData(const Rect& w) {
     if (ui_.Button("gamedata-close", {in.Right() - cw, y, cw, 36}, "Close", ButtonKind::Quiet)) gameDataOpen_ = false;
     y += titleH;
 
-    // Scrolls as Mods does, in a window too short for the rows.
-    const float bodyTop = y, shown = in.Bottom() - bodyTop;
+    // Scrolls as Mods does, in a window too short for the rows: the rows scroll, and the footer (how to add more, Open
+    // Settings) stays at the bottom, in reach without scrolling.
+    const float bodyTop = y, rowsH = rows.size() * (rowH + 6);
     const bool scrolls = ph < titleH + bodyH + 40;
+    const float footerTop = scrolls ? in.Bottom() - buttonH : bodyTop + rowsH + 4;
+    const float shown = footerTop - 4 - bodyTop;
     const float barW = 6, barMargin = panel.Right() - metric::kOutline - in.Right();
     const Rect bar{in.Right() + std::round((barMargin - barW) * 0.5f), bodyTop, barW, shown};
     float offset = 0;
     if (scrolls) {
-        offset = ui_.Scroll("gamedata", panel, 50, std::max(0.0f, bodyH - shown), bar, shown);
-        ui_.Clip({panel.x + metric::kOutline, bodyTop, panel.w - 2 * metric::kOutline,
-                  panel.Bottom() - metric::kOutline - bodyTop});
+        offset = ui_.Scroll("gamedata", panel, 50, std::max(0.0f, rowsH - shown), bar, shown);
+        ui_.Clip({panel.x + metric::kOutline, bodyTop, panel.w - 2 * metric::kOutline, shown});
         y -= offset;
     }
 
@@ -1964,9 +1994,13 @@ void LauncherUi::DrawGameData(const Rect& w) {
                    row.CentreY() - bold * 0.5f, word, r.unlocked ? colour::kLimeDeep : colour::kInkSoft);
         y += rowH + 6;
     }
+    if (scrolls) {
+        ui_.Unclip();
+        ui_.ScrollBar(bar, shown, rowsH, offset, colour::kYellowSoft);
+    }
 
     // Below: how to add more, and Settings, where an edition is removed or checked again.
-    y += 4;
+    y = footerTop;
     const float sw = ui_.ButtonWidth("Open Settings");
     text_.Draw(style::kSmall, in.x, y + (buttonH - small) * 0.5f,
                text_.Fit(style::kSmall, "Drop a disc, image, zip or folder on this window to add it.",
@@ -1976,10 +2010,6 @@ void LauncherUi::DrawGameData(const Rect& w) {
     if (ui_.Button("gamedata-settings", gameDataSettingsRect_, "Open Settings", ButtonKind::Quiet)) {
         gameDataOpen_ = false;
         ShowSettings(true);
-    }
-    if (scrolls) {
-        ui_.Unclip();
-        ui_.ScrollBar(bar, shown, bodyH, offset, colour::kYellowSoft);
     }
 }
 
@@ -2231,8 +2261,8 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
     }
     if (noticeLeft_ > 0 && !notice_.empty())
         ui_.Notice(window, notice_, noticeProblem_ ? Mix(colour::kRed, colour::kPaper, 0.55f) : colour::kYellowSoft);
-    else if (Ps1Stale())   // kept until a drop converts the rides again (RefreshStatus reads the mods' rows after one)
-        ui_.Notice(window, kPs1StaleNotice, colour::kYellowSoft);
+    else if (const ModRow* stale = StaleContent())   // kept until a drop converts the content again (RefreshStatus
+        ui_.Notice(window, ContentStaleNotice(stale->content), colour::kYellowSoft);   // reads the mods' rows after one)
     ui_.End();
 }
 

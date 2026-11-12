@@ -5,6 +5,7 @@
 #include "Ps1SaveRepair.h"
 #include "RideBadges.h"
 #include "ThingReceivers.h"
+#include "TpiWorlds.h"
 
 namespace tpw::mods {
 
@@ -16,6 +17,8 @@ void Apply(const Hooks& hooks) {
     gModPs1Ground = hooks.ps1Ground;
     gModPs1SaveRepair = hooks.ps1SaveRepair;
     gModPs1PickRotation = hooks.ps1PickRotation;
+    gModTpiWorlds = hooks.tpiWorlds;
+    gModTpiIslands = hooks.tpiIslands;
 }
 
 }  // namespace tpw::mods

@@ -1,6 +1,13 @@
 # Changelog
 
-## 0.4.4 (not released yet)
+## 0.5.0 (2026-11-12)
+
+### New Features
+
+- A new mod, TPI Worlds and Rides: three worlds from Theme Park Inc (SimCoaster), the game's sequel: Arabian Nights, Polar Zone and Land of Invention, each with its own rides, coasters, shops, sideshows and scenery, played by Theme Park World's rules with Theme Park World's visitors and staff. Drop your own Theme Park Inc disc, disc image or installed game folder on the launcher to unlock it in the Mods box
+- With the mod on, the island screen has a second ring of islands for the three new worlds: Tab (or a right click) flies between the two rings, left and right browse inside one. They cost golden keys like the original worlds, in the order Theme Park Inc opens them: Land of Invention 1, Polar Zone 3 and Arabian Nights 5
+- The Game Data page lists Theme Park Inc like the PlayStation disc, with the same Convert again and Forget buttons, and the launcher's data dropper takes its disc, image, archive or install folder
+- A park saved in one of the three worlds loads only with the mod on and its worlds converted, and cannot be published online, because the server has no such worlds
 
 ## 0.4.3 (2026-11-11)
 
