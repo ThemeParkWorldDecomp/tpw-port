@@ -521,6 +521,14 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_tpi_worlds PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_worlds COMMAND tpw_host_tpi_worlds)
   endif()
+  # The TPI Worlds and Rides mod's advisor rule (include/TpiAdvisor.h, TPW_MOD_HOOK tpi_worlds in ADV_Call): in the mod's
+  # worlds a line of the world's own speech is said as the game's welcome that names no world, on made-up rows, without game
+  # data. The original has no such mod, so it is made only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_tpi_advisor ${TPW_DECOMP_DIR}/tests/host_tpi_advisor.cpp)
+    target_include_directories(tpw_host_tpi_advisor PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_advisor COMMAND tpw_host_tpi_advisor)
+  endif()
   # A park file's packed block cut short or damaged, unpacked with the block's length (the port's fixes parkload and
   # truncsave): no read past the block, and only a whole block unpacks. The program builds the packing and that unpacking of
   # src/bullfrog/LbZLib.cpp, with the host's zlib; the original has no such call, so it is made only with the port's fixes.

@@ -8,6 +8,7 @@
 - Fixed pieces of ground flashing on the islands of the TPI Worlds and Rides mod's three worlds on the island screen
 - Fixed visitors in the TPI Worlds and Rides mod's worlds being drawn with a blue outline and no shadow on some ground, such as the road outside Land of Invention's gate
 - Fixed a loud crackle that never stopped in Land of Invention with sound effects on: the gate's crackle now plays as quietly as Theme Park Inc's other background sounds
+- The advisor no longer greets you with another world's welcome, such as "Welcome to Halloween World" in Polar Zone, when you open a park in one of the TPI Worlds and Rides mod's worlds: it gives the game's own welcome instead
 
 ## 0.5.0 (2026-11-12)
 

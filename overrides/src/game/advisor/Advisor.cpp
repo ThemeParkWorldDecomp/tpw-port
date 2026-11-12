@@ -53,6 +53,10 @@
 #include "ui_main.h"
 #include "World.h"
 #include "WorldSavvy.h"
+// TPW_PORT_FIX mods tpiadvisor | Mac: none | Port: TPW_MOD_HOOK tpi_worlds: the mod's switch (include/TpiWorlds.h), the stand-in rule for a line of the world's own speech and the world's folder name from get_theme_path (include/TpiAdvisor.h), and the probe's printer (tpw_probe.h) | Why: tpw-mods tpi-worlds | Off: nothing
+#include "TpiAdvisor.h"
+#include "TpiWorlds.h"
+#include "tpw_probe.h"
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -405,6 +409,26 @@ int32_t ADV_Call(AdvisorResponse response) {
     CTRACE(8, "Advisor says ResponseID %d", response.mId);
     const AdvisorLine* line = FindLine(response.mId);
     if (line == nullptr) return 0;
+    // TPW_PORT_FIX mods ADV_Call | Mac: a line of the world's own speech (sound set not 0) is said from the world's bank and lip-sync folder | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiAdvisor.h): in one of the mod's worlds such a line is said as the game's welcome that names no world (response 390, global bank, by the park's advisor model; tpw::TpiAdvisorLine), and left unsaid (answer 0, as for an id not in the table) if the table had no such global row; any other line, an original world, or the hook off, the Mac's; with --probe (tpw_probe::gLog) a line a call names the response, the one said, its sound and its bank, mod on or off | Why: tpw-mods tpi-worlds: those worlds' speech is the donor's (platform/tpi_content.h), whose every line is its welcome ("Welcome to Halloween World" in Polar Zone), and Theme Park Inc's speech has no welcome for its zones
+    const AdvisorLine* own = line;
+    // The world's folder, only when the hook or the probe needs it (get_theme_path's path ends with it).
+    const char* theme = gModTpiWorlds || tpw_probe::gLog != nullptr ? tpw::TpiThemeOfPath(get_theme_path()) : "";
+    AdvisorLine tpiLine;
+    const bool say = !gModTpiWorlds || tpw::TpiAdvisorLine(*line, FindLine(tpw::kTpiAdvisorStandIn), theme, tpiLine);
+    if (gModTpiWorlds && say) line = &tpiLine;
+    if (tpw_probe::gLog != nullptr) {
+        const bool itself = line->mSound == own->mSound && line->mWhichAndSoundSet == own->mWhichAndSoundSet;
+        char text[200];
+        if (!say) {
+            std::snprintf(text, sizeof text, "probe: advisor: response %d in %s: left unsaid", response.mId, theme);
+        } else {
+            std::snprintf(text, sizeof text, "probe: advisor: response %d in %s: said as %s %d, sound %d from the %s bank", response.mId,
+                          theme, itself ? "itself, response" : "response", itself ? response.mId : tpw::kTpiAdvisorStandIn,
+                          line->mSound, (line->mWhichAndSoundSet >> 16) == 0 ? "global" : "world's");
+        }
+        tpw_probe::gLog(text);
+    }
+    if (!say) return 0;
     state.mSound = line->mSound;
     state.mWhich = line->mWhichAndSoundSet & 0xffff;
     state.mSoundSet = static_cast<int32_t>(line->mWhichAndSoundSet) >> 16;
