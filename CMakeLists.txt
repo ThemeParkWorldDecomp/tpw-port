@@ -544,6 +544,14 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_tpi_advisor PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_advisor COMMAND tpw_host_tpi_advisor)
   endif()
+  # The TPI Worlds and Rides mod's walks outside the park gate (TPW_MOD_HOOK tpi_worlds, include/TpiGateFlow.h): the cells a
+  # visitor leaving waits for the bus on, the crossing's bus side, and when the mod's walks are used, without game data.
+  # The original has no such mod, so it is made only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_tpi_gate_flow ${TPW_DECOMP_DIR}/tests/host_tpi_gate_flow.cpp)
+    target_include_directories(tpw_host_tpi_gate_flow PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_gate_flow COMMAND tpw_host_tpi_gate_flow)
+  endif()
   # A park file's packed block cut short or damaged, unpacked with the block's length (the port's fixes parkload and
   # truncsave): no read past the block, and only a whole block unpacks. The program builds the packing and that unpacking of
   # src/bullfrog/LbZLib.cpp, with the host's zlib; the original has no such call, so it is made only with the port's fixes.

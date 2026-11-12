@@ -43,6 +43,7 @@
 #include "TPCoaster.h"
 #include "TPEngine.h"
 #include "TPGlobals.h"
+#include "TpiGateFlow.h"
 #include "TPMain.h"
 #include "UIInterface.h"
 #include "World.h"
@@ -1632,6 +1633,11 @@ int32_t CWorld::ArrivalVehicle_PeopleWaitingToLeave() {
     for (int32_t i = 0; i < 4; ++i) {
         const uint16_t stop = GetMap()->GetBusStopPos(0).mIndex;
         cells[i] = static_cast<uint16_t>(dx[i] + (dy[i] << 7) + stop);
+    }
+    // TPW_PORT_FIX mods CWorld::ArrivalVehicle_PeopleWaitingToLeave | Mac: the stop, the cell east of it and the same two two rows up | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGateFlow.h): in one of the mod's worlds the second two are one row down, the cells BusStopCells sends a visitor leaving to (tpw::TpiBusStopCell, kTpiBusStopPairRows); off, or an original world, the Mac's | Why: tpw-mods tpi-worlds; the bus waits for the visitors on the cells BusStopCells picks (H7)
+    if (tpw::TpiWorldInPlay()) {
+        const uint16_t stop = GetMap()->GetBusStopPos(0).mIndex;
+        for (int32_t i = 0; i < 4; ++i) cells[i] = tpw::TpiBusStopCell(stop, i, tpw::kTpiBusStopPairRows);
     }
     for (int32_t i = 0; i < 4; ++i) {
         const uint16_t id = CellOf(map, cells[i])->mWho;

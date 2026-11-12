@@ -18,6 +18,7 @@
 #include "ThingParts2.h"
 #include "ThingReceivers.h"
 #include "TPCoaster.h"
+#include "TpiGateFlow.h"
 #include "TPSound.h"
 #include "VehicleSteer.h"
 #include "World.h"
@@ -881,6 +882,12 @@ int32_t Fctiwz(float f) {
 
 // The four cells around the bus stop: the stop, one to the east, two rows back, and that one to the east.
 void BusStopCells(uint16_t* out) {
+    // TPW_PORT_FIX mods BusStopCells | Mac: the stop, the cell east of it and the same two two rows up | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGateFlow.h): in one of the mod's worlds the second two are one row down (tpw::TpiBusStopCell, kTpiBusStopPairRows); off, or an original world, the Mac's four | Why: tpw-mods tpi-worlds; Theme Park Inc's stop A stands on the upper row of a pavement two rows deep under the map's edge, so the cells two rows up are not walkable and a visitor leaving who picked one stood for ever on the plaza in front of the gate (H7)
+    if (tpw::TpiWorldInPlay()) {
+        const uint16_t stop = gWorldMap->GetBusStopPos(0).mIndex;
+        for (int32_t i = 0; i < 4; ++i) out[i] = tpw::TpiBusStopCell(stop, i, tpw::kTpiBusStopPairRows);
+        return;
+    }
     out[0] = gWorldMap->GetBusStopPos(0).mIndex;
     out[1] = static_cast<uint16_t>(1 + (0 << 7) + gWorldMap->GetBusStopPos(0).mIndex);
     out[2] = static_cast<uint16_t>(0 - 256 + gWorldMap->GetBusStopPos(0).mIndex);
@@ -1419,6 +1426,8 @@ void CPerson::ModelState() {
             SetState(static_cast<PersonState>(0x15));
         } else if (walks == 2) {
             CTRACE(2, kStuckText_2);
+            // TPW_PORT_FIX mods CPerson::ModelState, state 20 | Mac: a visitor who finds no way to the bus stop stays in the state, standing where the walk gave up, for ever | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGateFlow.h): in one of the mod's worlds the visitor goes back to waiting to cross (state 19), which picks a cell at the stop again (BusStopCells); off, or an original world, the Mac's | Why: tpw-mods tpi-worlds; a park saved with visitors stuck on a cell the stop no longer uses (H7, BusStopCells above) gets them to the bus
+            if (tpw::TpiWorldInPlay()) SetState(static_cast<PersonState>(0x13));
         }
         break;
     }

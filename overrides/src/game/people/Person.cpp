@@ -29,6 +29,7 @@
 #include "TPEmbed.h"
 #include "TPEngine.h"
 #include "TPGlobals.h"
+#include "TpiGateFlow.h"
 #include "TPSound.h"
 #include "VehicleSteer.h"
 #include "World.h"
@@ -158,6 +159,9 @@ CPerson::CPerson(MapId cell) {
 
     if (reinterpret_cast<CPeep*>(this)->IsInsidePark() == 0) {
         MapId side = gWorldMap->GetCrossingBSSidePos(static_cast<int32_t>(gWorld->GetRand() & 1u));
+        // TPW_PORT_FIX mods CPerson::CPerson | Mac: a visitor off the bus walks to the crossing's bus side (the Standard.sam's CrossingBSSide cell) | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGateFlow.h): in one of the mod's worlds the cell is in the crossing's column on the row below bus stop B, the pavement (tpw::TpiCrossingBusSide); off, or an original world, the Mac's | Why: tpw-mods tpi-worlds; Theme Park Inc's crossing cell is on the road, which is not walkable, so the walk failed, the visitor went idle (state 6) and wandered in past the ticket booths without paying (H7)
+        if (tpw::TpiWorldInPlay())
+            side.mIndex = tpw::TpiCrossingBusSide(side.mIndex, gWorldMap->GetBusStopPos(1).mIndex);
         uint8_t offset = static_cast<uint8_t>(gWorld->GetRand());
         uint32_t cellMinus1 = static_cast<uint32_t>(side.mIndex) - 1u;
         MapPos x;

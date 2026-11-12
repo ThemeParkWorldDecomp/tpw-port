@@ -31,6 +31,7 @@
 #include "TPConfig.h"
 #include "TPEngine.h"
 #include "TPGlobals.h"
+#include "TpiGateFlow.h"
 #include "TpiWorlds.h"
 #include "TPMain.h"
 #include "TPResource.h"
@@ -693,6 +694,8 @@ void CGame::SetCurrentThemeName() {
     auto* node = mThemes.mHead;
     for (int32_t i = 0; i < mCurrentTheme; ++i) node = node->mNext;
     mCurrentThemeName = *node->mData;
+    // TPW_PORT_FIX mods CGame::SetCurrentThemeName | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGateFlow.h): notes whether the new theme is one of the mod's worlds (tpw::TpiNoteTheme), for the walks outside the gate; nothing of the game changes here | Why: tpw-mods tpi-worlds, the walks outside Theme Park Inc's gate (H7)
+    tpw::TpiNoteTheme(mCurrentThemeName.mData);
 }
 
 // The old theme numbers of the settings file (CURRENTTheme) to the folder order: 3 is the first folder, 1 the third, 2 the second,
