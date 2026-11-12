@@ -1267,9 +1267,10 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
     // The Settings box's "W A S D move the camera" (PortWasdCameraKey, include/port_wasd.h): off, the original's keys.
     gPortWasdCamera = backend.Setting(tpw::ui::kWasdCameraKey) == "1";
     if (gPortWasdCamera) tpw::Log("W A S D move the camera (the launcher's Settings)");
-    // With it, a held A is released before the next key goes down, and a key-up the run loop cannot match lets go of the
-    // camera key that key still holds (TPW_PORT_FIX wasd-stuck, platform/gamework.cpp).
-    tpw::gPortReleaseKeyA = gPortWasdCamera;
+    // A held A is released before the next key goes down, as every other key is, with the setting or without it (TPW_PORT_FIX
+    // keya, platform/gamework.cpp); with it, a key-up the run loop cannot match lets go of the camera key that key still holds
+    // (TPW_PORT_FIX wasd-stuck).
+    tpw::gPortReleaseKeyA = true;
     tpw::gPortStrayKeyUp = gPortWasdCamera ? PortWasdStrayKeyUp : nullptr;
     // And keys stay down together: every key with "Several keys at once", two of the four for the diagonals (TPW_PORT_FIX
     // wasd-diagonal, platform/gamework.cpp), but none while an edit box has the keyboard (TPW_PORT_FIX typing-order).
