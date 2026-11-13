@@ -2,6 +2,10 @@
 
 ## 0.5.2 (not released yet)
 
+### Bug Fixes
+
+- Fixed starting a park in the TPI Worlds and Rides mod's Arabian Nights or Polar Zone asking for tens of gigabytes of memory (up to 20 GB taken on Windows)
+
 ## 0.5.1 (2026-11-12)
 
 ### Bug Fixes

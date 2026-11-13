@@ -462,6 +462,27 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   elseif(TPW_PORT_FIX)
     add_test(NAME sound_wavfile COMMAND tpw_host_sound_wavfile)
   endif()
+  # A streaming bank whose offsets point at music data (Theme Park Inc's Arabian Nights and Polar Zone music banks): every
+  # sample's cache at most 0x2000 bytes, no new[] of 2 to 4 GB. The program builds only the streaming bank's functions of
+  # src/sound/TbMMFileBank.cpp (the file, the bank's base and new[] are the test's). The original asks new[] for the
+  # negative sizes taken as unsigned, so ctest runs it only with the port's fixes; a build without them makes it, and it fails.
+  add_executable(tpw_host_sound_mmbank ${TPW_DECOMP_DIR}/tests/host_sound_mmbank.cpp ${TPW_DECOMP_DIR}/src/sound/TbMMFileBank.cpp
+                 ${TPW_DECOMP_DIR}/src/bullfrog/TbRefRelease.cpp)
+  target_include_directories(tpw_host_sound_mmbank PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+  tpw_slice(TARGET tpw_host_sound_mmbank NAME sound_mmbank SOURCES sound/TbMMFileBank.cpp KEEP
+            __ZN12TbMMFileBank12RegisterBankEPKcj   # TbMMFileBank::RegisterBank(char const*, unsigned int)
+            __ZN12TbMMFileBank10DeregisterEv   # TbMMFileBank::Deregister()
+            __ZN12TbMMFileBank14RetrieveSampleEPP14TbSampleHeaderj   # TbMMFileBank::RetrieveSample(TbSampleHeader**, unsigned int)
+            __ZN12TbMMFileBank17GetSamplePositionEj   # TbMMFileBank::GetSamplePosition(unsigned int)
+            __ZN12TbMMFileBank9GetHandleEv   # TbMMFileBank::GetHandle()
+            __ZNK12TbMMFileBank6IsTypeEj   # TbMMFileBank::IsType(unsigned int) const
+            __ZNK12TbMMFileBank11IsStreamingEv   # TbMMFileBank::IsStreaming() const
+            __ZN12TbMMFileBankD1Ev)   # TbMMFileBank::~TbMMFileBank()
+  if(tpw_platform_tests_skipped)
+    set_target_properties(tpw_host_sound_mmbank PROPERTIES EXCLUDE_FROM_ALL ON)
+  elseif(TPW_PORT_FIX)
+    add_test(NAME sound_mmbank COMMAND tpw_host_sound_mmbank)
+  endif()
   # Quitting with the park map open: the map's destroy message cancels its advisor message after the world is deleted. The
   # program builds only UIMain_CancelAdvisorMessage of src/game/ui/ui_main.cpp (the world and the advisor are the test's
   # stand-ins). The original asks the null world, so ctest runs it only with the port's fixes; a build without them fails.
