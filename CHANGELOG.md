@@ -8,6 +8,8 @@
 - Fixed the TPI Worlds and Rides mod's plants and flower beds staying invisible once placed, the helipad, ticket booth and other fixed items all being named Heli, and parasols, fountains, lakes and balloons drawn with parts missing
 - In the TPI Worlds and Rides mod's worlds, paths can now be built across the bridges, the land past the bridges and Land of Invention's gate can be bought, the gate opens once your park owns the land by it, and Land of Invention has its staff room
 - Fixed the TPI Worlds and Rides mod's Golden Ticket rides, such as Spin Djinn, showing parts missing and carrying no riders, a crash when The Scorpions first runs, a freeze after about 25 minutes in a park, and Polar Zone's ice skates showing nothing when ridden in first person
+- Windows and Linux: the Delete key now clears land, as in the PC original and on its Key Command Card; F7 clears land only on the Mac, as in the Mac original
+- Mac: copying an object by clicking it now takes Command+click only, as in the Mac original; Ctrl+click still does it on Windows and Linux, as in the PC original
 
 ## 0.5.1 (2026-11-12)
 
