@@ -6,6 +6,7 @@
 
 - Fixed starting a park in the TPI Worlds and Rides mod's Arabian Nights or Polar Zone asking for tens of gigabytes of memory (up to 20 GB taken on Windows)
 - Fixed the TPI Worlds and Rides mod's plants and flower beds staying invisible once placed, the helipad, ticket booth and other fixed items all being named Heli, and parasols, fountains, lakes and balloons drawn with parts missing
+- In the TPI Worlds and Rides mod's worlds, paths can now be built across the bridges, the land past the bridges and Land of Invention's gate can be bought, the gate opens once your park owns the land by it, and Land of Invention has its staff room
 - Fixed the TPI Worlds and Rides mod's Golden Ticket rides, such as Spin Djinn, showing parts missing and carrying no riders, a crash when The Scorpions first runs, a freeze after about 25 minutes in a park, and Polar Zone's ice skates showing nothing when ridden in first person
 
 ## 0.5.1 (2026-11-12)

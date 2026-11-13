@@ -28,6 +28,7 @@
 #include "TbDynamicStringTemplate.h"
 #include "TbError.h"
 #include "ThingReceivers.h"
+#include "TpiGateFlow.h"
 #include "TPConfig.h"
 #include "TPDialog.h"
 #include "TPEngine.h"
@@ -1079,7 +1080,9 @@ struct SideTally {
 // and 0x44 on a column.
 void TallySideCell(CTrackCell* cell, Side side, SideTally* tally, bool atEnd, uint8_t straightBytes, int32_t* corners, bool* bad) {
     CMapCell* map = cell->GetMapCellEquiv();
-    if (map->IsFreeform() == 0 || map->IsWater() != 0) {
+    // TPW_PORT_FIX mods LLCC_IsHoardingEditLegal (TallySideCell) | Mac: two freeform dry cells in a row along a side make the edit illegal | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGateFlow.h): in one of the mod's worlds a freeform cell does not count towards the run, so a side may cross the hidden quads of a dry riverbed or a canyon under an obstacle; the other checks (the size, the corners, the hoarding, the fill, the cost) are the Mac's; off, or an original world, the Mac's | Why: tpw-mods tpi-worlds; Theme Park Inc's own fences (Hoardings.sam, EndHoardings.sam) run along and across its canyons, so the land past its bridges could not be bought otherwise
+    const bool freeformCounts = !tpw::TpiWorldInPlay();
+    if (!freeformCounts || map->IsFreeform() == 0 || map->IsWater() != 0) {
         tally->mRun = 0;
     } else {
         tally->mRun = tally->mRun + 1;

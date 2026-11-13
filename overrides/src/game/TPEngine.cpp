@@ -36,6 +36,14 @@
 #include "Wavelet.h"
 #include <cfloat>
 #include <cstring>
+// TPW_PORT_FIX mods EngineTick1 | Mac: none of these headers | Port: what EngineTick1's opening gates read (the level's balance, the map's cells, the world, include/TpiObstacleGate.h) | Why: tpw-mods tpi-worlds, Land of Invention's gate
+#include "HoardingsBalance.h"
+#include "MainBalance.h"
+#include "MapCell.h"
+#include "TpiGateFlow.h"
+#include "TpiObstacleGate.h"
+#include "World.h"
+#include <vector>
 
 // The engine start-up glue of the main app (0x10059c70..0x10068d90 in part; the inventory
 // files the range under TPRide.cpp, and the original file name is unknown): the options
@@ -509,9 +517,90 @@ void AnimateRides(uint32_t mode) {
 }
 
 // 0x1005b4d4
+// TPW_PORT_FIX mods TpiSwingGates | Mac: no such function; the terrain's own animations only | Port: EngineTick1's opening gates (TPW_MOD_HOOK tpi_worlds): the gate leaves the converter merged into the terrain, the land a new park starts with (TpiLevelStartFence) and their swing (TpiSwingGates) | Why: tpw-mods tpi-worlds; Theme Park Inc opened Land of Invention's gate by itself once the land up to it was bought
+namespace {
+
+// A leaf of an opening gate in the terrain (include/TpiObstacleGate.h): its node, what its name says, how far open it
+// is and the matrix this last wrote into the node.
+struct TpiGateLeafNode {
+    tag_sNode* node;
+    tpw::TpiGateLeaf leaf;
+    float way;
+    sMatrix written;
+};
+
+// The land a new park of this level starts with: the hoarding LLCC_DrawInitialHoarding clicks (the level's
+// Hoardings.sam offsets, or the six of LLCC_DrawDefaultHoardings under the dialog option 0x400) from entrance B's cell
+// three to the right, and the land inside it (include/TpiObstacleGate.h TpiStartLand). Read each tick from the level's
+// balance, which a new park and a loaded one both load, so a save holds nothing for it.
+tpw::TpiStartFence TpiLevelStartFence() {
+    tpw::TpiStartFence fence;
+    fence.left = gMainBalance.mValues[kMainBalanceEntranceAPosX].mInteger - 4;
+    fence.right = gMainBalance.mValues[kMainBalanceEntranceBPosX].mInteger + 3;
+    fence.bottom = gMainBalance.mValues[kMainBalanceEntranceBPosY].mInteger;
+    if ((gTPDialogOptions & 0x400) != 0) {
+        static const int32_t kDefault[6][2] = {{0, 0}, {2, 0}, {2, 4}, {-10, 4}, {-10, 0}, {-8, 0}};
+        for (const auto& click : kDefault) tpw::TpiFenceClick(fence, fence.right + click[0], fence.bottom + click[1]);
+        return fence;
+    }
+    for (int32_t i = 0; i < 64 && gHoardingsBalance434C.mValues[1 + 2 * i].mInteger != 0x200; ++i)
+        tpw::TpiFenceClick(fence, fence.right + gHoardingsBalance434C.mValues[1 + 2 * i].mInteger,
+                           fence.bottom + gHoardingsBalance434C.mValues[2 + 2 * i].mInteger);
+    return fence;
+}
+
+// Swings each opening gate's leaves a tick towards open while the park owns a cell of its footprint or a cell next to
+// it that a new park does not start with, towards closed while it owns none. A node whose matrix is not the one
+// written last (a terrain just loaded, a park just loaded) takes the pose of the park's land at once, so a loaded park
+// shows its gate as its land leaves it.
+void TpiSwingGates() {
+    static const tag_sM3D2Header* scanned = nullptr;
+    static uint16_t scannedCount = 0;
+    static std::vector<TpiGateLeafNode> leaves;
+    const tag_sM3D2Header* header = gHeightfieldHeader;
+    if (header != scanned || header->mNodeCount != scannedCount) {
+        scanned = header;
+        scannedCount = header->mNodeCount;
+        leaves.clear();
+        tag_sNode* nodes = header->mNodes.get();
+        for (uint16_t i = 0; nodes != nullptr && i < header->mNodeCount; ++i) {
+            TpiGateLeafNode leaf{&nodes[i], {}, 0.0f, {}};
+            if (tpw::TpiParseGateLeaf(nodes[i].mName.get(), leaf.leaf)) {
+                leaf.written = nodes[i].mMatrix;
+                leaf.written.m[0][0] += 1.0f;   // never the node's own: the first tick poses it
+                leaves.push_back(leaf);
+            }
+        }
+    }
+    const auto owned = [](int32_t x, int32_t y) {
+        const CMapCell* cell = reinterpret_cast<const CMapCell*>(reinterpret_cast<uintptr_t>(gGameWorld) + 0x2d8 +
+                                                                  (x + (y << 7)) * 0x44);
+        return (cell->mFlags & 0x40) == 0;   // not outside the park
+    };
+    const tpw::TpiStartFence fence = TpiLevelStartFence();
+    const auto start = [&fence](int32_t x, int32_t y) { return tpw::TpiStartLand(fence, x, y); };
+    for (TpiGateLeafNode& leaf : leaves) {
+        const bool open = tpw::TpiGateOpen(leaf.leaf, owned, start);
+        const bool fresh = std::memcmp(&leaf.node->mMatrix, &leaf.written, sizeof(sMatrix)) != 0;
+        const float way = fresh ? (open ? 1.0f : 0.0f) : tpw::TpiGateStep(leaf.way, open);
+        if (!fresh && way == leaf.way) continue;
+        leaf.way = way;
+        float turn[4], rows[3][3];
+        tpw::TpiGateTurn(leaf.leaf, way, turn);
+        tpw::TpiGateRows(turn, rows);
+        for (int32_t row = 0; row < 3; ++row)
+            for (int32_t column = 0; column < 3; ++column) leaf.node->mMatrix.m[row][column] = rows[row][column];
+        leaf.written = leaf.node->mMatrix;
+    }
+}
+
+}  // namespace
+
 void EngineTick1() {
     g3DRefreshFlags = 0;
     if (gHeightfieldRideSet != nullptr) AnimateRideSet(gHeightfieldRideSet, 1, 4);
+    // TPW_PORT_FIX mods EngineTick1 | Mac: the terrain's own animations only | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiObstacleGate.h): in one of the mod's worlds the leaves of an opening gate the converter merged into the terrain (nodes named "tpigate ...", Land of Invention's) swing open, a fortieth of the way each tick, while the park owns any cell of the gate's footprint or any cell next to it (a side or a corner away) that a new park does not start with (the level's starting hoarding and the land inside it, from its balance: Land of Invention's runs through the gate), and closed while it owns none; a node whose matrix changed under it (a terrain or park just loaded) takes its pose at once, so the state is the park's land and saves hold nothing new; off, or an original world, the Mac's | Why: tpw-mods tpi-worlds; Theme Park Inc opened this gate by itself once the land up to it was bought (its .sam's Obstacle.OpenedAutomaticly)
+    if (tpw::TpiWorldInPlay() && gHeightfieldHeader != nullptr && gGameWorld != nullptr) TpiSwingGates();
 }
 
 // 0x1005b540

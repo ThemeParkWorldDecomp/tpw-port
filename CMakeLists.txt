@@ -591,6 +591,14 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_tpi_gate_flow PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_gate_flow COMMAND tpw_host_tpi_gate_flow)
   endif()
+  # The TPI Worlds and Rides mod's opening gate (TPW_MOD_HOOK tpi_worlds, include/TpiObstacleGate.h): a leaf's node name
+  # read back as the converter writes it, the rule that opens it (the park owns a cell of its footprint or one next to
+  # it) and its swing, without game data. The original has no such mod, so it is made only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_tpi_obstacle_gate ${TPW_DECOMP_DIR}/tests/host_tpi_obstacle_gate.cpp)
+    target_include_directories(tpw_host_tpi_obstacle_gate PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_obstacle_gate COMMAND tpw_host_tpi_obstacle_gate)
+  endif()
   # The TPI Worlds and Rides mod's start of a ride script (TPW_MOD_HOOK tpi_worlds, include/TpiRideScript.h): which scripts
   # start with SPECIAL set (a ride with an O animation), on made-up flags, without game data. The original has no such mod,
   # so it is made only with the port's fixes.
