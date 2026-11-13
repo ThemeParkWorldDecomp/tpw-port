@@ -5,6 +5,7 @@
 ### Bug Fixes
 
 - Fixed starting a park in the TPI Worlds and Rides mod's Arabian Nights or Polar Zone asking for tens of gigabytes of memory (up to 20 GB taken on Windows)
+- Fixed the TPI Worlds and Rides mod's plants and flower beds staying invisible once placed, the helipad, ticket booth and other fixed items all being named Heli, and parasols, fountains, lakes and balloons drawn with parts missing
 
 ## 0.5.1 (2026-11-12)
 
