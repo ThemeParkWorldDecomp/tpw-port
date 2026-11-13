@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.2 (not released yet)
+## 0.5.2 (2026-11-13)
 
 ### Bug Fixes
 
