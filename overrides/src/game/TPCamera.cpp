@@ -36,6 +36,8 @@
 #include "TPCamera.h"
 #include "TPCoaster.h"
 #include "TPEngine.h"
+#include "TpiGateFlow.h"
+#include "TpiRideCamera.h"
 #include "TPMain.h"
 #include "TPSettings.h"
 #include "TPSound.h"
@@ -355,6 +357,14 @@ int32_t SetupRideRideMatrixAndSuch(int32_t ride, int32_t node) {
     if (set == nullptr) return 0;
     uint32_t index = FindDataNodeIndexByID(set, 0x1000, static_cast<uint32_t>(node));
     if (node != 1 && index == 0xffffffffu) index = FindDataNodeIndexByID(set, 0x1000, 1);
+    // TPW_PORT_FIX mods SetupRideRideMatrixAndSuch | Mac: a mesh with no camera node (flag 0x1000) has no first person view | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiRideCamera.h): in the mod's worlds such a mesh puts the view at its first rider's head (tpw::TpiRideCameraFallback); off, an original world, or a mesh with a camera node, the Mac's | Why: tpw-mods tpi-worlds; Theme Park Inc's Polar ice skates (ride 6030) have a camera mesh with a head and no camera node, so riding them did nothing
+    if (index == 0xffffffffu && tpw::TpiWorldInPlay()) {
+        const tag_sM3D2Header* const header = set->mHeads->mHeader;
+        index = tpw::TpiRideCameraFallback(header->mEmbeddedCount, [header](uint32_t i, uint32_t* id, uint32_t* flags) {
+            *id = header->mEmbedded[i].mF04;
+            *flags = header->mEmbedded[i].mFlags;
+        });
+    }
     if (index == 0xffffffffu) return 0;
     tag_sMesh* const mesh = set->mHeads;
     gFirstPersonRideInstance = static_cast<uint32_t>(ride);

@@ -57,6 +57,10 @@ struct CallbackChainDepth {
     bool Over() const { return gCallbackChainDepth > kCallbackChainLimit; }
 };
 
+// TPW_PORT_FIX mods gCallingBack | Mac: no such word | Port: the callback pipe whose callback runs on this thread (see _TbSoundSampleCallback::GetNextSample), read by TPW_MOD_HOOK tpi_worlds in CCodecFactory::CreateCodec | Why: tpw-mods tpi-worlds; the factory must not release the channel that holds it
+thread_local _TbSoundSampleCallback* gCallingBack = nullptr;
+constexpr int32_t kPipesWalked = 64;   // a channel holds a handful of pipes; the walk ends there even on a chain that loops
+
 }  // namespace
 
 void _TbSoundSampleCallback::ClearCache() { PoolClearCache<SampleCallbackPool>(); }
@@ -128,7 +132,11 @@ void _TbSoundSampleCallback::GetNextSample(uint32_t position) {
     uint8_t format = static_cast<TbSoundSampleCodec*>(mNext)->GetSampleFormat();
     TbSoundSamplePipe* old = mNext;
     mNext = nullptr;
+    // TPW_PORT_FIX mods _TbSoundSampleCallback::GetNextSample | Mac: the callback runs with nothing recorded | Port: this pipe is recorded as calling back while it runs (CallsBackIn), which only TPW_MOD_HOOK tpi_worlds in CCodecFactory::CreateCodec reads; nothing else changes | Why: tpw-mods tpi-worlds; a next sample that fails to start there released the channel and this pipe with it, which this function then wrote to and GetDataChunk's guard deleted again
+    _TbSoundSampleCallback* outer = gCallingBack;
+    gCallingBack = this;
     mCallback->SoundCallback(mHandle, mUserData);
+    gCallingBack = outer;
     if (old != nullptr) old->Release();
     if (mNext == nullptr) {
         void* block = TbTimerCodec::operator new(sizeof(TbTimerCodec));
@@ -136,6 +144,14 @@ void _TbSoundSampleCallback::GetNextSample(uint32_t position) {
         if (block != nullptr) timer = ::new (block) TbTimerCodec(format, position);
         mNext = timer;
     }
+}
+
+bool _TbSoundSampleCallback::CallsBackIn(const TbSoundSamplePipe* chain) {
+    if (gCallingBack == nullptr) return false;
+    for (int32_t i = 0; chain != nullptr && i < kPipesWalked; chain = chain->mNext, ++i) {
+        if (chain == gCallingBack) return true;
+    }
+    return false;
 }
 
 // AudioPlaceHolder.cpp: CAudioPlaceHolder, the base of every sound the game is playing (unit w79g2, "sound symbols shared", file

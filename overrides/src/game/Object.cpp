@@ -31,6 +31,8 @@
 #include "TPCoaster.h"
 #include "TPConfig.h"
 #include "TPEngine.h"
+#include "TpiGateFlow.h"
+#include "TpiRideScript.h"
 #include "ui_main.h"
 #include "UIInterface.h"
 #include "World.h"
@@ -434,6 +436,13 @@ void CObject::CreateRideScript() {
         mF20 = static_cast<uint32_t>(RSSE_InitScript(found, thing, 0));
     }
     SetRideScriptID(mF1C, mF20);
+    // TPW_PORT_FIX mods CObject::CreateRideScript | Mac: the script starts with every variable as its file gives it | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiRideScript.h): in the mod's worlds a ride whose animation set has an O group starts its script with SPECIAL (variable 10) set to 1 (tpw::TpiRideScriptStartsSpecial); off, an original world, or a ride without an O group, the Mac's | Why: tpw-mods tpi-worlds; Theme Park Inc's Golden Ticket ride scripts loop the O animation until SPECIAL is set, which Theme Park World never does, so placed they kept parts hidden and carried no riders
+    if (tpw::TpiWorldInPlay() && mF1C != 0 && mF1C < kMaxRideInstances && gRideAnimSets[mF1C] != nullptr) {
+        RSSE_SCRIPT* script = RSSE_GetScriptPointer(static_cast<int32_t>(mF20));
+        if (script != nullptr && tpw::TpiRideScriptStartsSpecial(gRideAnimSets[mF1C]->mGroups[tpw::kRideAnimKindO].mFlags, script->mVarCount)) {
+            RSSE_Setvar(script, tpw::kRideScriptVarSpecial, 1);
+        }
+    }
 }
 
 // CObject, main app, unit w210 (its test; translated in unit v5L21; the Mac files them under Object.cpp, in pieces): a

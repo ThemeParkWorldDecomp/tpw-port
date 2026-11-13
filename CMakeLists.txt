@@ -483,6 +483,24 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   elseif(TPW_PORT_FIX)
     add_test(NAME sound_mmbank COMMAND tpw_host_sound_mmbank)
   endif()
+  # A sentence's next sample that fails to start inside the pull (the hang in Arabian Nights): the running callback pipe is
+  # not released under itself, its pool holds each block once, and the channel ends once. The program builds the same
+  # functions as tpw_host_sound_wavfile and _TbSoundSampleCallback::CallsBackIn. The original deletes the running pipe twice,
+  # so ctest runs it only with the port's fixes; a build without them makes it, and it fails.
+  add_executable(tpw_host_sound_callback_release ${TPW_DECOMP_DIR}/tests/host_sound_callback_release.cpp)
+  target_sources(tpw_host_sound_callback_release PRIVATE ${TPW_SOUND_WAVFILE_SOURCES})
+  target_include_directories(tpw_host_sound_callback_release PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+  # the test's own switch for the fixed path: the export takes TPW_PORT_FIX out of tests/, so the test cannot use it
+  if(TPW_PORT_FIX)
+    target_compile_definitions(tpw_host_sound_callback_release PRIVATE TPW_TEST_PORT_FIX)
+  endif()
+  tpw_slice(TARGET tpw_host_sound_callback_release NAME sound_callback_release KEEP ${TPW_SOUND_WAVFILE_KEEP}
+    __ZN22_TbSoundSampleCallback11CallsBackInEPK17TbSoundSamplePipe)   # _TbSoundSampleCallback::CallsBackIn(TbSoundSamplePipe const*)
+  if(tpw_platform_tests_skipped)
+    set_target_properties(tpw_host_sound_callback_release PROPERTIES EXCLUDE_FROM_ALL ON)
+  elseif(TPW_PORT_FIX)
+    add_test(NAME sound_callback_release COMMAND tpw_host_sound_callback_release)
+  endif()
   # Quitting with the park map open: the map's destroy message cancels its advisor message after the world is deleted. The
   # program builds only UIMain_CancelAdvisorMessage of src/game/ui/ui_main.cpp (the world and the advisor are the test's
   # stand-ins). The original asks the null world, so ctest runs it only with the port's fixes; a build without them fails.
@@ -572,6 +590,26 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     add_executable(tpw_host_tpi_gate_flow ${TPW_DECOMP_DIR}/tests/host_tpi_gate_flow.cpp)
     target_include_directories(tpw_host_tpi_gate_flow PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_gate_flow COMMAND tpw_host_tpi_gate_flow)
+  endif()
+  # The TPI Worlds and Rides mod's start of a ride script (TPW_MOD_HOOK tpi_worlds, include/TpiRideScript.h): which scripts
+  # start with SPECIAL set (a ride with an O animation), on made-up flags, without game data. The original has no such mod,
+  # so it is made only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_tpi_ride_script ${TPW_DECOMP_DIR}/tests/host_tpi_ride_script.cpp)
+    target_include_directories(tpw_host_tpi_ride_script PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_ride_script COMMAND tpw_host_tpi_ride_script)
+  endif()
+  # The TPI Worlds and Rides mod's bumper ride kind (TPW_MOD_HOOK tpi_worlds, include/TpiBumperKind.h): Theme Park World's
+  # kinds kept, any other built as the stand-in, on made-up kinds, without game data. The original has no such mod, so it
+  # is made only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_tpi_bumper_kind ${TPW_DECOMP_DIR}/tests/host_tpi_bumper_kind.cpp)
+    target_include_directories(tpw_host_tpi_bumper_kind PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_bumper_kind COMMAND tpw_host_tpi_bumper_kind)
+    # Its ride camera node (include/TpiRideCamera.h): a mesh with no camera node rides at its first rider's head.
+    add_executable(tpw_host_tpi_ride_camera ${TPW_DECOMP_DIR}/tests/host_tpi_ride_camera.cpp)
+    target_include_directories(tpw_host_tpi_ride_camera PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_ride_camera COMMAND tpw_host_tpi_ride_camera)
   endif()
   # A park file's packed block cut short or damaged, unpacked with the block's length (the port's fixes parkload and
   # truncsave): no read past the block, and only a whole block unpacks. The program builds the packing and that unpacking of
