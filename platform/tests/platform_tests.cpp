@@ -97,13 +97,16 @@ static std::string Join(const std::vector<std::string>& parts) {
     return out;
 }
 
-// setenv and unsetenv, which Windows' C runtime has as _putenv_s (an empty value removes the variable there).
+// setenv and unsetenv, which Windows' C runtime has as _putenv_s (an empty value removes the variable there). SDL reads
+// its own copy of the environment (SDL_AUDIO_DRIVER, the sound hooks), made the first time anything asks it, so that copy
+// is set too (as in tests/host_no_sound_device.cpp).
 static void SetEnv(const char* name, const char* value) {
 #ifdef _WIN32
     _putenv_s(name, value);
 #else
     setenv(name, value, 1);
 #endif
+    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), name, value, true);
 }
 
 static void UnsetEnv(const char* name) {
@@ -112,6 +115,7 @@ static void UnsetEnv(const char* name) {
 #else
     unsetenv(name);
 #endif
+    SDL_UnsetEnvironmentVariable(SDL_GetEnvironment(), name);
 }
 
 static void TestPaths(const fs::path& scratch) {
@@ -728,12 +732,12 @@ static void TestTpiContent(const fs::path& scratch) {
 #ifdef TPW_PORT_FIX
     // The launcher's "mod off" call keeps the TPW_TPI_ROOT test hook's folder (a scripted play needs no Mods box
     // entry); unset, or naming no whole content folder, the worlds go away as before.
-    setenv("TPW_TPI_ROOT", tpi.string().c_str(), 1);
+    SetEnv("TPW_TPI_ROOT", tpi.string().c_str());
     CHECK(tpw::UseTpiContent({}) == 3 && Same(tpw::TpiContentRoot(), tpi) && tpw::TpiContentForced());
     CHECK(names(tpw::ListGameFolder("data:levels")) == "fantasy/ hallow/ jungle/ space/ Arabian/ science/ water/ ");
-    setenv("TPW_TPI_ROOT", (scratch / "partial").string().c_str(), 1);
+    SetEnv("TPW_TPI_ROOT", (scratch / "partial").string().c_str());
     CHECK(tpw::UseTpiContent({}) == 0 && tpw::TpiContentRoot().empty() && !tpw::TpiContentForced());
-    unsetenv("TPW_TPI_ROOT");
+    UnsetEnv("TPW_TPI_ROOT");
     CHECK(tpw::UseTpiContent({}) == 0 && tpw::TpiContentRoot().empty() && !tpw::TpiContentForced());
     CHECK(names(tpw::ListGameFolder("data:levels")) == "fantasy/ hallow/ jungle/ space/ ");
 #endif

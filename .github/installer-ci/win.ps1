@@ -307,8 +307,14 @@ static class Stub {
         if (args.Length > 0 && args[0] == "--version") { Console.WriteLine("STP/TPW Launcher v$v"); Console.WriteLine("build: fake"); }
         string here = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
         if (Path.GetFileName(here) == "build") {
-            File.AppendAllText(Path.Combine(Path.GetDirectoryName(here), "stub-launch.txt"),
-                "STP/TPW Launcher v$v args=" + string.Join(" ", args) + " cwd=" + Environment.CurrentDirectory + "\r\n");
+            // Two can write at once (the install's start and the --version check right after it): the file opens for
+            // one writer at a time, so the other waits for it, 30 seconds at most, and its line is never lost.
+            string log = Path.Combine(Path.GetDirectoryName(here), "stub-launch.txt");
+            string line = "STP/TPW Launcher v$v args=" + string.Join(" ", args) + " cwd=" + Environment.CurrentDirectory + "\r\n";
+            for (int i = 0; ; i++) {
+                try { File.AppendAllText(log, line); break; }
+                catch (IOException) { if (i >= 300) throw; System.Threading.Thread.Sleep(100); }
+            }
         }
         return 0;
     }
@@ -399,6 +405,9 @@ function Wait-LaunchCount([string]$dir, [string]$text, [int]$moreThan) {
         if ((Get-LaunchCount $dir $text) -gt $moreThan) { return $true }
         Start-Sleep -Milliseconds 500
     }
+    $log = Join-Path $dir 'stub-launch.txt'
+    Write-Host "  no line '$text' in 30 seconds; $log holds:"
+    if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log | ForEach-Object { Write-Host "    $_" } }
     return $false
 }
 
