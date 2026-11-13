@@ -682,11 +682,13 @@ int32_t SSpriteGameData::SetupVertices(SVertex* vertices, float xScale, float yS
     vertices[2].x = x1;
 
     if ((flags & kSpriteHot) != 0 && (gei_Display.mFlags & kDisplayHotSprites) != 0) {
-        const float acrossX = right - left;
+        // TPW_PORT_FIX widepick SSpriteGameData::SetupVertices | Mac: the sprite's width and the pointer's distance across are in the view's x units, which span its 4:3 screen | Port: both times 0.75 over the display's height-to-width (1 on a 4:3 screen), so they are in the units of a 4:3 view of the same height | Why: a wide screen's view keeps the 4:3 view's height and widens (Hor+), so its x units span more of the screen while the people keep their shape: at 16:9 a person was picked from about a quarter further to either side of them than on the Mac (johhnyjefferson34133)
+        const float across = 0.75f / gei_Display.mF04;
+        const float acrossX = (right - left) * across;
         const float acrossY = bottom - top;
         const float w = vertices[0].w;
         const float inverse = 1.0f / w;
-        const float offX = ppc_fnmsubs(vertices[0].x, inverse, gSpriteHotX);
+        const float offX = ppc_fnmsubs(vertices[0].x, inverse, gSpriteHotX) * across;
         const float offY = ppc_fnmsubs(vertices[0].y, inverse, gSpriteHotY);
         const float acrossXSquared = acrossX * acrossX;
         const float offXSquared = offX * offX;
