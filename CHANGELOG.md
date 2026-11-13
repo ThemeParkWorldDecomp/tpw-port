@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.3 (2026-11-13)
+
+### Bug Fixes
+
+- Fixed visitors in the TPI Worlds and Rides mod's Polar Zone and Land of Invention turning most of the shops down at Theme Park Inc's prices, and visitors in all three worlds now use the photo booth
+- Fixed a leafy fence from Theme Park World's own worlds drawn across the grass in the TPI Worlds and Rides mod's worlds, beside those worlds' own walls; parks saved with it lose it when they are loaded
+- Parks in the TPI Worlds and Rides mod's worlds saved with an earlier version now get the walkable bridges, Land of Invention's gate and the shop and photo booth fixes when they are loaded
+- With the pointer outside the game's window, the camera keys now scroll straight instead of toward the window's edge, and a drag that ends outside the window no longer leaves the camera scrolling (Thanks slappyhead and @samueleagle91)
+- On a widescreen, people are now picked only when the pointer is as close to them as on a 4:3 screen, instead of from about a quarter further to either side (Thanks @johhnyjefferson34133 and @samueleagle91)
+
 ## 0.5.2 (2026-11-13)
 
 ### Bug Fixes
