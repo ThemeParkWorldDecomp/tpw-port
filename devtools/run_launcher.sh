@@ -74,7 +74,7 @@ cd "$root" || exit 1
 if [ -n "$from_data" ]; then
   "$build/tpw_launcher" --user "$build/user-$name" $windowed $display $aspect $resolution $background "$@" > "$build/launch-$name.log" 2>&1 &
 else
-  "$build/tpw_launcher" --game "extracted/disc-hfs/Theme Park Data" --user "$build/user-$name" $windowed $display $aspect $resolution $background $rest > "$build/launch-$name.log" 2>&1 &
+  "$build/tpw_launcher" --game "extracted/disc-hfs/Theme Park Data" --user "$build/user-$name" $windowed $display $aspect $resolution $background "$@" > "$build/launch-$name.log" 2>&1 &
 fi
 pid=$!
 n=0
