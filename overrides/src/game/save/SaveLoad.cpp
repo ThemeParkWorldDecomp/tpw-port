@@ -20,10 +20,12 @@
 #include "Debug.h"
 #include "FS_MasterSave.h"
 #include "GameSys.h"
+#include "HFieldTextures.h"
 #include "HLSprite.h"
 #include "InterfaceFontWrapper.h"
 #include "LbFile.h"
 #include "LbTime.h"
+#include "LevelSystems.h"
 #include "LLCellSystem.h"
 #include "MsgCheatMode.h"
 #include "OptionsBalance.h"
@@ -52,6 +54,8 @@
 #include "TPOptions.h"
 #include "TPSettings.h"
 #include "TPSound.h"
+#include "TpiGateFlow.h"
+#include "TpiSaveRepair.h"
 #include "UI_Base.h"
 #include "ui_main.h"
 #include "UIInterface.h"
@@ -785,6 +789,49 @@ void RepairPs1Rides() {
 }
 }  // namespace
 
+namespace {
+// TPW_PORT_FIX mods RepairTpiHiddenCells | Mac: no such pass | Port: TPW_MOD_HOOK tpi_worlds (include/TpiSaveRepair.h): in one of the mod's worlds, each map cell the park file keeps with the hidden quad's mode while the level's own quad (gHeightfieldCopy) is shown, belonging to nothing, gets that quad back (SetHeightfieldTexture's copy tile 0x37) and is reset as a new park resets it (CMapCell::Reset, its tile drawn again), keeping its saved flag 0x40, with its track cell when that has the hidden quad's mode | Why: see CSaveLoad::PostLoadOperations, below
+// Each cell it resets gets a new time stamp, as the cell system's own changes do; the count goes to the log.
+void RepairTpiHiddenCells() {
+    if (!tpw::TpiWorldInPlay()) return;
+    const sHField* level = gHeightfieldCopy;
+    if (gHeightfieldHeader == nullptr || level == nullptr) return;
+    const uint32_t width = level->mF18[0], height = level->mF18[1];
+    CMap* map = gGameWorld->GetMap();
+    int32_t mapCells = 0, trackCells = 0;
+    for (uint32_t index = 0; index < 0x4000u; ++index) {
+        const int32_t x = static_cast<int32_t>(index & 0x7fu), y = static_cast<int32_t>(index >> 7);
+        if (static_cast<uint32_t>(x) >= width || static_cast<uint32_t>(y) >= height) continue;
+        const bool levelShows = (level->mQuads.get()[static_cast<uint32_t>(x) + static_cast<uint32_t>(y) * width].mF00 & 1) == 0;
+        if (!levelShows) continue;
+        CMapCell* cell = &gGameWorld->mMapCells[index];
+        CTrackCell* track = &gGameWorld->mTrackCells[index];
+        bool changed = false;
+        if (tpw::TpiStaleHiddenMapCell(static_cast<int32_t>(cell->mType), cell->mStatusFlags, cell->mParentID, cell->mFlags,
+                                       levelShows)) {
+            const uint16_t saved = cell->mFlags;
+            SetHeightfieldTexture(gHeightfieldHeader, &gExtraTextureTable, x, y, 0, 0x37, 0);
+            cell->Reset(true);
+            cell->mFlags = tpw::TpiRepairedFlags(saved, cell->mFlags);
+            ++mapCells;
+            changed = true;
+        }
+        if (tpw::TpiStaleHiddenTrackCell(static_cast<int32_t>(track->mType), track->mParentID, HFieldCellStatus(x, y) != 0)) {
+            track->Reset();
+            ++trackCells;
+            changed = true;
+        }
+        if (!changed) continue;
+        tag_IDX_TYPE<IDXTYPEUniqueNameMapId, uint16_t> id;
+        id.mIndex = static_cast<uint16_t>(index + 1u);
+        map->SetTimeStamp(map->MakeNewTimeStamp(), id);
+    }
+    if (mapCells != 0 || trackCells != 0)
+        SamsUtilities::UDebug("port: tpi-worlds: %d map cells and %d track cells saved with a hidden quad's mode reset as land",
+                              static_cast<int>(mapCells), static_cast<int>(trackCells));
+}
+}  // namespace
+
 // Rebuilds what the engine holds after a park is read. The particle system is low spec when the current detail is 0.
 void CSaveLoad::PostLoadOperations() {
     InitialiseWeather();
@@ -794,6 +841,8 @@ void CSaveLoad::PostLoadOperations() {
     gGameWorld->GetMap()->UpdateMapInEngine();
     // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a ride's doors are where its record put them) | Port: TPW_MOD_HOOK ps1_save_repair: each ride of the ps1-rides mod whose saved doors are not its record's has them moved (RepairPs1Rides, include/Ps1SaveRepair.h), once the map's tiles and queue meshes are back in the engine, and the cells it changes drawn again | Why: tpw-mods ps1-rides 0.4.1 turns its rides half a turn and gives the entrance and the exit their right roles, so parks saved with 0.4.0 keep queues and exit paths on cells that are no longer the doors; off (the default), a park loads as it was saved
     RepairPs1Rides();
+    // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park's cells are as it saved them) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, the map cells a park saved with the hidden quad's mode whose quads the level now shows become land again, as in a new park, inside the park or not as saved (RepairTpiHiddenCells, include/TpiSaveRepair.h) | Why: the mod's converter 14 shows the walkways and ramps of its bridges as land (the walkable bridges), and parks saved before it keep those cells unbuildable and, drawn from their saved mode on loading, their quads hidden again, so no path can cross the bridges; off, or an original world, a park loads as it was saved
+    RepairTpiHiddenCells();
     gGameWorld->GetControlManager()->CheckAllControlsInitialised();
     RecalculateParkDarkening();
     gRestartParkClocks = 1;
