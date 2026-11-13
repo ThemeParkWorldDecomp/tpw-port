@@ -832,6 +832,42 @@ void RepairTpiHiddenCells() {
 }
 }  // namespace
 
+namespace {
+// TPW_PORT_FIX mods RepairTpiShops | Mac: no such pass | Port: TPW_MOD_HOOK tpi_worlds (include/TpiSaveRepair.h): in one of the mod's worlds, each shop type's control whose saved RipOffOK is below its record's gets the record's, and each placed shop whose record says Info.IsChoosable but was built without flag 4 gets it, its state 3 becoming the normal state | Why: see CSaveLoad::PostLoadOperations, below
+// The counts go to the log.
+void RepairTpiShops() {
+    if (!tpw::TpiWorldInPlay()) return;
+    CControlManager* controls = gGameWorld->GetControlManager();
+    int32_t raised = 0, choosable = 0;
+    for (RideInfo* ride = gRideDatabase.GetFirstRide(); ride != nullptr; ride = gRideDatabase.GetNextRide()) {
+        ObjectControl* control = controls->GetObjectControl(tag_IDX_TYPE<IDXTYPEUniqueNameObjectId, uint16_t>{ride->mId}, 1);
+        if (control == nullptr) continue;
+        const int32_t repaired = tpw::TpiRepairedRipOffOK(control->mRipOffOK, ride->Value(kRideSlot_RipOffOK).mInteger,
+                                                          ride->Value(kRideSlot_WhichUIType).mInteger);
+        if (repaired == control->mRipOffOK) continue;
+        control->mRipOffOK = repaired;
+        ++raised;
+    }
+    for (CThingArrayEntry* entry = gUsedThingHead; entry != nullptr; entry = entry->mNextUsed) {
+        CThing* thing = static_cast<CThing*>(entry->mThing);
+        if (thing == nullptr || thing->mDead != 0 || thing->mKind != 3) continue;
+        CObject* object = reinterpret_cast<CObject*>(thing);
+        const RideInfo* info = object->GetDBInfo();
+        if (info == nullptr ||
+            !tpw::TpiShopToMakeChoosable(object->mFlags, info->Value(kRideSlot_IsChoosable).mInteger,
+                                         info->Value(kRideSlot_WhichUIType).mInteger))
+            continue;
+        object->mFlags = static_cast<uint16_t>(object->mFlags | 4u);
+        const int32_t state = tpw::TpiRepairedShopState(static_cast<int32_t>(object->mState));
+        if (state != static_cast<int32_t>(object->mState)) object->SetState(static_cast<CObject::ObjectState>(state));
+        ++choosable;
+    }
+    if (raised != 0 || choosable != 0)
+        SamsUtilities::UDebug("port: tpi-worlds: %d shop types' RipOffOK raised to their records', %d placed shops made choosable",
+                              static_cast<int>(raised), static_cast<int>(choosable));
+}
+}  // namespace
+
 // Rebuilds what the engine holds after a park is read. The particle system is low spec when the current detail is 0.
 void CSaveLoad::PostLoadOperations() {
     InitialiseWeather();
@@ -843,6 +879,8 @@ void CSaveLoad::PostLoadOperations() {
     RepairPs1Rides();
     // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park's cells are as it saved them) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, the map cells a park saved with the hidden quad's mode whose quads the level now shows become land again, as in a new park, inside the park or not as saved (RepairTpiHiddenCells, include/TpiSaveRepair.h) | Why: the mod's converter 14 shows the walkways and ramps of its bridges as land (the walkable bridges), and parks saved before it keep those cells unbuildable and, drawn from their saved mode on loading, their quads hidden again, so no path can cross the bridges; off, or an original world, a park loads as it was saved
     RepairTpiHiddenCells();
+    // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park keeps the controls and object flags it saved) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, each shop type's saved RipOffOK below its record's becomes the record's, and a placed shop whose record now says Info.IsChoosable but that was built without it becomes one visitors choose (RepairTpiShops, include/TpiSaveRepair.h) | Why: the mod's converter 15 gives the shops Theme Park World's room between price and worth and makes the photo booth choosable, but a park keeps the controls made from the records when it started and each object's flags as it was built, so parks saved before it still sent visitors away from every shop and never to a booth already built; off, or an original world, a park loads as it was saved
+    RepairTpiShops();
     gGameWorld->GetControlManager()->CheckAllControlsInitialised();
     RecalculateParkDarkening();
     gRestartParkClocks = 1;
