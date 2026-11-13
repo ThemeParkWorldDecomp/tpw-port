@@ -1047,6 +1047,10 @@ void HandleCamera() {
     // The pointer's offset from the middle of the game window, in half windows (up is positive).
     float f28 = (gPointerScreenXY[0] - gGameWindowCentreX) / gGameWindowHalfWidth;
     float f27 = (-(gPointerScreenXY[1] - gGameWindowCentreY)) / gGameWindowHalfHeight;
+#ifdef TPW_PORT_FIX
+    // TPW_PORT_FIX pointerleave HandleCamera | Mac: (none: the game filled the screen, and its pointer never left it) | Port: while the pointer is out of the game's window (gUIPointerOut) its offset is the middle of the window | Why: the pointer's last place, clamped to the window's edge, still pushed the camera where the edge scroll's bit does not stop it: a camera key (keypad 8 or 2, or W and S with "W A S D move the camera") scrolled diagonally toward that edge, and a first-person view kept turning (reported by slappyhead)
+    if (gUIPointerOut) f28 = f27 = 0.0f;
+#endif
     int32_t edge;       // the pointer is at a window edge with edge scrolling on
     int32_t firstOk;    // a first-person view that is not held back
     int32_t keyScroll = 0;

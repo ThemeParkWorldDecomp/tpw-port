@@ -181,6 +181,23 @@ tpw::Event MakeEventAtMouse() {
     return MakeEvent(x, y);
 }
 
+#ifdef TPW_PORT_FIX
+// pointerleave: SDL said the pointer left the window, and it has not moved over the window since. While it is set the
+// game is told the pointer is out at each pass, not only when it left: the game keeps the pointer while a button is held
+// (a drag), and a window that took the pointer for the press lets go of it only when the game handles the release, a
+// pass later. On a Mac the leave can come during the press; told only then, the game kept the pointer at the window's
+// edge after the release, and the camera scrolled toward that edge until the pointer came back.
+bool gPointerOutside = false;
+
+// pointerleave: whether a mouse event's point (window coordinates) is outside its window.
+bool OutsideWindow(SDL_WindowID id, float x, float y) {
+    SDL_Window* window = SDL_GetWindowFromID(id);
+    int wide = 0, high = 0;
+    if (window == nullptr || !SDL_GetWindowSize(window, &wide, &high)) return false;
+    return x < 0.0f || y < 0.0f || x >= static_cast<float>(wide) || y >= static_cast<float>(high);
+}
+#endif
+
 bool MouseButtonFromSDL(uint8_t sdlButton, MouseButton& button) {
     switch (sdlButton) {
     case SDL_BUTTON_LEFT: button = kMouseButton0; return true;
@@ -269,6 +286,9 @@ void UGamework::Run() {
     };
 #endif
     while (mRunning) {
+#ifdef TPW_PORT_FIX
+        if (gPointerOutside && !gScripted.active && tpw::gPortPointerLeft != nullptr) tpw::gPortPointerLeft();   // pointerleave
+#endif
         SDL_Event sdl;
         while (mRunning && SDL_PollEvent(&sdl)) {
             switch (sdl.type) {
@@ -281,6 +301,9 @@ void UGamework::Run() {
                 gScripted.active = false;   // the real mouse takes over from a scripted click
                 const tpw::Event event = MakeEvent(sdl.motion.x, sdl.motion.y);
                 HandleMouseMoved(event);
+#ifdef TPW_PORT_FIX
+                if (!OutsideWindow(sdl.motion.windowID, sdl.motion.x, sdl.motion.y)) gPointerOutside = false;   // pointerleave
+#endif
                 break;
             }
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
@@ -366,7 +389,8 @@ void UGamework::Run() {
                 // The pointer left the window (the game in a window, or full screen with another screen beside it): the
                 // game takes it out of all of its windows until it moves over the game again (tpw::gPortPointerLeft,
                 // pointerleave). On the Mac the game filled the screen, and the pointer never left it. A scripted click
-                // keeps its place.
+                // keeps its place. The game is told again at each pass until the pointer is back (gPointerOutside).
+                gPointerOutside = true;
                 if (!gScripted.active && tpw::gPortPointerLeft != nullptr) tpw::gPortPointerLeft();
                 break;
 #endif
