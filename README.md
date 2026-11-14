@@ -11,37 +11,31 @@ and Linux. You need your own copy of the game.
 
 ## Quick start
 
-To install, run the command for your platform below. To update, rerun the installer or use `themepark update`.
+To install, run the command below. To update, rerun the same command or `themepark update`.
 
 ### Windows
-Windows 10 or 11 (64-bit). Run in PowerShell:
+Run in PowerShell:
 
 ```powershell
 irm https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.ps1 | iex
 ```
 
-Launcher: `%LOCALAPPDATA%\STP-TPW-Launcher\build\tpw_launcher.exe`
-
 ### macOS / Linux
-macOS 11+ (Apple Silicon or Intel) or Linux (64-bit). Run in Terminal:
+Run in Terminal:
 
 ```bash
 curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh
 ```
 
-Launcher locations:
-- **macOS:** `~/Applications/STP-TPW-Launcher/build/tpw_launcher`
-- **Linux:** `~/.local/share/STP-TPW-Launcher/build/tpw_launcher`
-
-For Linux Flatpak, append `-s -- --flatpak` after `sh`.
-
 ### Play after install
 
-Open a new window (PowerShell or Terminal) and type `themepark`. The installer also opens the launcher for you when it
-finishes. It also adds **STP/TPW Launcher**, with its icon, to Applications on a Mac, to the Start menu and Search on
-Windows, and to the applications menu on Linux. `themepark --version` shows the installed version. In the Flatpak
-install, `themepark` runs the Flatpak, `themepark update` updates it from the newest release, and the launcher's options
-pass through as usual (`themepark --windowed`).
+The launcher opens when the installer finishes. After that, type `themepark` in a new PowerShell or Terminal window, or
+open the launcher from its install location below.
+
+Launcher locations:
+- **Windows:** `%LOCALAPPDATA%\STP-TPW-Launcher\build\tpw_launcher.exe`, also in the Start menu and Search
+- **macOS:** `~/Applications/STP-TPW-Launcher/build/tpw_launcher`, also in Applications as **STP/TPW Launcher**
+- **Linux:** `~/.local/share/STP-TPW-Launcher/build/tpw_launcher`, also in the applications menu
 
 ## Mods
 
