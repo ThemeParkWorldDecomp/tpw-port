@@ -545,7 +545,8 @@ void CPerson::MakeMajorDecision() {
                 if (scoreU >= 10u) {
                     int32_t score = static_cast<int32_t>(scoreU);
                     if (score > best || (score == best && (gWorld->mTurn & 1u) != 0)) {
-                        if (object->IsAvailableToChoose() != 0) {
+                        // TPW_PORT_FIX mods CPerson::MakeMajorDecision | Mac: any ride open to choose | Port: TPW_MOD_HOOK tpi_worlds (include/TpiToilets.h): and, in one of the mod's worlds with both men's and women's toilets, not the other sex's toilet (TpiToiletFor), after the score so the scoring is the Mac's | Why: tpw-mods tpi-worlds men's and women's toilets
+                        if (object->IsAvailableToChoose() != 0 && TpiToiletFor(object, this)) {
                             tag_IDX_TYPE<IDXTYPEUniqueNameMapId, uint16_t> where = object->GetBackOfQueue();
                             if (peep->SetDest(where) != 0) {
                                 Fld<uint16_t>(self, 0x1dc) = id;
@@ -872,7 +873,9 @@ void CPerson::LookForMinorDest() {
                 GAME_ASSERTMSG(gThingArray[0].mThing == nullptr, kRowZeroText);
                 CObject* object = static_cast<CObject*>(gThingArray[who].mThing);
                 uint8_t* o = Raw(object);
-                if (Fld_2<uint8_t>(o, 2) == 3 && who != Fld_2<uint16_t>(self, 0x1dc) && object->IsAvailableToChoose() != 0) {
+                // TPW_PORT_FIX mods CPerson::LookForMinorDest | Mac: any ride beside the visitor open to choose | Port: TPW_MOD_HOOK tpi_worlds (include/TpiToilets.h): and, in one of the mod's worlds with both men's and women's toilets, not the other sex's toilet (TpiToiletFor) | Why: tpw-mods tpi-worlds men's and women's toilets
+                if (Fld_2<uint8_t>(o, 2) == 3 && who != Fld_2<uint16_t>(self, 0x1dc) && object->IsAvailableToChoose() != 0 &&
+                    TpiToiletFor(object, this)) {
                     int32_t score = static_cast<int32_t>(CalculateOptionScore(object));
                     if (score > bestScore || (score == bestScore && (gWorld->mTurn & 1u) != 0)) {
                         bestId = who;

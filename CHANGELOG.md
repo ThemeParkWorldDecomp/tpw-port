@@ -7,6 +7,7 @@
 - In the TPI Worlds and Rides mod's Arabian Nights and Polar Zone, visitors can now walk through the tunnels, which stay blocked with rubble until your park buys the land at their far end
 - In the TPI Worlds and Rides mod's Arabian Nights, the large rock in the northwest and the cliff in the east now stand until your park buys the land beside them, and then clear so you can build there; Polar Zone's swamp likewise clears once your park buys the land beside it
 - In the TPI Worlds and Rides mod's three worlds, Theme Park Inc's own kids, parents and grandparents now walk among your visitors (7 in 10 visitors look like kids, 2 like parents and 1 like a grandparent, as in Theme Park Inc; the kids are six of Theme Park World's eight plus Theme Park Inc's four, two of which take the place of the two Theme Park World kids they look like), a new look only: they pay, ride and think like every other visitor
+- In the TPI Worlds and Rides mod's worlds, Theme Park Inc's men's and women's toilets now work as they did in Theme Park Inc: once your park has at least one of each, men and boys use the men's and women and girls the women's; with only one kind built, everyone uses it, and Theme Park World's own toilet is for everyone
 
 ### Bug Fixes
 

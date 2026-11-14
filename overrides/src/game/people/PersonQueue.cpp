@@ -489,6 +489,12 @@ void CPerson::ProcessStateWalksToMajor() {
         uint16_t place = static_cast<uint16_t>(Fld_2<uint8_t>(self, 4) + (static_cast<uint32_t>(Fld_2<uint8_t>(self, 6)) << 7) + 1);
         MapTag back = object->GetBackOfQueue();
         if (back.mIndex == place) {
+            // TPW_PORT_FIX mods CPerson::ProcessStateWalksToMajor | Mac: at the back of the queue the visitor joins it if there is room and it still wants to | Port: TPW_MOD_HOOK tpi_worlds (include/TpiToilets.h): in one of the mod's worlds, a visitor at the other sex's toilet (the park's second kind built since it chose) gives it up as the Mac's visitor does a ride it no longer wants, without a thought or less happiness, and chooses again | Why: tpw-mods tpi-worlds men's and women's toilets; a visitor never joins the other kind's queue
+            if (!TpiToiletFor(object, this)) {
+                Fld_2<uint16_t>(self, 0x1dc) = 0;
+                SetState(static_cast<PersonState>(6));
+                return;
+            }
             if (object->HasFreeQueueSpace() != 0) {
                 int32_t score = ScoreOnCloserInspection(object);
                 uint8_t excitement = object->GetExcitementLevel(true);

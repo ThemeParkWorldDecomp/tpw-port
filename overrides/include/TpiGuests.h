@@ -18,6 +18,7 @@
 
 
 #include <cstdint>
+#include <cstring>
 
 #include "TpiGateFlow.h"
 
@@ -157,6 +158,26 @@ inline int32_t TpiGuestSpriteOf(int32_t set, int32_t index, const void* person) 
     if (look < 0) return index;
     if (set == 0) return look;
     return gTpiHeadOf[look] >= 0 ? gTpiHeadOf[look] : index;
+}
+
+// The sex of a visitor (a CPerson) in one of the mod's worlds, its look's (kTpiLookTags): 1 a girl or woman, 0 a boy or
+// man, -1 not known (anywhere else, a look without a tag, or a visitor whose sprite is not of the kids set). The look is
+// the one TpiGuestSpriteOf dresses it in: with extra visitors loaded the thing index's, otherwise its sprite number
+// (+0x20) while its set (+0x24) is the kids'. Theme Park World's visitors have no sex of their own (no names, no
+// field), so the look is the only one there is.
+inline int8_t TpiGuestFemale(const void* person) {
+    if (!TpiWorldInPlay() || person == nullptr) return -1;
+    int32_t look = -1;
+    if (gTpiExtraGuests[0] > 0) {
+        look = TpiGuestLook(TpiThingIndex(person), gTpiLookCount, gTpiLookPick);
+    } else {
+        const uint8_t* const p = static_cast<const uint8_t*>(person);
+        int32_t sprite = 0, set = 0;
+        std::memcpy(&sprite, p + 0x20, sizeof sprite);
+        std::memcpy(&set, p + 0x24, sizeof set);
+        if (set == 0) look = sprite;
+    }
+    return look >= 0 && look < gTpiLookCount ? gTpiLookFemale[look] : -1;
 }
 
 }  // namespace tpw

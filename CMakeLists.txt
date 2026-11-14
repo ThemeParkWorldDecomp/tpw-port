@@ -600,6 +600,15 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_tpi_guests PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_guests COMMAND tpw_host_tpi_guests)
   endif()
+  # The TPI Worlds and Rides mod's men's and women's toilets (TPW_MOD_HOOK tpi_worlds, include/TpiToilets.h): the kind
+  # of toilet from an item's folder, a visitor's sex from its look, and the rule (each sex its own kind while the park has
+  # both, everyone either while it has one), without game data. The original has no such mod, so it is made only with
+  # the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_tpi_toilets ${TPW_DECOMP_DIR}/tests/host_tpi_toilets.cpp)
+    target_include_directories(tpw_host_tpi_toilets PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_toilets COMMAND tpw_host_tpi_toilets)
+  endif()
   # The TPI Worlds and Rides mod's opening gate (TPW_MOD_HOOK tpi_worlds, include/TpiObstacleGate.h): a leaf's node name
   # read back as the converter writes it, the rule that opens it (the park owns a cell of its footprint or one next to
   # it) and its swing, without game data. The original has no such mod, so it is made only with the port's fixes.
