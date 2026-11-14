@@ -624,7 +624,7 @@ int32_t ESP_FindESPFiles(CTPSpriteResource& resource, const TbDynamicStringTempl
     pattern += static_cast<const TbStringBase<char>&>(gTPGlobals.mF4588);
     ListFiles(resource, pattern);
 
-    // TPW_PORT_FIX mods ESP_FindESPFiles | Mac: the theme's own kids and kidsheads are listed with the generic ones, sorted in among them and counted against the player's number of kid sprites | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGuests.h): in one of the mod's worlds they are not listed here; ESP_LoadSprites loads them after the group, outside its count (ESP_FindTpiExtraGuests) | Why: tpw-mods tpi-worlds extra visitors (Theme Park Inc's grandparents) come on top of Theme Park World's kids, which keep their numbers, so the picks and a saved park's visitors stay as they were
+    // TPW_PORT_FIX mods ESP_FindESPFiles | Mac: the theme's own kids and kidsheads are listed with the generic ones, sorted in among them and counted against the player's number of kid sprites | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGuests.h): in one of the mod's worlds they are not listed here; ESP_LoadSprites loads them after the group, outside its count (ESP_FindTpiExtraGuests) | Why: tpw-mods tpi-worlds extra visitors (Theme Park Inc's kids, parents and grandparents) come on top of Theme Park World's kids, which keep their numbers, so the picks and a saved park's visitors stay as they were
     if (!(kids && tpw::TpiWorldInPlay())) {
     std::strcpy(gESPPathBuffer, gGame.GetCurrentThemeName().mData);
     std::strcat(gESPPathBuffer, ":");
@@ -727,10 +727,18 @@ bool ESP_LoadSprites(bool particlesOnly) {
             group.mFirst = gESPSpriteCount;
             const TbDynamicStringTemplate<char> folder(group.mName);
             group.mCount = ESP_FindESPFiles(resource, folder);
-            // TPW_PORT_FIX mods ESP_LoadSprites | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (include/TpiGuests.h): in one of the mod's worlds the theme's own kids and kidsheads are loaded after their group, outside its count (ESP_FindTpiExtraGuests), and their number kept in tpw::gTpiExtraGuests (the group's count in tpw::gTpiGuestCounts); elsewhere it is 0 | Why: tpw-mods tpi-worlds extra visitors
-            if (i < 2) {
-                tpw::gTpiGuestCounts[i] = group.mCount;
-                tpw::gTpiExtraGuests[i] = tpw::TpiWorldInPlay() ? ESP_FindTpiExtraGuests(resource, folder) : 0;
+            // TPW_PORT_FIX mods ESP_LoadSprites | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (include/TpiGuests.h): in one of the mod's worlds the theme's own kids and kidsheads are loaded after their group, outside its count (ESP_FindTpiExtraGuests), and their number kept in tpw::gTpiExtraGuests; elsewhere it is 0. With both sets loaded, the looks of the kids set (each sprite's kind, sex and head) are taken from the sprites' names (tpw::TpiSetLooks) | Why: tpw-mods tpi-worlds extra visitors
+            if (i < 2) tpw::gTpiExtraGuests[i] = tpw::TpiWorldInPlay() ? ESP_FindTpiExtraGuests(resource, folder) : 0;
+            if (i == 1) {
+                const char* bodies[tpw::kTpiMaxLooks];
+                const char* heads[tpw::kTpiMaxLooks];
+                int32_t bodyCount = 0;
+                int32_t headCount = 0;
+                for (int32_t s = 0; s < gESPGroups[0].mCount + tpw::gTpiExtraGuests[0] && bodyCount < tpw::kTpiMaxLooks; ++s)
+                    bodies[bodyCount++] = gESPSprites[gESPGroups[0].mFirst + s]->mName;
+                for (int32_t s = 0; s < group.mCount + tpw::gTpiExtraGuests[1] && headCount < tpw::kTpiMaxLooks; ++s)
+                    heads[headCount++] = gESPSprites[group.mFirst + s]->mName;
+                tpw::TpiSetLooks(bodies, tpw::TpiWorldInPlay() ? bodyCount : 0, heads, headCount);
             }
         }
     }

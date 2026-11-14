@@ -1565,7 +1565,7 @@ void CPerson::SetState(PersonState state) {
     }
     case 12: {
         if (Word(s, 0xc) != 0) Sprite(s, 1);
-        // TPW_PORT_FIX mods CPerson::SetState | Mac: the visitor's script is made with its sprite number | Port: TPW_MOD_HOOK tpi_worlds (include/TpiGuests.h): with tpw::TpiGuestSpriteOf's sprite, as in CPerson::CPerson | Why: tpw-mods tpi-worlds extra visitors (Theme Park Inc's grandparents among the kids), a look only: the sprite number (+0x20), the picks and the saved park stay the Mac's
+        // TPW_PORT_FIX mods CPerson::SetState | Mac: the visitor's script is made with its sprite number | Port: TPW_MOD_HOOK tpi_worlds (include/TpiGuests.h): with tpw::TpiGuestSpriteOf's sprite, as in CPerson::CPerson | Why: tpw-mods tpi-worlds extra visitors (Theme Park Inc's kids, parents and grandparents among Theme Park World's kids), a look only: the sprite number (+0x20), the picks and the saved park stay the Mac's
         else Script(s)->SpawnSpriteScript(static_cast<CDelayedScript::ScriptIdx>(1), static_cast<int32_t>(Word(s, 0x24)),
                                           tpw::TpiGuestSpriteOf(static_cast<int32_t>(Word(s, 0x24)), static_cast<int32_t>(Word(s, 0x20)), this));
         Word(s, 0x28) = 0;

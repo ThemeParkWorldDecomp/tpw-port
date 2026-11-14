@@ -591,9 +591,10 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_tpi_gate_flow PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_gate_flow COMMAND tpw_host_tpi_gate_flow)
   endif()
-  # The TPI Worlds and Rides mod's extra visitors (TPW_MOD_HOOK tpi_worlds, include/TpiGuests.h): which visitors wear
-  # Theme Park Inc's grandparents in the mod's worlds, the body and the head alike, and that nothing changes elsewhere,
-  # without game data. The original has no such mod, so it is made only with the port's fixes.
+  # The TPI Worlds and Rides mod's extra visitors (TPW_MOD_HOOK tpi_worlds, include/TpiGuests.h): the looks' tags, the
+  # spread of Theme Park Inc's kids, parents and grandparents among the visitors in the mod's worlds (70/20/10, the kid
+  # looks evenly), the body and the head alike, and that nothing changes elsewhere, without game data. The original has
+  # no such mod, so it is made only with the port's fixes.
   if(TPW_PORT_FIX)
     add_executable(tpw_host_tpi_guests ${TPW_DECOMP_DIR}/tests/host_tpi_guests.cpp)
     target_include_directories(tpw_host_tpi_guests PRIVATE ${TPW_INCLUDE_DIR})

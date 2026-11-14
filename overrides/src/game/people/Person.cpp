@@ -155,7 +155,7 @@ CPerson::CPerson(MapId cell) {
     gWorld->SeedRand(reinterpret_cast<CThing*>(this)->GetThingId().mIndex);
     At<int32_t>(this, 0x24) = 0;
     At<int32_t>(this, 0x20) = ESP_GetRandomSpritesFrom(static_cast<ESP_Sprites>(At<int32_t>(this, 0x24)));
-    // TPW_PORT_FIX mods CPerson::CPerson | Mac: the visitor's script is made with its sprite number | Port: TPW_MOD_HOOK tpi_worlds (include/TpiGuests.h): with tpw::TpiGuestSpriteOf's sprite, in one of the mod's worlds an extra visitor for some (here and wherever a visitor's script is made: CPerson::ReceiveMessage, CPerson::GetDebagged, CPeep::DrawMySpriteAt, CPersonQueue's state 12, CPerson::GetHeadSpriteID) | Why: tpw-mods tpi-worlds extra visitors (Theme Park Inc's grandparents among the kids), a look only: the sprite number (+0x20), the picks and the saved park stay the Mac's
+    // TPW_PORT_FIX mods CPerson::CPerson | Mac: the visitor's script is made with its sprite number | Port: TPW_MOD_HOOK tpi_worlds (include/TpiGuests.h): with tpw::TpiGuestSpriteOf's sprite, in one of the mod's worlds an extra visitor for some (here and wherever a visitor's script is made: CPerson::ReceiveMessage, CPerson::GetDebagged, CPeep::DrawMySpriteAt, CPersonQueue's state 12, CPerson::GetHeadSpriteID) | Why: tpw-mods tpi-worlds extra visitors (Theme Park Inc's kids, parents and grandparents among Theme Park World's kids), a look only: the sprite number (+0x20), the picks and the saved park stay the Mac's
     At<CDelayedScript>(this, 0xc).SpawnSpriteScript(static_cast<CDelayedScript::ScriptIdx>(1), At<int32_t>(this, 0x24),
                                                     tpw::TpiGuestSpriteOf(At<int32_t>(this, 0x24), At<int32_t>(this, 0x20), this));
     At<uint16_t>(this, 0xc2) = gPersonTable[1];
@@ -229,7 +229,7 @@ void CPerson::ReceiveMessage(const CMsg& message) {
             if (At<int32_t>(this, 0xc) != 0) {
                 At<CDelayedScript>(this, 0xc).SetSpriteScript(static_cast<CDelayedScript::ScriptIdx>(1));
             } else {
-                // TPW_PORT_FIX mods CPerson::ReceiveMessage | Mac: the visitor's script is made with its sprite number | Port: TPW_MOD_HOOK tpi_worlds (include/TpiGuests.h): with tpw::TpiGuestSpriteOf's sprite, as in CPerson::CPerson | Why: tpw-mods tpi-worlds extra visitors (Theme Park Inc's grandparents among the kids), a look only: the sprite number (+0x20), the picks and the saved park stay the Mac's
+                // TPW_PORT_FIX mods CPerson::ReceiveMessage | Mac: the visitor's script is made with its sprite number | Port: TPW_MOD_HOOK tpi_worlds (include/TpiGuests.h): with tpw::TpiGuestSpriteOf's sprite, as in CPerson::CPerson | Why: tpw-mods tpi-worlds extra visitors (Theme Park Inc's kids, parents and grandparents among Theme Park World's kids), a look only: the sprite number (+0x20), the picks and the saved park stay the Mac's
                 At<CDelayedScript>(this, 0xc).SpawnSpriteScript(static_cast<CDelayedScript::ScriptIdx>(3), At<int32_t>(this, 0x24),
                                                                 tpw::TpiGuestSpriteOf(At<int32_t>(this, 0x24), At<int32_t>(this, 0x20), this));
             }
@@ -501,7 +501,7 @@ uint32_t CPerson::GetHeadSpriteID() {
     if (ESP_GetNumberOfSprites(static_cast<ESP_Sprites>(3)) != 0) {
         uint32_t word = Fld_3<uint32_t>(this, 0x20);
         if (Fld_3<int32_t>(this, 0x24) == 2) return word | 0x80000000u;
-        // TPW_PORT_FIX mods CPerson::GetHeadSpriteID | Mac: a kid's head on a ride is the kidsheads sprite of its sprite number, or a random one | Port: TPW_MOD_HOOK tpi_worlds (include/TpiGuests.h): the kidsheads sprite tpw::TpiGuestSpriteOf gives, in one of the mod's worlds an extra visitor's head for the visitors wearing that body; the random pick and its seed are the Mac's | Why: tpw-mods tpi-worlds extra visitors (Theme Park Inc's grandparents among the kids), a look only: the sprite number (+0x20), the picks and the saved park stay the Mac's
+        // TPW_PORT_FIX mods CPerson::GetHeadSpriteID | Mac: a kid's head on a ride is the kidsheads sprite of its sprite number, or a random one | Port: TPW_MOD_HOOK tpi_worlds (include/TpiGuests.h): the kidsheads sprite tpw::TpiGuestSpriteOf gives, in one of the mod's worlds an extra visitor's head for the visitors wearing that body; the random pick and its seed are the Mac's | Why: tpw-mods tpi-worlds extra visitors (Theme Park Inc's kids, parents and grandparents among Theme Park World's kids), a look only: the sprite number (+0x20), the picks and the saved park stay the Mac's
         return static_cast<uint32_t>(tpw::TpiGuestSpriteOf(1, static_cast<int32_t>(word), this));
     }
     auto id = reinterpret_cast<CThing*>(this)->GetThingId();
@@ -1466,7 +1466,7 @@ void CPerson::GetDebagged(tag_IDX_TYPE<IDXTYPEUniqueNameMapId, uint16_t> cell) {
     MapPos x, y;
     CellPair(cell.mIndex, 0x80, 0x80, x, y);
     peep->Teleport(x, y);
-    // TPW_PORT_FIX mods CPerson::GetDebagged | Mac: the visitor's script is made with its sprite number | Port: TPW_MOD_HOOK tpi_worlds (include/TpiGuests.h): with tpw::TpiGuestSpriteOf's sprite, as in CPerson::CPerson | Why: tpw-mods tpi-worlds extra visitors (Theme Park Inc's grandparents among the kids), a look only: the sprite number (+0x20), the picks and the saved park stay the Mac's
+    // TPW_PORT_FIX mods CPerson::GetDebagged | Mac: the visitor's script is made with its sprite number | Port: TPW_MOD_HOOK tpi_worlds (include/TpiGuests.h): with tpw::TpiGuestSpriteOf's sprite, as in CPerson::CPerson | Why: tpw-mods tpi-worlds extra visitors (Theme Park Inc's kids, parents and grandparents among Theme Park World's kids), a look only: the sprite number (+0x20), the picks and the saved park stay the Mac's
     reinterpret_cast<CDelayedScript*>(self + 0xc)->SpawnSpriteScript(static_cast<CDelayedScript::ScriptIdx>(1), Fld<int32_t>(self, 0x24),
                                                                     tpw::TpiGuestSpriteOf(Fld<int32_t>(self, 0x24), Fld<int32_t>(self, 0x20), this));
     peep->PlaySound(gSoundBanks[1], 0x80);
