@@ -2,6 +2,11 @@
 
 ## 0.5.5 (not released yet)
 
+### New Features
+
+- In the TPI Worlds and Rides mod's Arabian Nights and Polar Zone, visitors can now walk through the tunnels, which stay blocked with rubble until your park buys the land at their far end
+- In the TPI Worlds and Rides mod's Arabian Nights, the large rock in the northwest and the cliff in the east now stand until your park buys the land beside them, and then clear so you can build there; Polar Zone's swamp likewise clears once your park buys the land beside it
+
 ### Bug Fixes
 
 - Fixed parks in the TPI Worlds and Rides mod's Arabian Nights saved with The Scorpions before 0.5.2 crashing as they load: the ride is now loaded as the bumper cars it is built as since 0.5.2

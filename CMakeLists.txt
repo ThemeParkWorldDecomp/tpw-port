@@ -599,6 +599,15 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_tpi_obstacle_gate PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_obstacle_gate COMMAND tpw_host_tpi_obstacle_gate)
   endif()
+  # The TPI Worlds and Rides mod's obstacles that stay until their land is bought (TPW_MOD_HOOK tpi_worlds,
+  # include/TpiObstacleShut.h): a node's name read back as the converter writes it, the gate's rule that clears it, the
+  # folded node and what its closed cells get, without game data. The original has no such mod, so it is made only with
+  # the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_tpi_obstacle_shut ${TPW_DECOMP_DIR}/tests/host_tpi_obstacle_shut.cpp)
+    target_include_directories(tpw_host_tpi_obstacle_shut PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_obstacle_shut COMMAND tpw_host_tpi_obstacle_shut)
+  endif()
   # The TPI Worlds and Rides mod's start of a ride script (TPW_MOD_HOOK tpi_worlds, include/TpiRideScript.h): which scripts
   # start with SPECIAL set (a ride with an O animation), on made-up flags, without game data. The original has no such mod,
   # so it is made only with the port's fixes.

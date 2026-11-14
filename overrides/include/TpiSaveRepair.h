@@ -88,11 +88,12 @@ inline uint16_t TpiRepairedFlags(uint16_t saved, uint16_t reset) {
 // hidden quad and 0 to a shown one.
 inline bool TpiStaleHiddenTrackCell(int32_t mode, uint16_t parent, bool shown) { return shown && parent == 0 && mode == 7; }
 
-// A map cell of a bridge's walkway that a park saved before converter 16 keeps as something other than a footbridge:
-// the level's attribute byte (`level`, as base.map has it now) is 0x80 alone, which converter 16 gives the walkways,
-// over a quad the level hides (`levelHides`: gHeightfieldCopy's bit 1), and the cell belongs to nothing and holds land
-// (0, converters 14 and 15), a path (1, built there or the start path), or a hidden quad's mode of the attribute it
-// saved (2 or 7, converter 12; 5, shown land of attribute 1). A footbridge (0x1e) and anything built there are kept.
+// A map cell of a bridge's or tunnel's walkway that a park saved before converter 16 or 17 keeps as something other than
+// a footbridge: the level's attribute byte (`level`, as base.map has it now) is 0x80 alone, which converter 16 gives
+// the bridges' walkways and converter 17 the tunnels', over a quad the level hides (`levelHides`: gHeightfieldCopy's
+// bit 1), and the cell belongs to nothing and holds land (0, converters 14 and 15), a path (1, built there or the start
+// path), or a hidden quad's mode of the attribute it saved (2 or 7, converter 12; 5, shown land of attribute 1). A
+// footbridge (0x1e) and anything built there are kept.
 inline bool TpiWalkwayToFootbridge(int32_t mode, uint8_t level, uint16_t parent, bool levelHides) {
     return levelHides && level == 0x80 && parent == 0 && (mode == 0 || mode == 1 || mode == 2 || mode == 5 || mode == 7);
 }

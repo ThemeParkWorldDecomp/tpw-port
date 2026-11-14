@@ -56,6 +56,7 @@
 #include "TPSound.h"
 #include "TpiBumperKind.h"
 #include "TpiGateFlow.h"
+#include "TpiObstacleShut.h"
 #include "TpiSaveRepair.h"
 #include "UI_Base.h"
 #include "ui_main.h"
@@ -586,9 +587,29 @@ int32_t CSaveLoad::Load(const char* path, CSaveLoadHeader* header, LoadType type
 // SaveLoad.cpp (main app), unit v51006: CSaveLoad::SaveHeader (0x10159a08), PostLoadOperations (0x101588c4) and PreLoadOperations
 // (0x101587e4).
 
+namespace {
+// TPW_PORT_FIX mods CloseTpiShutCells | Mac: no such pass | Port: TPW_MOD_HOOK tpi_worlds (include/TpiObstacleShut.h): in one of the mod's worlds, the quads of the level's copy (gHeightfieldCopy) under the cells an obstacle that clears (Arabian Nights' rock and cliff, their nodes named "tpishut X Y W H M") closed are hidden again, as the converted level has them | Why: see CSaveLoad::PreLoadOperations, below
+void CloseTpiShutCells() {
+    if (!tpw::TpiWorldInPlay() || gHeightfieldHeader == nullptr || gHeightfieldCopy == nullptr) return;
+    sHField* level = gHeightfieldCopy;
+    const uint32_t width = level->mF18[0], height = level->mF18[1];
+    tag_sNode* nodes = gHeightfieldHeader->mNodes.get();
+    for (uint16_t i = 0; nodes != nullptr && i < gHeightfieldHeader->mNodeCount; ++i) {
+        tpw::TpiShut shut;
+        if (!tpw::TpiParseShut(nodes[i].mName.get(), shut) || !shut.masked) continue;
+        for (int32_t y = shut.y; y < shut.y + shut.h; ++y)
+            for (int32_t x = shut.x; x < shut.x + shut.w; ++x)
+                if (tpw::TpiShutHides(shut, x, y) && static_cast<uint32_t>(x) < width && static_cast<uint32_t>(y) < height)
+                    level->mQuads.get()[static_cast<uint32_t>(x) + static_cast<uint32_t>(y) * width].mF00 |= 1u;
+    }
+}
+}  // namespace
+
 // Clears the world before a park is read: the height field, the map, the cell system, the engine objects, the things, the ride in
 // first person, the bitmaps, the coasters, the particle system, the advisor (0) and the user interface.
 void CSaveLoad::PreLoadOperations() {
+    // TPW_PORT_FIX mods CSaveLoad::PreLoadOperations | Mac: (none: the level's copy is never changed) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, before the height field is restored from the level's copy, the quads Arabian Nights' rock and cliff closed are hidden in it again (CloseTpiShutCells, include/TpiObstacleShut.h) | Why: EngineTick1 shows those quads in the copy once the park buys the rock's or the cliff's land (TpiShowShutObstacles), so a park loaded afterwards, whose rock may stand, would otherwise start from them shown and have its saved closed cells made land by RepairTpiHiddenCells; the park's land then opens them again if it owns it; off, or an original world, the Mac's
+    CloseTpiShutCells();
     RestoreLevelHeightfield();
     gGameWorld->GetMap()->DeleteMapInEngine();
     LLCC_ResetMap(0x80, 0x80);
@@ -834,7 +855,7 @@ void RepairTpiHiddenCells() {
 }  // namespace
 
 namespace {
-// TPW_PORT_FIX mods RepairTpiWalkways | Mac: no such pass | Port: TPW_MOD_HOOK tpi_worlds (include/TpiSaveRepair.h): in one of the mod's worlds, the level's attribute map is read again (LoadLevelAttributeMap, into the cells' attribute bytes, which are then put back as saved), and each map cell whose level attribute is 0x80 alone over a quad the level hides (gHeightfieldCopy), a bridge's walkway since converter 16, that belongs to nothing and holds land, a path or a hidden quad's mode 2, 5 or 7, becomes a footbridge cell as in a new park: a path is deleted first (CMapCell::Delete, its links cut both ways), the quad is the level's again (SetHeightfieldTexture's copy tile 0x37), the cell takes the level's attribute and is reset (CMapCell::Reset: mode 0x1e), keeping its saved flag 0x40, and its track cell, when it belongs to nothing, too (mode 7) | Why: see CSaveLoad::PostLoadOperations, below
+// TPW_PORT_FIX mods RepairTpiWalkways | Mac: no such pass | Port: TPW_MOD_HOOK tpi_worlds (include/TpiSaveRepair.h): in one of the mod's worlds, the level's attribute map is read again (LoadLevelAttributeMap, into the cells' attribute bytes, which are then put back as saved), and each map cell whose level attribute is 0x80 alone over a quad the level hides (gHeightfieldCopy), a bridge's walkway since converter 16 or a tunnel's since 17, that belongs to nothing and holds land, a path or a hidden quad's mode 2, 5 or 7, becomes a footbridge cell as in a new park: a path is deleted first (CMapCell::Delete, its links cut both ways), the quad is the level's again (SetHeightfieldTexture's copy tile 0x37), the cell takes the level's attribute and is reset (CMapCell::Reset: mode 0x1e), keeping its saved flag 0x40, and its track cell, when it belongs to nothing, too (mode 7) | Why: see CSaveLoad::PostLoadOperations, below
 // Each cell it changes gets a new time stamp, as the cell system's own changes do; the count goes to the log.
 void RepairTpiWalkways() {
     if (!tpw::TpiWorldInPlay()) return;

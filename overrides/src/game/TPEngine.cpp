@@ -36,13 +36,20 @@
 #include "Wavelet.h"
 #include <cfloat>
 #include <cstring>
-// TPW_PORT_FIX mods EngineTick1 | Mac: none of these headers | Port: what EngineTick1's opening gates read (the level's balance, the map's cells, the world, include/TpiObstacleGate.h) | Why: tpw-mods tpi-worlds, Land of Invention's gate
+// TPW_PORT_FIX mods EngineTick1 | Mac: none of these headers | Port: what EngineTick1's opening gates and the obstacles that stay until their land is bought read (the level's balance, the map's cells and their time stamps (analyser.h), the world, the height field's copy, include/TpiObstacleGate.h and TpiObstacleShut.h) | Why: tpw-mods tpi-worlds, Land of Invention's gate, the tunnels, Arabian Nights' rock and cliff and Polar Zone's swamp
+#include "analyser.h"
+#include "HFieldTextures.h"
 #include "HoardingsBalance.h"
+#include "LevelSystems.h"
 #include "MainBalance.h"
 #include "MapCell.h"
 #include "TpiGateFlow.h"
 #include "TpiObstacleGate.h"
+#include "TpiObstacleShut.h"
+#include "TpiSaveRepair.h"
+#include "TrackCell.h"
 #include "World.h"
+#include <string>
 #include <vector>
 
 // The engine start-up glue of the main app (0x10059c70..0x10068d90 in part; the inventory
@@ -549,6 +556,13 @@ tpw::TpiStartFence TpiLevelStartFence() {
     return fence;
 }
 
+// Whether the park owns map cell (x, y): its flag 0x40 (outside the park) is clear.
+bool TpiParkOwns(int32_t x, int32_t y) {
+    const CMapCell* cell =
+        reinterpret_cast<const CMapCell*>(reinterpret_cast<uintptr_t>(gGameWorld) + 0x2d8 + (x + (y << 7)) * 0x44);
+    return (cell->mFlags & 0x40) == 0;
+}
+
 // Swings each opening gate's leaves a tick towards open while the park owns a cell of its footprint or a cell next to
 // it that a new park does not start with, towards closed while it owns none. A node whose matrix is not the one
 // written last (a terrain just loaded, a park just loaded) takes the pose of the park's land at once, so a loaded park
@@ -572,15 +586,10 @@ void TpiSwingGates() {
             }
         }
     }
-    const auto owned = [](int32_t x, int32_t y) {
-        const CMapCell* cell = reinterpret_cast<const CMapCell*>(reinterpret_cast<uintptr_t>(gGameWorld) + 0x2d8 +
-                                                                  (x + (y << 7)) * 0x44);
-        return (cell->mFlags & 0x40) == 0;   // not outside the park
-    };
     const tpw::TpiStartFence fence = TpiLevelStartFence();
     const auto start = [&fence](int32_t x, int32_t y) { return tpw::TpiStartLand(fence, x, y); };
     for (TpiGateLeafNode& leaf : leaves) {
-        const bool open = tpw::TpiGateOpen(leaf.leaf, owned, start);
+        const bool open = tpw::TpiGateOpen(leaf.leaf, TpiParkOwns, start);
         const bool fresh = std::memcmp(&leaf.node->mMatrix, &leaf.written, sizeof(sMatrix)) != 0;
         const float way = fresh ? (open ? 1.0f : 0.0f) : tpw::TpiGateStep(leaf.way, open);
         if (!fresh && way == leaf.way) continue;
@@ -594,6 +603,127 @@ void TpiSwingGates() {
     }
 }
 
+// An obstacle that stays until its land is bought, as the terrain holds it (include/TpiObstacleShut.h): its name, what
+// the name says, whether it was gone when last seen (-1 not yet seen), and its nodes, each with its own matrix and the
+// one this last wrote into it.
+struct TpiShutNode {
+    tag_sNode* node;
+    sMatrix own;
+    sMatrix written;
+};
+struct TpiShutObstacle {
+    std::string name;
+    tpw::TpiShut shut;
+    int32_t gone;
+    std::vector<TpiShutNode> nodes;
+};
+
+// Opens or closes the cells an obstacle that clears (Arabian Nights' rock, its cliff) closed, by its quads in the
+// level's copy (gHeightfieldCopy, bit 1 of the first word: hidden), which a park loaded later starts from
+// (RestoreLevelHeightfield) and its repair reads (RepairTpiHiddenCells). Once it is gone each still hidden quad is shown, drawn from the copy
+// (SetHeightfieldTexture's copy tile 0x37), and its cell, if it holds the hidden quad's mode or plain land, is reset as
+// a new park resets it (CMapCell::Reset, its tile drawn), keeping its flag 0x40; while it stands each shown quad is
+// hidden again and its cell, if plain land, reset (the hidden quad's mode); anything built there is kept. Track cells
+// that belong to nothing follow. Each changed cell gets a new time stamp, as the cell system's own changes do.
+void TpiOpenShutCells(const tpw::TpiShut& shut, bool gone) {
+    sHField* level = gHeightfieldCopy;
+    if (level == nullptr) return;
+    const uint32_t width = level->mF18[0], height = level->mF18[1];
+    CMap* map = gGameWorld->GetMap();
+    bool redraw = false;
+    for (int32_t y = shut.y; y < shut.y + shut.h; ++y) {
+        for (int32_t x = shut.x; x < shut.x + shut.w; ++x) {
+            if (!tpw::TpiShutHides(shut, x, y) || static_cast<uint32_t>(x) >= width || static_cast<uint32_t>(y) >= height)
+                continue;
+            sHFieldQuad& quad = level->mQuads.get()[static_cast<uint32_t>(x) + static_cast<uint32_t>(y) * width];
+            const int32_t change = tpw::TpiShutQuadChange(gone, (quad.mF00 & 1) != 0);
+            if (change == 0) continue;
+            if (change > 0)
+                quad.mF00 = static_cast<uint16_t>(quad.mF00 & ~1u);
+            else
+                quad.mF00 = static_cast<uint16_t>(quad.mF00 | 1u);
+            SetHeightfieldTexture(gHeightfieldHeader, &gExtraTextureTable, x, y, 0, 0x37, 0);
+            const uint32_t index = static_cast<uint32_t>(x) + (static_cast<uint32_t>(y) << 7);
+            CMapCell* cell = &gGameWorld->mMapCells[index];
+            CTrackCell* track = &gGameWorld->mTrackCells[index];
+            const int32_t mode = static_cast<int32_t>(cell->mType);
+            const bool reset = change > 0 ? tpw::TpiStaleHiddenMapCell(mode, cell->mStatusFlags, cell->mParentID,
+                                                                       cell->mFlags, true) ||
+                                                tpw::TpiShutCellToClose(mode, cell->mParentID, cell->mFlags)
+                                          : tpw::TpiShutCellToClose(mode, cell->mParentID, cell->mFlags);
+            if (reset) {
+                const uint16_t saved = cell->mFlags;
+                cell->Reset(true);
+                cell->mFlags = tpw::TpiRepairedFlags(saved, cell->mFlags);
+            }
+            const bool shown = HFieldCellStatus(x, y) != 0;
+            if (change > 0 ? tpw::TpiStaleHiddenTrackCell(static_cast<int32_t>(track->mType), track->mParentID, shown)
+                           : track->mParentID == 0 && track->mType != 7)
+                track->Reset();
+            tag_IDX_TYPE<IDXTYPEUniqueNameMapId, uint16_t> id;
+            id.mIndex = static_cast<uint16_t>(index + 1u);
+            map->SetTimeStamp(map->MakeNewTimeStamp(), id);
+            redraw = true;
+        }
+    }
+    if (redraw) {
+        TPForce3DRefresh(1);
+        gei_System.mFlags |= CSystem::kViewChanged;   // the height field lists its quads again this frame
+    }
+}
+
+// Shows each obstacle's nodes while the park owns none of the land around it that a new park lacks (the gate's rule),
+// and folds them away once it owns some. A node whose matrix is not the one written last (a terrain just loaded) is
+// taken as its own again and posed at once.
+void TpiShowShutObstacles() {
+    static const tag_sM3D2Header* scanned = nullptr;
+    static uint16_t scannedCount = 0;
+    static std::vector<TpiShutObstacle> obstacles;
+    const tag_sM3D2Header* header = gHeightfieldHeader;
+    if (header != scanned || header->mNodeCount != scannedCount) {
+        scanned = header;
+        scannedCount = header->mNodeCount;
+        obstacles.clear();
+        tag_sNode* nodes = header->mNodes.get();
+        for (uint16_t i = 0; nodes != nullptr && i < header->mNodeCount; ++i) {
+            const char* name = nodes[i].mName.get();
+            tpw::TpiShut shut;
+            if (!tpw::TpiParseShut(name, shut)) continue;
+            TpiShutObstacle* obstacle = nullptr;
+            for (TpiShutObstacle& o : obstacles)
+                if (o.name == name) obstacle = &o;
+            if (obstacle == nullptr) {
+                obstacles.push_back(TpiShutObstacle{name, shut, -1, {}});
+                obstacle = &obstacles.back();
+            }
+            TpiShutNode node{&nodes[i], nodes[i].mMatrix, nodes[i].mMatrix};
+            node.written.m[0][0] += 1.0f;   // never the node's own: the first tick poses it
+            obstacle->nodes.push_back(node);
+        }
+    }
+    if (obstacles.empty()) return;
+    const tpw::TpiStartFence fence = TpiLevelStartFence();
+    const auto start = [&fence](int32_t x, int32_t y) { return tpw::TpiStartLand(fence, x, y); };
+    for (TpiShutObstacle& obstacle : obstacles) {
+        const bool gone = tpw::TpiShutCleared(obstacle.shut, TpiParkOwns, start);
+        const bool changed = obstacle.gone != static_cast<int32_t>(gone);
+        obstacle.gone = gone ? 1 : 0;
+        for (TpiShutNode& node : obstacle.nodes) {
+            const bool fresh = std::memcmp(&node.node->mMatrix, &node.written, sizeof(sMatrix)) != 0;
+            if (!fresh && !changed) continue;
+            if (fresh) node.own = node.node->mMatrix;
+            float own[3][3], rows[3][3];
+            for (int32_t row = 0; row < 3; ++row)
+                for (int32_t column = 0; column < 3; ++column) own[row][column] = node.own.m[row][column];
+            tpw::TpiShutRows(own, gone, rows);
+            for (int32_t row = 0; row < 3; ++row)
+                for (int32_t column = 0; column < 3; ++column) node.node->mMatrix.m[row][column] = rows[row][column];
+            node.written = node.node->mMatrix;
+        }
+        if (obstacle.shut.masked) TpiOpenShutCells(obstacle.shut, gone);
+    }
+}
+
 }  // namespace
 
 void EngineTick1() {
@@ -604,7 +734,11 @@ void EngineTick1() {
 }
 
 // 0x1005b540
-void EngineTick2() { gei_MapWho->Render(); }
+void EngineTick2() {
+    // TPW_PORT_FIX mods EngineTick2 | Mac: the frame's render only | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiObstacleShut.h): in one of the mod's worlds the nodes the converter named "tpishut ..." (what closed a cleared tunnel, Arabian Nights' and Polar Zone's, Arabian Nights' rock and cliff and Polar Zone's swamp) are shown while the park owns none of the cells of the obstacle's footprint, or next to it, that a new park does not start with (the opening gate's rule), and folded to nothing at their place once it owns one, the closed cells (the rock's, the cliff's) then becoming land (their quads shown in the level's copy, TpiOpenShutCells) and closing again while it stands; a node whose matrix changed under it (a terrain just loaded) is posed at once, so the state is the park's land and saves hold nothing new; this runs before the render, as a quad shown between the height field's Prepare and its Execute (EngineTick1 runs in between, PostCullOperations) would have Execute read a procedural texture entry Prepare never listed; off, or an original world, the Mac's | Why: tpw-mods tpi-worlds; Theme Park Inc's missions (golden tickets, skilled staff) cleared these, and the maintainer wants the tunnels to look closed and the rock, the cliff and the swamp to stand until their land is bought (0.5.4)
+    if (tpw::TpiWorldInPlay() && gHeightfieldHeader != nullptr && gGameWorld != nullptr) TpiShowShutObstacles();
+    gei_MapWho->Render();
+}
 
 // 0x1005b590
 void EngineTick3() { RenderSystem_FlipScreen(); }
