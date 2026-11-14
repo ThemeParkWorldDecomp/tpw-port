@@ -916,44 +916,92 @@ void RepairTpiShops() {
 }  // namespace
 
 namespace {
-// TPW_PORT_FIX mods RepairTpiResearch | Mac: no such pass | Port: TPW_MOD_HOOK tpi_worlds (include/TpiSaveRepair.h): in one of the mod's worlds, the control of each type whose record has no research cost, saved unavailable or named by a research project, is made again from its record (CheckAllControlsInitialised's values, available, the park's count and first build turn kept), each research project (not a statistics upgrade, upgrade level 0) whose type's record now has no research cost goes to the type of its category with its score as research cost and no project, keeping its progress (a finished one making that type available), and each type with a research cost, no project and no availability gets a new project (CResearchProject::SetupProject) | Why: see CSaveLoad::PostLoadOperations, below
-// Runs once every type has a control (CheckAllControlsInitialised). The counts go to the log.
-void RepairTpiResearch() {
-    if (!tpw::TpiWorldInPlay()) return;
-    using ObjectIdTag = tag_IDX_TYPE<IDXTYPEUniqueNameObjectId, uint16_t>;
-    CControlManager* controls = gGameWorld->GetControlManager();
-    CResearchLab* lab = gGameWorld->GetResearchLab();
+// TPW_PORT_FIX mods RepairTpiResearch | Mac: no such pass | Port: TPW_MOD_HOOK tpi_worlds (include/TpiSaveRepair.h): in one of the mod's worlds, the control of each type whose record has no research cost, saved unavailable or named by a research project, is made again from its record (CheckAllControlsInitialised's values, available, the park's count and first build turn kept), each research project (not a statistics upgrade, upgrade level 0) whose type's record now has no research cost goes to the type of its category with its score as research cost and no project, keeping its progress (a finished one making that type available), the park's counts of the two types becoming those of their placed objects, and each type with a research cost, no project and no availability gets a new project (CResearchProject::SetupProject) | Why: see CSaveLoad::PostLoadOperations, below
+using TpiObjectIdTag = tag_IDX_TYPE<IDXTYPEUniqueNameObjectId, uint16_t>;
+
+// The types RepairTpiResearch reads: each with a research cost (and its record), each without, and the research projects (their
+// indexes in the lab and their types) whose type's record now has no research cost.
+struct TpiResearchState {
     std::vector<tpw::TpiResearchType> types;
     std::vector<const RideInfo*> records, freeTypes;
+    std::vector<int32_t> stale;
+    std::vector<uint16_t> staleTypes;
+};
+
+TpiResearchState ReadTpiResearch(const CResearchLab* lab) {
+    TpiResearchState state;
     for (RideInfo* ride = gRideDatabase.GetFirstRide(); ride != nullptr; ride = gRideDatabase.GetNextRide()) {
         if (ride->mLoadFailed != 0 || ride->mUIType >= 4) continue;
         const int32_t cost = ride->Value(kRideSlot_Upgrades_CostOfResearch).mInteger;
         if (cost == 0) {
-            freeTypes.push_back(ride);
+            state.freeTypes.push_back(ride);
             continue;
         }
-        types.push_back({ride->mId, cost, ride->Value(kRideSlot_Category).mInteger, false});
-        records.push_back(ride);
+        state.types.push_back({ride->mId, cost, ride->Value(kRideSlot_Category).mInteger, false});
+        state.records.push_back(ride);
     }
+    if (lab == nullptr) return state;
+    for (int32_t i = 0; i < lab->mProjectCount; ++i) {
+        const CResearchProject& project = lab->mProjects[i];
+        if (project.mUpgradeLevel != 0) continue;
+        for (tpw::TpiResearchType& type : state.types)
+            if (type.id == project.mObjectId) type.hasProject = true;
+        const RideInfo* record = gRideDatabase.GetRideInfo(TpiObjectIdTag{project.mObjectId});
+        if (record == nullptr || record->mLoadFailed != 0 || record->mUIType >= 4 ||
+            !tpw::TpiStaleResearchProject(project.mUpgradeLevel, record->Value(kRideSlot_Upgrades_CostOfResearch).mInteger))
+            continue;
+        state.stale.push_back(i);
+        state.staleTypes.push_back(project.mObjectId);
+    }
+    return state;
+}
+
+// The type each stale project goes to (an index in state.types, or -1), in the lab's order, each type taken counted as having one.
+std::vector<int32_t> TpiStaleProjectOwners(TpiResearchState& state, const CResearchLab* lab) {
+    std::vector<int32_t> owners;
+    for (int32_t i : state.stale) {
+        const CResearchProject& project = lab->mProjects[i];
+        const int32_t owner = tpw::TpiStaleProjectOwner(state.types.data(), static_cast<int32_t>(state.types.size()), project.mCategory,
+                                                        project.mScore);
+        if (owner >= 0) state.types[owner].hasProject = true;
+        owners.push_back(owner);
+    }
+    return owners;
+}
+
+// Sets the park's count of each of the two types (ObjectControl::mNumberInPark) to its placed objects', the new type taking the
+// old one's first build turn when it has none and objects of it are placed.
+void RecountTpiPlacedTypes(CControlManager* controls, uint16_t oldType, uint16_t newType) {
+    int32_t oldCount = 0, newCount = 0;
+    for (CThingArrayEntry* entry = gUsedThingHead; entry != nullptr; entry = entry->mNextUsed) {
+        CThing* thing = static_cast<CThing*>(entry->mThing);
+        if (thing == nullptr || thing->mDead != 0 || thing->mKind != 3) continue;
+        const uint16_t type = reinterpret_cast<CObject*>(thing)->mObjectType;
+        if (type == oldType) ++oldCount;
+        if (type == newType) ++newCount;
+    }
+    ObjectControl* oldControl = controls->GetObjectControl(TpiObjectIdTag{oldType}, 1);
+    ObjectControl* newControl = controls->GetObjectControl(TpiObjectIdTag{newType}, 1);
+    if (oldControl != nullptr) oldControl->mNumberInPark = oldCount;
+    if (newControl == nullptr) return;
+    newControl->mNumberInPark = newCount;
+    if (oldControl != nullptr && newCount != 0 && newControl->mFirstBuiltTurn == 0) newControl->mFirstBuiltTurn = oldControl->mFirstBuiltTurn;
+}
+
+// Runs once every type has a control (CheckAllControlsInitialised). The counts go to the log.
+void RepairTpiResearch() {
+    if (!tpw::TpiWorldInPlay()) return;
+    using ObjectIdTag = TpiObjectIdTag;
+    CControlManager* controls = gGameWorld->GetControlManager();
+    CResearchLab* lab = gGameWorld->GetResearchLab();
+    TpiResearchState state = ReadTpiResearch(lab);
+    std::vector<tpw::TpiResearchType>& types = state.types;
+    const std::vector<const RideInfo*>& records = state.records;
+    const std::vector<uint16_t>& staleTypes = state.staleTypes;
     const int32_t count = static_cast<int32_t>(types.size());
-    std::vector<int32_t> stale;
-    std::vector<uint16_t> staleTypes;
-    if (lab != nullptr) {
-        for (int32_t i = 0; i < lab->mProjectCount; ++i) {
-            const CResearchProject& project = lab->mProjects[i];
-            if (project.mUpgradeLevel != 0) continue;
-            for (tpw::TpiResearchType& type : types)
-                if (type.id == project.mObjectId) type.hasProject = true;
-            const RideInfo* record = gRideDatabase.GetRideInfo(ObjectIdTag{project.mObjectId});
-            if (record == nullptr || record->mLoadFailed != 0 || record->mUIType >= 4 ||
-                !tpw::TpiStaleResearchProject(project.mUpgradeLevel, record->Value(kRideSlot_Upgrades_CostOfResearch).mInteger))
-                continue;
-            stale.push_back(i);
-            staleTypes.push_back(project.mObjectId);
-        }
-    }
+    const std::vector<int32_t> owners = lab != nullptr ? TpiStaleProjectOwners(state, lab) : std::vector<int32_t>{};
     int32_t remade = 0, moved = 0, added = 0;
-    for (const RideInfo* ride : freeTypes) {
+    for (const RideInfo* ride : state.freeTypes) {
         ObjectControl* control = controls->GetObjectControl(ObjectIdTag{ride->mId}, 1);
         const bool named = std::find(staleTypes.begin(), staleTypes.end(), ride->mId) != staleTypes.end();
         if (control == nullptr || !tpw::TpiFreeTypeControlToRemake(0, control->mAvailable, named)) continue;
@@ -964,12 +1012,13 @@ void RepairTpiResearch() {
         control->mUpgradesAvailable = 0;
         ++remade;
     }
-    for (int32_t i : stale) {
-        CResearchProject& project = lab->mProjects[i];
-        const int32_t owner = tpw::TpiStaleProjectOwner(types.data(), count, project.mCategory, project.mScore);
+    for (size_t n = 0; n < state.stale.size(); ++n) {
+        CResearchProject& project = lab->mProjects[state.stale[n]];
+        const int32_t owner = owners[n];
         if (owner < 0) continue;
+        const uint16_t oldType = project.mObjectId;
         project.mObjectId = types[owner].id;
-        types[owner].hasProject = true;
+        RecountTpiPlacedTypes(controls, oldType, project.mObjectId);
         if (project.IsProjectCompleted()) {
             ObjectControl* control = controls->GetObjectControl(ObjectIdTag{project.mObjectId}, 1);
             if (control != nullptr) control->mAvailable = 1;
@@ -994,11 +1043,58 @@ void RepairTpiResearch() {
 }
 }  // namespace
 
+namespace {
+// TPW_PORT_FIX mods RepairTpiPlacedTypes | Mac: no such pass | Port: TPW_MOD_HOOK tpi_worlds (include/TpiSaveRepair.h): in one of the mod's worlds, each placed object of a type whose research project RepairTpiResearch will move to another type is given that type when its saved flags say what that type's record makes and not what its own type's record now makes (TpiPlacedObjectToRetype), its ride instance (the one the save kept, FLY_RestoreMeshes) given back and made again from that type's record as a new object's is (CObject::UpdateEngine(0)) | Why: see CSaveLoad::PostLoadOperations, below
+// The record's object flags that say what an object is, as CObject::CObject sets them (kTpiObjectKindFlags).
+uint16_t TpiRecordKindFlags(const RideInfo* ride) {
+    uint16_t flags = 0;
+    if (ride->Value(kRideSlot_ProvidesRelief).mInteger != 0) flags |= 0x1;
+    if (ride->Value(kRideSlot_ChillsYouOut).mInteger != 0) flags |= 0x2;
+    if (ride->Value(kRideSlot_ProvidesSecurity).mInteger != 0) flags |= 0x10;
+    if (ride->Value(kRideSlot_HoldsLitter).mInteger != 0) flags |= 0x40;
+    if (ride->Value(kRideSlot_IsFireworks).mInteger != 0) flags |= 0x80;
+    return flags;
+}
+
+// Runs once the saved ride instances are back (FLY_RestoreMeshes) and before the engine objects take theirs (RestoreEngineObjects). The
+// count goes to the log.
+void RepairTpiPlacedTypes() {
+    if (!tpw::TpiWorldInPlay()) return;
+    const CResearchLab* lab = gGameWorld->GetResearchLab();
+    if (lab == nullptr) return;
+    TpiResearchState state = ReadTpiResearch(lab);
+    const std::vector<int32_t> owners = TpiStaleProjectOwners(state, lab);
+    int32_t retyped = 0;
+    for (size_t n = 0; n < state.stale.size(); ++n) {
+        if (owners[n] < 0) continue;
+        const uint16_t oldType = state.staleTypes[n], newType = state.types[owners[n]].id;
+        const RideInfo* oldRecord = gRideDatabase.GetRideInfo(TpiObjectIdTag{oldType});
+        const RideInfo* newRecord = gRideDatabase.GetRideInfo(TpiObjectIdTag{newType});
+        if (oldRecord == nullptr || newRecord == nullptr) continue;
+        const uint16_t oldFlags = TpiRecordKindFlags(oldRecord), newFlags = TpiRecordKindFlags(newRecord);
+        for (CThingArrayEntry* entry = gUsedThingHead; entry != nullptr; entry = entry->mNextUsed) {
+            CThing* thing = static_cast<CThing*>(entry->mThing);
+            if (thing == nullptr || thing->mDead != 0 || thing->mKind != 3) continue;
+            CObject* object = reinterpret_cast<CObject*>(thing);
+            if (object->mObjectType != oldType || !tpw::TpiPlacedObjectToRetype(true, object->mFlags, oldFlags, newFlags)) continue;
+            object->mObjectType = newType;
+            DestroyRideInstance(object->mF1C);
+            object->UpdateEngine(0);
+            ++retyped;
+        }
+    }
+    if (retyped != 0)
+        SamsUtilities::UDebug("port: tpi-worlds: %d placed objects given their types' new ids", static_cast<int>(retyped));
+}
+}  // namespace
+
 // Rebuilds what the engine holds after a park is read. The particle system is low spec when the current detail is 0.
 void CSaveLoad::PostLoadOperations() {
     InitialiseWeather();
     InitialiseBlobShadow();
     FLY_RestoreMeshes();
+    // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a placed object keeps the type it saved) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, before the engine objects are restored, a placed object saved under a type whose research project RepairTpiResearch moves to another type, with that type's object flags and not its own type's, is given that type and that type's building (RepairTpiPlacedTypes, include/TpiSaveRepair.h) | Why: the mod's converter 14 gave Land of Invention's staff room the security camera's id (7730), so a camera a park placed before it is saved under 7730 and loaded as a staff room's building that is no staff room (its mesh, no panel, a camera's flags); off, or an original world, a park loads as it was saved
+    RepairTpiPlacedTypes();
     gGameWorld->RestoreEngineObjects();
     gGameWorld->GetMap()->UpdateMapInEngine();
     // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a ride's doors are where its record put them) | Port: TPW_MOD_HOOK ps1_save_repair: each ride of the ps1-rides mod whose saved doors are not its record's has them moved (RepairPs1Rides, include/Ps1SaveRepair.h), once the map's tiles and queue meshes are back in the engine, and the cells it changes drawn again | Why: tpw-mods ps1-rides 0.4.1 turns its rides half a turn and gives the entrance and the exit their right roles, so parks saved with 0.4.0 keep queues and exit paths on cells that are no longer the doors; off (the default), a park loads as it was saved
@@ -1010,7 +1106,7 @@ void CSaveLoad::PostLoadOperations() {
     // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park's cells are as it saved them) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, the bridges' walkway cells a park saved as land, path or a hidden quad's mode become footbridge cells as in a new park (RepairTpiWalkways, include/TpiSaveRepair.h); anything built there is kept | Why: the mod's converter 16 makes the walkways footbridge cells like Lost Kingdom's (mode 0x1e), since the deck hides a path built under it and parks were left with gaps no guest crosses (the maintainer's Land of Invention park on 0.5.3), but a park keeps each saved cell's attribute byte and mode; off, or an original world, a park loads as it was saved
     RepairTpiWalkways();
     gGameWorld->GetControlManager()->CheckAllControlsInitialised();
-    // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park keeps the controls and research projects it saved) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, once every type has a control, each type with no research cost saved unavailable or named by a research project has its control made again from its record, available, each research project whose type now has no research cost goes to the type it was made for, and each researchable type with neither a project nor availability gets one (RepairTpiResearch, include/TpiSaveRepair.h) | Why: the mod's converter 14 gave Land of Invention's staff room the security camera's id (7730) and the camera the next one, but a park keeps the controls and research projects made when it started, so parks started before it kept the staff room with the camera's unresearched control and price, out of every build list, and the camera with no project; off, or an original world, a park loads as it was saved
+    // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park keeps the controls and research projects it saved) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, once every type has a control, each type with no research cost saved unavailable or named by a research project has its control made again from its record, available, each research project whose type now has no research cost goes to the type it was made for, the two types' counts in the park recounted, and each researchable type with neither a project nor availability gets one (RepairTpiResearch, include/TpiSaveRepair.h) | Why: the mod's converter 14 gave Land of Invention's staff room the security camera's id (7730) and the camera the next one, but a park keeps the controls and research projects made when it started, so parks started before it kept the staff room with the camera's unresearched control and price, out of every build list, and the camera with no project, and counted their cameras as staff rooms; off, or an original world, a park loads as it was saved
     RepairTpiResearch();
     RecalculateParkDarkening();
     gRestartParkClocks = 1;

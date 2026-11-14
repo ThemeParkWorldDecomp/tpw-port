@@ -38,12 +38,18 @@
 // available as SetupProject makes it in a new park, keeping the park's count and first build turn; a project (not a
 // statistics upgrade) whose type's record now has no research cost goes to the type it was made for (of its category,
 // with its score as research cost and no project of its own), keeping its progress, and a finished one makes that type
-// available; and each type with a research cost, no project and no availability gets a new one.
+// available; and each type with a research cost, no project and no availability gets a new one. A camera such a park
+// placed is saved under 7730 (CObject::Serialise's mId) with the camera's object flags (0x10, ProvidesSecurity, and not
+// the staff room's 2), so it loads as a staff room's building that is no staff room; before the engine objects are
+// restored, a placed object of a type whose project goes to another type is given that type when its saved flags say
+// what that type's record makes and not what its saved type's record now makes, its building (the ride instance the save
+// kept, which is the staff room's mesh) made again as that type's, and the park's counts of the two types
+// (ObjectControl::mNumberInPark) are those of their placed objects.
 // Header only and pure, so the host test sees the rule the game uses (src/game/save/SaveLoad.cpp).
 #pragma once
 
 
-// TPW_PORT_FIX mods TpiSaveRepair | Mac: no such header; Theme Park World has no converted worlds | Port: which map and track cells of a park saved before converter 14 RepairTpiHiddenCells resets as land on loading in the mod's worlds (TPW_MOD_HOOK tpi_worlds), which shop controls and placed shops of a park saved before converter 15 RepairTpiShops repairs, which walkway cells of a park saved before converter 16 RepairTpiWalkways makes footbridge cells, and which controls and research projects of a park saved before converter 14 RepairTpiResearch repairs | Why: tpw-mods tpi-worlds; parks saved with 0.5.1 kept Land of Invention's walkable bridges hidden, so no path could cross them, parks saved before 0.5.3 kept shop prices visitors walked away from and an unchoosable photo booth, parks saved before 0.5.4 kept gaps in the paths under the bridges' decks that the decks hid, and quads that fought the decks, and parks started before converter 14 never showed Land of Invention's staff room
+// TPW_PORT_FIX mods TpiSaveRepair | Mac: no such header; Theme Park World has no converted worlds | Port: which map and track cells of a park saved before converter 14 RepairTpiHiddenCells resets as land on loading in the mod's worlds (TPW_MOD_HOOK tpi_worlds), which shop controls and placed shops of a park saved before converter 15 RepairTpiShops repairs, which walkway cells of a park saved before converter 16 RepairTpiWalkways makes footbridge cells, and which controls, research projects and placed objects of a park saved before converter 14 RepairTpiPlacedTypes and RepairTpiResearch repair | Why: tpw-mods tpi-worlds; parks saved with 0.5.1 kept Land of Invention's walkable bridges hidden, so no path could cross them, parks saved before 0.5.3 kept shop prices visitors walked away from and an unchoosable photo booth, parks saved before 0.5.4 kept gaps in the paths under the bridges' decks that the decks hid, and quads that fought the decks, and parks started before converter 14 never showed Land of Invention's staff room and turned their placed security cameras into staff room buildings
 
 #include <cstdint>
 
@@ -132,6 +138,18 @@ inline int32_t TpiStaleProjectOwner(const TpiResearchType* types, int32_t count,
 // Whether a type with a research cost (`hasProject`, its control's `available`) gets a new project: it has none and is
 // not available, so nothing could ever make it available.
 inline bool TpiResearchTypeToAdd(bool hasProject, int32_t available) { return !hasProject && available == 0; }
+
+// The object flags CObject::CObject takes from a type's record that say what the object is: 1 relief (ProvidesRelief),
+// 2 a staff room (ChillsYouOut), 0x10 security (ProvidesSecurity), 0x40 litter (HoldsLitter), 0x80 fireworks (IsFireworks).
+constexpr uint16_t kTpiObjectKindFlags = 0x1 | 0x2 | 0x10 | 0x40 | 0x80;
+
+// Whether a placed object saved under a type whose research project goes to another type (`moved`) is that other type's:
+// its saved flags (`savedFlags`, CObject::mFlags) hold what the other type's record makes (`newRecordFlags`) and not
+// what its saved type's record now makes (`savedRecordFlags`), as a camera built under 7730 holds 0x10 and not 2.
+inline bool TpiPlacedObjectToRetype(bool moved, uint16_t savedFlags, uint16_t savedRecordFlags, uint16_t newRecordFlags) {
+    const uint16_t kind = savedFlags & kTpiObjectKindFlags;
+    return moved && kind == (newRecordFlags & kTpiObjectKindFlags) && kind != (savedRecordFlags & kTpiObjectKindFlags);
+}
 
 }  // namespace tpw
 
