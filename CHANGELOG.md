@@ -2,6 +2,10 @@
 
 ## 0.5.4 (not released yet)
 
+### Bug Fixes
+
+- Fixed visitors in the TPI Worlds and Rides mod's Land of Invention not crossing the bridge, and the far end of the bridge's deck flickering: the mod's bridges are now footbridges like Lost Kingdom's, which you lay path up to at each end, staff on patrol cross them whether or not the Patrolling staff can cross bridges mod is on, and parks saved with an earlier version get them when they are loaded. Buying the land by a bridge now costs a little less, since the footbridge cells are not land (as in Lost Kingdom)
+
 ## 0.5.3 (2026-11-13)
 
 ### Bug Fixes

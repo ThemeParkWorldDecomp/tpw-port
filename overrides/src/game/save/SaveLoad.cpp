@@ -833,6 +833,53 @@ void RepairTpiHiddenCells() {
 }  // namespace
 
 namespace {
+// TPW_PORT_FIX mods RepairTpiWalkways | Mac: no such pass | Port: TPW_MOD_HOOK tpi_worlds (include/TpiSaveRepair.h): in one of the mod's worlds, the level's attribute map is read again (LoadLevelAttributeMap, into the cells' attribute bytes, which are then put back as saved), and each map cell whose level attribute is 0x80 alone over a quad the level hides (gHeightfieldCopy), a bridge's walkway since converter 16, that belongs to nothing and holds land, a path or a hidden quad's mode 2, 5 or 7, becomes a footbridge cell as in a new park: a path is deleted first (CMapCell::Delete, its links cut both ways), the quad is the level's again (SetHeightfieldTexture's copy tile 0x37), the cell takes the level's attribute and is reset (CMapCell::Reset: mode 0x1e), keeping its saved flag 0x40, and its track cell, when it belongs to nothing, too (mode 7) | Why: see CSaveLoad::PostLoadOperations, below
+// Each cell it changes gets a new time stamp, as the cell system's own changes do; the count goes to the log.
+void RepairTpiWalkways() {
+    if (!tpw::TpiWorldInPlay()) return;
+    const sHField* levelField = gHeightfieldCopy;
+    if (gHeightfieldHeader == nullptr || levelField == nullptr) return;
+    const uint32_t width = levelField->mF18[0], height = levelField->mF18[1];
+    std::vector<uint8_t> saved(0x4000), level(0x4000);
+    for (uint32_t index = 0; index < 0x4000u; ++index) saved[index] = gGameWorld->mMapCells[index].mStatusFlags;
+    const bool read = LoadLevelAttributeMap();
+    for (uint32_t index = 0; index < 0x4000u; ++index) {
+        level[index] = gGameWorld->mMapCells[index].mStatusFlags;
+        gGameWorld->mMapCells[index].mStatusFlags = saved[index];
+    }
+    if (!read) return;
+    CMap* map = gGameWorld->GetMap();
+    int32_t made = 0, paths = 0;
+    for (uint32_t index = 0; index < 0x4000u; ++index) {
+        const int32_t x = static_cast<int32_t>(index & 0x7fu), y = static_cast<int32_t>(index >> 7);
+        if (static_cast<uint32_t>(x) >= width || static_cast<uint32_t>(y) >= height) continue;
+        const bool levelHides = (levelField->mQuads.get()[static_cast<uint32_t>(x) + static_cast<uint32_t>(y) * width].mF00 & 1) != 0;
+        CMapCell* cell = &gGameWorld->mMapCells[index];
+        if (!tpw::TpiWalkwayToFootbridge(static_cast<int32_t>(cell->mType), level[index], cell->mParentID, levelHides)) continue;
+        const uint16_t saved = cell->mFlags;
+        if (static_cast<int32_t>(cell->mType) == 1) {
+            cell->mFlags = static_cast<uint16_t>(cell->mFlags & ~0x20u);
+            cell->Delete(0, 0);
+            ++paths;
+        }
+        SetHeightfieldTexture(gHeightfieldHeader, &gExtraTextureTable, x, y, 0, 0x37, 0);
+        cell->mStatusFlags = level[index];
+        cell->Reset(true);
+        cell->mFlags = tpw::TpiRepairedFlags(saved, cell->mFlags);
+        CTrackCell* track = &gGameWorld->mTrackCells[index];
+        if (track->mParentID == 0 && static_cast<int32_t>(track->mType) != 7) track->Reset();
+        ++made;
+        tag_IDX_TYPE<IDXTYPEUniqueNameMapId, uint16_t> id;
+        id.mIndex = static_cast<uint16_t>(index + 1u);
+        map->SetTimeStamp(map->MakeNewTimeStamp(), id);
+    }
+    if (made != 0)
+        SamsUtilities::UDebug("port: tpi-worlds: %d bridge walkway cells (%d of them path) made footbridge cells", static_cast<int>(made),
+                              static_cast<int>(paths));
+}
+}  // namespace
+
+namespace {
 // TPW_PORT_FIX mods RepairTpiShops | Mac: no such pass | Port: TPW_MOD_HOOK tpi_worlds (include/TpiSaveRepair.h): in one of the mod's worlds, each shop type's control whose saved RipOffOK is below its record's gets the record's, and each placed shop whose record says Info.IsChoosable but was built without flag 4 gets it, its state 3 becoming the normal state | Why: see CSaveLoad::PostLoadOperations, below
 // The counts go to the log.
 void RepairTpiShops() {
@@ -881,6 +928,8 @@ void CSaveLoad::PostLoadOperations() {
     RepairTpiHiddenCells();
     // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park keeps the controls and object flags it saved) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, each shop type's saved RipOffOK below its record's becomes the record's, and a placed shop whose record now says Info.IsChoosable but that was built without it becomes one visitors choose (RepairTpiShops, include/TpiSaveRepair.h) | Why: the mod's converter 15 gives the shops Theme Park World's room between price and worth and makes the photo booth choosable, but a park keeps the controls made from the records when it started and each object's flags as it was built, so parks saved before it still sent visitors away from every shop and never to a booth already built; off, or an original world, a park loads as it was saved
     RepairTpiShops();
+    // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park's cells are as it saved them) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, the bridges' walkway cells a park saved as land, path or a hidden quad's mode become footbridge cells as in a new park (RepairTpiWalkways, include/TpiSaveRepair.h); anything built there is kept | Why: the mod's converter 16 makes the walkways footbridge cells like Lost Kingdom's (mode 0x1e), since the deck hides a path built under it and parks were left with gaps no guest crosses (the maintainer's Land of Invention park on 0.5.3), but a park keeps each saved cell's attribute byte and mode; off, or an original world, a park loads as it was saved
+    RepairTpiWalkways();
     gGameWorld->GetControlManager()->CheckAllControlsInitialised();
     RecalculateParkDarkening();
     gRestartParkClocks = 1;

@@ -10,6 +10,16 @@
 // quad (gHeightfieldCopy, kept as the level was read) is shown, gets that quad back and is reset as a new park resets it
 // (CMapCell::Reset), keeping whether it was inside the park (flag 0x40); its track cell is reset too when it has the hidden
 // quad's mode 7. A cell the park has built on never matches, and a second load changes nothing.
+// Converter 16 makes the walkways footbridge cells like Lost Kingdom's instead (their quads hidden again, base.map
+// attribute 0x80 alone: CMapCell::Reset's mode 0x1e, which guests cross on their way to something and nothing is built
+// on), since a path built under the deck is hidden by it and parks were left with gaps no guest could cross (the maintainer's Land
+// of Invention park, 0.5.3: no path on the two cells over mid-river), and the shown quads fought the deck. A park keeps
+// the attribute byte and mode of every cell it saved, so on loading, each walkway cell (the level's attribute 0x80 alone
+// over a quad the level hides) that belongs to nothing and holds land, a path or a hidden quad's mode 2, 5 or 7 is made a
+// footbridge as a new park makes it: a path loses its links both ways first (CMapCell::Delete), the quad is the level's
+// again and the cell takes the level's attribute and is reset (mode 0x1e), keeping its saved flag 0x40
+// (TpiRepairedFlags), with its track cell when that belongs to nothing (mode 7). A cell something is built on stays as
+// it is, and a second load changes nothing.
 // The same mod's repair of the shops of parks saved before converter 15: a park keeps each object type's control
 // (CControlManager, made once from the record when the type is first seen), so its shops keep the RipOffOK converter 14
 // gave them (0 where the shops folder named none) and visitors still walk away from their prices; on loading, a shop
@@ -21,7 +31,7 @@
 #pragma once
 
 
-// TPW_PORT_FIX mods TpiSaveRepair | Mac: no such header; Theme Park World has no converted worlds | Port: which map and track cells of a park saved before converter 14 RepairTpiHiddenCells resets as land on loading in the mod's worlds (TPW_MOD_HOOK tpi_worlds), and which shop controls and placed shops of a park saved before converter 15 RepairTpiShops repairs | Why: tpw-mods tpi-worlds; parks saved with 0.5.1 kept Land of Invention's walkable bridges hidden, so no path could cross them, and parks saved before 0.5.3 kept shop prices visitors walked away from and an unchoosable photo booth
+// TPW_PORT_FIX mods TpiSaveRepair | Mac: no such header; Theme Park World has no converted worlds | Port: which map and track cells of a park saved before converter 14 RepairTpiHiddenCells resets as land on loading in the mod's worlds (TPW_MOD_HOOK tpi_worlds), which shop controls and placed shops of a park saved before converter 15 RepairTpiShops repairs, and which walkway cells of a park saved before converter 16 RepairTpiWalkways makes footbridge cells | Why: tpw-mods tpi-worlds; parks saved with 0.5.1 kept Land of Invention's walkable bridges hidden, so no path could cross them, parks saved before 0.5.3 kept shop prices visitors walked away from and an unchoosable photo booth, and parks saved before 0.5.4 kept gaps in the paths under the bridges' decks that the decks hid, and quads that fought the decks
 
 #include <cstdint>
 
@@ -52,6 +62,15 @@ inline uint16_t TpiRepairedFlags(uint16_t saved, uint16_t reset) {
 // The same for a track cell (`shown`: its quad is shown once the map cell's is back): CTrackCell::Reset gives 7 to a
 // hidden quad and 0 to a shown one.
 inline bool TpiStaleHiddenTrackCell(int32_t mode, uint16_t parent, bool shown) { return shown && parent == 0 && mode == 7; }
+
+// A map cell of a bridge's walkway that a park saved before converter 16 keeps as something other than a footbridge:
+// the level's attribute byte (`level`, as base.map has it now) is 0x80 alone, which converter 16 gives the walkways,
+// over a quad the level hides (`levelHides`: gHeightfieldCopy's bit 1), and the cell belongs to nothing and holds land
+// (0, converters 14 and 15), a path (1, built there or the start path), or a hidden quad's mode of the attribute it
+// saved (2 or 7, converter 12; 5, shown land of attribute 1). A footbridge (0x1e) and anything built there are kept.
+inline bool TpiWalkwayToFootbridge(int32_t mode, uint8_t level, uint16_t parent, bool levelHides) {
+    return levelHides && level == 0x80 && parent == 0 && (mode == 0 || mode == 1 || mode == 2 || mode == 5 || mode == 7);
+}
 
 // A control's RipOffOK after loading (`saved`, from the park file), for an object type with the record's RipOffOK
 // `record` and Info.WhichUIType `uiType`: a shop's (1) rises to its record's; nothing else changes, and nothing falls.

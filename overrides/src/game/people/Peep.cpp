@@ -27,6 +27,7 @@
 #include "ThingReceivers.h"
 #include "TPCamera.h"
 #include "TPEngine.h"
+#include "TpiGateFlow.h"
 #include "TPSound.h"
 #include "VehicleSteer.h"
 #include "World.h"
@@ -331,8 +332,8 @@ int32_t CPeep::SetRandomDestination() {
         }
     }
 
-    // TPW_PORT_FIX mods CPeep::SetRandomDestination | Mac: a random walk steps only along path links, which no cell has toward a bridge (mode 0x1e), so staff never cross one while patrolling | Port: TPW_MOD_HOOK staff_bridge_wander (gModStaffBridgeWander, include/ThingReceivers.h), a staff member's walk may also step onto, along and off a bridge (ModBridgeSteps), every other rule the Mac's; off, the Mac's walk | Why: tpw-mods staff-cross-bridges
-    const bool bridges = gModStaffBridgeWander && staff;
+    // TPW_PORT_FIX mods CPeep::SetRandomDestination | Mac: a random walk steps only along path links, which no cell has toward a bridge (mode 0x1e), so staff never cross one while patrolling | Port: TPW_MOD_HOOK staff_bridge_wander (gModStaffBridgeWander, include/ThingReceivers.h), and in the tpi_worlds hook's worlds (tpw::TpiWorldInPlay, include/TpiGateFlow.h) whether or not it is on, a staff member's walk may also step onto, along and off a bridge (ModBridgeSteps), every other rule the Mac's; off in an original world, the Mac's walk | Why: tpw-mods staff-cross-bridges; tpi-worlds, whose bridges join the two banks of a park (the maintainer, 2026-11-13: in those worlds staff wander across bridges by default)
+    const bool bridges = (gModStaffBridgeWander || tpw::TpiWorldInPlay()) && staff;
     if (here->NumberOfHVNeighbours() > 0 || (bridges && ModBridgeSteps(PeepCell(self), here, 0) != 0)) {
         while (true) {
             const int32_t old = counter;

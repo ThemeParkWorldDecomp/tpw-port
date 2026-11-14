@@ -288,7 +288,7 @@ use `build\tpw_launcher.exe 2> log.txt`.
 - [tpw-decomp](https://github.com/ThemeParkWorldDecomp/tpw-decomp) submodule: the translated game, bugs included.
 - launcher/: the launcher. launcher/net/ is the only internet code.
 - platform/: Mac and Windows shims on SDL3 and OpenGL. platform/vulkan/: the Linux Vulkan renderer.
-- overrides/: 507 fixes, listed in [FIXES.md](FIXES.md).
+- overrides/: 509 fixes, listed in [FIXES.md](FIXES.md).
 - mods/: the [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) submodule, via TPW_MOD_HOOK. `-DTPW_MODS_DIR=<folder>` points elsewhere.
 
 ### The Windows build
