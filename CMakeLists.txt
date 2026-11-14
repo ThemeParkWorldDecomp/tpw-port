@@ -627,6 +627,14 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_tpi_save_repair PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_save_repair COMMAND tpw_host_tpi_save_repair)
   endif()
+  # The TPI Worlds and Rides mod's soft edge of the park's land (TPW_MOD_HOOK tpi_worlds, include/TpiParkEdge.h): which
+  # corners of a height field cell are darkened, each from the cell under its grid point, on made-up ownership maps,
+  # without game data. The original has no such mod, so it is made only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_tpi_park_edge ${TPW_DECOMP_DIR}/tests/host_tpi_park_edge.cpp)
+    target_include_directories(tpw_host_tpi_park_edge PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_park_edge COMMAND tpw_host_tpi_park_edge)
+  endif()
   # A park file's packed block cut short or damaged, unpacked with the block's length (the port's fixes parkload and
   # truncsave): no read past the block, and only a whole block unpacks. The program builds the packing and that unpacking of
   # src/bullfrog/LbZLib.cpp, with the host's zlib; the original has no such call, so it is made only with the port's fixes.
