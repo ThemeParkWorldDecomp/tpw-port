@@ -609,6 +609,15 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_tpi_toilets PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_toilets COMMAND tpw_host_tpi_toilets)
   endif()
+  # The TPI Worlds and Rides mod's three generations of visitors (TPW_MOD_HOOK tpi_worlds, include/TpiGenerations.h):
+  # the converter's TpiPeeps.sam read back, each visitor's Theme Park Inc type of its look's generation, its starting
+  # cash, speed and preferred excitement, the weather's kind, days and effect, and that nothing changes elsewhere,
+  # without game data. The original has no such mod, so it is made only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_tpi_generations ${TPW_DECOMP_DIR}/tests/host_tpi_generations.cpp)
+    target_include_directories(tpw_host_tpi_generations PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_generations COMMAND tpw_host_tpi_generations)
+  endif()
   # The TPI Worlds and Rides mod's opening gate (TPW_MOD_HOOK tpi_worlds, include/TpiObstacleGate.h): a leaf's node name
   # read back as the converter writes it, the rule that opens it (the park owns a cell of its footprint or one next to
   # it) and its swing, without game data. The original has no such mod, so it is made only with the port's fixes.

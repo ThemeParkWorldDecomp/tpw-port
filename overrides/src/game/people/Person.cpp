@@ -30,6 +30,7 @@
 #include "TPEngine.h"
 #include "TPGlobals.h"
 #include "TpiGateFlow.h"
+#include "TpiGenerations.h"
 #include "TpiGuests.h"
 #include "TPSound.h"
 #include "VehicleSteer.h"
@@ -158,6 +159,11 @@ CPerson::CPerson(MapId cell) {
     // TPW_PORT_FIX mods CPerson::CPerson | Mac: the visitor's script is made with its sprite number | Port: TPW_MOD_HOOK tpi_worlds (include/TpiGuests.h): with tpw::TpiGuestSpriteOf's sprite, in one of the mod's worlds an extra visitor for some (here and wherever a visitor's script is made: CPerson::ReceiveMessage, CPerson::GetDebagged, CPeep::DrawMySpriteAt, CPersonQueue's state 12, CPerson::GetHeadSpriteID) | Why: tpw-mods tpi-worlds extra visitors (Theme Park Inc's kids, parents and grandparents among Theme Park World's kids), a look only: the sprite number (+0x20), the picks and the saved park stay the Mac's
     At<CDelayedScript>(this, 0xc).SpawnSpriteScript(static_cast<CDelayedScript::ScriptIdx>(1), At<int32_t>(this, 0x24),
                                                     tpw::TpiGuestSpriteOf(At<int32_t>(this, 0x24), At<int32_t>(this, 0x20), this));
+    // TPW_PORT_FIX mods CPerson::CPerson | Mac: the starting cash is the Mac's type's (+0x1f0) StartingCash, spread by PeepInfo.StartingCashVarPc from the third draw | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGenerations.h): in one of the mod's worlds with its TpiPeeps.sam read, the visitor's Theme Park Inc type's StartingCash (tpw::TpiVisitorType, the type of its look's generation), spread by Theme Park Inc's StartingCashVarPc from the same draw (tpw::TpiStartingCash); no new draw, the type byte stays the Mac's | Why: tpw-mods tpi-worlds generations, the visitors carry Theme Park Inc's money | Off: the Mac's
+    if (const int32_t type = tpw::TpiVisitorType(this); type >= 0) {
+        const int32_t varPc = tpw::gTpiPeeps.cashVarPc >= 0 ? tpw::gTpiPeeps.cashVarPc : range;
+        At<int32_t>(this, 0x1a0) = tpw::TpiStartingCash(tpw::gTpiPeeps.types[type].cash, c, varPc);
+    }
     At<uint16_t>(this, 0xc2) = gPersonTable[1];
 
     if (reinterpret_cast<CPeep*>(this)->IsInsidePark() == 0) {
@@ -754,7 +760,8 @@ uint32_t CPerson::CalculateOptionScore(CObject* object) {
     }
 
     CWeather* weather = gWorld->GetWeather();
-    if (static_cast<int32_t>(weather->mF30) > 0) {
+    // TPW_PORT_FIX mods CPerson::CalculateOptionScore | Mac: while it rains an indoor ride's score is multiplied by DecisionVariable3 | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGenerations.h): not in one of the mod's worlds with its TpiPeeps.sam read (tpw::TpiGenerationsInPlay), where the rain's effect is Theme Park Inc's per-generation weather effects instead (CParkTime::Update); Theme Park Inc's Standard.sam marks DecisionVariable3 "Not USED ANY MORE" | Why: tpw-mods tpi-worlds generations | Off: the Mac's
+    if (static_cast<int32_t>(weather->mF30) > 0 && !tpw::TpiGenerationsInPlay()) {
         db = reinterpret_cast<const uint8_t*>(object->GetDBInfo());
         if (DbWord(reinterpret_cast<const RideInfo*>(db), kSlot114) != 0) {
             score = score * Bal_2(20);
@@ -1447,6 +1454,9 @@ void CPerson::LowerHappiness(Amount amount) {
 
 // 0x1011b4b4: a byte of the balance row (12 bytes a row from Mac offset 0xa4) of the person's +0x1f0 byte. The index is not checked.
 uint8_t CPerson::GetPreferredExcitement() const {
+    // TPW_PORT_FIX mods CPerson::GetPreferredExcitement | Mac: the Mac's type's (+0x1f0) PreferredExcitement | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGenerations.h): in one of the mod's worlds with its TpiPeeps.sam read, the visitor's Theme Park Inc type's (tpw::TpiVisitorType), so a grandparent picks gentler rides (the ride score, the excitement remarks) | Why: tpw-mods tpi-worlds generations | Off: the Mac's
+    if (const int32_t type = tpw::TpiVisitorType(this); type >= 0)
+        return static_cast<uint8_t>(tpw::gTpiPeeps.types[type].excitement);
     uint32_t row = Fld_2<uint8_t>(Raw(this), 0x1f0);
     return static_cast<uint8_t>(gMainBalance.mValues[(0xa4 - 8) / 4 + 3 * row].mInteger);
 }

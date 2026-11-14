@@ -30,6 +30,7 @@
 #include "ObjectControl.h"
 #include "ObjectParts.h"
 #include "ParkMessages.h"
+#include "ParkTime.h"
 #include "platform/arena.h"
 #include "platform/macdoze.h"
 #include "ppc_math.h"
@@ -44,6 +45,7 @@
 #include "TPEngine.h"
 #include "TPGlobals.h"
 #include "TpiGateFlow.h"
+#include "TpiGenerations.h"
 #include "TPMain.h"
 #include "UIInterface.h"
 #include "World.h"
@@ -56,6 +58,7 @@
 #include <cstring>
 #include <ctime>
 #include <new>
+#include <string>
 
 // The world's load (main app of SimTheme Park 2.04b3, World.cpp; unit w207): CWorld::Load, the two LOADVAR instances it needs for its own
 // enums (CWorld::WorldState 0x101415b4 and CThing::ThingModel 0x101416f0) and CThing::ForceThingId (Thing.cpp). The matching save is
@@ -313,6 +316,26 @@ uint16_t MakeFeatureObject(const RideInfo* ride) {
 
 }  // namespace
 
+// TPW_PORT_FIX mods tpw::TpiGenerationsNewDay | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGenerations.h): the new park day's weather step CParkTime::Update calls through tpw::gTpiNewDay: in one of the mod's worlds with its TpiPeeps.sam read, on a due day (tpw::TpiWeatherDue, counted from the park's calendar) every visitor's happiness, thirst and hunger move by its generation's effect of the weather there is (tpw::TpiWeatherKind), kept within 0 to 100 | Why: tpw-mods tpi-worlds generations, the weather is felt as in Theme Park Inc | Off: not built
+void tpw::TpiGenerationsNewDay() {
+    if (tpw::TpiGenerationsInPlay()) {
+        const CWeather* weather = gWorld->GetWeather();
+        const int32_t kind = tpw::TpiWeatherKind(static_cast<int32_t>(weather->mF0C), static_cast<int32_t>(weather->mF34),
+                                                 static_cast<int32_t>(weather->mF58), weather->mF38, tpw::gTpiPeeps.heatwaveLow);
+        const int32_t day = tpw::TpiParkDayNumber(gParkDate.mYear, gParkDate.mMonth, gParkDate.mDay);
+        if (kind != tpw::kTpiNoWeather && tpw::TpiWeatherDue(day, tpw::gTpiPeeps.weatherEvery)) {
+            for (CThingArrayEntry* entry = gUsedThingHead; entry != nullptr; entry = entry->mNextUsed) {
+                CThing* thing = static_cast<CThing*>(entry->mThing);
+                if (thing == nullptr || thing->mKind != 1) continue;   // a visitor (CPerson)
+                uint8_t* person = reinterpret_cast<uint8_t*>(thing);
+                tpw::TpiApplyWeather(*reinterpret_cast<float*>(person + 0x19c), *reinterpret_cast<float*>(person + 0x1a4),
+                                     *reinterpret_cast<float*>(person + 0x1a8), tpw::TpiGuestGeneration(thing), kind,
+                                     tpw::gTpiPeeps);
+            }
+        }
+    }
+}
+
 // The set-up of a new level, in the Mac's order. The answer starts true and is cleared by a failed first or second balance file (the easy
 // mode file's failure only asserts). The control manager's address comes from the global gGameWorld, not from `this`. The game type word is
 // read twice (the Mac re-reads it after the second file). The ten things are made in a fixed order and the world keeps their ids; the
@@ -337,6 +360,19 @@ bool CWorld::SetupNewLevel(char* levelFolder) {
             std::sprintf(buffer, "%s:%s%s", levelFolder, gTPGlobals.mF427C.mData, "Standard.sam");
             if (gMainBalance.Load(buffer, CBalanceTable::kLoadOverlay) == 0)
                 GAME_ASSERTMSG(0, "There is no Easy_standard.sam file for this theme - This is not critical");
+        }
+    }
+    // TPW_PORT_FIX mods CWorld::SetupNewLevel | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGenerations.h): with the mod on, reads the level's TpiPeeps.sam (Theme Park Inc's visitor types and weather effects, which the converter writes into each of the mod's worlds only) into tpw::gTpiPeeps, never into the balance table; a level without the file leaves it not loaded | Why: tpw-mods tpi-worlds generations, the visitors act as Theme Park Inc's | Off: the table stays not loaded, no file is read
+    tpw::gTpiPeeps = tpw::TpiPeepTable{};
+    tpw::gTpiNewDay = tpw::TpiGenerationsNewDay;
+    if (gModTpiWorlds) {
+        std::sprintf(buffer, "%s:%s", levelFolder, tpw::kTpiPeepsFile);
+        const int32_t length = LbFile_GetLength(buffer);
+        if (length > 0) {
+            std::string text(static_cast<size_t>(length), '\0');
+            int32_t loaded = 0;
+            if (LbFile_Load(buffer, text.data(), static_cast<uint32_t>(length), &loaded).Succeeded())
+                tpw::TpiParsePeeps(text.data(), text.size(), tpw::gTpiPeeps);
         }
     }
     mTurn = 0;

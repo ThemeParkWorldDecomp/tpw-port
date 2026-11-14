@@ -28,6 +28,7 @@
 #include "TPCamera.h"
 #include "TPEngine.h"
 #include "TpiGateFlow.h"
+#include "TpiGenerations.h"
 #include "TPSound.h"
 #include "TpiGuests.h"
 #include "VehicleSteer.h"
@@ -860,6 +861,9 @@ void CPeep::UpdateTurn() {
     float num = static_cast<float>(static_cast<double>(static_cast<int32_t>(sum)));
     float den = static_cast<float>(static_cast<double>(kTurnDivisor));
     float quotient = num / den;
+    // TPW_PORT_FIX mods CPeep::UpdateTurn | Mac: the walking speed the peep eases toward is its three speed words over kTurnDivisor | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGenerations.h): a visitor (kind 1) in one of the mod's worlds with its TpiPeeps.sam read eases toward that times its Theme Park Inc type's SpeedMultiplier (tpw::TpiVisitorType: kids 1, parents a little slower, grandparents about half); staff and every other peep the Mac's | Why: tpw-mods tpi-worlds generations, grandparents walk slower | Off: the Mac's
+    if (reinterpret_cast<const CThing*>(this)->mKind == 1)
+        if (const int32_t type = tpw::TpiVisitorType(this); type >= 0) quotient = quotient * tpw::gTpiPeeps.types[type].speed;
     float speed = *reinterpret_cast<float*>(Bytes_3(this) + 0xc8);
     const float three = 3.0f;
     const float quarter = 0.25f;

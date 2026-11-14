@@ -16,6 +16,7 @@
 #include "Serialise.h"
 #include "TbDynamicStringTemplate.h"
 #include "TbTimeDiff.h"
+#include "TpiGenerations.h"
 #include "ThingReceivers.h"
 #include "TPSound.h"
 #include "TPString.h"
@@ -116,6 +117,8 @@ void CParkTime::Update() {
             CStaffHQ* hq = gWorld->GetStaffHQ();
             if (hq != nullptr) hq->ModEndOfDay();
         }
+        // TPW_PORT_FIX mods CParkTime::Update | Mac: nothing more on a new day | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGenerations.h): in one of the mod's worlds with its TpiPeeps.sam read, every PeepInfo.WeatherModifierFrequency days (tpw::TpiWeatherDue) each visitor's happiness, thirst and hunger move by its generation's effect of the weather there is (tpw::TpiWeatherKind: a storm, snow, rain or a heatwave), Theme Park Inc's weather tables; the step is tpw::TpiGenerationsNewDay (src/game/World.cpp), called through tpw::gTpiNewDay so this file links nothing new | Why: tpw-mods tpi-worlds generations, the weather is felt as in Theme Park Inc | Off: nothing
+        if (tpw::gTpiNewDay != nullptr) tpw::gTpiNewDay();
     }
     if (gParkDate.mMonth != mMonthAtLastUpdate) {
         CMsgEndOfMonth message;
