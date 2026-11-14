@@ -29,6 +29,7 @@
 #include "TPEngine.h"
 #include "TpiGateFlow.h"
 #include "TPSound.h"
+#include "TpiGuests.h"
 #include "VehicleSteer.h"
 #include "World.h"
 #include "WorldSavvy.h"
@@ -508,8 +509,10 @@ int32_t CPeep::SetRandomDestination() {
 
 // 0x10114624
 void CPeep::DrawMySpriteAt(float x, float y, float z, int32_t frame, CDelayedScript::ScriptIdx script) {
+    // TPW_PORT_FIX mods CPeep::DrawMySpriteAt | Mac: the visitor's script is made with its sprite number | Port: TPW_MOD_HOOK tpi_worlds (include/TpiGuests.h): with tpw::TpiGuestSpriteOf's sprite, as in CPerson::CPerson | Why: tpw-mods tpi-worlds extra visitors (Theme Park Inc's grandparents among the kids), a look only: the sprite number (+0x20), the picks and the saved park stay the Mac's
     if (PWord(this, 0xc) == 0)
-        ScriptOf(this)->SpawnSpriteScript(script, static_cast<int32_t>(PWord(this, 0x24)), static_cast<int32_t>(PWord(this, 0x20)));
+        ScriptOf(this)->SpawnSpriteScript(script, static_cast<int32_t>(PWord(this, 0x24)),
+                                          tpw::TpiGuestSpriteOf(static_cast<int32_t>(PWord(this, 0x24)), static_cast<int32_t>(PWord(this, 0x20)), this));
     float height = DetermineHFieldHeight(x, z, 1);
     float lifted = y - height;
     SCR_SetScriptPosition(static_cast<int32_t>(PWord(this, 0xc)), x, lifted, z, frame);
