@@ -45,13 +45,20 @@
 // what that type's record makes and not what its saved type's record now makes, its building (the ride instance the save
 // kept, which is the staff room's mesh) made again as that type's, and the park's counts of the two types
 // (ObjectControl::mNumberInPark) are those of their placed objects.
+// And the same mod's repair of the rides placed before 0.5.2: a park keeps each placed ride's script whole (RSSE_Save, its
+// variables with it), so a Golden Ticket ride placed before CObject::CreateRideScript set SPECIAL (include/TpiRideScript.h)
+// still loops its O animation waiting on it: parts hidden, no riders, the queue only growing. On loading, a placed ride
+// that would start with SPECIAL set (tpw::TpiRideScriptStartsSpecial) but whose saved SPECIAL is 0 gets it, as at
+// placement; the script reads it on its next tick and carries on as a new ride does. A ride placed since already has it.
 // Header only and pure, so the host test sees the rule the game uses (src/game/save/SaveLoad.cpp).
 #pragma once
 
 
-// TPW_PORT_FIX mods TpiSaveRepair | Mac: no such header; Theme Park World has no converted worlds | Port: which map and track cells of a park saved before converter 14 RepairTpiHiddenCells resets as land on loading in the mod's worlds (TPW_MOD_HOOK tpi_worlds), which shop controls and placed shops of a park saved before converter 15 RepairTpiShops repairs, which walkway cells of a park saved before converter 16 RepairTpiWalkways makes footbridge cells, and which controls, research projects and placed objects of a park saved before converter 14 RepairTpiPlacedTypes and RepairTpiResearch repair | Why: tpw-mods tpi-worlds; parks saved with 0.5.1 kept Land of Invention's walkable bridges hidden, so no path could cross them, parks saved before 0.5.3 kept shop prices visitors walked away from and an unchoosable photo booth, parks saved before 0.5.4 kept gaps in the paths under the bridges' decks that the decks hid, and quads that fought the decks, and parks started before converter 14 never showed Land of Invention's staff room and turned their placed security cameras into staff room buildings
+// TPW_PORT_FIX mods TpiSaveRepair | Mac: no such header; Theme Park World has no converted worlds | Port: which map and track cells of a park saved before converter 14 RepairTpiHiddenCells resets as land on loading in the mod's worlds (TPW_MOD_HOOK tpi_worlds), which shop controls and placed shops of a park saved before converter 15 RepairTpiShops repairs, which walkway cells of a park saved before converter 16 RepairTpiWalkways makes footbridge cells, which controls, research projects and placed objects of a park saved before converter 14 RepairTpiPlacedTypes and RepairTpiResearch repair, and which placed rides' scripts RepairTpiRideScripts starts | Why: tpw-mods tpi-worlds; parks saved with 0.5.1 kept Land of Invention's walkable bridges hidden, so no path could cross them, parks saved before 0.5.3 kept shop prices visitors walked away from and an unchoosable photo booth, parks saved before 0.5.4 kept gaps in the paths under the bridges' decks that the decks hid, and quads that fought the decks, parks started before converter 14 never showed Land of Invention's staff room and turned their placed security cameras into staff room buildings, and Golden Ticket rides placed before 0.5.2 kept waiting on SPECIAL, their parts hidden and no riders
 
 #include <cstdint>
+
+#include "TpiRideScript.h"
 
 namespace tpw {
 
@@ -149,6 +156,12 @@ constexpr uint16_t kTpiObjectKindFlags = 0x1 | 0x2 | 0x10 | 0x40 | 0x80;
 inline bool TpiPlacedObjectToRetype(bool moved, uint16_t savedFlags, uint16_t savedRecordFlags, uint16_t newRecordFlags) {
     const uint16_t kind = savedFlags & kTpiObjectKindFlags;
     return moved && kind == (newRecordFlags & kTpiObjectKindFlags) && kind != (savedRecordFlags & kTpiObjectKindFlags);
+}
+
+// Whether a placed ride's saved script gets SPECIAL on loading: its ride would start with SPECIAL set (the O group's flags
+// and the script's variable count, tpw::TpiRideScriptStartsSpecial) and the saved SPECIAL (`special`) is still 0.
+inline bool TpiRideScriptToStart(uint32_t oGroupFlags, int32_t varCount, int32_t special) {
+    return special == 0 && TpiRideScriptStartsSpecial(oGroupFlags, varCount);
 }
 
 }  // namespace tpw

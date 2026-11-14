@@ -1088,6 +1088,34 @@ void RepairTpiPlacedTypes() {
 }
 }  // namespace
 
+namespace {
+// TPW_PORT_FIX mods RepairTpiRideScripts | Mac: no such pass | Port: TPW_MOD_HOOK tpi_worlds (include/TpiSaveRepair.h): in one of the mod's worlds, each placed ride whose animation set has an O group and whose saved script has SPECIAL (variable 10) still 0 gets it set, as CObject::CreateRideScript sets it at placement | Why: see CSaveLoad::PostLoadOperations, below
+// Each ride's script was saved and read back whole (RSSE_Save, RSSE_Load), so this changes one variable and nothing the
+// engine holds; the script reads it on its next tick. The count and each ride's type go to the log.
+void RepairTpiRideScripts() {
+    if (!tpw::TpiWorldInPlay()) return;
+    int32_t started = 0;
+    for (CThingArrayEntry* entry = gUsedThingHead; entry != nullptr; entry = entry->mNextUsed) {
+        CThing* thing = static_cast<CThing*>(entry->mThing);
+        if (thing == nullptr || thing->mDead != 0 || thing->mKind != 3) continue;
+        CObject* object = reinterpret_cast<CObject*>(thing);
+        if (object->mF1C == 0 || object->mF1C >= kMaxRideInstances || gRideAnimSets[object->mF1C] == nullptr) continue;
+        RSSE_SCRIPT* script = RSSE_GetScriptPointer(static_cast<int32_t>(object->mF20));
+        if (script == nullptr || script->mVars.get() == nullptr) continue;
+        const uint32_t oGroupFlags = gRideAnimSets[object->mF1C]->mGroups[tpw::kRideAnimKindO].mFlags;
+        const int32_t special =
+            script->mVarCount > tpw::kRideScriptVarSpecial ? script->mVars.get()[tpw::kRideScriptVarSpecial] : 0;
+        if (!tpw::TpiRideScriptToStart(oGroupFlags, script->mVarCount, special)) continue;
+        RSSE_Setvar(script, tpw::kRideScriptVarSpecial, 1);
+        SamsUtilities::UDebug("port: tpi-worlds: ride %d (type %d) placed before SPECIAL was set at placement: started",
+                              static_cast<int>(thing->GetThingId().mIndex), static_cast<int>(object->mObjectType));
+        ++started;
+    }
+    if (started != 0)
+        SamsUtilities::UDebug("port: tpi-worlds: %d placed rides' scripts given SPECIAL", static_cast<int>(started));
+}
+}  // namespace
+
 // Rebuilds what the engine holds after a park is read. The particle system is low spec when the current detail is 0.
 void CSaveLoad::PostLoadOperations() {
     InitialiseWeather();
@@ -1105,6 +1133,8 @@ void CSaveLoad::PostLoadOperations() {
     RepairTpiShops();
     // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park's cells are as it saved them) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, the bridges' walkway cells a park saved as land, path or a hidden quad's mode become footbridge cells as in a new park (RepairTpiWalkways, include/TpiSaveRepair.h); anything built there is kept | Why: the mod's converter 16 makes the walkways footbridge cells like Lost Kingdom's (mode 0x1e), since the deck hides a path built under it and parks were left with gaps no guest crosses (the maintainer's Land of Invention park on 0.5.3), but a park keeps each saved cell's attribute byte and mode; off, or an original world, a park loads as it was saved
     RepairTpiWalkways();
+    // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park keeps each ride's script as it saved it) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, each placed ride whose animation set has an O group and whose saved script has SPECIAL still 0 gets it, as a ride placed now starts with it (RepairTpiRideScripts, include/TpiSaveRepair.h) | Why: the mod's 0.5.2 sets SPECIAL only when a ride is placed (CObject::CreateRideScript), and a park keeps each script with its variables, so Golden Ticket rides placed before it (the maintainer's Diving Bell Drop in Polar Zone) still looped their O animation: crane and bell hidden, no riders, the queue stuck; off, or an original world, a park loads as it was saved
+    RepairTpiRideScripts();
     gGameWorld->GetControlManager()->CheckAllControlsInitialised();
     // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park keeps the controls and research projects it saved) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, once every type has a control, each type with no research cost saved unavailable or named by a research project has its control made again from its record, available, each research project whose type now has no research cost goes to the type it was made for, the two types' counts in the park recounted, and each researchable type with neither a project nor availability gets one (RepairTpiResearch, include/TpiSaveRepair.h) | Why: the mod's converter 14 gave Land of Invention's staff room the security camera's id (7730) and the camera the next one, but a park keeps the controls and research projects made when it started, so parks started before it kept the staff room with the camera's unresearched control and price, out of every build list, and the camera with no project, and counted their cameras as staff rooms; off, or an original world, a park loads as it was saved
     RepairTpiResearch();

@@ -8,6 +8,7 @@
 - In the TPI Worlds and Rides mod's worlds, the land your park owns now fades gradually into the land it does not own, as it does along the river, instead of ending in a hard stepped line
 - Fixed the staff room missing from the build menu in the TPI Worlds and Rides mod's Land of Invention parks started with an earlier version, and the security cameras placed in them turning into staff rooms: both are put right when the park is loaded
 - Fixed a blue patch of water flickering on the grass under the boat of the TPI Worlds and Rides mod's The Great Lake ride
+- Fixed Golden Ticket rides built in the TPI Worlds and Rides mod's worlds before 0.5.2, such as the Diving Bell Drop in Polar Zone, keeping parts hidden and their guests stuck in the queue in parks saved with them: they now start running when the park is loaded
 
 ## 0.5.3 (2026-11-13)
 
