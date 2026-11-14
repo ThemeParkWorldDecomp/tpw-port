@@ -77,6 +77,20 @@ const int kSendFlags = 0;
 
 constexpr auto kConnectTimeout = std::chrono::seconds(kConnectSeconds);
 
+// SetNameLookup's stand-in, read by the connection's thread.
+std::mutex gLookupLock;
+NameLookup gLookup;
+
+// The stand-in's answer for `host`: why it was not found, or empty to look it up.
+std::string StandInFailure(const std::string& host) {
+    NameLookup lookup;
+    {
+        std::lock_guard<std::mutex> hold(gLookupLock);
+        lookup = gLookup;
+    }
+    return lookup ? lookup(host) : std::string();
+}
+
 void SetNonBlocking(Socket s) {
 #ifdef _WIN32
     u_long on = 1;
@@ -121,6 +135,11 @@ public:
         hints.ai_protocol = IPPROTO_TCP;
         addrinfo* found = nullptr;
         mFailure.clear();
+        const std::string standIn = StandInFailure(host);
+        if (!standIn.empty()) {
+            mFailure = "the name \"" + host + "\" was not found (" + standIn + ")";
+            return false;
+        }
         const int looked = getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &found);
         if (looked != 0 || found == nullptr) {
             mFailure = "the name \"" + host + "\" was not found (" + (looked != 0 ? gai_strerror(looked) : "no address") + ")";
@@ -209,5 +228,10 @@ private:
 }  // namespace
 
 std::unique_ptr<Transport> MakeSocketTransport() { return std::make_unique<SocketTransport>(); }
+
+void SetNameLookup(NameLookup lookup) {
+    std::lock_guard<std::mutex> hold(gLookupLock);
+    gLookup = std::move(lookup);
+}
 
 }  // namespace tpw::online::boss

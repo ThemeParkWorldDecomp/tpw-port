@@ -550,9 +550,17 @@ void TestUnreachable() {
 }
 
 // The sockets themselves: a closed port on this machine (refused) and a name that is never found, each answered (pumping as the
-// game does) well within the connection's timeout, with the cause in the log.
+// game does) well within the connection's timeout, with the cause in the log. The name is not found by a stand-in for the
+// resolver: a real lookup of tpw-test.invalid can wait longer than the timeout on a machine whose DNS does not answer (a
+// GitHub macos-15-intel runner, build 43377998556), and the 127.0.0.1 case still goes through the real lookup.
 void TestUnreachableSockets() {
     boss::SetTransportMaker(nullptr);
+    std::atomic<int> standIns{0};
+    boss::SetNameLookup([&standIns](const std::string& host) {
+        if (host != "tpw-test.invalid") return std::string();
+        ++standIns;
+        return std::string("the stand-in resolver");
+    });
     struct Case {
         const char* name;
         const char* server;
@@ -561,7 +569,8 @@ void TestUnreachableSockets() {
     };
     const Case cases[] = {{"closed port", "127.0.0.1", 1, "127.0.0.1:1 ended: the server could not be reached: "},
                           {"no such name", "tpw-test.invalid", 7598,
-                           "ended: the server could not be reached: the name \"tpw-test.invalid\" was not found"}};
+                           "ended: the server could not be reached: the name \"tpw-test.invalid\" was not found (the stand-in "
+                           "resolver)"}};
     for (const Case& c : cases) {
         boss::SetServer(c.server);
         gGot.clear();
@@ -580,6 +589,8 @@ void TestUnreachableSockets() {
         boss::Release(&gAuth);
         std::printf("online_boss: %s: %.3f s\n", c.name, seconds);
     }
+    Check(standIns == 1, "no such name: the stand-in was asked once");
+    boss::SetNameLookup(nullptr);
     boss::SetTransportMaker(MakeFake);
     boss::SetServer("127.0.0.1");
 }
