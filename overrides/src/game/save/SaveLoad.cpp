@@ -54,6 +54,7 @@
 #include "TPOptions.h"
 #include "TPSettings.h"
 #include "TPSound.h"
+#include "TpiBumperKind.h"
 #include "TpiGateFlow.h"
 #include "TpiSaveRepair.h"
 #include "UI_Base.h"
@@ -1116,6 +1117,27 @@ void RepairTpiRideScripts() {
 }
 }  // namespace
 
+namespace {
+// TPW_PORT_FIX mods RepairTpiBumperIds | Mac: no such pass | Port: TPW_MOD_HOOK tpi_worlds (include/TpiBumperKind.h): in one of the mod's worlds, each placed ride whose saved bumper ride id (mTrackRideHandle) has a kind outside Theme Park World's -1 to -14 gets the id BMP_Load rebuilt its ride under (tpw::TpiBumperLoadId) | Why: see CSaveLoad::PostLoadOperations, below
+// BMP_Load already read the ride's chunks under the new id (ReadRideId, src/game/rides/BumperRide.cpp); this is the
+// other place the id is kept, which the ride's script commands (BMP_LAUNCH and the rest, rsse.cpp) and the camera pass on.
+void RepairTpiBumperIds() {
+    if (!tpw::TpiWorldInPlay()) return;
+    for (CThingArrayEntry* entry = gUsedThingHead; entry != nullptr; entry = entry->mNextUsed) {
+        CThing* thing = static_cast<CThing*>(entry->mThing);
+        if (thing == nullptr || thing->mDead != 0 || thing->mKind != 3) continue;
+        CObject* object = reinterpret_cast<CObject*>(thing);
+        const uint32_t id = static_cast<uint32_t>(object->mF24);
+        const uint32_t repaired = tpw::TpiBumperLoadId(id);
+        if (repaired == id) continue;
+        object->mF24 = static_cast<int32_t>(repaired);
+        SamsUtilities::UDebug("port: tpi-worlds: ride %d (type %d) built from past the bumper ride templates: id %08x loaded as %08x",
+                              static_cast<int>(thing->GetThingId().mIndex), static_cast<int>(object->mObjectType),
+                              static_cast<unsigned>(id), static_cast<unsigned>(repaired));
+    }
+}
+}  // namespace
+
 // Rebuilds what the engine holds after a park is read. The particle system is low spec when the current detail is 0.
 void CSaveLoad::PostLoadOperations() {
     InitialiseWeather();
@@ -1135,6 +1157,8 @@ void CSaveLoad::PostLoadOperations() {
     RepairTpiWalkways();
     // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park keeps each ride's script as it saved it) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, each placed ride whose animation set has an O group and whose saved script has SPECIAL still 0 gets it, as a ride placed now starts with it (RepairTpiRideScripts, include/TpiSaveRepair.h) | Why: the mod's 0.5.2 sets SPECIAL only when a ride is placed (CObject::CreateRideScript), and a park keeps each script with its variables, so Golden Ticket rides placed before it (the maintainer's Diving Bell Drop in Polar Zone) still looped their O animation: crane and bell hidden, no riders, the queue stuck; off, or an original world, a park loads as it was saved
     RepairTpiRideScripts();
+    // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a ride's object keeps the bumper ride id it saved) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, each placed ride whose saved bumper ride id has a kind outside Theme Park World's -1 to -14 gets the id BMP_Load rebuilt the ride under, the stand-in's kind -6 with its index (RepairTpiBumperIds, include/TpiBumperKind.h) | Why: before 0.5.2 the mod's The Scorpions was built from the 208 bytes past gRideTemplates and kept that word as its kind, so parks saved with it rebuilt the ride from far outside the table on loading; BMP_Load now rebuilds it as the bumper cars it is built as since 0.5.2, and its object must name it by the same id; off, or an original world, a park loads as it was saved
+    RepairTpiBumperIds();
     gGameWorld->GetControlManager()->CheckAllControlsInitialised();
     // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park keeps the controls and research projects it saved) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, once every type has a control, each type with no research cost saved unavailable or named by a research project has its control made again from its record, available, each research project whose type now has no research cost goes to the type it was made for, the two types' counts in the park recounted, and each researchable type with neither a project nor availability gets one (RepairTpiResearch, include/TpiSaveRepair.h) | Why: the mod's converter 14 gave Land of Invention's staff room the security camera's id (7730) and the camera the next one, but a park keeps the controls and research projects made when it started, so parks started before it kept the staff room with the camera's unresearched control and price, out of every build list, and the camera with no project, and counted their cameras as staff rooms; off, or an original world, a park loads as it was saved
     RepairTpiResearch();

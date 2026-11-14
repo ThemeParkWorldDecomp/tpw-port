@@ -38,6 +38,8 @@
 #include "TPEmbed.h"
 #include "TPEngine.h"
 #include "TPSound.h"
+#include "TpiBumperKind.h"
+#include "TpiGateFlow.h"
 #include "ui_main.h"
 #include "World.h"
 #include <cmath>
@@ -424,6 +426,14 @@ uint32_t ReadWord(tabBMPCHUNK* chunk) {
     return word;
 }
 
+// The word a chunk starts with (and a bump's target): a ride's id.
+uint32_t ReadRideId(tabBMPCHUNK* chunk) {
+    uint32_t id = ReadWord(chunk);
+    // TPW_PORT_FIX mods BMP_Load | Mac: each chunk's ride is the one its saved id names, rebuilt (tag 3) from the kind in that id | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiBumperKind.h): in the mod's worlds an id whose kind is outside Theme Park World's -1 to -14 is read as the stand-in's kind, -6, with its index (tpw::TpiBumperLoadId), so the ride is rebuilt as the bumper cars it is built as now and every chunk of it still finds it; CSaveLoad::PostLoadOperations gives the ride's object the same id; off, an original world, or a kind in range, the Mac's | Why: tpw-mods tpi-worlds; before 0.5.2 The Scorpions was built from the 208 bytes past gRideTemplates, so parks saved with it keep an id whose kind is the word past the table, and rebuilding the ride from that kind read far outside the table
+    if (tpw::TpiWorldInPlay()) id = tpw::TpiBumperLoadId(id);
+    return id;
+}
+
 // The inlined pair read: the answer is not looked at. (On a failed read the Mac's pair is what its stack held; here it is 0.)
 void ReadPair(tabBMPCHUNK* chunk, uint32_t pair[2]) {
     pair[0] = 0;
@@ -450,7 +460,7 @@ RideInfo* Info(const uint8_t* ride) {
 
 // Tag 3: the ride record.
 void LoadRide(tabBMPCHUNK* chunk) {
-    uint32_t id = ReadWord(chunk);
+    uint32_t id = ReadRideId(chunk);
     uint32_t position[2];
     ReadPair(chunk, position);
     uint32_t rotation = ReadWord(chunk);
@@ -470,7 +480,7 @@ void LoadRide(tabBMPCHUNK* chunk) {
 
 // Tag 6: the ride's buoy sequence, for the kinds that have buoys.
 void LoadBuoys(tabBMPCHUNK* chunk) {
-    uint32_t id = ReadWord(chunk);
+    uint32_t id = ReadRideId(chunk);
     uint8_t* ride = RideFromId(id);
     if (id != RideId(ride)) return;
     switch (static_cast<int32_t>(Word(ride, 0))) {
@@ -485,7 +495,7 @@ void LoadBuoys(tabBMPCHUNK* chunk) {
 
 // Tag 5: a bump of the ride.
 void LoadBump(tabBMPCHUNK* chunk) {
-    uint32_t id = ReadWord(chunk);
+    uint32_t id = ReadRideId(chunk);
     uint8_t* ride = RideFromId(id);
     if (id != RideId(ride)) return;
     tagBUMP* bump = BMP_StartBump(0, 0, 0);
@@ -513,7 +523,7 @@ void LoadBump(tabBMPCHUNK* chunk) {
         SetWord(bump, 0xc, RestoreRideInstance(Word(bump, 0xc), Info(ride)->mSubRideTypes[0], 0x101, nullptr, 0, nullptr, 0, 0, 0));
     if ((bump->flags & 0x00400000) != 0) SetPointer(ride, 0x58, bump);
 
-    uint32_t target = ReadWord(chunk);
+    uint32_t target = ReadRideId(chunk);
     if (target != 0) {
         uint8_t* targetRide = RideFromId(target);
         uint32_t bx = ReadWord(chunk);
@@ -530,7 +540,7 @@ void LoadBump(tabBMPCHUNK* chunk) {
 
 // Tag 9: a node of the ride's bump's list, taken from the world's free list (which is not tested for NULL).
 void LoadLink(tabBMPCHUNK* chunk) {
-    uint32_t id = ReadWord(chunk);
+    uint32_t id = ReadRideId(chunk);
     uint8_t* ride = RideFromId(id);
     if (id != RideId(ride)) return;
     tagBUMPSAVEWORLD* world = World();
@@ -549,7 +559,7 @@ void LoadLink(tabBMPCHUNK* chunk) {
 
 // Tag 4: a track section.
 void LoadTrack(tabBMPCHUNK* chunk) {
-    uint32_t id = ReadWord(chunk);
+    uint32_t id = ReadRideId(chunk);
     uint32_t type = ReadWord(chunk);
     uint32_t position[2];
     ReadPair(chunk, position);
@@ -584,12 +594,12 @@ int32_t BMP_Load(void* file) {
                 LoadBuoys(chunk);
                 break;
             case 7: {
-                uint32_t id = ReadWord(chunk);
+                uint32_t id = ReadRideId(chunk);
                 BMP_AddPeepToRideLeavingList(static_cast<int32_t>(id), ReadWord(chunk));
                 break;
             }
             case 8: {
-                uint32_t id = ReadWord(chunk);
+                uint32_t id = ReadRideId(chunk);
                 BMP_AddPeepToRideJoiningList(static_cast<int32_t>(id), ReadWord(chunk));
                 break;
             }

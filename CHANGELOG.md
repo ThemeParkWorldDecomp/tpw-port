@@ -2,6 +2,10 @@
 
 ## 0.5.5 (not released yet)
 
+### Bug Fixes
+
+- Fixed parks in the TPI Worlds and Rides mod's Arabian Nights saved with The Scorpions before 0.5.2 crashing as they load: the ride is now loaded as the bumper cars it is built as since 0.5.2
+
 ## 0.5.4 (2026-11-14)
 
 ### Bug Fixes

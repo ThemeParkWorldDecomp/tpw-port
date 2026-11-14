@@ -614,6 +614,11 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     add_executable(tpw_host_tpi_bumper_kind ${TPW_DECOMP_DIR}/tests/host_tpi_bumper_kind.cpp)
     target_include_directories(tpw_host_tpi_bumper_kind PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_bumper_kind COMMAND tpw_host_tpi_bumper_kind)
+    # Its load of a park saved with The Scorpions before 0.5.2 (TpiBumperLoadId, BMP_Load and PostLoadOperations): the ids
+    # such a park keeps load as the stand-in's, Theme Park World's as saved.
+    add_executable(tpw_host_tpi_bumper_load ${TPW_DECOMP_DIR}/tests/host_tpi_bumper_load.cpp)
+    target_include_directories(tpw_host_tpi_bumper_load PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_bumper_load COMMAND tpw_host_tpi_bumper_load)
     # Its ride camera node (include/TpiRideCamera.h): a mesh with no camera node rides at its first rider's head.
     add_executable(tpw_host_tpi_ride_camera ${TPW_DECOMP_DIR}/tests/host_tpi_ride_camera.cpp)
     target_include_directories(tpw_host_tpi_ride_camera PRIVATE ${TPW_INCLUDE_DIR})
