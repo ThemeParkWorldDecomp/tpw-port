@@ -27,11 +27,23 @@
 // keeps the object flags its record gave it then (CObject::mFlags, saved): without flag 4 (Info.IsChoosable) no visitor
 // chooses it, and the state it was built in (kStateThree, which ModelState skips); a placed shop whose record now says
 // Info.IsChoosable gets flag 4, and state 3 becomes the normal state a new booth gets.
+// And the same mod's repair of the research of parks saved before converter 14: converter 14 added Land of Invention's
+// staff room (features/nstaff) in the id its security camera had (7730), moving the camera to the next one (7740). A
+// park keeps each type's control (mAvailable, made from the record when the type is first seen) and the research
+// projects its lab made when it started (CResearchLab::SetupProjects, new parks only), so in a park started before it
+// the staff room keeps the camera's control (unresearched, mAvailable 0, so no build list shows it, and the camera's
+// price, CostOfUpgrade) and the camera's project, while the camera's new id has no project and can never be researched.
+// On loading, the control of a type whose record has no research cost, saved unavailable or named by a stale project
+// (both mean it was made from another record; a statistics upgrade, upgrade level 1 or more, is not stale), is made again from its record as CheckAllControlsInitialised makes it,
+// available as SetupProject makes it in a new park, keeping the park's count and first build turn; a project (not a
+// statistics upgrade) whose type's record now has no research cost goes to the type it was made for (of its category,
+// with its score as research cost and no project of its own), keeping its progress, and a finished one makes that type
+// available; and each type with a research cost, no project and no availability gets a new one.
 // Header only and pure, so the host test sees the rule the game uses (src/game/save/SaveLoad.cpp).
 #pragma once
 
 
-// TPW_PORT_FIX mods TpiSaveRepair | Mac: no such header; Theme Park World has no converted worlds | Port: which map and track cells of a park saved before converter 14 RepairTpiHiddenCells resets as land on loading in the mod's worlds (TPW_MOD_HOOK tpi_worlds), which shop controls and placed shops of a park saved before converter 15 RepairTpiShops repairs, and which walkway cells of a park saved before converter 16 RepairTpiWalkways makes footbridge cells | Why: tpw-mods tpi-worlds; parks saved with 0.5.1 kept Land of Invention's walkable bridges hidden, so no path could cross them, parks saved before 0.5.3 kept shop prices visitors walked away from and an unchoosable photo booth, and parks saved before 0.5.4 kept gaps in the paths under the bridges' decks that the decks hid, and quads that fought the decks
+// TPW_PORT_FIX mods TpiSaveRepair | Mac: no such header; Theme Park World has no converted worlds | Port: which map and track cells of a park saved before converter 14 RepairTpiHiddenCells resets as land on loading in the mod's worlds (TPW_MOD_HOOK tpi_worlds), which shop controls and placed shops of a park saved before converter 15 RepairTpiShops repairs, which walkway cells of a park saved before converter 16 RepairTpiWalkways makes footbridge cells, and which controls and research projects of a park saved before converter 14 RepairTpiResearch repairs | Why: tpw-mods tpi-worlds; parks saved with 0.5.1 kept Land of Invention's walkable bridges hidden, so no path could cross them, parks saved before 0.5.3 kept shop prices visitors walked away from and an unchoosable photo booth, parks saved before 0.5.4 kept gaps in the paths under the bridges' decks that the decks hid, and quads that fought the decks, and parks started before converter 14 never showed Land of Invention's staff room
 
 #include <cstdint>
 
@@ -87,6 +99,39 @@ inline bool TpiShopToMakeChoosable(uint16_t flags, int32_t recordChoosable, int3
 // The state such a shop gets: kStateThree (3, given at building to an object no visitor chooses) becomes kStateNormal
 // (0), what CObject's constructor gives a choosable one; any other state (broken down, condemned) is kept.
 inline int32_t TpiRepairedShopState(int32_t state) { return state == 3 ? 0 : state; }
+
+// Whether a type's control (`available`, its saved mAvailable) is made again from its record on loading: its record's
+// research cost (`cost`, Upgrades[0].CostOfResearch) is 0, which SetupProject makes available at once, and it is saved
+// unavailable or a stale project names it (`staleProject`).
+inline bool TpiFreeTypeControlToRemake(int32_t cost, int32_t available, bool staleProject) {
+    return cost == 0 && (available == 0 || staleProject);
+}
+
+// Whether a saved research project (its upgrade level) is stale: not a statistics upgrade (SetupStatUpgrade gives one a
+// level of 1 or more, SetupProject gives 0; both can have category 4), and its type's record (`recordCost`, the research
+// cost) now has no research cost, so SetupProject would not have made it.
+inline bool TpiStaleResearchProject(int32_t upgradeLevel, int32_t recordCost) { return upgradeLevel == 0 && recordCost == 0; }
+
+// A type a research project could be made for (SetupProjects' rule: loaded, UI type below 4, a research cost): its id,
+// research cost and category, and whether the lab has a project (not a statistics upgrade: upgrade level 0) for it.
+struct TpiResearchType {
+    uint16_t id;
+    int32_t cost;
+    int32_t category;
+    bool hasProject;
+};
+
+// The index in `types` of the type a stale project (its category and score) was made for: the first of its category
+// whose research cost is the score and that has no project; -1 for none.
+inline int32_t TpiStaleProjectOwner(const TpiResearchType* types, int32_t count, int32_t category, float score) {
+    for (int32_t i = 0; i < count; ++i)
+        if (!types[i].hasProject && types[i].category == category && static_cast<float>(types[i].cost) == score) return i;
+    return -1;
+}
+
+// Whether a type with a research cost (`hasProject`, its control's `available`) gets a new project: it has none and is
+// not available, so nothing could ever make it available.
+inline bool TpiResearchTypeToAdd(bool hasProject, int32_t available) { return !hasProject && available == 0; }
 
 }  // namespace tpw
 
