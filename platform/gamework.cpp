@@ -196,6 +196,11 @@ bool OutsideWindow(SDL_WindowID id, float x, float y) {
     if (window == nullptr || !SDL_GetWindowSize(window, &wide, &high)) return false;
     return x < 0.0f || y < 0.0f || x >= static_cast<float>(wide) || y >= static_cast<float>(high);
 }
+
+// focuspointer: the last pointer move the run loop had (window coordinates), also while the game was inactive.
+bool gLastMoveKnown = false;
+float gLastMoveX = 0.0f;
+float gLastMoveY = 0.0f;
 #endif
 
 bool MouseButtonFromSDL(uint8_t sdlButton, MouseButton& button) {
@@ -303,6 +308,9 @@ void UGamework::Run() {
                 HandleMouseMoved(event);
 #ifdef TPW_PORT_FIX
                 if (!OutsideWindow(sdl.motion.windowID, sdl.motion.x, sdl.motion.y)) gPointerOutside = false;   // pointerleave
+                gLastMoveKnown = true;   // focuspointer
+                gLastMoveX = sdl.motion.x;
+                gLastMoveY = sdl.motion.y;
 #endif
                 break;
             }
@@ -380,6 +388,10 @@ void UGamework::Run() {
                 break;
             case SDL_EVENT_WINDOW_FOCUS_GAINED:
                 HandleActivateWindow(tpw::MainWindow(), true);
+#ifdef TPW_PORT_FIX
+                // TPW_PORT_FIX focuspointer UGamework::Run | Mac: (the game filled the screen, and while another program was in front the pointer was that program's) | Port: when the window gets the focus back, the game is told again of the pointer's last move, unless the pointer left the window since (gPointerOutside) or a scripted pointer has its place | Why: the game's UI drops the pointer's moves while the game is inactive (UI_DevicePointerMove), and SDL reports no move to where the pointer already is; moved away from a window edge while another window had the focus, the pointer stayed at that edge for the game after it came back, and once unpaused the camera scrolled toward that edge until the mouse moved (reported by slappyhead)
+                if (gLastMoveKnown && !gPointerOutside && !gScripted.active) HandleMouseMoved(MakeEvent(gLastMoveX, gLastMoveY));
+#endif
                 break;
             case SDL_EVENT_WINDOW_FOCUS_LOST:
                 HandleActivateWindow(tpw::MainWindow(), false);
