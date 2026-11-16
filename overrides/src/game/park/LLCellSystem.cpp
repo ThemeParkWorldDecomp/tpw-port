@@ -1075,13 +1075,56 @@ struct SideTally {
     int32_t mOther;
 };
 
+// TPW_MOD_HOOK land_rough_edges: the land's outer walls, the freeform cells joined to the edge of the map through freeform cells
+// side by side (the cliffs and mountains round every park, and the rock behind its gate), found afresh for each check. A freeform
+// cell not joined to the edge (a rock, a river's or a lake's banks, a ridge) is inside the land.
+uint8_t gLandWall[0x80 * 0x80];
+
+bool LandFreeform(int32_t x, int32_t y) {
+    return x >= 0 && y >= 0 && x < 0x80 && y < 0x80 && x < gLLCCWidth && y < gLLCCHeight && CMap::IsXYValid(x, y) != 0 &&
+           MapCellOfId(CellId(x, y))->IsFreeform() != 0;
+}
+
+void LandFindWalls() {
+    static int32_t queue[0x80 * 0x80];
+    int32_t head = 0;
+    int32_t tail = 0;
+    std::memset(gLandWall, 0, sizeof gLandWall);
+    for (int32_t y = 0; y < gLLCCHeight && y < 0x80; ++y) {
+        for (int32_t x = 0; x < gLLCCWidth && x < 0x80; ++x) {
+            if ((x == 0 || y == 0 || x == gLLCCWidth - 1 || y == gLLCCHeight - 1) && LandFreeform(x, y)) {
+                gLandWall[y * 0x80 + x] = 1;
+                queue[tail++] = y * 0x80 + x;
+            }
+        }
+    }
+    while (head < tail) {
+        const int32_t x = queue[head] & 0x7f;
+        const int32_t y = queue[head] >> 7;
+        ++head;
+        const int32_t nextX[4] = {x + 1, x - 1, x, x};
+        const int32_t nextY[4] = {y, y, y + 1, y - 1};
+        for (int32_t k = 0; k < 4; ++k) {
+            if (!LandFreeform(nextX[k], nextY[k]) || gLandWall[nextY[k] * 0x80 + nextX[k]] != 0) continue;
+            gLandWall[nextY[k] * 0x80 + nextX[k]] = 1;
+            queue[tail++] = nextY[k] * 0x80 + nextX[k];
+        }
+    }
+}
+
+bool LandWall(const CTrackCell* cell) {
+    const uint32_t id = static_cast<uint32_t>(cell->mCellId) - 1u;
+    return gLandWall[(id >> 7) * 0x80 + (id & 0x7f)] != 0;
+}
+
 // One cell on a side of the rectangle. Two freeform dry cells in a row make the edit illegal (`bad`); the mark says whether the cell lies inside the
 // park (no flag 0x40) or is hoarding; `atEnd` is a cell at either end of the side (a corner when it is hoarding); `straightBytes` is 0x11 on a row
 // and 0x44 on a column.
 void TallySideCell(CTrackCell* cell, Side side, SideTally* tally, bool atEnd, uint8_t straightBytes, int32_t* corners, bool* bad) {
     CMapCell* map = cell->GetMapCellEquiv();
     // TPW_PORT_FIX mods LLCC_IsHoardingEditLegal (TallySideCell) | Mac: two freeform dry cells in a row along a side make the edit illegal | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGateFlow.h): in one of the mod's worlds a freeform cell does not count towards the run, so a side may cross the hidden quads of a dry riverbed or a canyon under an obstacle; the other checks (the size, the corners, the hoarding, the fill, the cost) are the Mac's; off, or an original world, the Mac's | Why: tpw-mods tpi-worlds; Theme Park Inc's own fences (Hoardings.sam, EndHoardings.sam) run along and across its canyons, so the land past its bridges could not be bought otherwise
-    const bool freeformCounts = !tpw::TpiWorldInPlay();
+    // TPW_PORT_FIX mods LLCC_IsHoardingEditLegal (TallySideCell) | Mac: two freeform dry cells in a row along a side make the edit illegal | Port: TPW_MOD_HOOK land_rough_edges (gModLandRoughEdges): in any world only a freeform cell of the land's outer walls (LandFindWalls: joined to the edge of the map) counts towards the run, so a side may cross a river's or a lake's banks or a rock inside the land, but not into the cliffs round the park; the fence crosses them with the pieces the Mac already gives a hoarding cell on water or a freeform cell (CTrackCell::Modify, mode 0x85) | Why: tpw-mods better-land-buying; the land beyond a river or around a rock could not be bought, and gaps were left that never could be
+    const bool freeformCounts = !tpw::TpiWorldInPlay() && (!gModLandRoughEdges || LandWall(cell));
     if (!freeformCounts || map->IsFreeform() == 0 || map->IsWater() != 0) {
         tally->mRun = 0;
     } else {
@@ -1108,6 +1151,128 @@ void TallySideCell(CTrackCell* cell, Side side, SideTally* tally, bool atEnd, ui
 }
 
 }  // namespace
+
+// TPW_MOD_HOOK land_unbought (gModLandUnbought, include/ThingReceivers.h): a purchase changes the owner of the land inside its own
+// fence line only. LLCC_FillInsideOfPark makes everything inside the outer fence the park's and deletes every fence piece off the
+// outer walk, so LLCC_ReviseHoarding brackets it: tpw::land::UnboughtBefore notes which cells the park does not own and the cells
+// the purchase takes (lowX + 1 to highX, lowY + 1 to highY, inside its new fence line); the fill keeps the fence pieces that bound
+// land staying unowned (tpw::land::UnboughtPrepare decides them before any piece is deleted, tpw::land::UnboughtKeepsFence answers
+// the fill); tpw::land::UnboughtAfter gives those cells back the flag 0x40 and takes off the fence links to pieces that are gone
+// (or that do not link back), re-tiling the pieces it changes. Nothing is armed outside a purchase (LLCC_DrawInitialHoarding's
+// fill is the Mac's), nor with the hook off.
+namespace {
+
+constexpr int32_t kLandSide = 0x80;   // the cell grid's side (ids are 1 + x + (y << 7))
+uint8_t gLandUnowned[kLandSide * kLandSide];   // the cells the park did not own before the purchase
+uint8_t gLandKeptPiece[kLandSide * kLandSide];   // the fence pieces (by their parent cell) the fill keeps
+bool gLandArmed = false;
+int32_t gLandLoX, gLandLoY, gLandHiX, gLandHiY;   // the cells the purchase takes
+
+bool LandOnGrid(int32_t x, int32_t y) { return x >= 0 && y >= 0 && x < kLandSide && y < kLandSide && x < gLLCCWidth && y < gLLCCHeight; }
+
+// A cell that stays unowned: the park did not own it before, and the purchase does not take it.
+bool LandStaysUnowned(int32_t x, int32_t y) {
+    if (!LandOnGrid(x, y) || gLandUnowned[y * kLandSide + x] == 0) return false;
+    return !(x >= gLandLoX && x <= gLandHiX && y >= gLandLoY && y <= gLandHiY);
+}
+
+// The fence links a piece has (its hoarding mask: gLLCC4818 is set while the hoarding is revised).
+constexpr uint8_t kLandLinks[4] = {1, 4, 0x10, 0x40};
+
+}  // namespace
+
+namespace tpw::land {
+
+void UnboughtBefore(int32_t lowX, int32_t lowY, int32_t highX, int32_t highY) {
+    gLandArmed = true;
+    gLandLoX = lowX + 1;
+    gLandLoY = lowY + 1;
+    gLandHiX = highX;
+    gLandHiY = highY;
+    for (int32_t y = 0; y < kLandSide; ++y)
+        for (int32_t x = 0; x < kLandSide; ++x)
+            gLandUnowned[y * kLandSide + x] =
+                LandOnGrid(x, y) && CMap::IsXYValid(x, y) != 0 && MapCellOfId(CellId(x, y))->IsFlag(0x40) != 0 ? 1 : 0;
+}
+
+// The pieces the fill keeps: each whose 2 x 2 block holds a cell that stays unowned, then, until no more join, each corner post
+// both of whose linked pieces are kept (a corner of the unowned land's outline can lie wholly on the park's side).
+void UnboughtPrepare() {
+    std::memset(gLandKeptPiece, 0, sizeof gLandKeptPiece);
+    if (!gLandArmed) return;
+    for (int32_t y = 0; y < kLandSide; ++y) {
+        for (int32_t x = 0; x < kLandSide; ++x) {
+            if (!LandOnGrid(x, y) || TrackCellOfId(CellId(x, y))->mType != 0x19) continue;
+            if (LandStaysUnowned(x, y) || LandStaysUnowned(x + 1, y) || LandStaysUnowned(x, y + 1) || LandStaysUnowned(x + 1, y + 1))
+                gLandKeptPiece[y * kLandSide + x] = 1;
+        }
+    }
+    for (bool joined = true; joined;) {
+        joined = false;
+        for (int32_t y = 0; y < kLandSide; ++y) {
+            for (int32_t x = 0; x < kLandSide; ++x) {
+                if (!LandOnGrid(x, y) || gLandKeptPiece[y * kLandSide + x] != 0) continue;
+                CTrackCell* piece = TrackCellOfId(CellId(x, y));
+                if (piece->mType != 0x19 || piece->IsCorner() == 0) continue;
+                int32_t kept = 0;
+                for (uint8_t link : kLandLinks) {
+                    if ((piece->GetNeighbours() & link) == 0) continue;
+                    CTrackCell* next = piece->GetNeighbouringCell(link, 2);
+                    if (next == nullptr) continue;
+                    const uint32_t id = static_cast<uint32_t>(next->mCellId) - 1u;
+                    if (gLandKeptPiece[(id >> 7) * kLandSide + (id & 0x7f)] != 0) ++kept;
+                }
+                if (kept == 2) {
+                    gLandKeptPiece[y * kLandSide + x] = 1;
+                    joined = true;
+                }
+            }
+        }
+    }
+}
+
+bool UnboughtKeepsFence(const CTrackCell* piece) {
+    if (!gLandArmed) return false;
+    const uint32_t id = static_cast<uint32_t>(piece->mCellId) - 1u;
+    return gLandKeptPiece[(id >> 7) * kLandSide + (id & 0x7f)] != 0;
+}
+
+void UnboughtAfter() {
+    if (!gLandArmed) return;
+    for (int32_t y = 0; y < kLandSide; ++y) {
+        for (int32_t x = 0; x < kLandSide; ++x) {
+            if (!LandStaysUnowned(x, y)) continue;
+            CMapCell* cell = MapCellOfId(CellId(x, y));
+            if (cell->IsFlag(0x40) != 0) continue;
+            cell->SetFlag(static_cast<uint16_t>(cell->GetFlag() | 0x40));
+            cell->SetHFieldTile();
+        }
+    }
+    gLandArmed = false;
+    const uint8_t flag = gLLCC4818;
+    gLLCC4818 = 1;
+    for (int32_t y = 0; y < kLandSide; ++y) {
+        for (int32_t x = 0; x < kLandSide; ++x) {
+            if (!LandOnGrid(x, y)) continue;
+            if ((x == gHoardingRight && y == gHoardingBottom) || (x == gHoardingLeft && y == gHoardingTop)) continue;   // the gate's posts
+            CTrackCell* piece = TrackCellOfId(CellId(x, y));
+            if (piece->mType != 0x19) continue;
+            bool changed = false;
+            for (uint8_t link : kLandLinks) {
+                if ((piece->GetNeighbours() & link) == 0) continue;
+                CTrackCell* next = piece->GetNeighbouringCell(link, 2);
+                if (next == nullptr || next->mType != 0x19 || (next->GetNeighbours() & OPPOSITE(link)) == 0) {
+                    piece->RemoveNeighbour(link);
+                    changed = true;
+                }
+            }
+            if (changed) piece->SetHFieldTile();
+        }
+    }
+    gLLCC4818 = flag;
+}
+
+}  // namespace tpw::land
 
 // 0x10093b0c, 2,836 bytes. Walks the locked hoarding as LLCC_LockHoarding does (from (right, bottom), heading 4, two cells a step; the stop and
 // the corner turn are the same) and at every hoarding cell on the walk scans across the park to the next locked cell: every unlocked cell the scan
@@ -1143,11 +1308,14 @@ void LLCC_FillInsideOfPark() {
         if (!stop) Move(direction, &x, &y);
         ++steps;
     } while (!stop);
+    // TPW_PORT_FIX mods LLCC_FillInsideOfPark | Mac: every hoarding cell that is not locked is deleted | Port: TPW_MOD_HOOK land_unbought (gModLandUnbought): during a purchase, the pieces that bound land staying unowned are kept (tpw::land::UnboughtKeepsFence, decided by tpw::land::UnboughtPrepare before any is deleted); outside a purchase, or with the hook off, the Mac's | Why: tpw-mods better-land-buying; the land a purchase closes in keeps its fence until it is bought
+    tpw::land::UnboughtPrepare();
     for (int32_t row = 0; row < gLLCCHeight - 1; ++row) {
         for (int32_t column = 0; column < gLLCCWidth - 1; ++column) {
             CTrackCell* cell = TrackCellOfId(CellId(column, row));
             if (cell->IsTrackX() != 0) cell = TrackCellOfId(cell->mParentID);
             if (cell->IsHoarding() != 0 && cell->IsFlag(0x20) == 0) {
+                if (tpw::land::UnboughtKeepsFence(cell)) continue;
                 CMapCell* map = cell->GetMapCellEquiv();
                 const Square square = SquareAt(map);
                 if (map->mType == 0x15) {
@@ -1161,6 +1329,36 @@ void LLCC_FillInsideOfPark() {
         }
     }
 }
+
+namespace {
+
+// TPW_MOD_HOOK land_unbought: whether LLCC_SoIsItLegal's fill left closed in the land in front of the gate, the cells between the
+// gate's posts (gHoardingLeft, gHoardingRight) in the row before gHoardingBottom. The fence walk starts and ends at the posts, the
+// park on its right, so that row is outside the gate. A cell is looked up in the new image through its 2 x 2 block, the image's
+// unit: a block starts at a column of the posts' parity and a row of gHoardingBottom's.
+// TPW_MOD_HOOK land_thin_strips: whether a fence piece at (x, y), on its 2 x 2 block, would stand on or beside the land in front
+// of the gate: the columns from the one after the left post (gHoardingLeft) to the right post's (gHoardingRight), in the rows
+// before the gate's (gHoardingBottom). In every park that land is the road up to the gate between two strips of rock, and the
+// land beside it on the left is half a fence square wide, so a piece there would stand half on the road against the gate.
+bool BesideGate(int32_t x, int32_t y) {
+    return x + 1 > gHoardingLeft && x <= gHoardingRight && y < gHoardingBottom;
+}
+
+bool GateClosedIn() {
+    const uint8_t* image = NewImage();
+    const int32_t y = gHoardingBottom - 1;
+    const int32_t row = (((y & 1) == (gHoardingBottom & 1) ? y : y - 1) >> 1) + 1;
+    for (int32_t x = gHoardingLeft + 1; x < gHoardingRight; ++x) {
+        if (CMap::IsXYValid(x, y) == 0) continue;
+        const int32_t column = (((x & 1) == (gHoardingRight & 1) ? x : x - 1) >> 1) + 1;
+        if (column < 1 || column > 0x40 || row < 1 || row > 0x40) continue;
+        const uint8_t value = image[column * kImageSide + row];
+        if (value == ' ' || value == '@') return true;
+    }
+    return false;
+}
+
+}  // namespace
 
 // 0x1009464c, 3,488 bytes. Whether the rectangle from (x1, y1) to (x2, y2) (corners in any order) may become the park's hoarding: 1, or 0 for a
 // corner outside the level, a rectangle two cells wide or less, an edge loop that visits (right, bottom) or (left, top) of the hoarding's extents on
@@ -1188,7 +1386,17 @@ int32_t LLCC_IsHoardingEditLegal(int32_t x1, int32_t y1, int32_t x2, int32_t y2,
     gLLCC47CC = 0;
     if (!CMap::IsXYValid(lox, loy)) return 0;
     if (!CMap::IsXYValid(hix, hiy)) return 0;
-    if (hix - lox <= 2 || hiy - loy <= 2) return 0;
+    // TPW_PORT_FIX mods LLCC_IsHoardingEditLegal | Mac: a rectangle two cells wide or less is refused | Port: TPW_MOD_HOOK land_thin_strips (gModLandThinStrips): one fence square (two cells) is enough | Why: tpw-mods better-land-buying; a strip of land one square wide left between two purchases could only be bought with land around it
+    const int32_t narrowest = gModLandThinStrips ? 1 : 2;
+    if (hix - lox <= narrowest || hiy - loy <= narrowest) return 0;
+    if (gModLandRoughEdges) LandFindWalls();   // TPW_MOD_HOOK land_rough_edges: the walls the side tally keeps the Mac's rule for
+    // TPW_PORT_FIX mods LLCC_IsHoardingEditLegal | Mac: a side may run beside the land in front of the gate, its pieces half on the road | Port: TPW_MOD_HOOK land_thin_strips (gModLandThinStrips): a rectangle with a side cell on or beside that land (BesideGate) is refused, whatever its width | Why: tpw-mods better-land-buying; with strips one square wide allowed, the half square beside the gate's road became easy to buy, and its fence stood against the gate
+    if (gModLandThinStrips) {
+        for (int32_t x = lox; x <= hix; x += 2)
+            if (BesideGate(x, loy) || BesideGate(x, hiy)) return 0;
+        for (int32_t y = loy; y <= hiy; y += 2)
+            if (BesideGate(lox, y) || BesideGate(hix, y)) return 0;
+    }
     SideTally sides[4] = {};
     int32_t corners = 0;
     // The cell of the first corner is asked for its flag; the answer is not used.
@@ -1262,12 +1470,17 @@ int32_t LLCC_IsHoardingEditLegal(int32_t x1, int32_t y1, int32_t x2, int32_t y2,
     }
     LLCC_CopyCurrentToNewImage();
     LLCC_AddNewAreaToImage(lox, loy, hix, hiy);
-    if (static_cast<uint8_t>(LLCC_SoIsItLegal()) == 0) return 0;
+    // TPW_PORT_FIX mods LLCC_IsHoardingEditLegal | Mac: a rectangle that would close in land the park does not own (an image cell the fill from outside does not reach) is refused | Port: TPW_MOD_HOOK land_unbought (gModLandUnbought): allowed, the closed-in land staying unowned (LLCC_ReviseHoarding), unless it holds the land in front of the gate (GateClosedIn) | Why: tpw-mods better-land-buying; a strip could not be bought without the land behind it, which a river's banks or a rock often made impossible
+    if (static_cast<uint8_t>(LLCC_SoIsItLegal()) == 0 && (!gModLandUnbought || GateClosedIn())) return 0;
     if (charge) {
-        for (int32_t y = loy + 2; y < hiy; ++y) {
-            for (int32_t x = lox + 2; x < hix; ++x) {
+        // TPW_PORT_FIX mods LLCC_IsHoardingEditLegal | Mac: the cells charged are those from lox + 2 to hix - 1 and loy + 2 to hiy - 1 the park does not own, rivers and rocks among them | Port: TPW_MOD_HOOK land_fair_price (gModLandFairPrice): the cells inside the new fence line, lox + 1 to hix and loy + 1 to hiy (the land the purchase makes the park's), water and freeform cells free (nothing can be built on them) | Why: tpw-mods better-land-buying; a strip one fence square wide cost nothing, and a river or a rock cost as much as grass
+        const int32_t first = gModLandFairPrice ? 1 : 2;
+        const int32_t last = gModLandFairPrice ? 1 : 0;
+        for (int32_t y = loy + first; y < hiy + last; ++y) {
+            for (int32_t x = lox + first; x < hix + last; ++x) {
                 CMapCell* map = MapCellOfId(CellId(x, y));
-                if (map->IsFlag(0x40) != 0) {
+                const bool unbuildable = gModLandFairPrice && (map->IsWater() != 0 || map->IsFreeform() != 0);
+                if (map->IsFlag(0x40) != 0 && !unbuildable) {
                     gLLCC47CC = static_cast<int32_t>(static_cast<uint32_t>(gLLCC47CC) + static_cast<uint32_t>(gMainBalance.mValues[kMapCellCostSlot].mInteger));
                     if (gActionRecorder.mRecording == 0) {
                         const int32_t cost = gLLCC47CC;
@@ -1514,6 +1727,8 @@ void LLCC_ReviseHoarding(int32_t x1, int32_t y1, int32_t x2, int32_t y2) {
     const int32_t highX = x1 < x2 ? x2 : x1;
     const int32_t lowY = y2 < y1 ? y2 : y1;
     const int32_t highY = y1 < y2 ? y2 : y1;
+    // TPW_PORT_FIX mods LLCC_ReviseHoarding | Mac: everything inside the new outer fence becomes the park's (LLCC_FillInsideOfPark) | Port: TPW_MOD_HOOK land_unbought (gModLandUnbought): only the land inside the purchase's own fence line changes hands; the cells outside it the park did not own get flag 0x40 back after the fill, keeping the fence pieces that bound them, the links to pieces that are gone taken off (tpw::land::UnboughtBefore, UnboughtAfter) | Why: tpw-mods better-land-buying; the land a purchase closes in stays the player's to buy
+    if (gModLandUnbought) tpw::land::UnboughtBefore(lowX, lowY, highX, highY);
     gLLCC4818 = 1;
     LLCC_SystemSetMode(0x19, false);
     LLCM_LeftMouseButtonUp(lowX, lowY, 0, 0);
@@ -1527,6 +1742,7 @@ void LLCC_ReviseHoarding(int32_t x1, int32_t y1, int32_t x2, int32_t y2) {
     LLCC_LockHoarding(true);
     LLCC_FillInsideOfPark();
     LLCC_LockHoarding(false);
+    tpw::land::UnboughtAfter();
     RecalculateParkDarkening();
     gLLCC4818 = 0;
 }

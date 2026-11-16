@@ -13,6 +13,10 @@ void Apply(const Hooks& hooks) {
     gModStrikeGate = hooks.strikeGate;
     gModStrikeMessages = hooks.strikeMessages;
     gModStaffBridgeWander = hooks.staffBridgeWander;
+    gModLandRoughEdges = hooks.landRoughEdges;
+    gModLandFairPrice = hooks.landFairPrice;
+    gModLandThinStrips = hooks.landThinStrips;
+    gModLandUnbought = hooks.landUnbought;
     gModPs1Badge = hooks.ps1Badge;
     gModPs1Ground = hooks.ps1Ground;
     gModPs1SaveRepair = hooks.ps1SaveRepair;

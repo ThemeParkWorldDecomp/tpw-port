@@ -1063,6 +1063,23 @@ inline bool gModStrikeGate = false;
 inline bool gModStrikeMessages = false;
 // TPW_PORT_FIX mods gModStaffBridgeWander | Mac: no such flag | Port: TPW_MOD_HOOK staff_bridge_wander, set by the launcher like gModStrikeGate; set, a staff member's random walk (CPeep::SetRandomDestination) may step onto, along and off a footbridge | Why: tpw-mods staff-cross-bridges
 inline bool gModStaffBridgeWander = false;
+// TPW_PORT_FIX mods gModLandRoughEdges | Mac: no such flag | Port: TPW_MOD_HOOK land_rough_edges, set by the launcher like gModStrikeGate; set, the sides of a land purchase may cross rivers, lakes and rocks inside the land, not the walls at its edge (LLCC_IsHoardingEditLegal) | Why: tpw-mods better-land-buying
+inline bool gModLandRoughEdges = false;
+// TPW_PORT_FIX mods gModLandFairPrice | Mac: no such flag | Port: TPW_MOD_HOOK land_fair_price, set by the launcher like gModStrikeGate; set, a land purchase costs the land inside its new fence line that the park does not own, rivers, lakes and rocks free (LLCC_IsHoardingEditLegal) | Why: tpw-mods better-land-buying
+inline bool gModLandFairPrice = false;
+// TPW_PORT_FIX mods gModLandThinStrips | Mac: no such flag | Port: TPW_MOD_HOOK land_thin_strips, set by the launcher like gModStrikeGate; set, a land purchase may be one fence square wide, and none may run beside the land in front of the gate (LLCC_IsHoardingEditLegal) | Why: tpw-mods better-land-buying
+inline bool gModLandThinStrips = false;
+// TPW_PORT_FIX mods gModLandUnbought | Mac: no such flag | Port: TPW_MOD_HOOK land_unbought, set by the launcher like gModStrikeGate; set, a land purchase may close land the park does not own inside its fence, which stays unowned and fenced until it is bought (LLCC_IsHoardingEditLegal, LLCC_ReviseHoarding, LLCC_FillInsideOfPark) | Why: tpw-mods better-land-buying
+inline bool gModLandUnbought = false;
+// The steps of land_unbought around a purchase's fill (src/game/park/LLCellSystem.cpp: LLCC_ReviseHoarding calls UnboughtBefore and
+// UnboughtAfter, LLCC_FillInsideOfPark UnboughtPrepare and UnboughtKeepsFence).
+class CTrackCell;
+namespace tpw::land {
+void UnboughtBefore(int32_t lowX, int32_t lowY, int32_t highX, int32_t highY);
+void UnboughtPrepare();
+bool UnboughtKeepsFence(const CTrackCell* piece);
+void UnboughtAfter();
+}  // namespace tpw::land
 // TPW_PORT_FIX mods gModPs1Ground | Mac: no such flag | Port: TPW_MOD_HOOK ps1_ground, set by the launcher like gModStrikeGate; set, a ride mesh whose header has flag 0x40000000 (only the PlayStation rides mod's converter writes it) has every cell of its base blended into the park's ground (CalculateSkirtVertices) | Why: tpw-mods ps1-rides: the park's own ground shows through the grass of the PlayStation ride's ground
 inline bool gModPs1Ground = false;
 constexpr uint32_t kHeaderPs1Ground = 0x40000000;
