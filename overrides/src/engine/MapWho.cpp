@@ -28,7 +28,7 @@
 #include "tb_starfield.h"
 #include "tb_texturecache.h"
 #include "tpw_probe.h"
-// TPW_PORT_FIX freecam CMapWho::RenderWindow/CMapWho::Render | Mac: outside first person the ground is drawn by the overhead gamut, and fog is on only in first person | Port: while the Free camera looks low (gPortFreeLowView) the ground is drawn by DivideAndConquer out to the View distance, with fog; Render puts both flag words back at its end, so GameSys's first-person fog XOR is not disturbed | Why: the gamut covers only what a high camera sees, so a low view showed holes at the horizon, and the far edge of the drawn ground fades instead of ending in a hard line
+// TPW_PORT_FIX freecam CMapWho::RenderWindow/CMapWho::Render | Mac: outside first person the ground is drawn by the overhead gamut, and fog is on only in first person | Port: while the Free camera looks low (gPortFreeLowView) the ground is drawn by DivideAndConquer with the fog flag, as in first person, but the fog space is moved out of reach (kPortFreeFogNear, kPortFreeFogFar) and DivideAndConquer tests the whole map; Render puts both flag words and the fog space back at its end, so GameSys's first-person fog XOR and first person's own fog are not disturbed | Why: the gamut covers only what a high camera sees, so a low view showed holes at the horizon, and first person's fog (230 to 250 at the longest View distance) left plain fog colour where the far park, the mountains and the land around it should be
 #include "TPCamera.h"   // gPortFreeLowView (freecam, CMapWho::RenderWindow and CMapWho::Render)
 #include "Wavelet.h"
 #include <cmath>
@@ -290,9 +290,6 @@ void CMapWho::Render() {
             "!((gei_Display.md_Flags&DISPLAY__ENABLEFOG) && (gei_Display.md_Flags&DISPLAY__SPECULARENABLE))",
             "tb_map.cpp", 1106);
     const uint32_t displayFlags = gei_Display.mFlags;   // both flag words are put back at the end
-    // freecam: fog also while the Free camera looks low; both flag words are put back at the end (the TPW_PORT_FIX comment at
-    // the includes)
-    if (gPortFreeLowView) gei_Display.mFlags |= CDisplay::kEnableFog;
     if (FrontWindow() != gei_System.mWindow) return;   // 1 in the original
     if ((gei_System.mFlags & CSystem::kFlag00000001) != 0) {   // the splash is up
         gei_System.mFlags &= ~CSystem::kFlag00000001;
@@ -306,6 +303,15 @@ void CMapWho::Render() {
         gei_System.mFlags &= ~CSystem::kAltTab;
     }
     const uint32_t systemFlags = gei_System.mFlags;
+    // freecam: fog also while the Free camera looks low, but starting out of reach; both flag words and the fog space are
+    // put back at the end, and nothing is changed before the returns above (the TPW_PORT_FIX comment at the includes)
+    const float fogNear = gei_Display.mFogNear;
+    const float fogFar = gei_Display.mFogFar;
+    const bool fogAway = gPortFreeLowView;
+    if (fogAway) {
+        gei_Display.mFlags |= CDisplay::kEnableFog;
+        gei_Display.SetFogSpace(kPortFreeFogNear, kPortFreeFogFar);
+    }
     gei_Display.ResetWindow();
     const int16_t precision = FPU_SetSinglePrecision();
     if ((gei_Display.mFlags & 4) == 0) {
@@ -394,10 +400,12 @@ void CMapWho::Render() {
         FPU_RestorePrecision(precision);
     gei_Display.mFlags = displayFlags;
     gei_System.mFlags = systemFlags;   // so the clearing above, and every flag the windows set, are undone
+    if (fogAway) gei_Display.SetFogSpace(fogNear, fogFar);
     return;   // 1 in the original
 failed:
     gei_Display.mFlags = displayFlags;
     gei_System.mFlags = systemFlags;
+    if (fogAway) gei_Display.SetFogSpace(fogNear, fogFar);
     gei_ErrorHandler.GetAltTabStatus();   // the original returns its answer
 }
 

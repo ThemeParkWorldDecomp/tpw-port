@@ -1074,6 +1074,33 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   else()
     add_test(NAME proc_cap COMMAND tpw_host_proc_cap)
   endif()
+  # The ground the free camera sees toward the horizon (the port's fix freecam): the real CHField::DivideAndConquer and
+  # TestConQuad and the clipper's outside codes on Land of Invention's map, the math unit being the test's stand-in. Made
+  # in both builds; without the port's fixes it checks only the normal camera, the original's cells and far plane.
+  add_executable(tpw_host_free_view ${TPW_DECOMP_DIR}/tests/host_free_view.cpp ${TPW_DECOMP_DIR}/src/engine/tb_hfield.cpp
+                 ${TPW_DECOMP_DIR}/src/engine/Clipping.cpp ${TPW_DECOMP_DIR}/src/engine/Gamut.cpp)
+  target_include_directories(tpw_host_free_view PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+  # the test's own switch for the fixed path, as proc_cap's
+  if(TPW_PORT_FIX)
+    target_compile_definitions(tpw_host_free_view PRIVATE TPW_TEST_PORT_FIX)
+  endif()
+  tpw_slice(TARGET tpw_host_free_view NAME free_view KEEP
+    __ZN7CHField16DivideAndConquerEv   # CHField::DivideAndConquer()
+    __ZN7CHField11TestConQuadEiiii   # CHField::TestConQuad(int, int, int, int)
+    __ZN9CClipping12CPP_TestDataEPhPvS0_PKviij   # CClipping::CPP_TestData(unsigned char*, void*, unsigned char*, void const*, int, int, unsigned int)
+    __ZN6CGamut14CalculateGamutEv   # CGamut::CalculateGamut()
+    __ZN6CGamut21GetHFieldIntersectionEP10_D3DVECTOR   # CGamut::GetHFieldIntersection(_D3DVECTOR*)
+    __ZN6CGamut8GetQuadsEv   # CGamut::GetQuads()
+    __Z19GenerateClipXVector10_D3DVECTORS_f   # GenerateClipXVector(_D3DVECTOR, _D3DVECTOR, float)
+    __Z19GenerateClipZVector10_D3DVECTORS_f   # GenerateClipZVector(_D3DVECTOR, _D3DVECTOR, float)
+    __ZN8CPolygon16IsOutsideOfPlaneE10_D3DVECTORi   # CPolygon::IsOutsideOfPlane(_D3DVECTOR, int)
+    __ZN8CPolygon25GetNewVertexOutsideStatusE10_D3DVECTOR   # CPolygon::GetNewVertexOutsideStatus(_D3DVECTOR)
+    __ZN8CPolygon8DumpDataEP10_D3DVECTOR)   # CPolygon::DumpData(_D3DVECTOR*)
+  if(tpw_platform_tests_skipped)
+    set_target_properties(tpw_host_free_view PROPERTIES EXCLUDE_FROM_ALL ON)
+  else()
+    add_test(NAME free_view COMMAND tpw_host_free_view)
+  endif()
 
   # The launcher's own window (launcher/ui/): widgets drawn with SDL_Renderer, text with stb_truetype
   # (third_party/stb/), in the fonts of third_party/fonts/, which are compiled in as byte arrays written here at

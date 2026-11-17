@@ -38,7 +38,8 @@
 #include <utility>
 
 // TPW_PORT_FIX farzoom CHField::DivideAndConquer | Mac: the park view (fog off) tests only the cells within 230 (half of 460) of the camera | Port: with gPortFarZoom (the launcher's "Zoom out further") and fog off, every cell of the map is tested, as kTestWholeMap does, and the frustum test keeps those in view; the block near the camera and the procedural textures' window stay the original's | Why: zoomed out past the original's 130, and wider than 4:3, the picture reaches past that square, whose edges showed as diagonal cuts with nothing (ground, rides, scenery, people) drawn beyond them; only which cells are drawn changes
-#include "TPCamera.h"   // gPortFarZoom (farzoom, CHField::DivideAndConquer)
+#include "TPCamera.h"   // gPortFarZoom (farzoom, CHField::DivideAndConquer), gPortFreeCamera (freecam, the same)
+// TPW_PORT_FIX freecam CHField::DivideAndConquer | Mac: the cells within half the view distance of the camera are tested (230 with fog off, 350 at most with fog), against a far plane 1000 out | Port: with gPortFreeCamera (the launcher's "Free camera") every cell of the map is tested, fog on or off, against a far plane that reaches the map's farthest corner (PortFreeFarPlane); the block near the camera and the procedural textures' window stay the original's | Why: the free camera looks along the ground from anywhere up to 150 outside the map, so the map's far side is up to 1400 away: the ground stopped at the view distance and the sky showed where the far park should be
 #include "TpiGateFlow.h"   // tpw::TpiWorldInPlay (TPW_MOD_HOOK tpi_worlds, CHField::Execute)
 #include "TpiParkEdge.h"   // tpw::TpiParkEdgeCorners (the same)
 
@@ -432,10 +433,45 @@ private:
 
 }  // namespace
 
+namespace {
+
+// freecam: the far plane that takes in the whole map seen from the camera: the distance to the map's farthest corner
+// (at the field's lowest or highest point) and one cell more, rounded up to a whole kPortFreeFarStep, never nearer than
+// the original's and never past the fog (kPortFreeFogNear). In double precision, one operation a statement, so a test
+// can work it out to the bit.
+constexpr double kPortFreeFarStep = 100.0;
+
+float PortFreeFarPlane(const sHField& field) {
+    const double cameraX = gei_ViewMatrix->m[3][0];
+    const double cameraY = gei_ViewMatrix->m[3][1];
+    const double cameraZ = gei_ViewMatrix->m[3][2];
+    const double x0 = field.mF08[0] - cameraX;
+    const double z0 = field.mF08[1] - cameraZ;
+    const double width = static_cast<double>(field.mF18[0]) * field.mF08[2];
+    const double depth = static_cast<double>(field.mF18[1]) * field.mF08[3];
+    const double x1 = x0 + width;
+    const double z1 = z0 + depth;
+    const double dx = std::fmax(std::fabs(x0), std::fabs(x1));
+    const double dy = std::fmax(std::fabs(field.mF20[0] - cameraY), std::fabs(field.mF20[1] - cameraY));
+    const double dz = std::fmax(std::fabs(z0), std::fabs(z1));
+    const double xx = dx * dx;
+    const double yy = dy * dy;
+    const double zz = dz * dz;
+    const double sum = xx + yy + zz;
+    const double cell = std::fmax(field.mF08[2], field.mF08[3]);
+    const double farthest = std::sqrt(sum) + cell;
+    if (!std::isfinite(farthest) || farthest <= kProjectionFar) return kProjectionFar;
+    const double steps = std::ceil(farthest / kPortFreeFarStep);
+    return static_cast<float>(std::fmin(steps * kPortFreeFarStep, kPortFreeFogNear));
+}
+
+}  // namespace
+
 int32_t CHField::DivideAndConquer() {
     const float viewDistance =
         (gei_Display.mFlags & CDisplay::kEnableFog) != 0 ? gei_Display.mFirstPersonViewDistance : kViewDistanceNoFog;
-    gei_ProjectionMatrix.AdjustProjection(kProjectionFar);
+    // freecam: the far plane reaches the whole map (the TPW_PORT_FIX comment at the includes)
+    gei_ProjectionMatrix.AdjustProjection(gPortFreeCamera ? PortFreeFarPlane(*mF00) : kProjectionFar);
     PreprocessMatrices();
     mF1C = kFarStart;
     SGamutQuads& vertices = *VertexRows();
@@ -461,7 +497,7 @@ int32_t CHField::DivideAndConquer() {
         tpw_probe::Set(tpw_probe::kDacZ1, z1);
         tpw_probe::Set(tpw_probe::kDacWidth, width);
         tpw_probe::Set(tpw_probe::kDacDepth, depth);
-        if (gPortFarZoom && (gei_Display.mFlags & CDisplay::kEnableFog) == 0) {
+        if (gPortFreeCamera || (gPortFarZoom && (gei_Display.mFlags & CDisplay::kEnableFog) == 0)) {
             x0 = 0;
             z0 = 0;
             x1 = width;
