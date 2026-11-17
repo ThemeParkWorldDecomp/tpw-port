@@ -154,6 +154,9 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
   set(SDL_UNINSTALL OFF CACHE BOOL "" FORCE)
   set(SDL_HIDAPI_LIBUSB OFF CACHE BOOL "" FORCE)
+  # SDL 3.4 stops at a missing X11 extension; XTest is the one the build's packages leave out, and 3.4.20 uses it for
+  # nothing (X11_InitXTest is compiled out), so it is off rather than one more package to install.
+  set(SDL_X11_XTEST OFF CACHE BOOL "" FORCE)
   add_subdirectory(third_party/SDL3 SDL3 EXCLUDE_FROM_ALL)
   target_compile_options(SDL3-static PRIVATE -w)   # SDL's C is not ours to warn about
   file(GLOB TPW_PLATFORM_SOURCES CONFIGURE_DEPENDS platform/*.cpp ${TPW_DECOMP_DIR}/platform/*.cpp)

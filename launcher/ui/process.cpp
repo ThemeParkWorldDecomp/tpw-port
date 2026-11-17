@@ -22,14 +22,18 @@ std::vector<const char*> ArgPointers(const std::vector<std::string>& argv) {
     return args;
 }
 
-// Asks the program to stop, then kills it if it has not within 3 seconds. Returns its exit code (or -1).
+// Asks the program to stop, then kills it if it has not within 3 seconds. Returns its exit code (or -1). On Windows it
+// is killed at once (process.h): SDL 3.4's polite stop there is a WM_CLOSE or a Ctrl+Break that curl.exe and a
+// powershell.exe started with no console never see, so asking would only add the 3 seconds.
 int Stop(SDL_Process* process) {
     int code = -1;
+#ifndef _WIN32
     SDL_KillProcess(process, false);
     for (int waited = 0; waited < 3000; waited += 20) {
         if (SDL_WaitProcess(process, false, &code)) return code;
         SDL_Delay(20);
     }
+#endif
     SDL_KillProcess(process, true);
     SDL_WaitProcess(process, true, &code);
     return code;

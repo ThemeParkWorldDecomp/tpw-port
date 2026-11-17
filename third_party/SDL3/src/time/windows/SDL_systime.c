@@ -1,6 +1,6 @@
 /*
   Simple DirectMedia Layer
-  Copyright (C) 1997-2025 Sam Lantinga <slouken@libsdl.org>
+  Copyright (C) 1997-2026 Sam Lantinga <slouken@libsdl.org>
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -30,13 +30,13 @@
 #define WINDOWS_TICK          10000000ULL
 #define UNIX_EPOCH_OFFSET_SEC 11644473600ULL
 
-typedef void(WINAPI *pfnGetSystemTimePreciseAsFileTime)(FILETIME *);
+typedef void (WINAPI *pfnGetSystemTimePreciseAsFileTime)(FILETIME *);
 
 void SDL_GetSystemTimeLocalePreferences(SDL_DateFormat *df, SDL_TimeFormat *tf)
 {
     WCHAR str[80]; // Per the docs, the time and short date format strings can be a max of 80 characters.
 
-    if (df && GetLocaleInfoW(LOCALE_USER_DEFAULT, LOCALE_SSHORTDATE, str, sizeof(str) / sizeof(WCHAR))) {
+    if (df && GetLocaleInfoW(LOCALE_USER_DEFAULT, LOCALE_SSHORTDATE, str, SDL_arraysize(str))) {
         LPWSTR s = str;
         while (*s) {
             switch (*s++) {
@@ -58,7 +58,7 @@ void SDL_GetSystemTimeLocalePreferences(SDL_DateFormat *df, SDL_TimeFormat *tf)
 found_date:
 
     // Figure out the preferred system date format.
-    if (tf && GetLocaleInfoW(LOCALE_USER_DEFAULT, LOCALE_STIMEFORMAT, str, sizeof(str) / sizeof(WCHAR))) {
+    if (tf && GetLocaleInfoW(LOCALE_USER_DEFAULT, LOCALE_STIMEFORMAT, str, SDL_arraysize(str))) {
         LPWSTR s = str;
         while (*s) {
             switch (*s++) {
@@ -79,7 +79,7 @@ bool SDL_GetCurrentTime(SDL_Time *ticks)
 {
     FILETIME ft;
 
-    if (!ticks) {
+    CHECK_PARAM(!ticks) {
         return SDL_InvalidParamError("ticks");
     }
 
@@ -115,8 +115,17 @@ bool SDL_TimeToDateTime(SDL_Time ticks, SDL_DateTime *dt, bool localTime)
     SYSTEMTIME *st = NULL;
     Uint32 low, high;
 
-    if (!dt) {
+    CHECK_PARAM(!dt) {
         return SDL_InvalidParamError("dt");
+    }
+
+    int rem_ns = (int)(ticks % SDL_NS_PER_SECOND);
+    if (rem_ns < 0) {
+        // Prevent rounding errors if the remaining nanoseconds are less than one unit of system time.
+        if (-rem_ns < 100) {
+            ticks -= 100;
+        }
+        rem_ns += SDL_NS_PER_SECOND;
     }
 
     SDL_TimeToWindows(ticks, &low, &high);
@@ -144,7 +153,7 @@ bool SDL_TimeToDateTime(SDL_Time ticks, SDL_DateTime *dt, bool localTime)
             dt->hour = st->wHour;
             dt->minute = st->wMinute;
             dt->second = st->wSecond;
-            dt->nanosecond = ticks % SDL_NS_PER_SECOND;
+            dt->nanosecond = rem_ns;
             dt->day_of_week = st->wDayOfWeek;
 
             return true;

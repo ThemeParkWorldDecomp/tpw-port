@@ -443,7 +443,7 @@ Thanks: samueleagle91 (spamaerie) made the Windows build. slappyhead first ran i
 No license yet for the port's own code. Bundled:
 
 - FFmpeg 9.0.2, LGPL 2.1+ (third_party/ffmpeg/COPYING.LGPLv2.1, NOTE.md). Built from source, so you can rebuild it.
-- SDL3 3.2.30, zlib 1.3.2 (zlib License), libjpeg 6b (IJG License).
+- SDL3 3.4.20, zlib 1.3.2 (zlib License), libjpeg 6b (IJG License).
 - libarchive 3.8.11 (BSD 2-Clause, tpw-decomp/third_party/libarchive/COPYING).
 - liblzma, XZ Utils 5.8.4 (0BSD, tpw-decomp/third_party/xz/COPYING.0BSD).
 - Fredoka and Nunito fonts (OFL 1.1, third_party/fonts). stb_truetype, stb_rect_pack (MIT or public domain).

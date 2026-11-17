@@ -1665,7 +1665,7 @@ static void TestSeveralKeys() {
 // sets a layout as each host's video driver does, with no window.
 extern "C" {
 typedef struct SDL_Keymap SDL_Keymap;
-SDL_Keymap* SDL_CreateKeymap(void);
+SDL_Keymap* SDL_CreateKeymap(bool auto_release);   // SDL 3.4: true, as its keyboard and Mac driver make one: SDL_SetKeymap frees it
 void SDL_SetKeymapEntry(SDL_Keymap* keymap, SDL_Scancode scancode, SDL_Keymod modstate, SDL_Keycode keycode);
 void SDL_SetKeymap(SDL_Keymap* keymap, bool send_event);
 bool SDL_InitKeyboard(void);
@@ -1679,7 +1679,7 @@ struct LayoutKey {
     SDL_Keycode key;
 };
 void SetLayout(const std::vector<LayoutKey>& keys) {
-    SDL_Keymap* keymap = SDL_CreateKeymap();
+    SDL_Keymap* keymap = SDL_CreateKeymap(true);
     for (const LayoutKey& key : keys) SDL_SetKeymapEntry(keymap, key.scancode, key.modifiers, key.key);
     SDL_SetKeymap(keymap, false);
 }
@@ -1722,7 +1722,8 @@ static void TestTableKeys() {
     // The key tables (the cheats, the shortcuts) get a character key as the layout's plain key upper-cased, as the PC's
     // virtual keys are, with the modifiers on their own; the edit boxes still type the character with the modifiers
     // applied. Each host's layout as its SDL driver makes it: the Mac's has Shift and Option levels, Windows' and
-    // Linux's Shift and AltGr (SDL's mode) but no Alt, so Alt there gives SDL's US key.
+    // Linux's Shift and AltGr (SDL's mode) but no Alt, so Alt there gives the layout's plain key (SDL 3.4 looks for the
+    // key at the lower levels first; 3.2 gave SDL's US key). Either way the tables get the same key.
     CHECK(SDL_InitKeyboard());   // SDL's keycode options (the number row and Latin letters), as the video driver sets them
     const SDL_Keymod shift = SDL_KMOD_SHIFT, alt = SDL_KMOD_ALT, mode = SDL_KMOD_MODE;
     const int32_t lshift = SDL_SCANCODE_LSHIFT, lalt = SDL_SCANCODE_LALT, lctrl = SDL_SCANCODE_LCTRL;
@@ -1746,7 +1747,7 @@ static void TestTableKeys() {
     report("mac ctrl-shift-option-c", PressWith({lctrl, lshift, lalt}, SDL_SCANCODE_C), "typed 00 table 43 mods 1a00");
     report("mac shift-l", PressWith({lshift}, SDL_SCANCODE_L), "typed 4c table 4c mods 200");
     report("mac l", PressWith({}, SDL_SCANCODE_L), "typed 6c table 4c mods 0");
-    // Windows and Linux, US: Shift-1 types '!' and is 1; Alt gives SDL's US key, which was already the plain key.
+    // Windows and Linux, US: Shift-1 types '!' and is 1; Alt gives the plain key.
     SetLayout({{SDL_SCANCODE_1, SDL_KMOD_NONE, '1'}, {SDL_SCANCODE_1, shift, '!'}, {SDL_SCANCODE_5, SDL_KMOD_NONE, '5'},
                {SDL_SCANCODE_5, shift, '%'}, {SDL_SCANCODE_R, SDL_KMOD_NONE, 'r'}, {SDL_SCANCODE_R, shift, 'R'},
                {SDL_SCANCODE_A, SDL_KMOD_NONE, 'a'}});
@@ -1761,7 +1762,7 @@ static void TestTableKeys() {
     CHECK(tpw::PlainKeyCharacter(0x0c) == 0 && SDL_GetKeyFromScancode(SDL_SCANCODE_Q, mode, false) == '@');
     SDL_SetModState(SDL_KMOD_NONE);
     CHECK(tpw::PlainKeyCharacter(0x0c) == 'Q' && tpw::PlainKeyCharacter(0x10) == 'Z' && tpw::PlainKeyCharacter(0x06) == 'Y');
-    report("german alt-y", PressWith({lalt}, SDL_SCANCODE_Y), "typed 79 table 5a mods 800");
+    report("german alt-y", PressWith({lalt}, SDL_SCANCODE_Y), "typed 7a table 5a mods 800");
     // A Mac, German: Option-L types '@' into a text box and is L to the tables.
     SetLayout({{SDL_SCANCODE_L, SDL_KMOD_NONE, 'l'}, {SDL_SCANCODE_L, shift, 'L'}, {SDL_SCANCODE_L, alt, '@'}});
     report("german mac option-l", PressWith({lalt}, SDL_SCANCODE_L), "typed 40 table 4c mods 800");
@@ -1779,15 +1780,15 @@ static void TestTableKeys() {
     report("azerty mac option-&", PressWith({lalt}, SDL_SCANCODE_1), "typed 00 table 31 mods 800");
     report("azerty &", PressWith({}, SDL_SCANCODE_1), "typed 26 table 31 mods 0");
     report("azerty shift-&", PressWith({lshift}, SDL_SCANCODE_1), "typed 31 table 31 mods 200");
-    report("azerty pc alt-a", PressWith({lalt}, SDL_SCANCODE_Q), "typed 71 table 41 mods 800");
-    report("azerty pc alt-m", PressWith({lalt}, SDL_SCANCODE_SEMICOLON), "typed 3b table 4d mods 800");
+    report("azerty pc alt-a", PressWith({lalt}, SDL_SCANCODE_Q), "typed 61 table 41 mods 800");
+    report("azerty pc alt-m", PressWith({lalt}, SDL_SCANCODE_SEMICOLON), "typed 6d table 4d mods 800");
     // Russian: no Latin letters, so the keys are QWERTY's (as Windows' virtual keys); the character is none of the Mac's
-    // (with Alt, which the layout has no level for, SDL's US key).
+    // (with Alt, which the layout has no level for, too: its plain key).
     SetLayout({{SDL_SCANCODE_A, SDL_KMOD_NONE, 0x444}, {SDL_SCANCODE_B, SDL_KMOD_NONE, 0x438},
                {SDL_SCANCODE_C, SDL_KMOD_NONE, 0x441}, {SDL_SCANCODE_D, SDL_KMOD_NONE, 0x432},
                {SDL_SCANCODE_R, SDL_KMOD_NONE, 0x43a}});
     report("russian r", PressWith({}, SDL_SCANCODE_R), "typed 00 table 52 mods 0");
-    report("russian alt-r", PressWith({lalt}, SDL_SCANCODE_R), "typed 72 table 52 mods 800");
+    report("russian alt-r", PressWith({lalt}, SDL_SCANCODE_R), "typed 00 table 52 mods 800");
 #ifdef TPW_PORT_FIX
     // German (TPW_PORT_FIX typedletters): a key whose character is a Latin-1 letter types it as that byte, its UTF-16 code,
     // with Shift its capital; the tables get the same byte (no plain key). With Option or Alt it types none, as above.

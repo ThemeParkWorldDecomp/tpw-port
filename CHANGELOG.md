@@ -7,6 +7,10 @@
 - Fixed the game freezing when land was bought in a TPI Worlds and Rides mod park whose fence crosses a bridge or tunnel, such as the land by the Arabian Nights bridge: 0.5.5 broke the fence where it crosses them when the park was loaded, and parks saved since then get the fence back when they are loaded
 - Fixed the game crashing when you point at certain fence cells over the tunnels in the TPI Worlds and Rides mod's Polar Zone and Arabian Nights parks loaded with 0.5.5
 
+### Changes
+
+- Updated SDL, which the launcher and the game use for the window, sound, mouse and keyboard, to version 3.4.20
+
 ## 0.5.5 (2026-11-14)
 
 ### New Features
