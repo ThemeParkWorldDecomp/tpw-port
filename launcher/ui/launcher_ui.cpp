@@ -197,7 +197,7 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     severalKeys_ = backend_.Setting(kSeveralKeysKey) == "1";
     wasdCamera_ = backend_.Setting(kWasdCameraKey) == "1";
     freeCamera_ = backend_.Setting(kFreeCameraKey) == "1";
-    freeSwipe_ = backend_.Setting(kFreeSwipeKey) == "zoom" ? 1 : 0;
+    freeSwipe_ = FreeSwipeZooms(backend_.Setting(kFreeSwipeKey)) ? 1 : 0;
     freeInvert_ = backend_.Setting(kFreeInvertKey) == "1";
     freeSensitivity_ = FreeQuarters(backend_.Setting(kFreeSensitivityKey));
     freeFlySpeed_ = FreeQuarters(backend_.Setting(kFreeFlySpeedKey));
@@ -1610,7 +1610,7 @@ void LauncherUi::DrawSettings(const Rect& w) {
             y += rowH;
         };
         toggleRow(0, "free-camera", "Free camera",
-                  "Tilt, zoom and fly anywhere: Q E turn, Z X tilt, Tab flies, Home resets; trackpad swipes move", freeCamera_,
+                  "Tilt, zoom and fly anywhere: Q E turn, Z X tilt, Tab flies, Home resets; trackpad swipes zoom", freeCamera_,
                   kFreeCameraKey, &freeCameraRect_);
         if (freeCamera_) {
             const float indent = 28;

@@ -37,8 +37,8 @@ inline constexpr const char* kSmoothZoomKey = "smooth_wheel_zoom";
 inline constexpr const char* kFarZoomKey = "far_zoom";
 // launcher.ini's keys for the Settings box's "Free camera" (TPW_PORT_FIX freecam, include/PortFreeCamera.h; "1": the camera
 // tilts freely, zooms further, flies and takes a trackpad's swipes; absent or "0": the original's camera) and its
-// settings, shown only while it is on: "Two-finger swipe" ("zoom": zooms and rotates; absent or "move": moves the
-// camera), "Invert vertical look" ("1"), "Look sensitivity" and "Fly speed" (0.25 to 4, absent 1), "Smoothing" (absent
+// settings, shown only while it is on: "Two-finger swipe" (absent or "zoom": zooms and rotates, FreeSwipeZooms; "move":
+// moves the camera), "Invert vertical look" ("1"), "Look sensitivity" and "Fly speed" (0.25 to 4, absent 1), "Smoothing" (absent
 // or "1": on), "Fly through the ground" ("1") and "Gamepad" (TPW_PORT_FIX gamepad; absent or "1": a connected gamepad moves
 // the camera; "0": the game opens no gamepad).
 inline constexpr const char* kFreeCameraKey = "free_camera";
@@ -64,6 +64,8 @@ inline int FreeQuarters(const std::string& value) {
     if (end == value.c_str() || *end != 0 || !(times >= 0.25 && times <= 4.0)) return 4;
     return static_cast<int>(times * 4.0 + 0.5);
 }
+// Whether Two-finger swipe zooms and rotates: unless "move" is kept, as with the setting off a swipe zooms.
+inline bool FreeSwipeZooms(const std::string& value) { return value != "move"; }
 inline std::string FreeQuartersText(int quarters) {
     const int whole = quarters / 4, part = quarters % 4;
     static const char* const kParts[] = {"", ".25", ".5", ".75"};
@@ -571,7 +573,7 @@ private:
     bool severalKeys_ = false;      // the Settings box's "Several keys at once", as launcher.ini keeps it
     bool wasdCamera_ = false;       // the Settings box's "W A S D move the camera", as launcher.ini keeps it
     bool freeCamera_ = false;       // the Settings box's "Free camera" and its settings, as launcher.ini keeps them
-    int freeSwipe_ = 0;             // 0 "Moves the camera", 1 "Zooms and rotates"
+    int freeSwipe_ = 1;             // 0 "Moves the camera", 1 "Zooms and rotates" (the default)
     bool freeInvert_ = false;
     int freeSensitivity_ = 4;       // quarters (FreeQuarters)
     int freeFlySpeed_ = 4;

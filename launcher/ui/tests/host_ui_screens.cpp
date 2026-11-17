@@ -2971,10 +2971,13 @@ void CheckSeveralKeysSwitch(SDL_Renderer* renderer) {
 }
 
 // The Settings box's Free camera switch (launcher_ui.h kFreeCameraKey): with the port's fixes, off when launcher.ini has no
-// key and its settings hidden; a click keeps "1" and shows them (Two-finger swipe first, its second choice keeps "zoom"),
+// key and its settings hidden; a click keeps "1" and shows them (Two-finger swipe first: it zooms unless "move" is kept,
+// its first choice keeps "move" and its second "zoom"),
 // and the box's height counts them; a second click "0" hides them again. The OFF build has no such row. The sliders' values
 // are kept as multipliers (FreeQuarters).
 void CheckFreeCameraSwitch(SDL_Renderer* renderer) {
+    Check(FreeSwipeZooms("") && FreeSwipeZooms("zoom") && !FreeSwipeZooms("move"),
+          "free camera: Two-finger swipe zooms unless move is kept");
     CheckEq(std::to_string(FreeQuarters("")), "4", "free camera: an absent multiplier is 1x");
     CheckEq(std::to_string(FreeQuarters("0.25")), "1", "free camera: 0.25x is a quarter");
     CheckEq(std::to_string(FreeQuarters("4")), "16", "free camera: 4x is sixteen quarters");
@@ -3020,10 +3023,10 @@ void CheckFreeCameraSwitch(SDL_Renderer* renderer) {
           "free camera: on, its settings show below it");
     bodyCounted(ui, "on");
     const Rect swipe = ui.FreeSwipeRect();
-    clickAt(ui, swipe.x + swipe.w * 0.75f, swipe.CentreY());
-    CheckEq(b.Setting(kFreeSwipeKey), "zoom", "free camera: Two-finger swipe's second choice keeps zoom");
     clickAt(ui, swipe.x + swipe.w * 0.25f, swipe.CentreY());
-    CheckEq(b.Setting(kFreeSwipeKey), "move", "free camera: and its first move");
+    CheckEq(b.Setting(kFreeSwipeKey), "move", "free camera: Two-finger swipe's first choice keeps move");
+    clickAt(ui, swipe.x + swipe.w * 0.75f, swipe.CentreY());
+    CheckEq(b.Setting(kFreeSwipeKey), "zoom", "free camera: and its second zoom");
     // Gamepad (kFreeGamepadKey, TPW_PORT_FIX gamepad): on with nothing kept, a click keeps "0", a second "1".
     Check(ui.FreeGamepadRect().w > 0 && ui.FreeGamepadRect().y > swipe.y, "free camera: its Gamepad switch shows below");
     CheckEq(b.Setting(kFreeGamepadKey), "", "free camera: Gamepad keeps nothing until the player chooses");

@@ -12,7 +12,7 @@
 #include "keyboard.h"
 
 // TPW_PORT_FIX freecam settings | Mac: (none) | Port: the launcher's Free camera sub-settings, set before the game starts (launcher/main.cpp); the defaults are the launcher's | Why: the Free camera's options, as SPEC asks
-inline bool gPortFreeSwipeZooms = false;          // Two-finger swipe: false "Moves the camera", true "Zooms and rotates"
+inline bool gPortFreeSwipeZooms = true;           // Two-finger swipe: true "Zooms and rotates", false "Moves the camera"
 inline bool gPortFreeInvertLook = false;          // Invert vertical look
 inline float gPortFreeLookSensitivity = 1.0f;     // Look sensitivity, 0.25 to 4
 inline float gPortFreeFlySpeed = 1.0f;            // Fly speed, 0.25 to 4 (right button + wheel changes it until the game quits)
@@ -40,7 +40,6 @@ inline constexpr float kPortFreeDragTurn = 0.005f;     // a mouse drag: radians 
 inline constexpr float kPortFreeSwipeTurn = 0.03f;     // a swipe: radians a unit of SDL's precise delta
 inline constexpr float kPortFreeSwipeTilt = 0.02f;
 inline constexpr float kPortFreeSwipeMove = 0.02f;     // a swipe: the zoom's share a unit
-inline constexpr float kPortFreeSwipeZoom = 2.0f;      // a swipe in "Zooms and rotates": zoom units a unit
 inline constexpr float kPortFreePinchZoom = 0.85f;     // Ctrl + wheel: the zoom times this a unit up
 inline constexpr uint64_t kPortFreeFineMs = 300;       // a wheel event this soon after a fractional one is a trackpad's too
 // Fly mode: the eye looks from 85 degrees up to straight down, moves kPortFreeFlySpeed units a millisecond at Fly speed 1, a
@@ -275,7 +274,7 @@ inline void PortFreeStrayKeyUp(uint8_t macKeyCode) {
 
 // ---- the wheel, the drags, the pinch
 
-// TPW_PORT_FIX freecam PortFreeWheel | Mac: (none: a wheel step zooms by 10) | Port: with gPortFreeCamera on, over the park and not in first person: a trackpad (a fractional delta, or any wheel event within kPortFreeFineMs of one) moves the camera ("Moves the camera": up and down forward and back, sideways sideways) or zooms and turns ("Zooms and rotates"), and with Option tilts and turns; Control or Command with the wheel is a pinch (Windows' precision touchpads send their pinch so) and zooms; the deltas are SDL's as they come, which follow the system's natural scrolling; a notched wheel is not taken (the original's 10 a step); in fly mode a notched wheel and the pinch move along the view, a swipe looks, and with the right button held the wheel sets the fly speed (a quarter to four times the setting); true when taken | Why: the Free camera's trackpad, as SPEC asks
+// TPW_PORT_FIX freecam PortFreeWheel | Mac: (none: a wheel step zooms by 10) | Port: with gPortFreeCamera on, over the park and not in first person: a trackpad (a fractional delta, or any wheel event within kPortFreeFineMs of one) zooms and turns ("Zooms and rotates", the default: sideways turns, and up and down is left to the original, which zooms by its whole steps, 10 each, as with the setting off) or moves the camera ("Moves the camera": up and down forward and back, sideways sideways), and with Option tilts and turns; Control or Command with the wheel is a pinch (Windows' precision touchpads send their pinch so) and zooms; the deltas are SDL's as they come, which follow the system's natural scrolling; a notched wheel is not taken (the original's 10 a step); in fly mode a notched wheel and the pinch move along the view, a swipe looks, and with the right button held the wheel sets the fly speed (a quarter to four times the setting); true when taken | Why: the Free camera's trackpad, as SPEC asks; a swipe zooms by default, as it did with the setting off, since with a swipe that moved the camera the normal camera had lost its two-finger zoom (the maintainer's 0.5.6 test)
 inline bool PortFreeWheel(float x, float y, bool fractional, int32_t modifiers, uint64_t nowMs, bool overPark) {
     if (!gPortFreeCamera) return false;
     if (fractional) {
@@ -307,8 +306,8 @@ inline bool PortFreeWheel(float x, float y, bool fractional, int32_t modifiers, 
         gPortFree.dYaw += x * kPortFreeSwipeTurn * sense;
         gPortFree.dPitch -= y * kPortFreeSwipeTilt * sense * invert;
     } else if (gPortFreeSwipeZooms) {
-        gPortFree.dZoom -= y * kPortFreeSwipeZoom;
         gPortFree.dYaw += x * kPortFreeSwipeTurn * sense;
+        return false;   // up and down: the original's zoom
     } else {
         gPortFree.dForward += y * kPortFreeSwipeMove;
         gPortFree.dRight += x * kPortFreeSwipeMove;

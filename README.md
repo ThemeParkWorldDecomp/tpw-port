@@ -96,7 +96,7 @@ Settings:
 | Renderer (Linux) | OpenGL | Vulkan: the port's own renderer. |
 | Smooth wheel zoom | Off | The wheel eases toward the pointer. |
 | Zoom out further | Off | The camera goes further out. |
-| Free camera | Off | Tilt, zoom and fly anywhere: Q E turn, Z X tilt, Page Up/Down zoom, Tab flies, Home resets. Its own settings show under it. |
+| Free camera | Off | Tilt, zoom and fly anywhere: Q E turn, Z X tilt, Page Up/Down zoom, Tab flies, Home resets. On a trackpad a two-finger swipe zooms as in the original and turns sideways, and a pinch zooms. Its own settings show under it (Two-finger swipe: Zooms and rotates, the default, or Moves the camera). |
 | Gamepad (under Free camera) | On | A gamepad moves the free camera: left stick moves (flying: flies), right stick turns and tilts (looks), right and left triggers zoom in and out (rise and sink), LB and RB turn, Y (triangle) flies, View (Share, Select) resets. |
 | Several keys at once | Off | Walk and turn at once, as on the PC. |
 | W A S D move the camera | Off | W A S D scroll and walk (Z Q S D on AZERTY). A and S no longer open All items and All staff. |

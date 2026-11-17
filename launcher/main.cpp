@@ -1286,7 +1286,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
     // down together as the W A S D keys are.
     gPortFreeCamera = backend.Setting(tpw::ui::kFreeCameraKey) == "1";
     if (gPortFreeCamera) {
-        gPortFreeSwipeZooms = backend.Setting(tpw::ui::kFreeSwipeKey) == "zoom";
+        gPortFreeSwipeZooms = tpw::ui::FreeSwipeZooms(backend.Setting(tpw::ui::kFreeSwipeKey));
         gPortFreeInvertLook = backend.Setting(tpw::ui::kFreeInvertKey) == "1";
         gPortFreeLookSensitivity = static_cast<float>(tpw::ui::FreeQuarters(backend.Setting(tpw::ui::kFreeSensitivityKey))) / 4.0f;
         gPortFreeFlySpeed = static_cast<float>(tpw::ui::FreeQuarters(backend.Setting(tpw::ui::kFreeFlySpeedKey))) / 4.0f;
