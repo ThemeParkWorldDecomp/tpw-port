@@ -20,15 +20,15 @@
 - In full screen, the pointer now stays on the game's screen instead of moving off onto another screen beside it (Thanks BMCTV)
 - Fixed the swamp in the TPI Worlds and Rides mod's Polar Zone not showing at all: it now lies in the ground in the northwest corner as in Theme Park Inc, nothing can be built on it, and it clears once your park buys the land beside it
 - Fixed snow counting as rain for visitors in the TPI Worlds and Rides mod's worlds: in snow, kids now cheer up while parents and grandparents lose more happiness than in rain, and everyone gets less thirsty and hungrier, as in Theme Park Inc
-- Fixed golden tickets, and the keys they add up to, coming almost at once in the TPI Worlds and Rides mod's Land of Invention, Polar Zone and Arabian Nights: each world now asks for its tickets what the Theme Park World world of the same key price asks (Lost Kingdom, Wonder Land and Space Zone), and tickets already won stay won
-- Fixed the TPI Worlds and Rides mod's coasters and flumes losing their speed down drops and needing chain lifts on every climb and loop: they now run as fast as Theme Park World's own
-- Fixed the Depth Charge flume in the TPI Worlds and Rides mod showing its lift belt on the flat and downhill track and water on the climbs
-- Fixed the TPI Worlds and Rides mod's worlds missing Theme Park Inc's scenery round the park (the waterfall, the water wheel, the ponds' water, the ticket booths): a new park has it, and a park saved before gets it when loaded
-- Fixed the TPI Worlds and Rides mod's special rides wearing out: like in Theme Park Inc they never wear, and one worn in a park saved before gets its life back when the park is loaded
-- Gold rides switched on after a park began now get their research when the park loads, so their upgrades can be researched
-- An online park whose world the server does not list can no longer be visited, instead of loading in the wrong world
-- Fixed letters coming out in the wrong order when typing a name quickly with "Several keys at once", "W A S D move the camera" or "Free camera" on, and a quickly typed "a" going missing
-- Fixed the camera scrolling toward a window edge by itself after switching away from the game and back
+- Fixed golden tickets, and the keys they add up to, coming almost at once in the TPI Worlds and Rides mod's Land of Invention, Polar Zone and Arabian Nights: each world now asks for its tickets what the Theme Park World world of the same key price asks (Lost Kingdom, Wonder Land and Space Zone), and tickets already won stay won (Thanks Addable13)
+- Fixed the TPI Worlds and Rides mod's coasters and flumes losing their speed down drops and needing chain lifts on every climb and loop: they now run as fast as Theme Park World's own (Thanks Addable13)
+- Fixed the Depth Charge flume in the TPI Worlds and Rides mod showing its lift belt on the flat and downhill track and water on the climbs (Thanks Addable13)
+- Fixed the TPI Worlds and Rides mod's worlds missing Theme Park Inc's scenery round the park (the waterfall, the water wheel, the ponds' water, the ticket booths): a new park has it, and a park saved before gets it when loaded (Thanks Addable13)
+- Fixed the TPI Worlds and Rides mod's special rides wearing out: like in Theme Park Inc they never wear, and one worn in a park saved before gets its life back when the park is loaded (Thanks Addable13)
+- Gold rides switched on after a park began now get their research when the park loads, so their upgrades can be researched (Thanks @samueleagle91)
+- An online park whose world the server does not list can no longer be visited, instead of loading in the wrong world (Thanks @samueleagle91)
+- Fixed letters coming out in the wrong order when typing a name quickly with "Several keys at once", "W A S D move the camera" or "Free camera" on, and a quickly typed "a" going missing (Thanks @samueleagle91)
+- Fixed the camera scrolling toward a window edge by itself after switching away from the game and back (Thanks slappyhead and @samueleagle91)
 
 ### Changes
 
