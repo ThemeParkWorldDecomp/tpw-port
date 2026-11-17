@@ -661,6 +661,37 @@ void MoveFinishedResearchOn() {
         if (lab->mCategories[category].mF08 >= 0 && !lab->IsCategoryActive(cat)) lab->NextProject(cat);
     }
 }
+
+// TPW_PORT_FIX newrides AddResearchForNewRides | Mac: no such pass | Port: outside the TPI Worlds mod's worlds, gives each ride of the database that has no research project what CResearchLab::SetupProjects gives it when a park starts | Why: see CSaveLoad::PostLoadOperations, below
+// A park's research projects are set up once, when it starts, from the rides the database has then (CResearchLab::Init); a
+// ride switched on later (the Gold Edition's, or a mod's) has none. SetupProjects' own steps for each such ride: its project
+// (SetupProject: a ride whose research costs nothing is made available at once), else its first upgrade level that research
+// costs (SetupStatUpgrade: the levels before it that cost nothing are made available), in the next free slot. A ride the park
+// set up before has a project in the list (a finished one stays), or nothing left that SetupProjects would add, so it is left
+// as it is. A category with nothing left to research then takes a new project of its own, as NextProject picks one. In one
+// of the TPI Worlds mod's worlds the research is RepairTpiResearch's, which runs just before, so this pass leaves it alone.
+void AddResearchForNewRides() {
+    CResearchLab* lab = gGameWorld->GetResearchLab();
+    if (lab == nullptr || tpw::TpiWorldInPlay()) return;
+    const int32_t before = lab->mProjectCount;
+    for (RideInfo* ride = gRideDatabase.GetFirstRide(); ride != nullptr; ride = gRideDatabase.GetNextRide()) {
+        if (ride->mLoadFailed != 0 || ride->mUIType >= 4) continue;
+        bool known = false;
+        for (int32_t i = 0; i < lab->mProjectCount && !known; ++i) known = lab->mProjects[i].mObjectId == ride->mId;
+        if (known || lab->mProjectCount >= static_cast<int32_t>(std::size(lab->mProjects))) continue;
+        CResearchProject* project = &lab->mProjects[lab->mProjectCount];
+        bool added = project->SetupProject(ride) != 0;
+        if (!added) added = project->SetupStatUpgrade(ride) != 0;
+        if (!added) continue;
+        if (lab->mBestProject < 0 || project->mScore > lab->mProjects[lab->mBestProject].mScore) lab->mBestProject = lab->mProjectCount;
+        lab->mProjectCount = lab->mProjectCount + 1;
+    }
+    if (lab->mProjectCount == before) return;
+    std::fprintf(stderr, "port: %d research projects added for rides this park did not have when it began\n", lab->mProjectCount - before);
+    for (int32_t category = 0; category < static_cast<int32_t>(std::size(lab->mCategories)); ++category) {
+        if (lab->mCategories[category].mF08 < 0) lab->NextProject(static_cast<ResearchCat>(category));
+    }
+}
 }  // namespace
 
 namespace {
@@ -1183,6 +1214,8 @@ void CSaveLoad::PostLoadOperations() {
     gGameWorld->GetControlManager()->CheckAllControlsInitialised();
     // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park keeps the controls and research projects it saved) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, once every type has a control, each type with no research cost saved unavailable or named by a research project has its control made again from its record, available, each research project whose type now has no research cost goes to the type it was made for, the two types' counts in the park recounted, and each researchable type with neither a project nor availability gets one (RepairTpiResearch, include/TpiSaveRepair.h) | Why: the mod's converter 14 gave Land of Invention's staff room the security camera's id (7730) and the camera the next one, but a park keeps the controls and research projects made when it started, so parks started before it kept the staff room with the camera's unresearched control and price, out of every build list, and the camera with no project, and counted their cameras as staff rooms; off, or an original world, a park loads as it was saved
     RepairTpiResearch();
+    // TPW_PORT_FIX newrides CSaveLoad::PostLoadOperations | Mac: (none: a park's research projects are set up once, when it starts, from the rides the database has then, and a ride added later gets only its object control here, available when its own research costs nothing) | Port: each ride that has no research project gets the one a new park would give it (AddResearchForNewRides), once the controls are set up and after the TPI Worlds mod's own research repair (RepairTpiResearch), whose worlds it leaves alone | Why: a park begun with the Gold rides switched off and played with them on could never research the Gold rides' upgrades (Dare Devil, and the others whose upgrades cost research), and their free upgrade levels were never made available; a park that had them from the start loads as before (reported by Addable13)
+    AddResearchForNewRides();
     RecalculateParkDarkening();
     gRestartParkClocks = 1;
     gClock.PostLoad();
