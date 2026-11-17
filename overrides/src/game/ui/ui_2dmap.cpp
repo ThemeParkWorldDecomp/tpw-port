@@ -4,6 +4,7 @@
 #include "AdvisorScoring.h"
 #include "analyser.h"
 #include "CellBase.h"
+#include "CellIdLookup.h"
 #include "Debug.h"
 #include "DrawRenderClasses.h"
 #include "DrawState.h"
@@ -772,7 +773,8 @@ void CUI2DMap::StoreMapGridDetails() {
                     parent = At_2<uint16_t>(cell, 0x10);
                 }
                 bool found = false;
-                uint16_t thingId = At_2<uint16_t>(cells + (static_cast<int32_t>(parent) - 1) * 0x44, 0x24);
+                // TPW_PORT_FIX cellzero CUI2DMap::StoreMapGridDetails | Mac: for the parent's thing list, a parent id 0 reads map cell 0's list head, the high half of the year, 0, an empty list | Port: an empty list for the parent 0 without reading it (tpw::CellIdWho, include/CellIdLookup.h) | Why: a little-endian host reads the year itself there as a thing id
+                uint16_t thingId = tpw::CellIdWho(parent, At_2<uint16_t>(cells + (static_cast<int32_t>(parent) - 1) * 0x44, 0x24));
                 while (thingId != gUI2DMapGridThingListEnd && !found) {
                     GAME_ASSERTMSG(gThingArray[0].mThing == nullptr, kThingZeroMessage);
                     if (static_cast<CThing*>(gThingArray[thingId].mThing)->mKind == 3) {

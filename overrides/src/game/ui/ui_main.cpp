@@ -4,6 +4,7 @@
 #define TPW_V51039_STRONG
 #include "AdvisorQueue.h"
 #include "analyser.h"
+#include "CellIdLookup.h"
 #include "Cheat.h"
 #include "Debug.h"
 #include "FillLenderList.h"
@@ -830,10 +831,11 @@ void* ThingOf(uint16_t id) {
 }
 
 CMapCell* MapCellOf(uint32_t id) {   // the 1 based cell id
-    return reinterpret_cast<CMapCell*>(reinterpret_cast<char*>(gGameWorld->GetMap()) + static_cast<uint32_t>((id - 1) * 0x44u));
+    // TPW_PORT_FIX cellzero MapCellOf/TrackCellOf | Mac: (id - 1) * size wraps in 32 bits, so a parent id 0 is the cell before the first one, inside CWorld | Port: the same place by a signed offset (tpw::CellIdAt, include/CellIdLookup.h) | Why: the offset taken as unsigned put the id 0 4 GB past the cells; pointing at a TPI Worlds hoarding cell whose post RepairTpiWalkways had reset crashed ContextMouse (0.5.5)
+    return tpw::CellIdAt<CMapCell>(gGameWorld->GetMap(), id, 0x44u);
 }
 CTrackCell* TrackCellOf(uint32_t id) {
-    return reinterpret_cast<CTrackCell*>(reinterpret_cast<char*>(gGameWorld->GetMap()) + 0x110000 + static_cast<uint32_t>((id - 1) * 0x28u));
+    return tpw::CellIdAt<CTrackCell>(reinterpret_cast<char*>(gGameWorld->GetMap()) + 0x110000, id, 0x28u);
 }
 
 TbITable* HelpTable() {

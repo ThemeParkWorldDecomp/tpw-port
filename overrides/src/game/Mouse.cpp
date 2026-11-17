@@ -3,6 +3,7 @@
 #include "AdvisorQueue.h"
 #include "AdvisorScoring.h"
 #include "analyser.h"
+#include "CellIdLookup.h"
 #include "Debug.h"
 #include "DynamicMesh.h"
 #include "ESP_sprites.h"
@@ -136,7 +137,8 @@ void NewStaff(Args... args) {
 // The map cell of the pointer (gIntrface.mF24, the 1 based id): plain arithmetic on the world, as the Mac does it.
 CMapCell* PointerCell() {
     const uint16_t id = gIntrface.mF24;
-    return reinterpret_cast<CMapCell*>(reinterpret_cast<char*>(gGameWorld->GetMap()) + static_cast<uint32_t>((id - 1) * 0x44u));
+    // TPW_PORT_FIX cellzero PointerCell | Mac: (id - 1) * 0x44 wraps in 32 bits, so the id 0 (TPPointer's "off the map") is the cell before the first one, inside CWorld | Port: the same place by a signed offset (tpw::CellIdAt, include/CellIdLookup.h) | Why: the offset taken as unsigned put the id 0 4 GB past the cells, as in ContextMouse's crash (0.5.5)
+    return tpw::CellIdAt<CMapCell>(gGameWorld->GetMap(), id, 0x44u);
 }
 
 // The Mac makes the mouse and its default mode in this order inline: the mouse (an empty class on the Mac, operator new(1)), then the default

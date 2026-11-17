@@ -2,6 +2,7 @@
 
 #include "analyser.h"
 #include "CellBase.h"
+#include "CellIdLookup.h"
 #include "CMessageCentre.h"
 #include "CMsg.h"
 #include "Debug.h"
@@ -367,7 +368,10 @@ void CPerson::ProcessStateWaitingForParkToOpen() {
             SetState(static_cast<PersonState>(2));
         } else {
             int32_t cell = CellOf_2(this);
-            uint16_t who = At_2<uint16_t>(gWorldMap, static_cast<uint32_t>((cell - 1) * 0x44 + 0x24));
+            // TPW_PORT_FIX cellzero CPerson::ProcessStateWaitingForParkToOpen | Mac: at the ticket queue's head, (cell - 1) * 0x44 + 0x24 wraps in 32 bits, so the cell 0 reads map cell 0's list head, the high half of the year, 0 | Port: map cell 0 by a signed offset, and its list head 0 (tpw::CellIdOffset, tpw::CellIdWho, include/CellIdLookup.h) | Why: the offset taken as unsigned put the cell 0 4 GB past the map cells, and a little-endian host reads the year itself there
+            uint16_t who = tpw::CellIdWho(static_cast<uint32_t>(cell),
+                                          *reinterpret_cast<uint16_t*>(reinterpret_cast<char*>(gWorldMap) +
+                                                                       tpw::CellIdOffset(static_cast<uint32_t>(cell), 0x44u) + 0x24));
             auto id = reinterpret_cast<CThing*>(this)->GetThingId();
             if (who == id.mIndex) {
                 uint32_t rnd = gWorld->GetRand();

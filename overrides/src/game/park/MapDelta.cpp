@@ -3,6 +3,7 @@
 #include "AdvisorQueue.h"
 #include "analyser.h"
 #include "CellBase.h"
+#include "CellIdLookup.h"
 #include "CMessageCentre.h"
 #include "CMsgDeath.h"
 #include "Debug.h"
@@ -334,6 +335,12 @@ MapDelta MapDelta::operator*(int32_t k) const {
 
 // 0x10103a04, 184 bytes. GetWorld is called on the cell (the original's inline copy ignores `this`); its answer is not used.
 ThingId CMapCell::GetObjectThingId() const {
+    // TPW_PORT_FIX cellzero CMapCell::GetObjectThingId | Mac: map cell 0 (the id 0, one cell before the grid) reads its list head from the high half of the park's year, 0, and answers no thing | Port: answers no thing for map cell 0 without reading it (tpw::IsMapCellZero, include/CellIdLookup.h) | Why: a little-endian host reads the year itself there as a thing id
+    if (gWorld != nullptr && tpw::IsMapCellZero(this, gWorld->GetMap())) {
+        ThingId none;
+        none.mIndex = 0;
+        return none;
+    }
     uint16_t current = mWho;
     while (current != gGetObjectThingIdEnd) {
         (void)reinterpret_cast<const CWorldSavvy*>(this)->GetWorld();

@@ -660,6 +660,14 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_tpi_ride_camera PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_ride_camera COMMAND tpw_host_tpi_ride_camera)
   endif()
+  # A map or track cell found by its 1 based id (include/CellIdLookup.h): the id 0 lands one cell before the grid, inside
+  # the world, as the Mac's 32 bit sum puts it, and map cell 0's thing list is empty, without game data. The original
+  # needs no such helper, so it is made only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_cell_id_lookup ${TPW_DECOMP_DIR}/tests/host_cell_id_lookup.cpp)
+    target_include_directories(tpw_host_cell_id_lookup PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME cell_id_lookup COMMAND tpw_host_cell_id_lookup)
+  endif()
   # The TPI Worlds and Rides mod's repair of parks saved before a converter showed more ground (TPW_MOD_HOOK tpi_worlds,
   # include/TpiSaveRepair.h): which saved map and track cells are reset as land on loading, without game data. The
   # original has no such mod, so it is made only with the port's fixes.
