@@ -7,6 +7,8 @@
 #include "Game.h"
 #include "GameSys.h"
 #include "LbFile.h"
+// TPW_PORT_FIX mods DC_TickDynamicCellMeshes | Mac: the eight flags are drawn at their fixed spots in every world | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGateFlow.h): in one of the mod's worlds none is drawn (tpw::TpiEntranceFlags); the cloth is still animated, so its phase and grids stay the Mac's | Why: tpw-mods tpi-worlds; the spots stand over Theme Park World's entrance poles, and Theme Park Inc's entrance has none there, so the flags hung in the air over its ticket booths (the maintainer, 0.5.6) | Off: all eight, the Mac's
+#include "TpiGateFlow.h"
 // TPW_PORT_FIX framerate DC_TickDynamicCellMeshes | Mac: once a frame the scroll lags move half way to ten times the map origin, and while the clock runs the water and flag phases move on by 0.4 (and a phase by 0.1) times the game speed and the cursor blink counts a frame (on for 7, off for 2) | Port: the lags move as far as that many halvings would and the phases that amount times the steps' times (kPortFrameStepTime) since the last frame (PortFrameScale), and the blink counts once each step's time (PortFrameSteps) | Why: the water, the flags and the cursor squares kept one pace at any frame rate
 #include "LbTime.h"
 #include "LLCellSystem.h"
@@ -282,7 +284,8 @@ void DC_TickDynamicCellMeshes() {
     // They alternate between texture 0x12 and 0x13.
     DC_AnimateFlag(7, 5, 1.8f, gDynamicCellF9D9C);
     int32_t texture = 0x12;
-    for (int32_t i = 0; i < 8; ++i) {
+    const int32_t flags = tpw::TpiEntranceFlags(8);   // TPW_MOD_HOOK tpi_worlds: none in the mod's worlds
+    for (int32_t i = 0; i < flags; ++i) {
         const CWeather* weather = gGameWorld->GetWeather();
         const float wind = *reinterpret_cast<const float*>(reinterpret_cast<const uint8_t*>(weather) + 0x5c);   // (CWeather has no members yet)
         const sDynamicFlagSpot& spot = gDynamicFlagSpots[i];

@@ -622,7 +622,8 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     add_test(NAME tpi_advisor COMMAND tpw_host_tpi_advisor)
   endif()
   # The TPI Worlds and Rides mod's walks outside the park gate (TPW_MOD_HOOK tpi_worlds, include/TpiGateFlow.h): the cells a
-  # visitor leaving waits for the bus on, the crossing's bus side, and when the mod's walks are used, without game data.
+  # visitor leaving waits for the bus on, the crossing's bus side, when the mod's walks are used, and how many entrance
+  # flags are drawn, without game data.
   # The original has no such mod, so it is made only with the port's fixes.
   if(TPW_PORT_FIX)
     add_executable(tpw_host_tpi_gate_flow ${TPW_DECOMP_DIR}/tests/host_tpi_gate_flow.cpp)

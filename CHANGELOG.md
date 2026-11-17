@@ -27,6 +27,7 @@
 - Fixed the SimCoaster/TPI - New Worlds, Rides and Sprites mod's coasters and flumes losing their speed down drops and needing chain lifts on every climb and loop: they now run as fast as Theme Park World's own (Thanks Addable13)
 - Fixed the Depth Charge flume in the SimCoaster/TPI - New Worlds, Rides and Sprites mod showing its lift belt on the flat and downhill track and water on the climbs (Thanks Addable13)
 - Fixed the SimCoaster/TPI - New Worlds, Rides and Sprites mod's worlds missing SimCoaster AKA Theme Park Inc's scenery round the park (the waterfall, the water wheel, the ponds' water, the ticket booths): a new park has it, and a park saved before gets it when loaded (Thanks Addable13)
+- Fixed eight flags hanging in the air with no poles at the park entrance in the SimCoaster/TPI - New Worlds, Rides and Sprites mod's worlds: those worlds have no flagpoles there, so the flags are gone (Thanks slappyhead on Discord)
 - Fixed the SimCoaster/TPI - New Worlds, Rides and Sprites mod's special rides wearing out: like in SimCoaster AKA Theme Park Inc they never wear, and one worn in a park saved before gets its life back when the park is loaded (Thanks Addable13)
 - Gold rides switched on after a park began now get their research when the park loads, so their upgrades can be researched (Thanks @samueleagle91)
 - An online park whose world the server does not list can no longer be visited, instead of loading in the wrong world (Thanks @samueleagle91)

@@ -8,7 +8,8 @@
 // two rows above stop A and the crossing's bus side (on the road) are not walkable, so a visitor leaving waits for ever on
 // the plaza in front of the gate, and a visitor arriving gets no walk to the crossing and wanders in without paying.
 // In the mod's worlds the second row of the stop's cells is the row below the stop, and the crossing's bus side is in the
-// crossing's column on that row too: both on the pavement. Header only and pure, so the host test sees what the game does.
+// crossing's column on that row too: both on the pavement. The entrance's eight flags, which hang over Theme Park World's
+// poles, are not drawn there. Header only and pure, so the host test sees what the game does.
 #pragma once
 
 
@@ -31,6 +32,9 @@ inline void TpiNoteTheme(const char* theme) { gTpiThemeIsMod = TpiWorldOf(theme)
 
 // The mod's walks are used: the hook is on and the theme being played is one of the mod's worlds.
 inline bool TpiWorldInPlay() { return gModTpiWorlds && gTpiThemeIsMod; }
+
+// TPW_PORT_FIX mods tpw::TpiEntranceFlags | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiWorlds.h): how many of the `count` flags DC_TickDynamicCellMeshes draws at its fixed spots (gDynamicFlagSpots, over Theme Park World's entrance poles): none while one of the mod's worlds is played, all of them otherwise | Why: Theme Park Inc's entrance has no poles there, so the flags hung in the air over its ticket booths | Off: all of them, the Mac's
+inline int32_t TpiEntranceFlags(int32_t count) { return TpiWorldInPlay() ? 0 : count; }
 
 // Cell `which` (0 to 3) of the four that a visitor leaving waits for the bus on: the stop, the cell east of it, and the
 // same two `rows` rows down (negative: up). A map cell's id is x + (y << 7) + 1; the sum is cut to 16 bits, as the
