@@ -177,7 +177,8 @@ bool ImporterBackend::SetLastChoice(const std::string& choice, std::string& err)
 void KeepSettings(const ImporterBackend& backend, const std::string& prefPath, const std::vector<std::string>& more) {
     std::vector<std::string> keys = {kSkipIntroKey, kBackToLauncherKey, kSmoothZoomKey, kInterfaceSizeKey, kPcSoundPicksKey,
                                      kRideBadgesKey, kSoundPanKey, kSeveralKeysKey, kWasdCameraKey, kFarZoomKey, kFullScreenKey,
-                                     kRendererKey, kFrameRateKey,
+                                     kRendererKey, kFrameRateKey, kFreeCameraKey, kFreeSwipeKey, kFreeInvertKey,
+                                     kFreeSensitivityKey, kFreeFlySpeedKey, kFreeSmoothingKey, kFreeThroughGroundKey,
                                      kCheckUpdatesKey, kLanguageUsKey, kLanguageEurKey, kOnlineServerKey,
                                      kUpdateLastCheckKey, kUpdateFoundKey};
     for (const SamOption& option : SamOptions()) keys.push_back(option.key);   // the Graphics section's keys

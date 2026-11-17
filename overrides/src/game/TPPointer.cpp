@@ -507,7 +507,15 @@ void CalculatePointerWorldPosn(s3DPoint* position, float /*distance*/, s3DPoint*
         }
         const float limit = hitFound != 0 ? hit.y + yStep : 0.0f;
         tag_sRideAnimSet* ride = nullptr;
+        // TPW_PORT_FIX freecam CalculatePointerWorldPosn | Mac: walks the ray while its height is at or above the limit, which never ends when the ray does not descend | Port: with the free camera on, a ray that does not descend skips the walk (no ride), and the walk stops once the ray is outside the map and moving further out | Why: the free camera tilts to the horizon, where pointer rays run level or upward; the original camera never looks that low. With the setting off nothing changes.
+        const bool freeWalk = gPortFreeCamera;
+        const float mapEndX = orgX + sizeX * static_cast<float>(field->mF18[0]);
+        const float mapEndZ = orgZ + sizeZ * static_cast<float>(field->mF18[1]);
+        if (freeWalk && !(std::isfinite(yStep) && yStep < 0.0f)) ry = limit - 1.0f;
         while (ry >= limit) {
+            if (freeWalk && ((rx < orgX && dx <= 0.0f) || (rx > mapEndX && dx >= 0.0f) || (rz < orgZ && dz <= 0.0f) ||
+                             (rz > mapEndZ && dz >= 0.0f)))
+                break;
             uint32_t cellX = cw_cvt_fp2unsigned(rx / 10.0f);
             uint32_t cellZ = cw_cvt_fp2unsigned(rz / 10.0f);
             ride = FindPointedRide(cellX, cellZ, alongX ? 1 : 0, rx, ry, rz, yStep, &dir, &gCameraViewPoint, step);

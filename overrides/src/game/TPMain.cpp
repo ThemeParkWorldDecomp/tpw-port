@@ -313,6 +313,51 @@ void ThemeParkWorld::HandleActivateWindow(GrafPort* window, bool active) {   // 
     }
 }
 
+// TPW_PORT_FIX freecam PortFreeOverPark | Mac: (none) | Port: the free camera's run loop hooks (include/PortFreeCamera.h): the pointer is over the park when the window that has it (the captured one, else the one it is in) is the park's; a drag goes on while no other panel opens and first person does not start | Why: the Free camera's input reaches only the park, as SPEC asks
+namespace {
+InterfaceWindow* sFreeDragPanel = nullptr;   // the panel open when the drag started
+}
+
+bool PortFreeOverPark() {
+    const InterfaceWindow* window = gUICaptureDevice != nullptr ? gUICaptureDevice : gUIPointerIn;
+    return window != nullptr && window == gGameWindow;
+}
+
+bool PortFreeHookWheel(float x, float y, bool fractional, uint16_t macModifiers, uint64_t nowMs) {
+    return PortFreeWheel(x, y, fractional, PortFreeGameModifiers(macModifiers), nowMs, PortFreeOverPark());
+}
+
+int PortFreeHookDragStart(int button, uint16_t macModifiers) {
+    const int taken = PortFreeDragStart(button, PortFreeGameModifiers(macModifiers), PortFreeOverPark());
+    if (taken == 0) return 0;
+    sFreeDragPanel = gUIPanelWindow;
+    return taken;
+}
+
+void PortFreeHookDragMove(float dx, float dy) { PortFreeDragMove(dx, dy); }
+
+bool PortFreeHookDragGoing() {
+    return PortFreeDragGoing(gUIPanelWindow != nullptr && gUIPanelWindow != sFreeDragPanel);
+}
+
+void PortFreeHookDragEnd() {
+    PortFreeDragEnd();
+    sFreeDragPanel = nullptr;
+}
+
+void PortFreeHookPinch(float scale) { PortFreePinch(scale, PortFreeOverPark()); }
+
+// The tables the park window asks for a key (ui_main.cpp Engine_GameWinMsg: debug, camera, game, shortcuts), enabled ones only.
+bool PortFreeHookTableKey(int32_t key, int32_t modifiers) {
+    CKeyTable* const tables[4] = {gKeyTableDebug, gKeyTableCamera, gKeyTableGame, gKeyTableShortcuts};
+    for (CKeyTable* const table : tables) {
+        if (table != nullptr && table->mEnabled != 0 &&
+            table->Search(static_cast<int16_t>(key), static_cast<int16_t>(modifiers)) >= 0)
+            return true;
+    }
+    return false;
+}
+
 // Command 3 (quit) asks for confirmation in the lobby (state 2) and in a park (state
 // 10); in any other state it ends UGamework::Run at once.
 void ThemeParkWorld::HandleCommand(int32_t command, uint32_t modifiers) {   // 0x10001170

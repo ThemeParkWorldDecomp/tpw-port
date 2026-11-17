@@ -2902,6 +2902,70 @@ void CheckSeveralKeysSwitch(SDL_Renderer* renderer) {
     CheckEq(b.Setting(kSeveralKeysKey), "0", "several keys: a launcher.ini with 1 shows it on, so one click turns it off");
 }
 
+// The Settings box's Free camera switch (launcher_ui.h kFreeCameraKey): with the port's fixes, off when launcher.ini has no
+// key and its settings hidden; a click keeps "1" and shows them (Two-finger swipe first, its second choice keeps "zoom"),
+// and the box's height counts them; a second click "0" hides them again. The OFF build has no such row. The sliders' values
+// are kept as multipliers (FreeQuarters).
+void CheckFreeCameraSwitch(SDL_Renderer* renderer) {
+    CheckEq(std::to_string(FreeQuarters("")), "4", "free camera: an absent multiplier is 1x");
+    CheckEq(std::to_string(FreeQuarters("0.25")), "1", "free camera: 0.25x is a quarter");
+    CheckEq(std::to_string(FreeQuarters("4")), "16", "free camera: 4x is sixteen quarters");
+    CheckEq(std::to_string(FreeQuarters("9")), "4", "free camera: a multiplier out of range is 1x");
+    CheckEq(std::to_string(FreeQuarters("x")), "4", "free camera: no number is 1x");
+    CheckEq(FreeQuartersText(5), "1.25", "free camera: five quarters are kept as 1.25");
+    CheckEq(FreeQuartersText(16), "4", "free camera: sixteen as 4");
+    FakeBackend b;
+    const float width = 1100, height = 3000;   // tall enough for the whole box
+    auto clickAt = [&](LauncherUi& ui, float x, float y) {
+        ui.HandleEvent(MotionEvent(x, y));
+        ui.Frame(kDt, width, height, 1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, x, y));
+        ui.Frame(kDt, width, height, 1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, x, y));
+        ui.Frame(kDt, width, height, 1);
+    };
+    // The box grows or shrinks with the settings and is centred again at the next frame: one more before reading it.
+    auto click = [&](LauncherUi& ui) {
+        clickAt(ui, ui.FreeCameraRect().CentreX(), ui.FreeCameraRect().CentreY());
+        ui.Frame(kDt, width, height, 1);
+    };
+    auto bodyCounted = [](LauncherUi& ui, const char* what) {
+        const float counted = ui.SettingsBodyCounted(), drawn = ui.SettingsBodyDrawn();
+        std::printf("free camera (%s): the body counted %.2f points, drawn %.2f\n", what, counted, drawn);
+        Check(drawn > 0 && counted - drawn > -0.5f && counted - drawn < 0.5f,
+              std::string("free camera: the box's height counts its rows, ") + what);
+    };
+    LauncherUi ui(renderer, b);
+    ui.ShowSettings(true);
+    ui.Frame(kDt, width, height, 1);
+    if (!kFreeCameraRow) {
+        Check(ui.FreeCameraRect().w == 0, "free camera: the OFF build has no switch");
+        return;
+    }
+    Check(ui.FreeCameraRect().w > 0, "free camera: the switch is in the Settings box");
+    Check(ui.FreeSwipeRect().w == 0, "free camera: off, its settings are hidden");
+    CheckEq(b.Setting(kFreeCameraKey), "", "free camera: nothing is kept until the player chooses");
+    bodyCounted(ui, "off");
+    click(ui);
+    CheckEq(b.Setting(kFreeCameraKey), "1", "free camera: a click turns it on");
+    Check(ui.FreeSwipeRect().w > 0 && ui.FreeSwipeRect().y > ui.FreeCameraRect().y,
+          "free camera: on, its settings show below it");
+    bodyCounted(ui, "on");
+    const Rect swipe = ui.FreeSwipeRect();
+    clickAt(ui, swipe.x + swipe.w * 0.75f, swipe.CentreY());
+    CheckEq(b.Setting(kFreeSwipeKey), "zoom", "free camera: Two-finger swipe's second choice keeps zoom");
+    clickAt(ui, swipe.x + swipe.w * 0.25f, swipe.CentreY());
+    CheckEq(b.Setting(kFreeSwipeKey), "move", "free camera: and its first move");
+    click(ui);
+    CheckEq(b.Setting(kFreeCameraKey), "0", "free camera: a second click turns it off");
+    Check(ui.FreeSwipeRect().w == 0, "free camera: off again, its settings are hidden");
+    b.settings[kFreeCameraKey] = "1";
+    LauncherUi again(renderer, b);
+    again.ShowSettings(true);
+    again.Frame(kDt, width, height, 1);
+    Check(again.FreeSwipeRect().w > 0, "free camera: a launcher.ini with 1 shows it on, with its settings");
+}
+
 // The Settings box's W A S D move the camera switch (launcher_ui.h kWasdCameraKey): off when launcher.ini has no key (the
 // original's keys), a click keeps "1", a second click "0", and a launcher.ini with "1" shows it on.
 void CheckWasdCameraSwitch(SDL_Renderer* renderer) {
@@ -4014,6 +4078,8 @@ void CheckKeepSettings(const std::string& screens) {
         Check(backend.SaveSetting("mod.test-off", "0", err), "keep settings: a mod switched off is saved: " + err);
         Check(backend.SaveSetting(kSkipIntroKey, "1", err), "keep settings: Skip the intro films is saved: " + err);
         Check(backend.SaveSetting(kFarZoomKey, "1", err), "keep settings: Zoom out further is saved: " + err);
+        Check(backend.SaveSetting(kFreeCameraKey, "1", err), "keep settings: Free camera is saved: " + err);
+        Check(backend.SaveSetting(kFreeFlySpeedKey, "2.5", err), "keep settings: the fly speed is saved: " + err);
         Check(backend.SaveSetting("mod.test-unlisted", "1", err), "keep settings: another key is saved: " + err);
         CheckEq(saved("mod.test-on"), "1", "keep settings: the switch is in the file before Play");
         backend.SetLastChoice(assets::EditionName(assets::kEditionUs), err);   // what Play does
@@ -4022,6 +4088,8 @@ void CheckKeepSettings(const std::string& screens) {
         CheckEq(saved("mod.test-off"), "0", "keep settings: a mod switched off stays off after Play");
         CheckEq(saved(kSkipIntroKey), "1", "keep settings: Skip the intro films stays after Play");
         CheckEq(saved(kFarZoomKey), "1", "keep settings: Zoom out further stays after Play");
+        CheckEq(saved(kFreeCameraKey), "1", "keep settings: Free camera stays after Play");
+        CheckEq(saved(kFreeFlySpeedKey), "2.5", "keep settings: the fly speed stays after Play");
         CheckEq(saved("mod.test-unlisted"), "(absent)", "keep settings: only the keys named are written again");
         CheckEq(saved("mod.test-never"), "(absent)", "keep settings: a key never saved is not written");
     }
@@ -4064,6 +4132,7 @@ int main(int argc, char** argv) {
         CheckGameOptions(renderer);
         CheckSeveralKeysSwitch(renderer);
         CheckWasdCameraSwitch(renderer);
+        CheckFreeCameraSwitch(renderer);
         CheckOnlineServerField(renderer);
         CheckFrameRateSlider(renderer);
         CheckRendererRow(renderer);

@@ -6,6 +6,7 @@
 #include "TPCamera.h"
 #include "TPMain.h"
 #include "keyboard.h"
+#include "PortFreeCamera.h"
 
 // The launcher sets it from its Settings box (launcher/main.cpp); off by default, and the differential tests leave it off.
 inline bool gPortWasdCamera = false;
@@ -30,6 +31,9 @@ inline int PortWasdIndex(int32_t key) {
 
 // A key up of one of the four lets go of the camera key its key down pressed, if it still holds one.
 inline void PortWasdLetGo(int32_t key) {
+    // freecam: with "Free camera" on, a key up also lets go of what the key held for the free camera, whichever window has
+    // the keyboard (a free camera key must never outlive its key)
+    if (gPortFreeCamera) PortFreeLetGoKey(PortFreeKeyOf(key));
     const int index = PortWasdIndex(key);
     if (index < 0 || gPortWasdHeld[index] == 0) return;
     gKeyTableCamera->KeyUp(gPortWasdHeld[index], 0);
@@ -38,6 +42,8 @@ inline void PortWasdLetGo(int32_t key) {
 
 // TPW_PORT_FIX wasd-camera gPortWasdCamera/PortWasdCameraKey | Mac: no such setting | Port: with gPortWasdCamera on, the plain (no modifier) W, A, S and D, by their place on the keyboard (Z Q S D on AZERTY), go to the camera table as keypad 8, 4, 2 and 6 over the park (scrolling it) and as the up, left, down and right arrows in first person (walking and turning); true when the key was one of the four, and then the caller's own tables are not asked; a key up lets go of what its key down pressed whatever modifier is held by then | Why: to move the map with W A S D instead of the mouse, as the maintainer asked
 inline bool PortWasdCameraKey(int32_t key, int32_t modifiers, bool down) {
+    // freecam: the free camera's keys first (PortFreeCameraKey, include/PortFreeCamera.h, which says what it takes)
+    if (PortFreeCameraKey(key, modifiers, down)) return true;
     const int index = PortWasdIndex(key);
     if (index < 0) return false;
     if (!down) PortWasdLetGo(key);
@@ -61,6 +67,7 @@ inline bool PortWasdNothing(int32_t key, int32_t modifiers) {
 }
 // TPW_PORT_FIX wasd-stuck PortWasdLetGoAll | Mac: no such setting | Port: with gPortWasdCamera on, every camera key the four still hold is let go when the game loses the focus (ThemeParkWorld::HandleActivateWindow) and when the park's window goes (Engine_GameWinMsg) | Why: a camera key must never outlive its key; one left held kept the camera scrolling through a trip to the lobby (reported by the maintainer)
 inline void PortWasdLetGoAll() {
+    PortFreeLetGoAll();   // freecam: and every key the free camera holds
     for (int16_t& held : gPortWasdHeld) {
         if (held == 0) continue;
         gKeyTableCamera->KeyUp(held, 0);
@@ -77,10 +84,15 @@ inline bool PortWasdPlace(uint8_t macKeyCode) {
 }
 // TPW_PORT_FIX wasd-stuck PortWasdStrayKeyUp | Mac: no such setting | Port: with gPortWasdCamera on, the run loop (tpw::gPortStrayKeyUp, platform/gamework.cpp) passes the key-up of a key it had no longer remembered, by its Mac key code; one of the four places (W A S D on a US keyboard) lets go of the camera key it still holds | Why: such a key-up reached no window, and the camera key its key down pressed stayed down (reported by the maintainer)
 inline void PortWasdStrayKeyUp(uint8_t macKeyCode) {
+    PortFreeStrayKeyUp(macKeyCode);   // freecam: and what the key holds for the free camera
     static constexpr uint8_t kPlaces[4] = {0x0d, 0x00, 0x01, 0x02};
     for (int i = 0; i < 4; ++i) {
         if (macKeyCode != kPlaces[i] || gPortWasdHeld[i] == 0) continue;
         gKeyTableCamera->KeyUp(gPortWasdHeld[i], 0);
         gPortWasdHeld[i] = 0;
     }
+}
+// TPW_PORT_FIX freecam PortCameraKeysTogether | Mac: (none) | Port: the run loop's tpw::gPortKeyTogether while "Free camera" is on: the four of W A S D (with that setting on) and the free camera's keys (PortFreePlace) stay down together | Why: Z with Q, or W with Shift and Q in flight, are held at once
+inline bool PortCameraKeysTogether(uint8_t macKeyCode) {
+    return (gPortWasdCamera && PortWasdPlace(macKeyCode)) || PortFreePlace(macKeyCode);
 }

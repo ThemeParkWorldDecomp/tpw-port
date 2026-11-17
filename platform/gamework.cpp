@@ -6,6 +6,7 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cctype>
 #include <vector>
 
@@ -196,6 +197,36 @@ bool OutsideWindow(SDL_WindowID id, float x, float y) {
     if (window == nullptr || !SDL_GetWindowSize(window, &wide, &high)) return false;
     return x < 0.0f || y < 0.0f || x >= static_cast<float>(wide) || y >= static_cast<float>(high);
 }
+
+// TPW_PORT_FIX freecam UGamework::Run | Mac: (none: every button and wheel event went to the game) | Port: with the launcher's Free camera on (tpw::gPortDragStart and its hooks, set before the game starts), a button the camera takes as a drag holds the mouse in SDL's relative mode, its moves go to the camera and the game is told nothing; the drag ends, and the pointer is given back where it was, at the button's key-up, at the focus loss, or when the camera says it may not go on (a panel opened, first person); a drag whose quick click goes to the game sends that click at the key-up; the wheel's precise deltas go to the camera first (tpw::gPortWheel); off, none of it | Why: the Free camera's drags and trackpad, as SPEC asks
+struct FreeDrag {
+    bool active = false;        // the camera's drag, in relative mouse mode
+    bool held = false;          // its button is still down (an ended drag's key-up is the camera's too)
+    uint8_t sdlButton = 0;
+    MouseButton button = kMouseButton0;
+    SDL_Window* window = nullptr;
+    float x = 0.0f, y = 0.0f;   // where it started, in window coordinates
+    uint64_t startMs = 0;
+    float moved = 0.0f;         // how far it moved, in pixels along both axes
+    bool clickThrough = false;  // a quick click goes to the game
+};
+FreeDrag gFreeDrag;
+constexpr uint64_t kFreeClickMs = 250;
+constexpr float kFreeClickMoved = 6.0f;
+
+// Ends the camera's drag: relative mode off and the pointer back where the drag started; the button stays held.
+void EndFreeDrag() {
+    if (!gFreeDrag.active) return;
+    gFreeDrag.active = false;
+    if (gFreeDrag.window != nullptr) {
+        SDL_SetWindowRelativeMouseMode(gFreeDrag.window, false);
+        SDL_WarpMouseInWindow(gFreeDrag.window, gFreeDrag.x, gFreeDrag.y);
+    }
+    if (tpw::gPortDragEnd != nullptr) tpw::gPortDragEnd();
+}
+
+// Whether a fine wheel delta is fractional (a trackpad's or a high-resolution wheel's).
+bool Fractional(float value) { return value != static_cast<float>(static_cast<int32_t>(value)); }
 #endif
 
 bool MouseButtonFromSDL(uint8_t sdlButton, MouseButton& button) {
@@ -288,6 +319,7 @@ void UGamework::Run() {
     while (mRunning) {
 #ifdef TPW_PORT_FIX
         if (gPointerOutside && !gScripted.active && tpw::gPortPointerLeft != nullptr) tpw::gPortPointerLeft();   // pointerleave
+        if (gFreeDrag.active && (tpw::gPortDragGoing == nullptr || !tpw::gPortDragGoing())) EndFreeDrag();   // freecam
 #endif
         SDL_Event sdl;
         while (mRunning && SDL_PollEvent(&sdl)) {
@@ -298,6 +330,13 @@ void UGamework::Run() {
                 HandleCommand(3, tpw::MacModifiersFromSDL(static_cast<uint16_t>(SDL_GetModState())));
                 break;
             case SDL_EVENT_MOUSE_MOTION: {
+#ifdef TPW_PORT_FIX
+                if (gFreeDrag.active) {   // freecam: the drag's moves are the camera's, and the game's pointer stays put
+                    gFreeDrag.moved += std::fabs(sdl.motion.xrel) + std::fabs(sdl.motion.yrel);
+                    if (tpw::gPortDragMove != nullptr) tpw::gPortDragMove(sdl.motion.xrel, sdl.motion.yrel);
+                    break;
+                }
+#endif
                 gScripted.active = false;   // the real mouse takes over from a scripted click
                 const tpw::Event event = MakeEvent(sdl.motion.x, sdl.motion.y);
                 HandleMouseMoved(event);
@@ -311,6 +350,38 @@ void UGamework::Run() {
                 MouseButton button;
                 if (!MouseButtonFromSDL(sdl.button.button, button)) break;
                 const tpw::Event event = MakeEvent(sdl.button.x, sdl.button.y);
+#ifdef TPW_PORT_FIX
+                // freecam: a button the camera takes, and its key-up
+                if (sdl.type == SDL_EVENT_MOUSE_BUTTON_UP && gFreeDrag.held && sdl.button.button == gFreeDrag.sdlButton) {
+                    const bool wasActive = gFreeDrag.active;
+                    EndFreeDrag();
+                    gFreeDrag.held = false;
+                    if (wasActive && gFreeDrag.clickThrough && gFreeDrag.moved <= kFreeClickMoved &&
+                        SDL_GetTicks() - gFreeDrag.startMs <= kFreeClickMs) {
+                        const tpw::Event click = MakeEvent(gFreeDrag.x, gFreeDrag.y);
+                        HandleMouseMoved(click);
+                        HandleMouseDown(click, gFreeDrag.button);
+                        HandleMouseUp(click, gFreeDrag.button);
+                    }
+                    break;
+                }
+                if (sdl.type == SDL_EVENT_MOUSE_BUTTON_DOWN && tpw::gPortDragStart != nullptr && !gFreeDrag.active) {
+                    const int taken = tpw::gPortDragStart(static_cast<int>(button), event.modifiers);
+                    if (taken != 0) {
+                        gFreeDrag = FreeDrag();
+                        gFreeDrag.active = gFreeDrag.held = true;
+                        gFreeDrag.sdlButton = sdl.button.button;
+                        gFreeDrag.button = button;
+                        gFreeDrag.window = SDL_GetWindowFromID(sdl.button.windowID);
+                        gFreeDrag.x = sdl.button.x;
+                        gFreeDrag.y = sdl.button.y;
+                        gFreeDrag.startMs = SDL_GetTicks();
+                        gFreeDrag.clickThrough = taken == 2;
+                        if (gFreeDrag.window != nullptr) SDL_SetWindowRelativeMouseMode(gFreeDrag.window, true);
+                        break;
+                    }
+                }
+#endif
                 if (sdl.type == SDL_EVENT_MOUSE_BUTTON_DOWN) HandleMouseDown(event, button);
                 else HandleMouseUp(event, button);
                 break;
@@ -319,11 +390,25 @@ void UGamework::Run() {
                 // Whole steps only: SDL adds up a trackpad's or a fine wheel's fractions into integer_y. The float y of a
                 // small movement truncated to 0, which the camera took as a step forward. From tpw-port PR #20 by
                 // samueleagle91.
+#ifdef TPW_PORT_FIX
+                // freecam: the precise deltas go to the camera first, a trackpad's fractions among them
+                if (tpw::gPortWheel != nullptr &&
+                    tpw::gPortWheel(sdl.wheel.x, sdl.wheel.y, Fractional(sdl.wheel.x) || Fractional(sdl.wheel.y),
+                                    tpw::MacModifiersFromSDL(static_cast<uint16_t>(SDL_GetModState() | tpw::ScriptedSDLModifiers())),
+                                    SDL_GetTicks()))
+                    break;
+#endif
                 if (sdl.wheel.integer_y == 0) break;
                 const tpw::Event event = MakeEventAtMouse();
                 HandleMouseWheel(event, static_cast<int32_t>(sdl.wheel.integer_y));
                 break;
             }
+#if defined(TPW_PORT_FIX) && SDL_VERSION_ATLEAST(3, 4, 0)
+            // TPW_PORT_FIX freecam pinch | Mac: (none) | Port: SDL 3.4's trackpad pinch goes to the Free camera's hook (zoom in orbit, a push in fly) | Why: SPEC's pinch; older SDLs have no pinch event, so the case is left out there
+            case SDL_EVENT_PINCH_UPDATE:
+                if (tpw::gPortPinch != nullptr) tpw::gPortPinch(sdl.pinch.scale);
+                break;
+#endif
             case SDL_EVENT_KEY_DOWN: {
                 // Alt+Enter on Windows and Linux toggles full screen (fit::FullScreenToggleKey; never on a Mac). It is
                 // the host's key: the game is not told of the press, no key is remembered for it, and its release is
@@ -382,6 +467,9 @@ void UGamework::Run() {
                 HandleActivateWindow(tpw::MainWindow(), true);
                 break;
             case SDL_EVENT_WINDOW_FOCUS_LOST:
+#ifdef TPW_PORT_FIX
+                EndFreeDrag();   // freecam
+#endif
                 HandleActivateWindow(tpw::MainWindow(), false);
                 break;
 #ifdef TPW_PORT_FIX
@@ -559,6 +647,57 @@ void UGamework::Run() {
             }
             tpw::Log("scripted drag: pointer at (%d, %d)%s (pass %d)", x, y,
                      step == 2 ? ", button down" : step == drag.steps + 4 ? ", button up" : "", gFrames + 1);
+        }
+        // The scripted wheel events (--wheel): as SDL_EVENT_MOUSE_WHEEL above, at the pointer.
+        for (const tpw::Config::ScriptedWheel& wheel : tpw::config().wheels) {
+            if (wheel.pass != gFrames + 1) continue;
+            tpw::Log("scripted wheel: %.3f, %.3f (pass %d)", wheel.x, wheel.y, gFrames + 1);
+            const tpw::Event event = gScripted.active ? MakeGameEvent(static_cast<int32_t>(gScripted.x), static_cast<int32_t>(gScripted.y))
+                                                      : MakeEventAtMouse();
+#ifdef TPW_PORT_FIX
+            if (tpw::gPortWheel != nullptr &&
+                tpw::gPortWheel(wheel.x, wheel.y, Fractional(wheel.x) || Fractional(wheel.y), event.modifiers,
+                                AutoKeyClock(true)))
+                continue;
+#endif
+            const int32_t steps = static_cast<int32_t>(wheel.y);
+            if (steps != 0) HandleMouseWheel(event, steps);
+        }
+        // The scripted camera drags (--cam-drag): the button, the moves and the release as the real ones above go.
+        for (const tpw::Config::ScriptedCamDrag& drag : tpw::config().camDrags) {
+            const int32_t step = gFrames + 1 - drag.pass;
+            if (step < 0 || step > drag.steps + 1) continue;
+            const MouseButton button = drag.button == 0 ? kMouseButton0 : drag.button == 1 ? kMouseButton1 : kMouseButton2;
+            const tpw::Event event = gScripted.active ? MakeGameEvent(static_cast<int32_t>(gScripted.x), static_cast<int32_t>(gScripted.y))
+                                                      : MakeEventAtMouse();
+#ifdef TPW_PORT_FIX
+            static bool taken = false;
+            if (step == 0) {
+                taken = tpw::gPortDragStart != nullptr && tpw::gPortDragStart(drag.button, event.modifiers) != 0;
+                tpw::Log("scripted camera drag: button %d down, %s (pass %d)", drag.button, taken ? "the camera's" : "the game's",
+                         gFrames + 1);
+                if (!taken) HandleMouseDown(event, button);
+            } else if (step <= drag.steps) {
+                if (taken && tpw::gPortDragGoing != nullptr && !tpw::gPortDragGoing()) {
+                    tpw::Log("scripted camera drag: stopped by the camera (pass %d)", gFrames + 1);
+                    if (tpw::gPortDragEnd != nullptr) tpw::gPortDragEnd();
+                    taken = false;
+                } else if (taken && tpw::gPortDragMove != nullptr) {
+                    tpw::gPortDragMove(drag.dx / static_cast<float>(drag.steps), drag.dy / static_cast<float>(drag.steps));
+                }
+            } else {
+                tpw::Log("scripted camera drag: button %d up (pass %d)", drag.button, gFrames + 1);
+                if (taken) {
+                    if (tpw::gPortDragEnd != nullptr) tpw::gPortDragEnd();
+                    taken = false;
+                } else {
+                    HandleMouseUp(event, button);
+                }
+            }
+#else
+            if (step == 0) HandleMouseDown(event, button);
+            else if (step == drag.steps + 1) HandleMouseUp(event, button);
+#endif
         }
         // The scripted typing (--type): one key at a time, down on one pass and up on the next.
         for (const tpw::Config::ScriptedTyping& typing : tpw::config().typing) {

@@ -5,6 +5,8 @@
 ### New Features
 
 - In the TPI Worlds and Rides mod's Land of Invention, The Great Lake is now a real boating lake: it can only be built with its back on the lake's water (buy the land by the lake first), and its boats sail out onto the lake with their wake on the water, then come back to let their riders off, who stay seated so you can ride along in first person; a Great Lake built away from the water in an older park keeps its boats on its own plot
+- A new Free camera setting (off by default) lets you tilt the camera from straight down to level with the horizon and zoom from close to the ground out over the whole park: Q and E turn, Z and X tilt, Page Up and Page Down zoom, a middle-button or Option/Alt drag turns and tilts, and on a trackpad two fingers move the camera and a pinch zooms (or, with Two-finger swipe set to Zooms and rotates, swipes zoom and rotate)
+- With Free camera on, Tab switches to flying: W A S D move the camera the way it looks, the right button held looks around, the wheel moves forward and back, Shift goes faster and Alt slower, and Home goes back to the normal camera. Invert vertical look, Look sensitivity, Fly speed, Smoothing and Fly through the ground are set under Free camera in Settings
 
 ### Bug Fixes
 

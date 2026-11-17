@@ -7,6 +7,7 @@
 #pragma once
 #include <SDL3/SDL.h>
 
+#include <cstdlib>
 #include <future>
 #include <functional>
 #include <memory>
@@ -34,6 +35,38 @@ inline constexpr const char* kSmoothZoomKey = "smooth_wheel_zoom";
 // launcher.ini's key for the Settings box's "Zoom out further" ("1": the park view zooms out further than the original's
 // limit, gPortFarZoom; absent or "0": the original's limit).
 inline constexpr const char* kFarZoomKey = "far_zoom";
+// launcher.ini's keys for the Settings box's "Free camera" (TPW_PORT_FIX freecam, include/PortFreeCamera.h; "1": the camera
+// tilts freely, zooms further, flies and takes a trackpad's swipes; absent or "0": the original's camera) and its
+// settings, shown only while it is on: "Two-finger swipe" ("zoom": zooms and rotates; absent or "move": moves the
+// camera), "Invert vertical look" ("1"), "Look sensitivity" and "Fly speed" (0.25 to 4, absent 1), "Smoothing" (absent
+// or "1": on) and "Fly through the ground" ("1").
+inline constexpr const char* kFreeCameraKey = "free_camera";
+inline constexpr const char* kFreeSwipeKey = "free_camera_swipe";
+inline constexpr const char* kFreeInvertKey = "free_camera_invert_look";
+inline constexpr const char* kFreeSensitivityKey = "free_camera_look_sensitivity";
+inline constexpr const char* kFreeFlySpeedKey = "free_camera_fly_speed";
+inline constexpr const char* kFreeSmoothingKey = "free_camera_smoothing";
+inline constexpr const char* kFreeThroughGroundKey = "free_camera_through_ground";
+// Whether the Settings box has the Free camera rows: only with the port's fixes, as the camera itself is.
+#ifdef TPW_PORT_FIX
+inline constexpr bool kFreeCameraRow = true;
+#else
+inline constexpr bool kFreeCameraRow = false;
+#endif
+// The look sensitivity and the fly speed, kept as a multiplier from 0.25 to 4 ("1.25"), in the sliders' quarters (1 to
+// 16). Anything else is 1, four quarters.
+inline int FreeQuarters(const std::string& value) {
+    if (value.empty()) return 4;
+    char* end = nullptr;
+    const double times = std::strtod(value.c_str(), &end);
+    if (end == value.c_str() || *end != 0 || !(times >= 0.25 && times <= 4.0)) return 4;
+    return static_cast<int>(times * 4.0 + 0.5);
+}
+inline std::string FreeQuartersText(int quarters) {
+    const int whole = quarters / 4, part = quarters % 4;
+    static const char* const kParts[] = {"", ".25", ".5", ".75"};
+    return std::to_string(whole) + kParts[part];
+}
 // launcher.ini's key for the Settings box's "Interface size": 100, 85 or 70, the share of the screen's height the game's
 // panels are laid out in (absent: 100, as the original). From tpw-port PR #24 by samueleagle91.
 inline constexpr const char* kInterfaceSizeKey = "interface_size";
@@ -366,6 +399,9 @@ public:
     Rect SeveralKeysRect() const { return settingsOpen_ ? severalKeysRect_ : Rect{}; }
     // The Settings box's W A S D move the camera switch where the last frame drew it, in points (empty when the box is closed).
     Rect WasdCameraRect() const { return settingsOpen_ ? wasdCameraRect_ : Rect{}; }
+    // The Free camera's switch, and its first setting's control (Two-finger swipe), as last drawn (empty when not shown).
+    Rect FreeCameraRect() const { return settingsOpen_ ? freeCameraRect_ : Rect{}; }
+    Rect FreeSwipeRect() const { return settingsOpen_ ? freeSwipeRect_ : Rect{}; }
     // The Settings box's "Online server" field where the last frame drew it, in points (empty when the box is closed),
     // whether it is being edited, and the greyed automatic server it shows while empty.
     Rect OnlineServerRect() const { return settingsOpen_ ? onlineServerRect_ : Rect{}; }
@@ -508,6 +544,13 @@ private:
     bool farZoom_ = false;          // the Settings box's "Zoom out further", as launcher.ini keeps it
     bool severalKeys_ = false;      // the Settings box's "Several keys at once", as launcher.ini keeps it
     bool wasdCamera_ = false;       // the Settings box's "W A S D move the camera", as launcher.ini keeps it
+    bool freeCamera_ = false;       // the Settings box's "Free camera" and its settings, as launcher.ini keeps them
+    int freeSwipe_ = 0;             // 0 "Moves the camera", 1 "Zooms and rotates"
+    bool freeInvert_ = false;
+    int freeSensitivity_ = 4;       // quarters (FreeQuarters)
+    int freeFlySpeed_ = 4;
+    bool freeSmoothing_ = true;
+    bool freeThroughGround_ = false;
     int interfaceSize_ = 0;         // the Settings box's "Interface size": 0 100%, 1 85%, 2 70%
     std::vector<int> samChoices_;   // the Graphics section: for each of SamOptions(), 0 the detail level's own, else 1 + its choice
     int frameRate_ = 0;             // the Settings box's "Frame rate limit": 0 Monitor, else frames a second (FrameRateSetting)
@@ -583,6 +626,8 @@ private:
     Rect rideBadgesRect_;      // last frame's (RideBadgesRect)
     Rect severalKeysRect_;     // last frame's (SeveralKeysRect)
     Rect wasdCameraRect_;      // last frame's (WasdCameraRect)
+    Rect freeCameraRect_;      // last frame's (FreeCameraRect)
+    Rect freeSwipeRect_;       // last frame's (FreeSwipeRect)
     Rect onlineServerRect_;    // last frame's (OnlineServerRect)
     Rect rendererRect_;        // last frame's (RendererRect)
     bool settingsScrolls_ = false;   // last frame's (SettingsScrolls)

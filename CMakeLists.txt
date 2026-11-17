@@ -546,6 +546,14 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_link_libraries(tpw_host_wasd_keys PRIVATE tpw_platform)
     add_test(NAME wasd_keys COMMAND tpw_host_wasd_keys)
   endif()
+  # The launcher's "Free camera" (the port's fix freecam, include/PortFreeCamera.h), its input side and math: the keys, the
+  # trackpad's swipes and pinch, the drags, the tilt for a zoom, the easing and the ground floor. The original has no such
+  # functions, so the program is made only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_free_camera ${TPW_DECOMP_DIR}/tests/host_free_camera.cpp)
+    target_include_directories(tpw_host_free_camera PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    add_test(NAME free_camera COMMAND tpw_host_free_camera)
+  endif()
   # The TPI Worlds and Rides mod's second ring of islands (TPW_MOD_HOOK tpi_islands, include/tpi_island_ring.h): which ring a
   # world is in, where the arrows go inside a ring, where Tab lands, and that ring two stands out of ring one's fog. The original
   # has one ring, so the program is made only with the port's fixes. No game data.

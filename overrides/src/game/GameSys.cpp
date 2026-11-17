@@ -48,6 +48,8 @@
 #include "Text.h"
 #include "TPAdvisor.h"
 #include "TPCamera.h"
+// TPW_PORT_FIX freecam GAMESYSTEM_Tick | Mac: the ear is at the eye only in first person | Port: also while the Free camera flies (PortFreeHearsFromEye) | Why: sound heard from the eye in fly mode, as SPEC asks
+#include "PortFreeCamera.h"   // PortFreeHearsFromEye (freecam, GAMESYSTEM_Tick)
 #include "TPCoaster.h"
 #include "TPConfig.h"
 #include "TPDialog.h"
@@ -660,7 +662,8 @@ uint32_t GAMESYSTEM_Tick() {
             const float x = gCameraMatrix.m[3][0];
             const float y = gCameraMatrix.m[3][1];
             const float z = gCameraMatrix.m[3][2];
-            if ((gFirstPersonFlags & kFirstPersonAny) != 0) {
+            // freecam: the ear at the eye while the Free camera flies too (the TPW_PORT_FIX comment at the includes)
+            if ((gFirstPersonFlags & kFirstPersonAny) != 0 || PortFreeHearsFromEye()) {
                 SOUND_SetEarPosition(x, y, z, gCameraMatrix.m[2][0], gCameraMatrix.m[2][1], gCameraMatrix.m[2][2],
                                      gCameraMatrix.m[1][0], gCameraMatrix.m[1][1], gCameraMatrix.m[1][2]);
             } else {

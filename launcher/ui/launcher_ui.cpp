@@ -138,6 +138,13 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     farZoom_ = backend_.Setting(kFarZoomKey) == "1";
     severalKeys_ = backend_.Setting(kSeveralKeysKey) == "1";
     wasdCamera_ = backend_.Setting(kWasdCameraKey) == "1";
+    freeCamera_ = backend_.Setting(kFreeCameraKey) == "1";
+    freeSwipe_ = backend_.Setting(kFreeSwipeKey) == "zoom" ? 1 : 0;
+    freeInvert_ = backend_.Setting(kFreeInvertKey) == "1";
+    freeSensitivity_ = FreeQuarters(backend_.Setting(kFreeSensitivityKey));
+    freeFlySpeed_ = FreeQuarters(backend_.Setting(kFreeFlySpeedKey));
+    freeSmoothing_ = backend_.Setting(kFreeSmoothingKey) != "0";
+    freeThroughGround_ = backend_.Setting(kFreeThroughGroundKey) == "1";
     for (const SamOption& option : SamOptions()) samChoices_.push_back(SamChoice(option, backend_.Setting(option.key)) + 1);
     samRects_.resize(SamOptions().size());
     frameRate_ = FrameRateSetting(backend_.Setting(kFrameRateKey));
@@ -1291,6 +1298,7 @@ void LauncherUi::DrawSettings(const Rect& w) {
     // A row added below is counted here too; the Settings scroll test checks the sum against what is drawn.
     float bodyH = 2 * (text_.LineHeight(style::kBodyBold) + 4) + 40 + text_.LineHeight(style::kSmall) + 14 + 3 * rowH +
                   4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + (kRideBadgesRow ? 11 : 10) * rowH +
+                  (kFreeCameraRow ? (freeCamera_ ? 7 : 1) : 0) * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + static_cast<float>(SamOptions().size() + 1) * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH + (rendererRow_ ? rowH : 0.0f) +
@@ -1514,6 +1522,74 @@ void LauncherUi::DrawSettings(const Rect& w) {
                 settingsMessage_ = "Cannot keep the setting: " + err;
         }
         y += rowH;
+    }
+    freeCameraRect_ = freeSwipeRect_ = {};
+    if (kFreeCameraRow) {   // Free camera and, while it is on, its settings, a step in (launcher_ui.h kFreeCameraKey)
+        auto keep = [this](const char* key, const std::string& value) {
+            std::string err;
+            if (!backend_.SaveSetting(key, value, err)) settingsMessage_ = "Cannot keep the setting: " + err;
+        };
+        auto rowText = [this](const Rect& row, const char* title, const std::string& line, float controlW) {
+            float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+            text_.Draw(style::kBodyBold, row.x + 12, ty, title, colour::kInk);
+            text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                       text_.Fit(style::kSmall, line, row.w - 12 - controlW - 24, false), colour::kInkSoft);
+        };
+        auto toggleRow = [&](float indent, const char* id, const char* title, const char* line, bool& value,
+                             const char* key, Rect* rect) {
+            Rect row{in.x + indent, y, in.w - indent, rowH - 6};
+            canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+            rowText(row, title, line, 56);
+            const Rect toggle{row.Right() - 12 - 56, row.CentreY() - 16, 56, 32};
+            if (rect != nullptr) *rect = toggle;
+            const bool changed = ui_.Toggle(id, toggle, value);
+            if (changed) keep(key, value ? "1" : "0");
+            y += rowH;
+            return changed;
+        };
+        auto sliderRow = [&](float indent, const char* id, const char* title, const char* line, int& quarters,
+                             const char* key) {
+            Rect row{in.x + indent, y, in.w - indent, rowH - 6};
+            canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+            const float sliderW = 200, valueW = 64;
+            rowText(row, title, line, sliderW + valueW);
+            const Rect slider{row.Right() - 12 - sliderW, row.CentreY() - 18, sliderW, 36};
+            const bool kept = ui_.Slider(id, slider, quarters, 1, 16);
+            const std::string shown = FreeQuartersText(quarters) + "x";
+            text_.Draw(style::kButton, slider.x - 12 - text_.Width(style::kButton, shown),
+                       row.CentreY() - text_.LineHeight(style::kButton) * 0.5f, shown, colour::kInk);
+            if (kept) keep(key, FreeQuartersText(quarters));
+            y += rowH;
+        };
+        toggleRow(0, "free-camera", "Free camera",
+                  "Tilt, zoom and fly anywhere: Q E turn, Z X tilt, Tab flies, Home resets; trackpad swipes move", freeCamera_,
+                  kFreeCameraKey, &freeCameraRect_);
+        if (freeCamera_) {
+            const float indent = 28;
+            {
+                Rect row{in.x + indent, y, in.w - indent, rowH - 6};
+                canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+                const float segW = 300;
+                rowText(row, "Two-finger swipe",
+                        freeSwipe_ == 0 ? "Swipes move the park, a pinch zooms" : "Swipes up and down zoom, sideways rotate",
+                        segW);
+                static const std::vector<std::string> kSwipes = {"Moves the camera", "Zooms and rotates"};
+                freeSwipeRect_ = {row.Right() - 12 - segW, row.CentreY() - 18, segW, 36};
+                if (ui_.Segmented("free-swipe", freeSwipeRect_, kSwipes, std::vector<bool>(kSwipes.size(), true), freeSwipe_))
+                    keep(kFreeSwipeKey, freeSwipe_ == 1 ? "zoom" : "move");
+                y += rowH;
+            }
+            toggleRow(indent, "free-invert", "Invert vertical look", "Moving the mouse up looks down", freeInvert_,
+                      kFreeInvertKey, nullptr);
+            sliderRow(indent, "free-sensitivity", "Look sensitivity", "How far a drag or a swipe turns the view",
+                      freeSensitivity_, kFreeSensitivityKey);
+            sliderRow(indent, "free-fly-speed", "Fly speed", "Right button and the wheel change it while flying",
+                      freeFlySpeed_, kFreeFlySpeedKey);
+            toggleRow(indent, "free-smoothing", "Smoothing", "The camera eases into each turn, tilt and flight", freeSmoothing_,
+                      kFreeSmoothingKey, nullptr);
+            toggleRow(indent, "free-through-ground", "Fly through the ground", "Flying can go below the ground and the water",
+                      freeThroughGround_, kFreeThroughGroundKey, nullptr);
+        }
     }
     {
         Rect row{in.x, y, in.w, rowH - 6};

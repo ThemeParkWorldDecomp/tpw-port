@@ -468,6 +468,9 @@ void Usage(const char* program) {
                  "                 pass N+2, K steps (default 8) to (X1, Y1), the button up on pass N+K+4 (repeatable)\n"
                  "  --move X,Y@N   a scripted pointer move to game pixel (X, Y) on pass N, no button (repeatable)\n"
                  "  --rclick X,Y@N  a scripted right click, as --click (repeatable)\n"
+                 "  --wheel DX,DY@N  a scripted wheel event with SDL's precise deltas on pass N (repeatable)\n"
+                 "  --cam-drag B:DX,DY@N[/K]  a scripted camera drag with button B (0 left, 1 right, 2 middle): down on pass N,\n"
+                 "                 DX, DY pixels in K steps (default 8), up on pass N+K+1 (repeatable)\n"
                  "  --key NAME@N   a scripted key: down on pass N, up on pass N+1 (esc, return, space, tab, cmd, ctrl, shift,\n"
                  "                 option or an SDL key name; repeatable)\n"
                  "  --hold NAME@N-M  a scripted key held from pass N to pass M (its modifier counts for the clicks between)\n"
@@ -510,7 +513,7 @@ void Usage(const char* program) {
 bool TakesValue(const std::string& arg) {
     static const char* const kWithValue[] = {"--game",  "--data",        "--play",       "--import",     "--program",    "--window-click", "--window-wheel",
                                              "--window-size", "--user",  "--edition",     "--resolution", "--aspect",     "--frames",
-                                             "--click", "--drag",        "--type",       "--type-env",   "--dump-frames", "--dump-every",
+                                             "--click", "--drag",        "--wheel",      "--cam-drag",   "--type",       "--type-env",   "--dump-frames", "--dump-every",
                                              "--dump-limit", "--display", "--write-icon", "--language", "--language-root",
                                              "--renderer", tpw::launcher::kFromLauncherOption, tpw::launcher::kGameAppTestOption};
     for (const char* option : kWithValue)
@@ -1260,6 +1263,36 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
     tpw::gPortStrayKeyUp = gPortWasdCamera ? PortWasdStrayKeyUp : nullptr;
     // And two of the four stay down together, for the diagonals (TPW_PORT_FIX wasd-diagonal, platform/gamework.cpp).
     tpw::gPortKeyTogether = gPortWasdCamera ? PortWasdPlace : nullptr;
+    // The Settings box's "Free camera" and its settings (TPW_PORT_FIX freecam, include/PortFreeCamera.h): off, the original's
+    // camera. With it the run loop gives the camera its wheel, drags and pinch (platform/platform.h), and keeps its keys
+    // down together as the W A S D keys are.
+    gPortFreeCamera = backend.Setting(tpw::ui::kFreeCameraKey) == "1";
+    if (gPortFreeCamera) {
+        gPortFreeSwipeZooms = backend.Setting(tpw::ui::kFreeSwipeKey) == "zoom";
+        gPortFreeInvertLook = backend.Setting(tpw::ui::kFreeInvertKey) == "1";
+        gPortFreeLookSensitivity = static_cast<float>(tpw::ui::FreeQuarters(backend.Setting(tpw::ui::kFreeSensitivityKey))) / 4.0f;
+        gPortFreeFlySpeed = static_cast<float>(tpw::ui::FreeQuarters(backend.Setting(tpw::ui::kFreeFlySpeedKey))) / 4.0f;
+        gPortFreeSmoothing = backend.Setting(tpw::ui::kFreeSmoothingKey) != "0";
+        gPortFreeThroughGround = backend.Setting(tpw::ui::kFreeThroughGroundKey) == "1";
+        gPortFreeModifiers = []() -> int32_t {
+            return PortFreeGameModifiers(
+                tpw::MacModifiersFromSDL(static_cast<uint16_t>(SDL_GetModState() | tpw::ScriptedSDLModifiers())));
+        };
+        gPortFreeTableKey = PortFreeHookTableKey;
+        tpw::gPortWheel = PortFreeHookWheel;
+        tpw::gPortDragStart = PortFreeHookDragStart;
+        tpw::gPortDragMove = PortFreeHookDragMove;
+        tpw::gPortDragGoing = PortFreeHookDragGoing;
+        tpw::gPortDragEnd = PortFreeHookDragEnd;
+        tpw::gPortPinch = PortFreeHookPinch;
+        tpw::gPortKeyTogether = PortCameraKeysTogether;
+        tpw::gPortStrayKeyUp = PortWasdStrayKeyUp;
+        tpw::gPortReleaseKeyA = true;   // A, one of the flight keys, is released before the next key, as W A S D release it
+        tpw::Log("free camera (the launcher's Settings): swipe %s, invert %d, sensitivity %.2f, fly speed %.2f, smoothing %d, "
+                 "through the ground %d",
+                 gPortFreeSwipeZooms ? "zooms" : "moves", gPortFreeInvertLook ? 1 : 0, gPortFreeLookSensitivity,
+                 gPortFreeFlySpeed, gPortFreeSmoothing ? 1 : 0, gPortFreeThroughGround ? 1 : 0);
+    }
     gOnlineServerSetting = backend.Setting(tpw::ui::kOnlineServerKey);
     gOnlineServerFound = backend.Setting(tpw::ui::kOnlineServerFoundKey);
     // The Settings box's Graphics section: the original's options files' values the player chose (EngineStartup_OptionsFile).
@@ -1802,6 +1835,26 @@ int LauncherMain(int argc, char** argv) {
                 return 2;
             }
             config.keys.push_back(key);
+        }
+        else if (arg == "--wheel") {
+            const char* spec = value();
+            tpw::Config::ScriptedWheel wheel{};
+            if (std::sscanf(spec, "%f,%f@%d", &wheel.x, &wheel.y, &wheel.pass) != 3 || wheel.pass < 1) {
+                tpw::LogRawF("launcher: --wheel wants DX,DY@N: %s\n", spec);
+                return 2;
+            }
+            config.wheels.push_back(wheel);
+        }
+        else if (arg == "--cam-drag") {
+            const char* spec = value();
+            tpw::Config::ScriptedCamDrag drag{};
+            drag.steps = 8;
+            const int read = std::sscanf(spec, "%d:%f,%f@%d/%d", &drag.button, &drag.dx, &drag.dy, &drag.pass, &drag.steps);
+            if (read < 4 || drag.pass < 1 || drag.steps < 1 || drag.button < 0 || drag.button > 2) {
+                tpw::LogRawF("launcher: --cam-drag wants B:DX,DY@N or B:DX,DY@N/STEPS (B 0, 1 or 2): %s\n", spec);
+                return 2;
+            }
+            config.camDrags.push_back(drag);
         }
         else if (arg == "--drag") {
             const char* spec = value();
