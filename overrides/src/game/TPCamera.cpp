@@ -1150,8 +1150,9 @@ void PortFreeLowViewFrame(bool park) {
 
 void HandleCamera() {
     const uint32_t isometric = static_cast<uint8_t>(gPlayerSettings.mCurrent.mIsometricOn);
-    // TPW_PORT_FIX freecam HandleCamera | Mac: (none) | Port: with gPortFreeCamera on, no low view outside the park (PortFreeLowViewFrame) | Why: the lobby is never drawn as a low view
-    if (HandleExternalCamera()) {
+    // TPW_PORT_FIX freecam HandleCamera | Mac: (none) | Port: with gPortFreeCamera on, no low view outside the park (PortFreeLowViewFrame); gPortExternalView says whether the island screen's camera is the view | Why: the lobby is never drawn as a low view, nor with the Free camera's other drawing changes (gPortExternalView)
+    gPortExternalView = HandleExternalCamera();
+    if (gPortExternalView) {
         if (gPortFreeCamera) PortFreeLowViewFrame(false);
         return;
     }

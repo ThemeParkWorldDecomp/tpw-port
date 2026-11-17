@@ -38,9 +38,9 @@
 #include <utility>
 
 // TPW_PORT_FIX farzoom CHField::DivideAndConquer | Mac: the park view (fog off) tests only the cells within 230 (half of 460) of the camera | Port: with gPortFarZoom (the launcher's "Zoom out further") and fog off, every cell of the map is tested, as kTestWholeMap does, and the frustum test keeps those in view; the block near the camera and the procedural textures' window stay the original's | Why: zoomed out past the original's 130, and wider than 4:3, the picture reaches past that square, whose edges showed as diagonal cuts with nothing (ground, rides, scenery, people) drawn beyond them; only which cells are drawn changes
-#include "TPCamera.h"   // gPortFarZoom (farzoom, CHField::DivideAndConquer), gPortFreeCamera (freecam, the same)
+#include "TPCamera.h"   // gPortFarZoom (farzoom, CHField::DivideAndConquer), PortFreeCameraDraws (freecam, the same)
 // TPW_PORT_FIX drawdist CHField::DivideAndConquer | Mac: the far plane is 1000 (the original's longest view distance is 700) | Port: with the launcher's "Draw distance" above Original (include/TPCamera.h gPortDrawDistance), for a view distance past 700 the far plane reaches the whole map (PortFreeFarPlane) | Why: a longer first-person view distance would otherwise stop at the far plane's hard edge; at Original nothing changes
-// TPW_PORT_FIX freecam CHField::DivideAndConquer | Mac: the cells within half the view distance of the camera are tested (230 with fog off, 350 at most with fog), against a far plane 1000 out | Port: with gPortFreeCamera (the launcher's "Free camera") every cell of the map is tested, fog on or off, against a far plane that reaches the map's farthest corner (PortFreeFarPlane); the block near the camera and the procedural textures' window stay the original's | Why: the free camera looks along the ground from anywhere up to 150 outside the map, so the map's far side is up to 1400 away: the ground stopped at the view distance and the sky showed where the far park should be
+// TPW_PORT_FIX freecam CHField::DivideAndConquer | Mac: the cells within half the view distance of the camera are tested (230 with fog off, 350 at most with fog), against a far plane 1000 out | Port: with gPortFreeCamera (the launcher's "Free camera"), outside the island screen (PortFreeCameraDraws), every cell of the map is tested, fog on or off, against a far plane that reaches the map's farthest corner (PortFreeFarPlane); the block near the camera and the procedural textures' window stay the original's | Why: the free camera looks along the ground from anywhere up to 150 outside the map, so the map's far side is up to 1400 away: the ground stopped at the view distance and the sky showed where the far park should be
 #include "TpiGateFlow.h"   // tpw::TpiWorldInPlay (TPW_MOD_HOOK tpi_worlds, CHField::Execute)
 #include "TpiParkEdge.h"   // tpw::TpiParkEdgeCorners (the same)
 
@@ -474,7 +474,7 @@ int32_t CHField::DivideAndConquer() {
     // freecam: the far plane reaches the whole map (the TPW_PORT_FIX comment at the includes); drawdist: so it does for a
     // view distance past the original's longest (TPCamera.h gPortDrawDistance)
     const bool drawFarther = gPortDrawDistance != kPortDrawOriginal && viewDistance > kPortDrawOriginalFarthest;
-    gei_ProjectionMatrix.AdjustProjection(gPortFreeCamera || drawFarther ? PortFreeFarPlane(*mF00) : kProjectionFar);
+    gei_ProjectionMatrix.AdjustProjection(PortFreeCameraDraws() || drawFarther ? PortFreeFarPlane(*mF00) : kProjectionFar);
     PreprocessMatrices();
     mF1C = kFarStart;
     SGamutQuads& vertices = *VertexRows();
@@ -500,7 +500,7 @@ int32_t CHField::DivideAndConquer() {
         tpw_probe::Set(tpw_probe::kDacZ1, z1);
         tpw_probe::Set(tpw_probe::kDacWidth, width);
         tpw_probe::Set(tpw_probe::kDacDepth, depth);
-        if (gPortFreeCamera || (gPortFarZoom && (gei_Display.mFlags & CDisplay::kEnableFog) == 0)) {
+        if (PortFreeCameraDraws() || (gPortFarZoom && (gei_Display.mFlags & CDisplay::kEnableFog) == 0)) {
             x0 = 0;
             z0 = 0;
             x1 = width;

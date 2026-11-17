@@ -24,8 +24,8 @@
 #include <cstddef>
 #include <cstring>
 #include <new>
-// TPW_PORT_FIX freecam CMesh::Preprocess | Mac: a node flagged to take its area from the display (kNodeAreaFromDisplay: the scenery outside the field, the river and lake beds, the rocks, the tunnels, the trees on the mountains) is drawn only when its cells overlap gei_Display's rectangle, which only DivideAndConquer sets, to the cells within half the view distance of the camera (and which the park view leaves as the last first-person or low view set it) | Port: with gPortFreeCamera (the launcher's "Free camera") or gPortFarZoom ("Zoom out further"), outside the game's own first person (riding a ride, walking with the camcorder, where the rectangle is the one DivideAndConquer just set), no node is left out by that rectangle; the frustum test (CheckBoundingBox) still keeps only those in view | Why: seen from the free camera or zoomed far out, that scenery was left out where the rectangle stopped, so the sky colour showed through the tunnel mouths, the lake and river beds and along the land's edge; only which nodes are drawn changes
-#include "TPCamera.h"   // gPortFreeCamera, gPortFarZoom (freecam, CMesh::Preprocess)
+// TPW_PORT_FIX freecam CMesh::Preprocess | Mac: a node flagged to take its area from the display (kNodeAreaFromDisplay: the scenery outside the field, the river and lake beds, the rocks, the tunnels, the trees on the mountains) is drawn only when its cells overlap gei_Display's rectangle, which only DivideAndConquer sets, to the cells within half the view distance of the camera (and which the park view leaves as the last first-person or low view set it) | Port: with gPortFreeCamera (the launcher's "Free camera"; outside the island screen, PortFreeCameraDraws) or gPortFarZoom ("Zoom out further"), outside the game's own first person (riding a ride, walking with the camcorder, where the rectangle is the one DivideAndConquer just set), no node is left out by that rectangle; the frustum test (CheckBoundingBox) still keeps only those in view | Why: seen from the free camera or zoomed far out, that scenery was left out where the rectangle stopped, so the sky colour showed through the tunnel mouths, the lake and river beds and along the land's edge; only which nodes are drawn changes
+#include "TPCamera.h"   // PortFreeCameraDraws, gPortFarZoom (freecam, CMesh::Preprocess)
 
 // tb_meshdelay.cpp: the delayed meshes (include/tb_meshdelay.h).
 
@@ -306,7 +306,7 @@ int32_t CMesh::Preprocess(tag_sNode* node, CMatrix* matrix, CMatrix* matrix2) {
                 candidate = gei_Display.mF928 <= area[2] && gei_Display.mF930 <= area[0] &&
                             gei_Display.mF92C >= area[3] && gei_Display.mF934 >= area[1];
                 // freecam: no node is left out by the rectangle (the TPW_PORT_FIX comment at the includes)
-                if ((gPortFreeCamera || gPortFarZoom) && (gIsFirstPerson == nullptr || gIsFirstPerson() == 0)) candidate = true;
+                if ((PortFreeCameraDraws() || gPortFarZoom) && (gIsFirstPerson == nullptr || gIsFirstPerson() == 0)) candidate = true;
             } else {
                 candidate = gei_HField->CheckGamutArea(area) != 0;
             }

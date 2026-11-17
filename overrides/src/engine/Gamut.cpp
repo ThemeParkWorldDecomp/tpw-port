@@ -36,8 +36,8 @@
 #include <cstddef>
 #include <cstring>
 #include <new>
-// TPW_PORT_FIX freecam CGamut::CalculateGamut | Mac: each corner ray of the view volume gives one point of the footprint, halfway between where it meets the field's lowest and highest planes and at most half the view distance out (230 with fog off) | Port: with gPortFreeCamera (the launcher's "Free camera") each corner ray gives two points, where it meets the lowest plane and where it meets the highest, each out to the map's farthest corner at most (PortFreeAddHits); the footprint is the convex polygon around them and the camera, clipped to the map as before | Why: the free camera tilts down to 30 degrees from anywhere up to 150 outside the map, so the park view's footprint stopped at 230 and the far park showed as holes of sky colour; only which cells are drawn (and the far plane with them) changes
-#include "TPCamera.h"   // gPortFreeCamera (freecam, CGamut::CalculateGamut)
+// TPW_PORT_FIX freecam CGamut::CalculateGamut | Mac: each corner ray of the view volume gives one point of the footprint, halfway between where it meets the field's lowest and highest planes and at most half the view distance out (230 with fog off) | Port: with gPortFreeCamera (the launcher's "Free camera"), outside the island screen (PortFreeCameraDraws), each corner ray gives two points, where it meets the lowest plane and where it meets the highest, each out to the map's farthest corner at most (PortFreeAddHits); the footprint is the convex polygon around them and the camera, clipped to the map as before | Why: the free camera tilts down to 30 degrees from anywhere up to 150 outside the map, so the park view's footprint stopped at 230 and the far park showed as holes of sky colour; only which cells are drawn (and the far plane with them) changes
+#include "TPCamera.h"   // PortFreeCameraDraws (freecam, CGamut::CalculateGamut)
 
 // The texture cache's start-up and shutdown (engine library of SimTheme Park 2.04b3;
 // 0x10032bd0, 0x10032d64, 0x1003377c..0x10034b48 and 0x100385a8, which the inventory files
@@ -345,9 +345,10 @@ int32_t CGamut::CalculateGamut() {
     CPolygon polygon{};
     polygon.AddVertex({cameraX, cameraY, cameraZ});
     // freecam: two points a corner, out to the map's far side (the TPW_PORT_FIX comment at the includes)
-    const float reach = gPortFreeCamera ? PortFreeGamutReach(*this, 0.5f * gei_Display.mFirstPersonViewDistance) : 0.0f;
+    const bool freeDraws = PortFreeCameraDraws();
+    const float reach = freeDraws ? PortFreeGamutReach(*this, 0.5f * gei_Display.mFirstPersonViewDistance) : 0.0f;
     for (int32_t i = 0; i < 4; ++i) {
-        if (gPortFreeCamera) {
+        if (freeDraws) {
             farthest = std::fmax(farthest, PortFreeAddHits(*this, polygon, mCorners[i], reach));
             continue;
         }
@@ -474,7 +475,7 @@ int32_t CGamut::CalculateGamut() {
     }
     // freecam: a cell more on each side of a row, within the map: the walk above rounds the polygon's edges to whole
     // cells, and with other points it can round a cell the original kept away (the TPW_PORT_FIX comment at the includes)
-    if (gPortFreeCamera) {
+    if (freeDraws) {
         for (int32_t row = cells->mFirstRow; row <= cells->mEndRow; ++row) {
             if (cells->mLow[row] > 0) --cells->mLow[row];
             if (cells->mHigh[row] < mF54[2]) ++cells->mHigh[row];

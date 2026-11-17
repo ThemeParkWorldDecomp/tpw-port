@@ -89,6 +89,11 @@ inline bool gPortFreeLowView = false;
 // The fog space while gPortFreeLowView: past the whole map seen from anywhere the free camera goes, so no vertex is fogged.
 inline constexpr float kPortFreeFogNear = 1.0e6f;
 inline constexpr float kPortFreeFogFar = 2.0e6f;
+// TPW_PORT_FIX freecam gPortExternalView | Mac: (none: the Free camera is the port's) | Port: true while the island screen's own camera (SetExternalCamera, bit 0x80 of gFirstPersonFlags) is the view, set each frame by HandleCamera; the Free camera's drawing changes (CGamut::CalculateGamut, CHField::DivideAndConquer, CMesh::Preprocess) ask PortFreeCameraDraws, so the island screen draws as with the Free camera off | Why: the Free camera is the park's; once an island was clicked, the island screen's first-person drawing tested the whole map instead of the cells within half its view distance, and what the original keeps out of that window there covered the sea, flat and without its waves
+inline bool gPortExternalView = false;
+// Whether the Free camera's drawing changes apply this frame: the Free camera is on and the view is not the island
+// screen's.
+inline bool PortFreeCameraDraws() { return gPortFreeCamera && !gPortExternalView; }
 // TPW_PORT_FIX drawdist gPortDrawDistance | Mac: first person (riding a ride, walking with the camcorder) draws out to the View distance's distance with its fog (200 to 700; the fog ends 60 to 250 out) | Port: the launcher's "Draw distance": kPortDrawOriginal, the original's; kPortDrawFarther (the launcher's default), the View distance's distance and fog space times kPortDrawFartherScale; kPortDrawWhole, the whole map, with the fog only at its far edge (PortDrawSpaceFor); CMapWho::Render sets them while first person draws and puts the original's back after | Why: first person showed plain fog colour 60 to 250 out, where the park goes on; drawing only, the park plays the same
 // kPortDrawOriginal unless the launcher sets it, so a program that does not (the differential tests) keeps the original's.
 inline constexpr int32_t kPortDrawOriginal = 0;
