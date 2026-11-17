@@ -18,6 +18,7 @@
 - In full screen, the pointer now stays on the game's screen instead of moving off onto another screen beside it (Thanks BMCTV)
 - Fixed the swamp in the TPI Worlds and Rides mod's Polar Zone not showing at all: it now lies in the ground in the northwest corner as in Theme Park Inc, nothing can be built on it, and it clears once your park buys the land beside it
 - Fixed snow counting as rain for visitors in the TPI Worlds and Rides mod's worlds: in snow, kids now cheer up while parents and grandparents lose more happiness than in rain, and everyone gets less thirsty and hungrier, as in Theme Park Inc
+- Fixed golden tickets, and the keys they add up to, coming almost at once in the TPI Worlds and Rides mod's Land of Invention, Polar Zone and Arabian Nights: each world now asks for its tickets what the Theme Park World world of the same key price asks (Lost Kingdom, Wonder Land and Space Zone), and tickets already won stay won
 
 ### Changes
 
