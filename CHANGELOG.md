@@ -12,6 +12,8 @@
 - Fixed the game crashing when you point at certain fence cells over the tunnels in the TPI Worlds and Rides mod's Polar Zone and Arabian Nights parks loaded with 0.5.5
 - On a Mac, the launcher's Update button now updates the launcher and the game when the launcher is opened from Applications, instead of opening the release page (Thanks slappyhead)
 - In full screen, the pointer now stays on the game's screen instead of moving off onto another screen beside it (Thanks BMCTV)
+- Fixed the swamp in the TPI Worlds and Rides mod's Polar Zone not showing at all: it now lies in the ground in the northwest corner as in Theme Park Inc, nothing can be built on it, and it clears once your park buys the land beside it
+- Fixed snow counting as rain for visitors in the TPI Worlds and Rides mod's worlds: in snow, kids now cheer up while parents and grandparents lose more happiness than in rain, and everyone gets less thirsty and hungrier, as in Theme Park Inc
 
 ### Changes
 

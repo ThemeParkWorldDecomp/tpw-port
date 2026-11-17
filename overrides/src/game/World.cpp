@@ -39,6 +39,7 @@
 #include "Serialise.h"
 #include "StaffDB.h"
 #include "tb_hfield.h"
+#include "tb_rain.h"
 #include "ThingReceivers.h"
 #include "TPAdvisor.h"
 #include "TPCoaster.h"
@@ -317,12 +318,13 @@ uint16_t MakeFeatureObject(const RideInfo* ride) {
 
 }  // namespace
 
-// TPW_PORT_FIX mods tpw::TpiGenerationsNewDay | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGenerations.h): the new park day's weather step CParkTime::Update calls through tpw::gTpiNewDay: in one of the mod's worlds with its TpiPeeps.sam read, on a due day (tpw::TpiWeatherDue, counted from the park's calendar) every visitor's happiness, thirst and hunger move by its generation's effect of the weather there is (tpw::TpiWeatherKind), kept within 0 to 100 | Why: tpw-mods tpi-worlds generations, the weather is felt as in Theme Park Inc | Off: not built
+// TPW_PORT_FIX mods tpw::TpiGenerationsNewDay | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGenerations.h): the new park day's weather step CParkTime::Update calls through tpw::gTpiNewDay: in one of the mod's worlds with its TpiPeeps.sam read, on a due day (tpw::TpiWeatherDue, counted from the park's calendar) every visitor's happiness, thirst and hunger move by its generation's effect of the weather there is (tpw::TpiWeatherKind; snow is told from rain by the rain object's type, gei_Rain's mRainType, as the weather's own mPType is never written), kept within 0 to 100 | Why: tpw-mods tpi-worlds generations, the weather is felt as in Theme Park Inc | Off: not built
 void tpw::TpiGenerationsNewDay() {
     if (tpw::TpiGenerationsInPlay()) {
         const CWeather* weather = gWorld->GetWeather();
         const int32_t kind = tpw::TpiWeatherKind(static_cast<int32_t>(weather->mF0C), static_cast<int32_t>(weather->mF34),
-                                                 static_cast<int32_t>(weather->mF58), weather->mF38, tpw::gTpiPeeps.heatwaveLow);
+                                                 gei_Rain != nullptr ? gei_Rain->mRainType : 0, weather->mF38,
+                                                 tpw::gTpiPeeps.heatwaveLow);
         const int32_t day = tpw::TpiParkDayNumber(gParkDate.mYear, gParkDate.mMonth, gParkDate.mDay);
         if (kind != tpw::kTpiNoWeather && tpw::TpiWeatherDue(day, tpw::gTpiPeeps.weatherEvery)) {
             for (CThingArrayEntry* entry = gUsedThingHead; entry != nullptr; entry = entry->mNextUsed) {

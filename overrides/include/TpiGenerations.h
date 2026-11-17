@@ -253,11 +253,17 @@ inline int32_t TpiStartingCash(int32_t base, int32_t draw, int32_t varPc) {
     return result < 0 ? 0 : result;
 }
 
-// The kind of weather the park has: a storm while there is lightning, snow or rain while drops fall (precipitation
-// type 1 snow), a heatwave when the quality is at Theme Park Inc's heatwave quality or above, else none.
-inline int32_t TpiWeatherKind(int32_t quality, int32_t drops, int32_t precipitation, int32_t lightning, int32_t heatwaveLow) {
+// The rain object's type while it snows (CRain::mRainType: CWeather::SetPrecipitationType gives it 2 for snow and 1
+// for rain). The weather's own precipitation type (CWeather +0x58, mPType) is only loaded and saved: no code of the
+// Mac's writes it (SetPrecipitationType sets the rain object's type alone), so it cannot tell snow from rain.
+inline constexpr int32_t kTpiRainTypeSnow = 2;
+
+// The kind of weather the park has: a storm while there is lightning, snow or rain while drops fall (snow while the
+// rain object's type `rainType` is kTpiRainTypeSnow), a heatwave when the quality is at Theme Park Inc's heatwave
+// quality or above, else none.
+inline int32_t TpiWeatherKind(int32_t quality, int32_t drops, int32_t rainType, int32_t lightning, int32_t heatwaveLow) {
     if (lightning != 0) return kTpiStorm;
-    if (drops > 0) return precipitation == 1 ? kTpiSnow : kTpiRain;
+    if (drops > 0) return rainType == kTpiRainTypeSnow ? kTpiSnow : kTpiRain;
     if (quality >= heatwaveLow) return kTpiHeatwave;
     return kTpiNoWeather;
 }
