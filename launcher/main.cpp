@@ -194,9 +194,10 @@ int ResolutionPreset(const char* size) {
 bool gSeveralKeysSetting = false;
 
 // TPW_PORT_FIX typing-order PortKeyTogether | Mac: no such settings: the key that is down is released before the next one goes down | Port: the run loop's tpw::gPortKeyTogether (platform/gamework.cpp), whether a key stays down with the next one: every key with "Several keys at once", the four with "W A S D move the camera" (PortWasdPlace, include/port_wasd.h), and none while an edit box has the keyboard (a player's or a park's name, a ride's sign, the online chat), where letters are typed one key at a time as the Mac's | Why: a letter goes to an edit box at its key-up (TPMain.cpp HandleTyping); kept down together, the letters were typed in the order they came up, so a quickly typed "dk", K pressed before D was let go, came out "kd" with "Several keys at once" on, and "as" came out "sa" with W A S D on; contributed by samueleagle91 (tpw-port PR #132)
+// With "Free camera" on, its keys too (PortKeyTogetherFor, include/port_wasd.h, asks the edit box first).
 bool PortKeyTogether(uint8_t macKeyCode) {
-    if (gUIKeyboardWindow != nullptr && gUIKeyboardWindow->WhatAmI() == kUIKindEditBox) return false;
-    return gSeveralKeysSetting || (gPortWasdCamera && PortWasdPlace(macKeyCode));
+    const bool editBox = gUIKeyboardWindow != nullptr && gUIKeyboardWindow->WhatAmI() == kUIKindEditBox;
+    return PortKeyTogetherFor(macKeyCode, editBox, gSeveralKeysSetting);
 }
 
 // A size of the slider's lists that is not a preset's name (1920x1080): 0 when it is not one. It is exactly that size.
@@ -1302,7 +1303,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
         tpw::gPortDragGoing = PortFreeHookDragGoing;
         tpw::gPortDragEnd = PortFreeHookDragEnd;
         tpw::gPortPinch = PortFreeHookPinch;
-        tpw::gPortKeyTogether = PortCameraKeysTogether;
+        tpw::gPortKeyTogether = PortKeyTogether;   // and none while an edit box has the keyboard (typing-order)
         tpw::gPortStrayKeyUp = PortWasdStrayKeyUp;
         tpw::gPortReleaseKeyA = true;   // A, one of the flight keys, is released before the next key, as W A S D release it
         tpw::Log("free camera (the launcher's Settings): swipe %s, invert %d, sensitivity %.2f, fly speed %.2f, smoothing %d, "

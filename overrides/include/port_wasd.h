@@ -93,7 +93,12 @@ inline void PortWasdStrayKeyUp(uint8_t macKeyCode) {
         gPortWasdHeld[i] = 0;
     }
 }
-// TPW_PORT_FIX freecam PortCameraKeysTogether | Mac: (none) | Port: the run loop's tpw::gPortKeyTogether while "Free camera" is on: the four of W A S D (with that setting on) and the free camera's keys (PortFreePlace) stay down together | Why: Z with Q, or W with Shift and Q in flight, are held at once
+// TPW_PORT_FIX freecam PortCameraKeysTogether | Mac: (none) | Port: the camera's keys that stay down together (PortKeyTogetherFor asks it): the four of W A S D (with that setting on) and, while "Free camera" is on, the free camera's keys (PortFreePlace) | Why: Z with Q, or W with Shift and Q in flight, are held at once
 inline bool PortCameraKeysTogether(uint8_t macKeyCode) {
     return (gPortWasdCamera && PortWasdPlace(macKeyCode)) || PortFreePlace(macKeyCode);
+}
+// TPW_PORT_FIX typing-order PortKeyTogetherFor | Mac: no such settings: the key that is down is released before the next one goes down | Port: the launcher's PortKeyTogether (tpw::gPortKeyTogether, platform/gamework.cpp) with whether an edit box has the keyboard and the "Several keys at once" setting: no key while an edit box has it, asked first; otherwise every key with "Several keys at once", and the camera's keys (PortCameraKeysTogether: W A S D with that setting, the free camera's with "Free camera") | Why: with "Free camera" on the launcher gave the run loop the camera's keys alone, with no edit box test, so a name typed with it on still came out in the order the keys came up ("sd" typed quickly as "ds")
+inline bool PortKeyTogetherFor(uint8_t macKeyCode, bool editBox, bool severalKeys) {
+    if (editBox) return false;
+    return severalKeys || PortCameraKeysTogether(macKeyCode);
 }

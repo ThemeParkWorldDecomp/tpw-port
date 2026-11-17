@@ -27,6 +27,7 @@
 - Fixed the TPI Worlds and Rides mod's special rides wearing out: like in Theme Park Inc they never wear, and one worn in a park saved before gets its life back when the park is loaded
 - Gold rides switched on after a park began now get their research when the park loads, so their upgrades can be researched
 - An online park whose world the server does not list can no longer be visited, instead of loading in the wrong world
+- Fixed letters coming out in the wrong order when typing a name quickly with "Several keys at once", "W A S D move the camera" or "Free camera" on, and a quickly typed "a" going missing
 
 ### Changes
 

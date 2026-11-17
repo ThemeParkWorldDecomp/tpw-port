@@ -551,6 +551,13 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_wasd_keys PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
     target_link_libraries(tpw_host_wasd_keys PRIVATE tpw_platform)
     add_test(NAME wasd_keys COMMAND tpw_host_wasd_keys)
+    # Letters typed into an edit box keep their order (the port's fix typing-order, tpw-port PR #132 by samueleagle91): the
+    # real run loop with the launcher's choice of keys that stay down together (PortKeyTogetherFor, include/port_wasd.h) and
+    # an edit box that has the keyboard or takes it while keys are held, with Free camera, W A S D or Several keys at once.
+    add_executable(tpw_host_typing_order ${TPW_DECOMP_DIR}/tests/host_typing_order.cpp)
+    target_include_directories(tpw_host_typing_order PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    target_link_libraries(tpw_host_typing_order PRIVATE tpw_platform)
+    add_test(NAME typing_order COMMAND tpw_host_typing_order)
   endif()
   # The launcher's "Free camera" (the port's fix freecam, include/PortFreeCamera.h), its input side and math: the keys, the
   # trackpad's swipes and pinch, the drags, the tilt for a zoom, the easing and the ground floor. The original has no such

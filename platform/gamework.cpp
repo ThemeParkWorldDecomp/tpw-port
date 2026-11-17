@@ -65,6 +65,14 @@ bool KeyTogether(int32_t scancode) {
 bool KeysTogether(int32_t scancode) {
     return KeyTogether(scancode) && (!KeyStillDown() || KeyTogether(gKey.scancode));
 }
+// TPW_PORT_FIX typing-order UGamework::Run | Mac: (one key at a time: no key is held with another) | Port: the key-up of a key among the held keys (gHeldKeys) releases that key, as a key that stays down together does, whatever KeyTogether says now | Why: whether keys stay down together is asked at the key-up, and an edit box can take the keyboard while two keys are held: the held key's key-up then took the one-key-at-a-time way, released the remembered key (the other one, still down) and left the held one down until the end of the pass
+// Whether a key is among the held keys (gHeldKeys).
+bool KeyHeld(int32_t scancode) {
+    for (const KeyState& held : gHeldKeys) {
+        if (held.scancode == scancode) return true;
+    }
+    return false;
+}
 #endif
 
 // The autoKey events the Mac's Event Manager sent while the key that went down last stayed down: the first after the
@@ -560,8 +568,9 @@ void UGamework::Run() {
                 if (IsModifierKey(sdl.key.scancode)) break;
                 if (sdl.key.scancode == gAutoKey.scancode) gAutoKey = AutoKey();
 #ifdef TPW_PORT_FIX
-                // severalkeys: only the key that came up; wasd-diagonal: one of the four, only itself
-                if (tpw::gPortSeveralKeys || KeyTogether(static_cast<int32_t>(sdl.key.scancode))) {
+                // severalkeys: only the key that came up; wasd-diagonal: one of the four, only itself; typing-order: a held key
+                if (tpw::gPortSeveralKeys || KeyTogether(static_cast<int32_t>(sdl.key.scancode)) ||
+                    KeyHeld(static_cast<int32_t>(sdl.key.scancode))) {
                     if (!releaseHeldKey(static_cast<int32_t>(sdl.key.scancode))) StrayKeyUp(sdl.key.scancode);   // wasd-stuck
                     break;
                 }
@@ -678,7 +687,8 @@ void UGamework::Run() {
             } else {
                 if (sdlKey.scancode == gAutoKey.scancode) gAutoKey = AutoKey();
 #ifdef TPW_PORT_FIX
-                if (tpw::gPortSeveralKeys || KeyTogether(key.scancode)) {   // severalkeys, wasd-diagonal: only the key that came up
+                // severalkeys, wasd-diagonal: only the key that came up; typing-order: a held key
+                if (tpw::gPortSeveralKeys || KeyTogether(key.scancode) || KeyHeld(key.scancode)) {
                     if (!releaseHeldKey(key.scancode)) StrayKeyUp(key.scancode);   // wasd-stuck
                     continue;
                 }
