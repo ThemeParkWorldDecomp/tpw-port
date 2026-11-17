@@ -207,6 +207,11 @@ bool OutsideWindow(SDL_WindowID id, float x, float y) {
     return x < 0.0f || y < 0.0f || x >= static_cast<float>(wide) || y >= static_cast<float>(high);
 }
 
+// focuspointer: the last pointer move the run loop had (window coordinates), also while the game was inactive.
+bool gLastMoveKnown = false;
+float gLastMoveX = 0.0f;
+float gLastMoveY = 0.0f;
+
 // TPW_PORT_FIX freecam UGamework::Run | Mac: (none: every button and wheel event went to the game) | Port: with the launcher's Free camera on (tpw::gPortDragStart and its hooks, set before the game starts), a button the camera takes as a drag holds the mouse in SDL's relative mode, its moves go to the camera and the game is told nothing; the drag ends, and the pointer is given back where it was, at the button's key-up, at the focus loss, or when the camera says it may not go on (a panel opened, first person); a drag whose quick click goes to the game sends that click at the key-up; the wheel's precise deltas go to the camera first (tpw::gPortWheel); off, none of it | Why: the Free camera's drags and trackpad, as SPEC asks
 struct FreeDrag {
     bool active = false;        // the camera's drag, in relative mouse mode
@@ -438,6 +443,9 @@ void UGamework::Run() {
                 HandleMouseMoved(event);
 #ifdef TPW_PORT_FIX
                 if (!OutsideWindow(sdl.motion.windowID, sdl.motion.x, sdl.motion.y)) gPointerOutside = false;   // pointerleave
+                gLastMoveKnown = true;   // focuspointer
+                gLastMoveX = sdl.motion.x;
+                gLastMoveY = sdl.motion.y;
 #endif
                 break;
             }
@@ -580,6 +588,10 @@ void UGamework::Run() {
                 break;
             case SDL_EVENT_WINDOW_FOCUS_GAINED:
                 HandleActivateWindow(tpw::MainWindow(), true);
+#ifdef TPW_PORT_FIX
+                // TPW_PORT_FIX focuspointer UGamework::Run | Mac: (the game filled the screen, and while another program was in front the pointer was that program's) | Port: when the window gets the focus back, the game is told again of the pointer's last move, unless the pointer left the window since (gPointerOutside) or a scripted pointer has its place | Why: the game's UI drops the pointer's moves while the game is inactive (UI_DevicePointerMove), and SDL reports no move to where the pointer already is; moved away from a window edge while another window had the focus, the pointer stayed at that edge for the game after it came back, and once unpaused the camera scrolled toward that edge until the mouse moved (reported by slappyhead); contributed by samueleagle91 (tpw-port PR #133)
+                if (gLastMoveKnown && !gPointerOutside && !gScripted.active) HandleMouseMoved(MakeEvent(gLastMoveX, gLastMoveY));
+#endif
                 break;
             case SDL_EVENT_WINDOW_FOCUS_LOST:
 #ifdef TPW_PORT_FIX

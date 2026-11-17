@@ -551,6 +551,12 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_wasd_keys PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
     target_link_libraries(tpw_host_wasd_keys PRIVATE tpw_platform)
     add_test(NAME wasd_keys COMMAND tpw_host_wasd_keys)
+    # The pointer after a trip to another window (the port's fix focuspointer, tpw-port PR #133 by samueleagle91): the real
+    # run loop with the host's pointer and focus events, the game dropping moves while inactive as its UI does.
+    add_executable(tpw_host_focus_pointer ${TPW_DECOMP_DIR}/tests/host_focus_pointer.cpp)
+    target_include_directories(tpw_host_focus_pointer PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    target_link_libraries(tpw_host_focus_pointer PRIVATE tpw_platform)
+    add_test(NAME focus_pointer COMMAND tpw_host_focus_pointer)
     # Letters typed into an edit box keep their order (the port's fix typing-order, tpw-port PR #132 by samueleagle91): the
     # real run loop with the launcher's choice of keys that stay down together (PortKeyTogetherFor, include/port_wasd.h) and
     # an edit box that has the keyboard or takes it while keys are held, with Free camera, W A S D or Several keys at once.
