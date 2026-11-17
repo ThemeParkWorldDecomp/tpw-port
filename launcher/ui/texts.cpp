@@ -11,7 +11,7 @@ using assets::ImportProgress;
 using assets::ImportReport;
 
 std::string ContentModLockedText(const std::string& content) {
-    if (content == "tpi") return "Drop your Theme Park Inc disc or its folder on the launcher to unlock.";
+    if (content == "tpi") return "Drop your SimCoaster AKA Theme Park Inc disc or its folder on the launcher to unlock.";
     return "Drop your own " + std::string(content == "ps1" ? "PlayStation disc" : "disc") +
            " on the launcher to unlock.";
 }
@@ -334,7 +334,7 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
         r.headline = report.playStationConverted ? "PlayStation rides ready" : "PlayStation disc recognised";
         r.good = report.playStationConverted;
     } else if (!report.themeParkInc.empty()) {
-        r.headline = report.themeParkIncConverted ? "TPI worlds ready" : "Theme Park Inc disc recognised";
+        r.headline = report.themeParkIncConverted ? "SimCoaster AKA Theme Park Inc worlds ready" : "SimCoaster AKA Theme Park Inc disc recognised";
         r.good = report.themeParkIncConverted;
     } else if (report.written == 0 && !report.errors.empty()) {
         // A damaged or unreadable drop must not read as "nothing new": name the file and the reason first.

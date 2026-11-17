@@ -22,7 +22,7 @@ TpiRefresh RefreshTpiWorlds(const std::filesystem::path& contentFolder, const st
         return r;
     }
     const std::string versions = "(converter " + std::to_string(r.stamp) + " -> " + std::to_string(version) + ")";
-    const std::string stale = "Theme Park Inc worlds were converted by an older version " + versions;
+    const std::string stale = "SimCoaster AKA Theme Park Inc worlds were converted by an older version " + versions;
     std::error_code ec;
     const std::filesystem::path disc = std::filesystem::u8path(discPath);
     if (discPath.empty()) {
@@ -51,7 +51,7 @@ TpiRefresh RefreshTpiWorlds(const std::filesystem::path& contentFolder, const st
         return r;
     }
     r.result = TpiRefresh::Result::Converted;
-    r.line = "Theme Park Inc worlds converted again " + versions + " from " + disc.filename().u8string();
+    r.line = "SimCoaster AKA Theme Park Inc worlds converted again " + versions + " from " + disc.filename().u8string();
     return r;
 }
 

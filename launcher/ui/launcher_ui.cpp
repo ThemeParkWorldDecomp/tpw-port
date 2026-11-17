@@ -1270,7 +1270,7 @@ std::vector<GameDataRow> GameDataRows(const EditionStatus all[6], const std::vec
 
     // The Theme Park Inc worlds: the same for the mod whose content folder the player's Theme Park Inc disc (or its
     // installed folder) is converted into, unlocked once that folder holds its three worlds (platform/tpi_content.h).
-    GameDataRow tpi{"TPI Worlds and Rides mod", "switched on in Mods", false, 0, {}};
+    GameDataRow tpi{kTpiModName, "switched on in Mods", false, 0, {}};
     mod = nullptr;
     for (const ModRow& m : mods)
         if (m.content == "tpi") mod = &m;
@@ -1284,11 +1284,11 @@ std::vector<GameDataRow> GameDataRows(const EditionStatus all[6], const std::vec
         tpi.unlocked = true;
         tpi.fraction = 1;
         tpi.line = FormatCount(mod->rides.size()) + (mod->rides.size() == 1 ? " world" : " worlds") +
-                   " from your Theme Park Inc disc: " + join(mod->rides);
+                   " from your SimCoaster AKA Theme Park Inc disc: " + join(mod->rides);
     } else if (!rows[0].unlocked && !rows[1].unlocked) {
-        tpi.line = "Unlock a game above first, then drag in your Theme Park Inc disc";
+        tpi.line = "Unlock a game above first, then drag in your SimCoaster AKA Theme Park Inc disc";
     } else {
-        tpi.line = "Drag in your Theme Park Inc disc or its installed folder to unlock";
+        tpi.line = "Drag in your SimCoaster AKA Theme Park Inc disc or its installed folder to unlock";
     }
     rows.push_back(tpi);
 

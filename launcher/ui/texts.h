@@ -33,8 +33,11 @@ inline constexpr const char* kPs1StaleNotice =
 inline constexpr const char* kPs1StaleLine = "Converted by an older version: drag in your PlayStation disc again to update them";
 // The same two for the Theme Park Inc worlds (launcher/tpi_refresh.h). The disc or its installed folder both do.
 inline constexpr const char* kTpiStaleNotice =
-    "Your Theme Park Inc worlds are from an older version. Drop the disc again to update them.";
-inline constexpr const char* kTpiStaleLine = "Converted by an older version: drag in your Theme Park Inc disc again to update them";
+    "Your SimCoaster AKA Theme Park Inc worlds are from an older version. Drop the disc again to update them.";
+inline constexpr const char* kTpiStaleLine = "Converted by an older version: drag in your SimCoaster AKA Theme Park Inc disc again to update them";
+// The worlds mod's name (tpw-mods tpi-worlds/mod.json "name"), for the Game data box's row, which does not read
+// mod.json. The one place the launcher spells it.
+inline constexpr const char* kTpiModName = "SimCoaster/TPI - New Worlds, Rides and Sprites";
 // The home's stale notice for a content mod's folder ("ps1", "tpi"): kPs1StaleNotice or kTpiStaleNotice.
 const char* ContentStaleNotice(const std::string& content);
 

@@ -757,10 +757,10 @@ ModRow Ps1RidesConverted() {
 ModRow TpiWorlds() {
     ModRow row;
     row.id = "tpi-worlds";
-    row.name = "TPI Worlds and Rides";
+    row.name = kTpiModName;
     row.version = "0.1.0";
     row.author = "TPW Decomp";
-    row.text = "Adds Theme Park Inc's three worlds and their rides, converted from your own Theme Park Inc disc.";
+    row.text = "Adds SimCoaster AKA Theme Park Inc's three worlds and their rides, converted from your own SimCoaster AKA Theme Park Inc disc.";
     row.editions[0] = row.editions[1] = row.editions[2] = true;
     row.changesSaves = true;
     row.locked = ContentModLockedText("tpi");
@@ -1523,7 +1523,7 @@ std::vector<Shot> Shots() {
                          FakeBackend::Script s;
                          s.finish = [](FakeBackend&, ImportReport& r) {
                              r.themeParkIncConverted = true;
-                             r.themeParkInc.push_back("Theme Park Inc: 3 worlds converted from the European disc.");
+                             r.themeParkInc.push_back("SimCoaster AKA Theme Park Inc: 3 worlds converted from the European disc.");
                              r.themeParkInc.push_back("Arabian Nights, Polar Zone and Land of Invention are in the Mods box.");
                          };
                          b.Queue(s);
@@ -1680,22 +1680,22 @@ void CheckWindowsTexts() {
 void CheckTexts() {
     CheckEq(ContentModLockedText("ps1"), "Drop your own PlayStation disc on the launcher to unlock.",
             "content mod: how to unlock PlayStation rides");
-    CheckEq(ContentModLockedText("tpi"), "Drop your Theme Park Inc disc or its folder on the launcher to unlock.",
+    CheckEq(ContentModLockedText("tpi"), "Drop your SimCoaster AKA Theme Park Inc disc or its folder on the launcher to unlock.",
             "content mod: how to unlock the Theme Park Inc worlds");
     Check(ContentStaleNotice("ps1") == std::string(kPs1StaleNotice) && ContentStaleNotice("tpi") == std::string(kTpiStaleNotice),
           "content mod: each content's stale notice");
     {
         ImportReport tpi;
         EditionStatus before[6] = {};
-        tpi.themeParkInc.push_back("Theme Park Inc: 3 worlds converted from the European disc.");
+        tpi.themeParkInc.push_back("SimCoaster AKA Theme Park Inc: 3 worlds converted from the European disc.");
         tpi.themeParkIncConverted = true;
         ResultText result = DescribeResult(tpi, before);
-        CheckEq(result.headline, "TPI worlds ready", "TPI conversion headline");
+        CheckEq(result.headline, "SimCoaster AKA Theme Park Inc worlds ready", "TPI conversion headline");
         Check(result.good && result.lines.size() == 1 && result.lines.front() == tpi.themeParkInc.front(),
               "TPI conversion reports its own content without changing edition counts");
         tpi.themeParkIncConverted = false;
         result = DescribeResult(tpi, before);
-        Check(!result.good && result.headline == "Theme Park Inc disc recognised", "TPI recognised but not converted stays honest");
+        Check(!result.good && result.headline == "SimCoaster AKA Theme Park Inc disc recognised", "TPI recognised but not converted stays honest");
         // Both discs in one drop: the PlayStation headline first, both converters' lines.
         tpi.themeParkIncConverted = true;
         tpi.playStation.push_back("PlayStation rides: 7 rides and the Tower converted.");
@@ -3514,7 +3514,7 @@ void CheckMods(SDL_Renderer* renderer) {
         conversion.finish = [&](FakeBackend&, ImportReport& report) {
             contentReady = true;
             report.themeParkIncConverted = true;
-            report.themeParkInc.push_back("Theme Park Inc: 3 worlds converted.");
+            report.themeParkInc.push_back("SimCoaster AKA Theme Park Inc: 3 worlds converted.");
         };
         b.Queue(std::move(conversion));
         ui.OfferPaths({"/media/Theme Park Inc"});
@@ -3547,7 +3547,7 @@ void CheckGameData(SDL_Renderer* renderer) {
         frames(1);
     };
     const std::vector<std::string> kNames = {"Sim Theme Park", "Theme Park World", "Gold Edition",
-                                             "PlayStation rides mod", "TPI Worlds and Rides mod", "Languages"};
+                                             "PlayStation rides mod", kTpiModName, "Languages"};
     const auto names = [](const std::vector<GameDataRow>& rows) {
         std::vector<std::string> out;
         for (const GameDataRow& r : rows) out.push_back(r.name);
@@ -3614,7 +3614,7 @@ void CheckGameData(SDL_Renderer* renderer) {
             CheckEq(rows[0].line, "Drag in the US Mac CD or the US Windows CD to unlock", what + ": Sim Theme Park's line");
             Check(starts(rows[1].line, "Drag in ") && starts(rows[2].line, "Drag in "), what + ": how to unlock the others");
             CheckEq(rows[3].line, "Unlock a game above first, then drag in your PlayStation disc", what + ": the PS1 line");
-            CheckEq(rows[4].line, "Unlock a game above first, then drag in your Theme Park Inc disc", what + ": the TPI line");
+            CheckEq(rows[4].line, "Unlock a game above first, then drag in your SimCoaster AKA Theme Park Inc disc", what + ": the TPI line");
             CheckEq(rows[5].line, "Drag in a disc in another language, such as French or German, to unlock",
                     what + ": the Languages line");
             const Rect settings = ui.GameDataSettingsRect();
@@ -3693,7 +3693,7 @@ void CheckGameData(SDL_Renderer* renderer) {
                     "8 from your PlayStation disc: Crazy Clown, Jumping Skulls, Eye Slide, Aztec Bounce, Diplo-Dip, Inca "
                     "Pot, Romper Stomper and Tower",
                     what + ": the PS1 line names its rides");
-            CheckEq(rows[4].line, "3 worlds from your Theme Park Inc disc: Arabian Nights, Polar Zone and Land of Invention",
+            CheckEq(rows[4].line, "3 worlds from your SimCoaster AKA Theme Park Inc disc: Arabian Nights, Polar Zone and Land of Invention",
                     what + ": the TPI line names its worlds");
             CheckEq(rows[5].line, "Fran\xC3\xA7" "ais, Deutsch, Dansk and Svenska, besides English",
                     what + ": the Languages line names them");
@@ -3722,7 +3722,7 @@ void CheckGameData(SDL_Renderer* renderer) {
                   what + ": Theme Park World partly there, with how to unlock it");
             Check(!rows[2].unlocked && rows[2].fraction == 0, what + ": Gold locked");
             Check(!rows[3].unlocked && starts(rows[3].line, "Drag in your PlayStation disc"), what + ": PS1 locked");
-            Check(!rows[4].unlocked && starts(rows[4].line, "Drag in your Theme Park Inc disc or its installed folder"),
+            Check(!rows[4].unlocked && starts(rows[4].line, "Drag in your SimCoaster AKA Theme Park Inc disc or its installed folder"),
                   what + ": TPI locked");
             Check(rows[5].unlocked, what + ": Languages unlocked");
             for (const char* name : {"Fran\xC3\xA7" "ais", "Deutsch", "Italiano", "Korean"})
@@ -3767,7 +3767,7 @@ void CheckGameData(SDL_Renderer* renderer) {
         ModRow ps1Stale = Ps1RidesConverted();
         ps1Stale.stale = true;
         rows = GameDataRows(all, b.languages, {ps1Stale, TpiWorldsConverted()});
-        Check(rows[3].line == kPs1StaleLine && starts(rows[4].line, "3 worlds from your Theme Park Inc disc"),
+        Check(rows[3].line == kPs1StaleLine && starts(rows[4].line, "3 worlds from your SimCoaster AKA Theme Park Inc disc"),
               "game data: stale PS1 rides leave the TPI row alone");
         LauncherUi ui(renderer, b);
         ui.SetMods({EnableStrikes(), Ps1RidesConverted(), TpiWorldsConverted()});
@@ -3794,7 +3794,7 @@ void CheckGameData(SDL_Renderer* renderer) {
         conversion.finish = [&](FakeBackend&, ImportReport& report) {
             converted = true;
             report.themeParkIncConverted = true;
-            report.themeParkInc.push_back("Theme Park Inc: 3 worlds converted.");
+            report.themeParkInc.push_back("SimCoaster AKA Theme Park Inc: 3 worlds converted.");
         };
         b.Queue(std::move(conversion));
         ui.OfferPaths({"/media/Theme Park Inc"});

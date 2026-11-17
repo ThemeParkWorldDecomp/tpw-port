@@ -39,8 +39,8 @@ Launcher locations:
 
 ## Mods
 
-Optional extras from [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods). Open Mods, at the top next to Settings and About / Game Data. All
-are off by default, and all off is the original game. A park saved with a mod needs it on to load.
+Optional extras that add bonus content. Click Mods in the Launcher, next to Settings. All are off by default, and all
+off is the original game. A park saved with a mod needs it on to load.
 
 ## PS1 Exclusives
 
@@ -53,7 +53,7 @@ are off by default, and all off is the original game. A park saved with a mod ne
 The seven rides only the PlayStation had, plus its Tower as Halloween scenery. Converted from your own USA, European or
 Japanese PlayStation disc. Turn on PlayStation rides and drop the disc on the launcher.
 
-## TPI Worlds
+## SimCoaster AKA Theme Park Inc Worlds
 
 ![Arabian Nights](docs/screenshots/tpi-arabian-nights.jpg)
 
@@ -61,9 +61,9 @@ Japanese PlayStation disc. Turn on PlayStation rides and drop the disc on the la
 
 ![Land of Invention](docs/screenshots/tpi-land-of-invention.jpg)
 
-Three worlds from Theme Park Inc: Arabian Nights, Polar Zone and Land of Invention, with their own rides, shops and
-scenery. A second ring of islands (Tab or right click) at 5, 3 and 1 golden keys. Converted from your own Theme Park Inc
-disc or install. Turn on TPI Worlds and Rides and drop it on the launcher. Not publishable online.
+Three worlds from SimCoaster (AKA Theme Park Inc, 2001): Arabian Nights, Polar Zone and Land of Invention, with their own rides, shops and
+scenery. A second ring of islands (Tab or right click) at 5, 3 and 1 golden keys. Converted from your own disc or install of that
+game. Turn on SimCoaster/TPI - New Worlds, Rides and Sprites and drop it on the launcher. Not publishable online.
 
 ## More mods
 
