@@ -602,12 +602,45 @@ Rect Ui::DropOverlay(const std::string& id, const Rect& window, bool on, std::st
     return card;
 }
 
-void Ui::Notice(const Rect& window, std::string_view message, Rgba fill) {
-    float w = std::min(window.w - 2 * metric::kMargin, text_.Width(style::kBodyBold, message) + 40);
-    Rect r{window.CentreX() - w * 0.5f, window.Bottom() - metric::kMargin - 36, w, 36};
+namespace {
+constexpr size_t kNoticeLines = 3;   // the most lines a notice wraps onto
+
+// The notice's lines, wrapped to the widest pill the window has room for: one line is the 36 point pill it always was,
+// and each further line makes it a line taller.
+std::vector<std::string> NoticeLines(Text& text, const Rect& window, std::string_view message) {
+    const float width = window.w - 2 * metric::kMargin - 32;
+    std::vector<std::string> lines = text.Wrap(style::kBodyBold, message, width);
+    if (lines.size() > kNoticeLines) {
+        std::string rest = lines[kNoticeLines - 1];
+        for (size_t i = kNoticeLines; i < lines.size(); ++i) rest += " " + lines[i];
+        lines.resize(kNoticeLines);
+        lines.back() = text.Fit(style::kBodyBold, rest, width, false);
+    }
+    return lines;
+}
+
+Rect NoticeBox(Text& text, const Rect& window, const std::vector<std::string>& lines) {
+    float widest = 0;
+    for (const std::string& line : lines) widest = std::max(widest, text.Width(style::kBodyBold, line));
+    const float w = std::min(window.w - 2 * metric::kMargin, widest + 40);
+    const float h = 36 + (static_cast<float>(lines.size()) - 1) * text.LineHeight(style::kBodyBold);
+    return {window.CentreX() - w * 0.5f, window.Bottom() - metric::kMargin - h, w, h};
+}
+}  // namespace
+
+Rect Ui::NoticeRect(const Rect& window, std::string_view message) {
+    return NoticeBox(text_, window, NoticeLines(text_, window, message));
+}
+
+Rect Ui::Notice(const Rect& window, std::string_view message, Rgba fill) {
+    const std::vector<std::string> lines = NoticeLines(text_, window, message);
+    const Rect r = NoticeBox(text_, window, lines);
     canvas_.Shadow(r.Moved(0, 3), 18, 8, colour::kShadow);
     canvas_.Outlined(r, 18, 2.5f, fill, colour::kInk);
-    text_.DrawCentred(style::kBodyBold, r, text_.Fit(style::kBodyBold, message, w - 32, false), colour::kInk);
+    const float lh = text_.LineHeight(style::kBodyBold);
+    for (size_t i = 0; i < lines.size(); ++i)
+        text_.DrawCentred(style::kBodyBold, {r.x, r.y + (36 - lh) * 0.5f + i * lh, r.w, lh}, lines[i], colour::kInk);
+    return r;
 }
 
 }  // namespace tpw::ui

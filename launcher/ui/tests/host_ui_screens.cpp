@@ -3801,6 +3801,65 @@ void CheckGameData(SDL_Renderer* renderer) {
         for (int i = 0; i < 3; ++i) ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
         Check(ui.StaleContent() == nullptr, "stale notice: gone once a drop converts the worlds again");
     }
+
+    // The stale notice wraps onto a second line rather than being cut, and the screen lays out above it (the maintainer,
+    // 2026-11-16): on the home and the all-confirmed home, at the start size and the smallest, it is in the window and
+    // clear of the tiles, their Play and Gold buttons and the Game data button. Under the Game data box it is not shown
+    // (the box's row says so), and the box and its Open Settings button stay in the window.
+    for (bool ready : {false, true}) {
+        for (int size = 0; size < 2; ++size) {
+            const float w = size == 0 ? metric::kStartWidth : metric::kMinWidth;
+            const float h = size == 0 ? metric::kStartHeight : metric::kMinHeight;
+            const std::string what = std::string("stale notice, ") + (ready ? "all-confirmed home" : "home") + " at " +
+                                     (size == 0 ? "the start size" : "the smallest");
+            FakeBackend b;
+            if (ready) FillEverything(b);
+            else PartialUsEur(b);
+            LauncherUi ui(renderer, b);
+            ui.SetMods({EnableStrikes(), Ps1RidesConverted(), TpiWorldsStale()});
+            ui.Frame(kDt, w, h, 1);
+            const Rect notice = ui.NoticeRect();
+            Check(notice.w > 0 && notice.h >= 36, what + ": the notice shows");
+            Check(notice.x >= 0 && notice.y >= 0 && notice.Right() <= w && notice.Bottom() <= h,
+                  what + ": the notice is in the window");
+            Check(ui.AboutButtonRect().w > 0 && !Overlaps(notice, ui.AboutButtonRect()),
+                  what + ": the notice is clear of the About / Game data button");
+            for (int i = 0; i < 3; ++i) {
+                const std::string tile = what + ": the notice is clear of tile " + std::to_string(i);
+                Check(!Overlaps(notice, ui.TileRect(i)) && !Overlaps(notice, ui.TilePlayRect(i)), tile);
+                if (i < 2)
+                    Check(!Overlaps(notice, ui.ReadyPlayRect(i)) && !Overlaps(notice, ui.ReadyGoldRect(i)),
+                          tile + "'s Play and Gold buttons");
+            }
+            ui.ShowGameData(true);
+            ui.Frame(kDt, w, h, 1);
+            const Rect box = ui.GameDataBoxRect(), settings = ui.GameDataSettingsRect();
+            Check(ui.NoticeRect().w == 0, what + ": no notice over the Game data box");
+            Check(box.w > 0 && box.x >= 0 && box.y >= 0 && box.Right() <= w && box.Bottom() <= h,
+                  what + ": the Game data box is in the window");
+            Check(settings.w > 0 && box.Contains(settings.x, settings.y) &&
+                      box.Contains(settings.Right() - 1, settings.Bottom() - 1),
+                  what + ": Open Settings is in the Game data box");
+        }
+    }
+    // A notice longer than the window is wide wraps rather than being cut, and stays in the window.
+    for (int size = 0; size < 2; ++size) {
+        const float w = size == 0 ? metric::kStartWidth : metric::kMinWidth;
+        const float h = size == 0 ? metric::kStartHeight : metric::kMinHeight;
+        const std::string what = std::string("long notice at ") + (size == 0 ? "the start size" : "the smallest");
+        FakeBackend b;
+        LauncherUi ui(renderer, b);
+        ui.Frame(kDt, w, h, 1);
+        Check(ui.NoticeRect().w == 0, what + ": no notice before one is shown");
+        ui.ShowNotice("Could not copy the game data: the disk is full. Free some space on the disk that holds the data "
+                      "folder and drop the disc again; the files copied so far were removed.",
+                      true);
+        ui.Frame(kDt, w, h, 1);
+        const Rect notice = ui.NoticeRect();
+        Check(notice.w > 0 && notice.h > 36, what + ": it wraps onto a second line");
+        Check(notice.x >= 0 && notice.y >= 0 && notice.Right() <= w && notice.Bottom() <= h,
+              what + ": it is in the window");
+    }
 }
 
 // No footer on either home (the maintainer, 2026-11-08) and no row under the tiles (the maintainer, 2026-11-16): the tiles sit a margin above

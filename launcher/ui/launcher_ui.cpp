@@ -122,9 +122,27 @@ void Diamond(Canvas& canvas, const Rect& r) {
     canvas.FillTriangle({c.x + s, c.y}, {c.x, c.y + k}, {c.x, c.y - k}, colour::kPaper);
 }
 
-// A Game data row's height (DrawAbout counts the rows, DrawGameData draws them).
-float GameDataRowHeight(Text& text) {
-    return 10 + text.LineHeight(style::kBodyBold) + 3 + text.LineHeight(style::kSmall) + 10;
+// A Game data row laid out in a box `inW` wide: beside the badge and left of the state's word, its tag beside the name
+// where it fits, else on a line of its own under it, and its line wrapped onto as many lines as it needs, never cut
+// (the maintainer, 2026-11-16); a row with one line and its tag beside the name keeps the height every row had.
+constexpr float kGameDataBadgeR = 15;
+struct GameDataRowLayout {
+    float textW = 0;
+    bool tagBelow = false;
+    std::vector<std::string> lines;
+    float height = 0;
+};
+GameDataRowLayout LayOutGameDataRow(Text& text, const GameDataRow& r, float inW) {
+    const float wordW = std::max(text.Width(style::kBodyBold, "Unlocked"), text.Width(style::kBodyBold, "Locked"));
+    const float small = text.LineHeight(style::kSmall);
+    GameDataRowLayout l;
+    l.textW = inW - (12 + 2 * kGameDataBadgeR + 12) - (12 + wordW + 12);
+    l.tagBelow = !r.tag.empty() &&
+                 text.Width(style::kBodyBold, r.name) + 10 + text.Width(style::kSmall, r.tag) > l.textW;
+    l.lines = text.Wrap(style::kSmall, r.line, l.textW);
+    l.height = 10 + text.LineHeight(style::kBodyBold) + (l.tagBelow ? small : 0) + 3 +
+               static_cast<float>(l.lines.size()) * small + 10;
+    return l;
 }
 }  // namespace
 
@@ -1925,20 +1943,37 @@ void LauncherUi::DrawMods(const Rect& w) {
     canvas_.FillRound(w, 0, colour::kDim);
     float pw = std::min(w.w - 2 * metric::kMargin, 640.0f);
     float titleH = text_.LineHeight(style::kHeadline) + 12;
-    // Each mod's row: its name and version, the player's text, the editions, saved games, conflicts and why its switch
-    // is off, beside the switch.
+    // Each mod's row: its name and version (the version under the name where the name leaves no room), the player's
+    // text, the editions, saved games, conflicts and why its switch is off, beside the switch. The text, the conflicts
+    // and the why wrap onto as many lines as they need, never cut (the maintainer, 2026-11-16).
     const float textW = pw - 40 - 12 - 56 - 36;
     const float small = text_.LineHeight(style::kSmall), smallBold = text_.LineHeight(style::kSmallBold);
-    std::vector<std::vector<std::string>> texts;
-    std::vector<std::string> whys;
+    std::vector<std::vector<std::string>> texts, conflicts, whys;
+    std::vector<bool> versionBelow;
     std::vector<float> rowHs;
     for (size_t i = 0; i < mods_.size(); ++i) {
-        texts.push_back(text_.Wrap(style::kSmall, mods_[i].text, textW));
+        const ModRow& mod = mods_[i];
+        texts.push_back(text_.Wrap(style::kSmall, mod.text, textW));
+        versionBelow.push_back(text_.Width(style::kBodyBold, mod.name) + 10 +
+                                   text_.Width(style::kSmall, mod.version + ", by " + mod.author) > textW);
+        std::string conflict = "Conflicts: none";
+        if (!mod.conflicts.empty()) {
+            conflict = "Cannot be on with ";
+            for (size_t c = 0; c < mod.conflicts.size(); ++c) {
+                std::string name = mod.conflicts[c];
+                for (const ModRow& other : mods_)
+                    if (other.id == name) name = other.name;
+                conflict += (c == 0 ? "" : ", ") + name;
+            }
+        }
+        conflicts.push_back(text_.Wrap(style::kSmall, conflict, textW));
         std::string why;
         if (modOn_[i] || ModAllowed(i, why)) why.clear();
-        whys.push_back(why);
-        rowHs.push_back(24 + text_.LineHeight(style::kBodyBold) + 4 + static_cast<float>(texts.back().size()) * small + 4 +
-                        3 * small + (why.empty() ? 0.0f : smallBold));
+        whys.push_back(why.empty() ? std::vector<std::string>{} : text_.Wrap(style::kSmallBold, why, textW));
+        rowHs.push_back(24 + text_.LineHeight(style::kBodyBold) + (versionBelow.back() ? small : 0.0f) + 4 +
+                        static_cast<float>(texts.back().size()) * small + 4 + 2 * small +
+                        static_cast<float>(conflicts.back().size()) * small +
+                        static_cast<float>(whys.back().size()) * smallBold);
     }
     float bodyH = 0;
     for (float h : rowHs) bodyH += h + 6;
@@ -1983,11 +2018,19 @@ void LauncherUi::DrawMods(const Rect& w) {
         Rect row{in.x, y, in.w, rowHs[i]};
         canvas_.FillRound(row, 10, i % 2 ? colour::kCream : colour::kYellowSoft.WithAlpha(120));
         float ty = row.y + 12;
-        const float nameW = text_.Draw(style::kBodyBold, row.x + 12, ty, mod.name, colour::kInk);
-        text_.Draw(style::kSmall, row.x + 12 + nameW + 10, ty + text_.Ascent(style::kBodyBold) - text_.Ascent(style::kSmall),
-                   text_.Fit(style::kSmall, mod.version + ", by " + mod.author, textW - nameW - 10, false),
-                   colour::kInkSoft);
-        ty += text_.LineHeight(style::kBodyBold) + 4;
+        const float nameW = text_.Draw(style::kBodyBold, row.x + 12, ty,
+                                       text_.Fit(style::kBodyBold, mod.name, textW, false), colour::kInk);
+        const std::string version = mod.version + ", by " + mod.author;
+        if (versionBelow[i]) {
+            ty += text_.LineHeight(style::kBodyBold);
+            text_.Draw(style::kSmall, row.x + 12, ty, text_.Fit(style::kSmall, version, textW, false),
+                       colour::kInkSoft);
+            ty += small + 4;
+        } else {
+            text_.Draw(style::kSmall, row.x + 12 + nameW + 10,
+                       ty + text_.Ascent(style::kBodyBold) - text_.Ascent(style::kSmall), version, colour::kInkSoft);
+            ty += text_.LineHeight(style::kBodyBold) + 4;
+        }
         for (const std::string& line : texts[i]) {
             text_.Draw(style::kSmall, row.x + 12, ty, line, colour::kInk);
             ty += small;
@@ -2004,20 +2047,14 @@ void LauncherUi::DrawMods(const Rect& w) {
         else
             text_.Draw(style::kSmall, row.x + 12, ty, "Saved games: unchanged", colour::kInkSoft);
         ty += small;
-        std::string conflicts = "Conflicts: none";
-        if (!mod.conflicts.empty()) {
-            conflicts = "Cannot be on with ";
-            for (size_t c = 0; c < mod.conflicts.size(); ++c) {
-                std::string name = mod.conflicts[c];
-                for (const ModRow& other : mods_)
-                    if (other.id == name) name = other.name;
-                conflicts += (c == 0 ? "" : ", ") + name;
-            }
+        for (const std::string& line : conflicts[i]) {
+            text_.Draw(style::kSmall, row.x + 12, ty, line, colour::kInkSoft);
+            ty += small;
         }
-        text_.Draw(style::kSmall, row.x + 12, ty, text_.Fit(style::kSmall, conflicts, textW, false), colour::kInkSoft);
-        ty += small;
-        if (!whys[i].empty())
-            text_.Draw(style::kSmallBold, row.x + 12, ty, text_.Fit(style::kSmallBold, whys[i], textW, false), colour::kRed);
+        for (const std::string& line : whys[i]) {
+            text_.Draw(style::kSmallBold, row.x + 12, ty, line, colour::kRed);
+            ty += smallBold;
+        }
 
         // A mod that is on can always be switched off; one that is off, only where it can be on.
         bool on = modOn_[i];
@@ -2061,7 +2098,8 @@ void LauncherUi::DrawAbout(const Rect& w) {
                          smallBold * text_.Wrap(style::kSmallBold, kDisclaimer, inW).size() + 12;
     const float logsH = kRowH + 14 + (!logsFolder_.empty() && exported_.ok ? kRowH + 10 : 0.0f);
     const float headingH = text_.LineHeight(style::kHeading) + 6;
-    const float rowsH = GameData().size() * (GameDataRowHeight(text_) + 6);
+    float rowsH = 0;
+    for (const GameDataRow& r : GameData()) rowsH += LayOutGameDataRow(text_, r, inW).height + 6;
     const float contentH = titleH + linesH + logsH + headingH + rowsH + 4 + kFooterH;
     const float ph = std::min(w.h - 2 * metric::kMargin, contentH + 40);
     Rect panel{std::round(w.CentreX() - pw * 0.5f), std::round(w.CentreY() - ph * 0.5f), pw, ph};
@@ -2140,8 +2178,13 @@ void LauncherUi::DrawAbout(const Rect& w) {
 void LauncherUi::DrawGameData(const Rect& panel, const Rect& in, float top, float footerTop) {
     const std::vector<GameDataRow> rows = GameData();
     const float bold = text_.LineHeight(style::kBodyBold), small = text_.LineHeight(style::kSmall);
-    const float rowH = GameDataRowHeight(text_), buttonH = 34;
-    const float rowsH = rows.size() * (rowH + 6);
+    const float buttonH = 34;
+    std::vector<GameDataRowLayout> layouts;
+    float rowsH = 0;
+    for (const GameDataRow& r : rows) {
+        layouts.push_back(LayOutGameDataRow(text_, r, in.w));
+        rowsH += layouts.back().height + 6;
+    }
     const float shown = footerTop - 4 - top;
     const bool scrolls = rowsH > shown + 0.5f;
     const float barW = 6, barMargin = panel.Right() - metric::kOutline - in.Right();
@@ -2154,25 +2197,35 @@ void LauncherUi::DrawGameData(const Rect& panel, const Rect& in, float top, floa
     }
 
     // Each row: the badge (a check, the share there, or a lock), the name and what it is, the line, and the state's word.
-    const float badgeR = 15;
-    const float wordW = std::max(text_.Width(style::kBodyBold, "Unlocked"), text_.Width(style::kBodyBold, "Locked"));
+    const float badgeR = kGameDataBadgeR;
     for (size_t i = 0; i < rows.size(); ++i) {
         const GameDataRow& r = rows[i];
-        Rect row{in.x, y, in.w, rowH};
+        const GameDataRowLayout& l = layouts[i];
+        Rect row{in.x, y, in.w, l.height};
         canvas_.FillRound(row, 10, i % 2 ? colour::kCream : colour::kYellowSoft.WithAlpha(120));
         const Badge badge = r.unlocked ? Badge::Check : r.fraction > 0 ? Badge::Partial : Badge::Lock;
         ui_.DrawBadge(badge, row.x + 12 + badgeR, row.CentreY(), badgeR, r.unlocked ? 1.0f : r.fraction);
-        const float tx = row.x + 12 + 2 * badgeR + 12, textW = row.Right() - 12 - wordW - 12 - tx;
+        const float tx = row.x + 12 + 2 * badgeR + 12;
         float ty = row.y + 10;
-        const float nameW = text_.Draw(style::kBodyBold, tx, ty, r.name, colour::kInk);
-        text_.Draw(style::kSmall, tx + nameW + 10, ty + text_.Ascent(style::kBodyBold) - text_.Ascent(style::kSmall),
-                   text_.Fit(style::kSmall, r.tag, textW - nameW - 10, false), colour::kInkSoft);
-        ty += bold + 3;
-        text_.Draw(style::kSmall, tx, ty, text_.Fit(style::kSmall, r.line, textW, false), colour::kInk);
+        const float nameW = text_.Draw(style::kBodyBold, tx, ty, text_.Fit(style::kBodyBold, r.name, l.textW, false),
+                                       colour::kInk);
+        if (l.tagBelow) {
+            ty += bold;
+            text_.Draw(style::kSmall, tx, ty, text_.Fit(style::kSmall, r.tag, l.textW, false), colour::kInkSoft);
+            ty += small + 3;
+        } else {
+            text_.Draw(style::kSmall, tx + nameW + 10,
+                       ty + text_.Ascent(style::kBodyBold) - text_.Ascent(style::kSmall), r.tag, colour::kInkSoft);
+            ty += bold + 3;
+        }
+        for (const std::string& line : l.lines) {
+            text_.Draw(style::kSmall, tx, ty, line, colour::kInk);
+            ty += small;
+        }
         const char* word = r.unlocked ? "Unlocked" : "Locked";
         text_.Draw(style::kBodyBold, row.Right() - 12 - text_.Width(style::kBodyBold, word),
                    row.CentreY() - bold * 0.5f, word, r.unlocked ? colour::kLimeDeep : colour::kInkSoft);
-        y += rowH + 6;
+        y += l.height + 6;
     }
     if (scrolls) {
         ui_.Unclip();
@@ -2386,12 +2439,17 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
     if (editedOpen_ < 0) restoreRects_.clear();
     if (!aboutOpen_) exported_ = LogsExport{};
     DrawBackdrop(window);
+    // Stale content's notice stays until a drop converts it again, so the screens keep a band for it at the window's
+    // bottom and lay out above it: it covers no button or tile, however many lines it wraps onto.
+    const ModRow* stale = StaleContent();
+    Rect screen = window;
+    if (stale != nullptr) screen.h -= ui_.NoticeRect(window, ContentStaleNotice(stale->content)).h + metric::kMargin;
     switch (screen_) {
-        case Screen::Home: DrawHome(window); break;
-        case Screen::Checking: DrawChecking(window); break;
-        case Screen::Result: DrawResult(window); break;
-        case Screen::Play: DrawPlay(window); break;
-        case Screen::Starting: DrawStarting(window); break;
+        case Screen::Home: DrawHome(screen); break;
+        case Screen::Checking: DrawChecking(screen); break;
+        case Screen::Result: DrawResult(screen); break;
+        case Screen::Play: DrawPlay(screen); break;
+        case Screen::Starting: DrawStarting(screen); break;
     }
     if (overlay) {
         tilesShown_ = false;   // under the box
@@ -2413,10 +2471,14 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
         if (onlineServerEditing_) SDL_StartTextInput(window_);
         else SDL_StopTextInput(window_);
     }
+    // The stale content's notice is kept until a drop converts the content again (RefreshStatus reads the mods' rows
+    // after one); while a box is open it is not shown over the box (the Game data box's row says so itself).
+    noticeRect_ = Rect{};
     if (noticeLeft_ > 0 && !notice_.empty())
-        ui_.Notice(window, notice_, noticeProblem_ ? Mix(colour::kRed, colour::kPaper, 0.55f) : colour::kYellowSoft);
-    else if (const ModRow* stale = StaleContent())   // kept until a drop converts the content again (RefreshStatus
-        ui_.Notice(window, ContentStaleNotice(stale->content), colour::kYellowSoft);   // reads the mods' rows after one)
+        noticeRect_ = ui_.Notice(window, notice_, noticeProblem_ ? Mix(colour::kRed, colour::kPaper, 0.55f)
+                                                                 : colour::kYellowSoft);
+    else if (stale != nullptr && !overlay)
+        noticeRect_ = ui_.Notice(window, ContentStaleNotice(stale->content), colour::kYellowSoft);
     ui_.End();
 }
 

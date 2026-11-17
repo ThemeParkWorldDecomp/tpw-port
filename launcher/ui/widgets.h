@@ -127,8 +127,10 @@ public:
     Rect DropOverlay(const std::string& id, const Rect& window, bool on, std::string_view heading,
                      std::string_view line, std::string_view note, bool takes);
     void DrawBadge(Badge badge, float cx, float cy, float radius, float fraction);
-    // A message in a pill at the bottom of the window.
-    void Notice(const Rect& window, std::string_view message, Rgba fill);
+    // A message in a pill at the bottom of the window, wrapped onto as many lines as it needs (up to three; a longer
+    // one is cut on its third). NoticeRect is where Notice draws it; Notice returns that rect.
+    Rect NoticeRect(const Rect& window, std::string_view message);
+    Rect Notice(const Rect& window, std::string_view message, Rgba fill);
 
     // Content taller than its view: how far it is scrolled, in points from its top (0 to `maxOffset`). The wheel over
     // `area` moves it `step` points a line. Content not drawn the frame before (a box opened again) starts at its top.
