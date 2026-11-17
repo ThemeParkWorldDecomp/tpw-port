@@ -57,6 +57,7 @@
 #include "TpiBumperKind.h"
 #include "TpiGateFlow.h"
 #include "TpiObstacleShut.h"
+#include "TpiOutside.h"
 #include "TpiSaveRepair.h"
 #include "UI_Base.h"
 #include "ui_main.h"
@@ -1199,6 +1200,48 @@ void RepairTpiBumperIds() {
 }
 }  // namespace
 
+namespace {
+// TPW_PORT_FIX mods RepairTpiOutsideFeatures | Mac: no such pass | Port: TPW_MOD_HOOK tpi_worlds (include/TpiOutside.h): in one of the mod's worlds, each of the world's outside features (tpw::gTpiOutside, read by CWorld::SetupNewLevel) that no placed object of the loaded park is gets placed (tpw::TpiOutsideToPlace, tpw::TpiPlaceOutside) | Why: see CSaveLoad::PostLoadOperations, below
+void RepairTpiOutsideFeatures() {
+    if (!tpw::TpiWorldInPlay() || tpw::gTpiOutside.count == 0) return;
+    std::vector<uint16_t> placed;
+    for (CThingArrayEntry* entry = gUsedThingHead; entry != nullptr; entry = entry->mNextUsed) {
+        const CThing* thing = static_cast<const CThing*>(entry->mThing);
+        if (thing == nullptr || thing->mDead != 0 || thing->mKind != 3) continue;
+        placed.push_back(reinterpret_cast<const CObject*>(thing)->mObjectType);
+    }
+    uint16_t missing[tpw::kTpiMaxOutside];
+    const int32_t count =
+        tpw::TpiOutsideToPlace(tpw::gTpiOutside, placed.data(), static_cast<int32_t>(placed.size()), missing);
+    if (count == 0) return;
+    const int32_t made = tpw::TpiPlaceOutside(missing, count);
+    SamsUtilities::UDebug("port: tpi-worlds: %d of the park's %d missing outside features placed", static_cast<int>(made),
+                          static_cast<int>(count));
+}
+}  // namespace
+
+namespace {
+// TPW_PORT_FIX mods RepairTpiSpecialRides | Mac: no such pass | Port: TPW_MOD_HOOK tpi_worlds (include/TpiSaveRepair.h): in one of the mod's worlds, each placed ride whose record's WearRate at its upgrade level is 0 (the converter's Theme Park Inc special rides, Info.IsSpecial) and that is not condemned gets its remaining life back to 100 (tpw::TpiSpecialRideLifeToRestore) | Why: see CSaveLoad::PostLoadOperations, below
+void RepairTpiSpecialRides() {
+    if (!tpw::TpiWorldInPlay()) return;
+    for (CThingArrayEntry* entry = gUsedThingHead; entry != nullptr; entry = entry->mNextUsed) {
+        CThing* thing = static_cast<CThing*>(entry->mThing);
+        if (thing == nullptr || thing->mDead != 0 || thing->mKind != 3) continue;
+        CObject* object = reinterpret_cast<CObject*>(thing);
+        const RideInfo* info = object->GetDBInfo();
+        if (info == nullptr || object->mF4C >= 3) continue;
+        const int32_t wearRate =
+            info->Value(static_cast<RideBalanceSlot>(kRideSlot_Upgrades_WearRate + static_cast<int32_t>(object->mF4C) * 16))
+                .mInteger;
+        if (!tpw::TpiSpecialRideLifeToRestore(wearRate, object->mState, object->mF44)) continue;
+        SamsUtilities::UDebug("port: tpi-worlds: ride %d (type %d) never wears out: remaining life %d restored to 100",
+                              static_cast<int>(thing->GetThingId().mIndex), static_cast<int>(object->mObjectType),
+                              static_cast<int>(object->mF44));
+        object->mF44 = 100.0f;
+    }
+}
+}  // namespace
+
 // Rebuilds what the engine holds after a park is read. The particle system is low spec when the current detail is 0.
 void CSaveLoad::PostLoadOperations() {
     InitialiseWeather();
@@ -1225,6 +1268,10 @@ void CSaveLoad::PostLoadOperations() {
     gGameWorld->GetControlManager()->CheckAllControlsInitialised();
     // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park keeps the controls and research projects it saved) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, once every type has a control, each type with no research cost saved unavailable or named by a research project has its control made again from its record, available, each research project whose type now has no research cost goes to the type it was made for, the two types' counts in the park recounted, and each researchable type with neither a project nor availability gets one (RepairTpiResearch, include/TpiSaveRepair.h) | Why: the mod's converter 14 gave Land of Invention's staff room the security camera's id (7730) and the camera the next one, but a park keeps the controls and research projects made when it started, so parks started before it kept the staff room with the camera's unresearched control and price, out of every build list, and the camera with no project, and counted their cameras as staff rooms; off, or an original world, a park loads as it was saved
     RepairTpiResearch();
+    // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park keeps the objects it saved) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, each of the world's outside features (the converter's TpiOutside.sam) that the park has no object of is placed as a new park places it (RepairTpiOutsideFeatures, include/TpiOutside.h); a park that has them all is left as it is | Why: the mod's converter 28 places Theme Park Inc's scenery round the park (the waterfall, the water wheel, the ponds' water, the ticket booths) when a park starts, but a park keeps the objects it saved and those started before it had none, so their decor stayed missing and their ponds flat cyan (Addable13, Discord, 0.5.6); off, or an original world, a park loads as it was saved
+    RepairTpiOutsideFeatures();
+    // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a ride keeps the remaining life it saved) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, each placed ride that no longer wears (its record's WearRate 0 at its level) and is not condemned gets its remaining life back to 100 (RepairTpiSpecialRides, include/TpiSaveRepair.h) | Why: the mod's converter 28 gives Theme Park Inc's special rides (Info.IsSpecial, which Theme Park Inc never wears out, as they cannot be rebuilt) WearRate 0, but a park keeps each ride's worn life, and one saved with no life left would still be condemned at its next breakdown (Addable13, Discord, 0.5.6); off, or an original world, a park loads as it was saved
+    RepairTpiSpecialRides();
     RecalculateParkDarkening();
     gRestartParkClocks = 1;
     gClock.PostLoad();

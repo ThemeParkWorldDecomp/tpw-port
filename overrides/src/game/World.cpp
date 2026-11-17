@@ -48,6 +48,8 @@
 #include "TpiGateFlow.h"
 #include "TpiGenerations.h"
 #include "TpiGreatLake.h"
+#include "TpiOutside.h"
+#include "platform/samsutils.h"
 #include "TPMain.h"
 #include "UIInterface.h"
 #include "World.h"
@@ -318,6 +320,23 @@ uint16_t MakeFeatureObject(const RideInfo* ride) {
 
 }  // namespace
 
+// TPW_PORT_FIX mods tpw::TpiPlaceOutside | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiOutside.h): each of the given outside features of one of the mod's worlds that the ride database has is made as the gates are (MakeFeatureObject, a feature object on map cell 1); CWorld::SetupNewLevel places a new park's, RepairTpiOutsideFeatures a loaded park's missing ones | Why: tpw-mods tpi-worlds, Theme Park Inc's scenery round the park (waterfall, water wheel, ponds, ticket booths) was never placed (Addable13, Discord, 0.5.6) | Off: not built
+int32_t tpw::TpiPlaceOutside(const uint16_t* ids, int32_t count) {
+    int32_t placed = 0;
+    for (int32_t i = 0; i < count; ++i) {
+        const RideInfo* feature = gRideDatabase.GetRideInfo(tag_IDX_TYPE<IDXTYPEUniqueNameObjectId, uint16_t>{ids[i]});
+        if (feature == nullptr) {
+            SamsUtilities::UDebug("port: tpi-worlds: outside feature %d is not in the ride database", static_cast<int>(ids[i]));
+            continue;
+        }
+        const uint16_t thing = MakeFeatureObject(feature);
+        SamsUtilities::UDebug("port: tpi-worlds: outside feature %d placed as thing %d", static_cast<int>(ids[i]),
+                              static_cast<int>(thing));
+        ++placed;
+    }
+    return placed;
+}
+
 // TPW_PORT_FIX mods tpw::TpiGenerationsNewDay | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGenerations.h): the new park day's weather step CParkTime::Update calls through tpw::gTpiNewDay: in one of the mod's worlds with its TpiPeeps.sam read, on a due day (tpw::TpiWeatherDue, counted from the park's calendar) every visitor's happiness, thirst and hunger move by its generation's effect of the weather there is (tpw::TpiWeatherKind; snow is told from rain by the rain object's type, gei_Rain's mRainType, as the weather's own mPType is never written), kept within 0 to 100 | Why: tpw-mods tpi-worlds generations, the weather is felt as in Theme Park Inc | Off: not built
 void tpw::TpiGenerationsNewDay() {
     if (tpw::TpiGenerationsInPlay()) {
@@ -429,6 +448,21 @@ bool CWorld::SetupNewLevel(char* levelFolder) {
     } else {
         mLightsThing = MakeFeatureObject(lights);
         CTRACE(2, "Found the LIGHTSNAME WAS HERE (BR 990809) feature\n");
+    }
+    // TPW_PORT_FIX mods CWorld::SetupNewLevel | Mac: none (only the gates and the lights are placed) | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiOutside.h): with the mod on, reads the level's TpiOutside.sam (Theme Park Inc's outside features, Info.IsOutsideFeature, which the converter writes into each of the mod's worlds only) into tpw::gTpiOutside and places each one after the lights, as the gates are placed (tpw::TpiPlaceOutside); a level without the file places none | Why: tpw-mods tpi-worlds, Theme Park Inc's scenery round the park (the waterfall, the water wheel, the ponds' water, the ticket booths) was never placed, so it was missing and the ponds showed flat cyan (Addable13, Discord, 0.5.6) | Off: the table stays empty, no file is read and nothing is placed
+    tpw::gTpiOutside = tpw::TpiOutsideTable{};
+    if (gModTpiWorlds) {
+        std::sprintf(buffer, "%s:%s", levelFolder, tpw::kTpiOutsideFile);
+        const int32_t length = LbFile_GetLength(buffer);
+        if (length > 0) {
+            std::string text(static_cast<size_t>(length), '\0');
+            int32_t loaded = 0;
+            if (LbFile_Load(buffer, text.data(), static_cast<uint32_t>(length), &loaded).Succeeded())
+                tpw::TpiParseOutside(text.data(), text.size(), tpw::gTpiOutside);
+        }
+        const int32_t placed = tpw::TpiPlaceOutside(tpw::gTpiOutside.ids, tpw::gTpiOutside.count);
+        SamsUtilities::UDebug("port: tpi-worlds: %d of %d outside features placed", static_cast<int>(placed),
+                              static_cast<int>(tpw::gTpiOutside.count));
     }
 
     GetResearchLab()->Init();

@@ -56,11 +56,17 @@
 // still loops its O animation waiting on it: parts hidden, no riders, the queue only growing. On loading, a placed ride
 // that would start with SPECIAL set (tpw::TpiRideScriptStartsSpecial) but whose saved SPECIAL is 0 gets it, as at
 // placement; the script reads it on its next tick and carries on as a new ride does. A ride placed since already has it.
+// And the same mod's repair of the special rides of parks saved before converter 28: Theme Park Inc's special rides
+// (Info.IsSpecial: "they can't be rebuilt") never wear out, and converter 28 gives them Theme Park World's no wear, a wear
+// rate of 0 at every upgrade level (CObject::AddWearAndTear takes nothing off then), but a park keeps each ride's remaining
+// life (CObject::mF44) as it was worn, and a ride whose life is worn to nothing breaks down after every repair until it is
+// condemned. On loading, a placed ride that no longer wears (its record's wear rate at its upgrade level is 0), is not
+// condemned and has less than all its life gets all of it back, as a new ride has it; a second load changes nothing.
 // Header only and pure, so the host test sees the rule the game uses (src/game/save/SaveLoad.cpp).
 #pragma once
 
 
-// TPW_PORT_FIX mods TpiSaveRepair | Mac: no such header; Theme Park World has no converted worlds | Port: which map and track cells of a park saved before converter 14 RepairTpiHiddenCells resets as land on loading in the mod's worlds (TPW_MOD_HOOK tpi_worlds), which shop controls and placed shops of a park saved before converter 15 RepairTpiShops repairs, which walkway cells of a park saved before converter 16 RepairTpiWalkways makes footbridge cells, which hoarding posts on them it keeps and which lost ones RepairTpiLostHoardingPosts restores, which controls, research projects and placed objects of a park saved before converter 14 RepairTpiPlacedTypes and RepairTpiResearch repair, and which placed rides' scripts RepairTpiRideScripts starts | Why: tpw-mods tpi-worlds; parks saved with 0.5.1 kept Land of Invention's walkable bridges hidden, so no path could cross them, parks saved before 0.5.3 kept shop prices visitors walked away from and an unchoosable photo booth, parks saved before 0.5.4 kept gaps in the paths under the bridges' decks that the decks hid, and quads that fought the decks, parks saved with 0.5.5 lost the fence's posts over the walkways, so buying land froze the game, parks started before converter 14 never showed Land of Invention's staff room and turned their placed security cameras into staff room buildings, and Golden Ticket rides placed before 0.5.2 kept waiting on SPECIAL, their parts hidden and no riders
+// TPW_PORT_FIX mods TpiSaveRepair | Mac: no such header; Theme Park World has no converted worlds | Port: which map and track cells of a park saved before converter 14 RepairTpiHiddenCells resets as land on loading in the mod's worlds (TPW_MOD_HOOK tpi_worlds), which shop controls and placed shops of a park saved before converter 15 RepairTpiShops repairs, which walkway cells of a park saved before converter 16 RepairTpiWalkways makes footbridge cells, which hoarding posts on them it keeps and which lost ones RepairTpiLostHoardingPosts restores, which controls, research projects and placed objects of a park saved before converter 14 RepairTpiPlacedTypes and RepairTpiResearch repair, which placed rides' scripts RepairTpiRideScripts starts, and which placed rides that no longer wear RepairTpiSpecialRides gives their life back | Why: tpw-mods tpi-worlds; parks saved with 0.5.1 kept Land of Invention's walkable bridges hidden, so no path could cross them, parks saved before 0.5.3 kept shop prices visitors walked away from and an unchoosable photo booth, parks saved before 0.5.4 kept gaps in the paths under the bridges' decks that the decks hid, and quads that fought the decks, parks saved with 0.5.5 lost the fence's posts over the walkways, so buying land froze the game, parks started before converter 14 never showed Land of Invention's staff room and turned their placed security cameras into staff room buildings, Golden Ticket rides placed before 0.5.2 kept waiting on SPECIAL, their parts hidden and no riders, and special rides worn before 0.5.6 kept their worn life though they no longer wear
 
 #include <cstdint>
 #include <vector>
@@ -323,6 +329,15 @@ inline bool TpiPlacedObjectToRetype(bool moved, uint16_t savedFlags, uint16_t sa
 // and the script's variable count, tpw::TpiRideScriptStartsSpecial) and the saved SPECIAL (`special`) is still 0.
 inline bool TpiRideScriptToStart(uint32_t oGroupFlags, int32_t varCount, int32_t special) {
     return special == 0 && TpiRideScriptStartsSpecial(oGroupFlags, varCount);
+}
+
+// CObject's condemned state (ObjectState kStateCondemned), which nothing takes a ride out of.
+constexpr int32_t kTpiObjectCondemned = 4;
+
+// Whether a placed ride gets all its life back (CObject::mF44 to 100) on loading: its record's wear rate at its upgrade
+// level (`wearRate`) is 0, so it no longer wears, its `state` is not condemned and its saved `life` is below 100.
+inline bool TpiSpecialRideLifeToRestore(int32_t wearRate, int32_t state, float life) {
+    return wearRate == 0 && state != kTpiObjectCondemned && life < 100.0f;
 }
 
 }  // namespace tpw

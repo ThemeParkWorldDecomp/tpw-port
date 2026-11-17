@@ -23,6 +23,8 @@
 - Fixed golden tickets, and the keys they add up to, coming almost at once in the TPI Worlds and Rides mod's Land of Invention, Polar Zone and Arabian Nights: each world now asks for its tickets what the Theme Park World world of the same key price asks (Lost Kingdom, Wonder Land and Space Zone), and tickets already won stay won
 - Fixed the TPI Worlds and Rides mod's coasters and flumes losing their speed down drops and needing chain lifts on every climb and loop: they now run as fast as Theme Park World's own
 - Fixed the Depth Charge flume in the TPI Worlds and Rides mod showing its lift belt on the flat and downhill track and water on the climbs
+- Fixed the TPI Worlds and Rides mod's worlds missing Theme Park Inc's scenery round the park (the waterfall, the water wheel, the ponds' water, the ticket booths): a new park has it, and a park saved before gets it when loaded
+- Fixed the TPI Worlds and Rides mod's special rides wearing out: like in Theme Park Inc they never wear, and one worn in a park saved before gets its life back when the park is loaded
 
 ### Changes
 
