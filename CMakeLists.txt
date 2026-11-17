@@ -805,6 +805,24 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
       add_test(NAME new_rides_research COMMAND tpw_host_new_rides_research)
     endif()
   endif()
+  # An online park whose world the server does not list (the port's fix unlistedtheme, tpw-port PR #130 by samueleagle91,
+  # tests/host_unlisted_theme.cpp): the real PortParkThemeListed, the theme list's ReturnOnlineThemeName and the goto by park
+  # id's callback on a made-up theme list, the online system, the parks and the download calls being the test's stand-ins.
+  # Made only with the port's fixes: the original opened such a park in another world.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_unlisted_theme ${TPW_DECOMP_DIR}/tests/host_unlisted_theme.cpp
+      ${TPW_DECOMP_DIR}/src/game/online/FS_OnlineList.cpp ${TPW_DECOMP_DIR}/src/game/online/FS_Online.cpp)
+    target_include_directories(tpw_host_unlisted_theme PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    tpw_slice(TARGET tpw_host_unlisted_theme NAME unlisted_theme KEEP
+      __Z19PortParkThemeListedPK13CFSOnlinePark   # PortParkThemeListed(CFSOnlinePark const*)
+      __ZN24CFSOnlineSystemThemeList21ReturnOnlineThemeNameEi   # CFSOnlineSystemThemeList::ReturnOnlineThemeName(int)
+      __ZN15CFSOnlineSystem36GotoPlayerFTPPostGetParkInfoCallbackEiPKvPK13CFSOnlinePark)   # CFSOnlineSystem::GotoPlayerFTPPostGetParkInfoCallback(int, void const*, CFSOnlinePark const*)
+    if(tpw_platform_tests_skipped)
+      set_target_properties(tpw_host_unlisted_theme PROPERTIES EXCLUDE_FROM_ALL ON)
+    else()
+      add_test(NAME unlisted_theme COMMAND tpw_host_unlisted_theme)
+    endif()
+  endif()
   # The options panel's Screen resolution slider in the launcher (the port's fix resslider): the real DoScroll,
   # CPlayerSettings::SetResolution and PortApplyGameSize, the windows and the clock being the test's stand-ins. Made only with
   # the port's fixes: the original has no such choice of sizes.
