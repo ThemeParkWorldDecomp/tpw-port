@@ -394,6 +394,17 @@ void UGamework::Run() {
                 if (!gScripted.active && tpw::gPortPointerLeft != nullptr) tpw::gPortPointerLeft();
                 break;
 #endif
+#ifdef TPW_PORT_FIX
+            // TPW_PORT_FIX fullscreengrab UGamework::Run | Mac: the game took the whole screen, and the pointer never left it | Port: while the game's window is a full-screen window SDL keeps the pointer inside it (SDL_SetWindowMouseGrab, fit::ConfinePointer; SDL lets go while the game is not the active application), on every system, and in a window the pointer moves freely; set at SDL's full-screen events, whichever switch made them (the window made full screen, the Esc menu's button, Alt+Enter, Cmd+Ctrl+F or the green button) | Why: on a computer with several screens the pointer went off the full-screen game onto the screen beside it, where a click took the game out of the front (reported by BMCTV)
+            case SDL_EVENT_WINDOW_ENTER_FULLSCREEN:
+            case SDL_EVENT_WINDOW_LEAVE_FULLSCREEN:
+                if (SDL_Window* window = SDL_GetWindowFromID(sdl.window.windowID)) {
+                    const bool confine = tpw::fit::ConfinePointer(sdl.type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN, tpw::config().background);
+                    if (SDL_SetWindowMouseGrab(window, confine)) tpw::Log("fullscreen: the pointer is %s", confine ? "kept in the full-screen window" : "free to leave the window");
+                    else tpw::Log("fullscreen: the pointer could not be %s (%s)", confine ? "kept in the window" : "let go", SDL_GetError());
+                }
+                break;
+#endif
             default:
                 break;
             }

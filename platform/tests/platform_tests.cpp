@@ -3198,6 +3198,38 @@ static void TestFitLetterbox() {
     CHECK(pixels.left == 10 && pixels.top == 21 && pixels.right == 111 && pixels.bottom == 71);
 }
 
+// fullscreengrab on a real SDL window (the dummy video driver, no screen needed): going full screen and back, the grab
+// platform/gamework.cpp asks for at SDL's full-screen events (fit::ConfinePointer) is the one SDL keeps.
+static void TestFullScreenGrab() {
+    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
+    if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+        std::printf("platform tests: no dummy video driver (%s), the full-screen grab is not checked on a window\n", SDL_GetError());
+        return;
+    }
+    SDL_Window* window = SDL_CreateWindow("grab", 640, 480, 0);
+    CHECK(window != nullptr);
+    if (window != nullptr) {
+        const auto keep = [window] {
+            const bool full = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0;
+            SDL_SetWindowMouseGrab(window, tpw::fit::ConfinePointer(full, false));
+            return full;
+        };
+        CHECK(!keep());
+        CHECK((SDL_GetWindowFlags(window) & SDL_WINDOW_MOUSE_GRABBED) == 0);   // a window: the pointer is free
+        CHECK(SDL_SetWindowFullscreen(window, true));
+        SDL_SyncWindow(window);
+        CHECK(keep());
+        CHECK((SDL_GetWindowFlags(window) & SDL_WINDOW_MOUSE_GRABBED) != 0);   // full screen: kept inside
+        CHECK(SDL_SetWindowFullscreen(window, false));
+        SDL_SyncWindow(window);
+        CHECK(!keep());
+        CHECK((SDL_GetWindowFlags(window) & SDL_WINDOW_MOUSE_GRABBED) == 0);   // back in a window: let go
+        SDL_DestroyWindow(window);
+    }
+    SDL_QuitSubSystem(SDL_INIT_VIDEO);
+    SDL_ResetHint(SDL_HINT_VIDEO_DRIVER);
+}
+
 // The game's full-screen box is a real full-screen window only through the fit and never with --background; the
 // window is then the whole screen and the game's picture is letterboxed into it.
 static void TestFitFullScreen() {
@@ -3205,6 +3237,12 @@ static void TestFitFullScreen() {
     CHECK(!tpw::fit::RealFullScreen(false, true, false));   // --windowed: the document window
     CHECK(!tpw::fit::RealFullScreen(true, true, true));     // --background: the fitted window behind the others
     CHECK(!tpw::fit::RealFullScreen(true, false, false));   // --no-fit: the window is the game's size
+    // fullscreengrab: the pointer is kept inside the window only while it is full screen (BMCTV: with three screens it
+    // went off the full-screen game onto the next one), never in a window, never with --background.
+    CHECK(tpw::fit::ConfinePointer(true, false));
+    CHECK(!tpw::fit::ConfinePointer(false, false));
+    CHECK(!tpw::fit::ConfinePointer(true, true));
+    CHECK(!tpw::fit::ConfinePointer(false, true));
     // The window out of full screen has the system's frame (title bar, buttons, draggable, resizable): a document window
     // always; the full-screen box exactly when a real full-screen window follows, so the frame is there when full
     // screen is left. The box stays frameless with --background and --no-fit, as before.
@@ -4426,6 +4464,7 @@ int main() {
     TestResourceFork();
     TestGdiForkFonts();
     TestFitArithmetic();
+    TestFullScreenGrab();
     TestFitLetterbox();
     TestFitMouse();
     TestFitFullScreen();

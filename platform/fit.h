@@ -85,6 +85,14 @@ inline bool CanToggleFullScreen(bool fitted, bool background) {
     return fitted && !background;
 }
 
+// fullscreengrab (platform/gamework.cpp, at SDL's full-screen events): whether the window keeps the pointer inside it: only
+// while it is a full-screen window (so on a computer with several screens the pointer stays on the game's), never in a
+// window, where it moves on to the other windows freely, and never with --background (which is never full screen).
+// SDL lets go of the pointer by itself while the game is not the active application (Cmd+Tab, Alt+Tab).
+inline bool ConfinePointer(bool fullScreen, bool background) {
+    return fullScreen && !background;
+}
+
 // The largest rectangle of the game's aspect ratio inside a window of the given size, centred in it.
 inline Rect Letterbox(double windowWide, double windowHigh, int gameWide, int gameHigh) {
     Rect box;
