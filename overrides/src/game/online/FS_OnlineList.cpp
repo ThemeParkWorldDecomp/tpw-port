@@ -84,6 +84,11 @@ bool PortParkCityListed(const CFSOnlinePark* park) {
     return park_info_callee::ReturnCityInfo(OnlineSystem()->mCityList, park->mF48) != nullptr;
 }
 
+// TPW_PORT_FIX unlistedtheme PortParkThemeListed | Mac: no such test, a visit takes ReturnOnlineThemeName's answer as the theme to load | Port: says whether the park's theme is on the list | Why: the guards at the click and goto paths (see include/FS_Online.h)
+bool PortParkThemeListed(const CFSOnlinePark* park) {
+    return OnlineSystem()->mThemeList->ReturnOnlineThemeName(park->mF4C) != nullptr;
+}
+
 // 0x101783a4 (60): the same for the city list.
 void PostLoginCallbackFn_City(int32_t error, const void* context) {
     CFSOnlineSystemList<TbPtrList<CFSOnlineCity>, ccCityList>* list =

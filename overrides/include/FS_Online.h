@@ -542,6 +542,8 @@ inline const CFSOnlinePark* PortParkOfRow(int32_t data) {
 }
 // TPW_PORT_FIX unlistedcity PortParkCityListed | Mac: ReturnCityInfo answers NULL for a park whose city is not on the server's city list and every caller reads through it | Port: the callers that a click or a goto can reach ask this first (FS_OnlineList.cpp) | Why: a server whose config dropped a city while parks remain in it crashed the client on a click at a NULL city
 bool PortParkCityListed(const CFSOnlinePark* park);
+// TPW_PORT_FIX unlistedtheme PortParkThemeListed | Mac: ReturnOnlineThemeName answers NULL for a park whose theme is not on the server's theme list, and a visit sets that as the current theme (GameSys.cpp, state 9) | Port: the callers that a click or a goto can reach ask this first, with PortParkCityListed (FS_OnlineList.cpp) | Why: such a park was loaded in another world than its own, with rides that world's ride database has not got
+bool PortParkThemeListed(const CFSOnlinePark* park);
 extern char16_t gOnlineLoginPassword[33];              // 0x10395d30 (size from the next global)
 extern char16_t gOnlineLoginName[33];                  // 0x10395d72 (size invented)
 extern int16_t gCityInfoOverlayScript[];               // 0x102b0288, initialised data of the window script (not defined by this unit)

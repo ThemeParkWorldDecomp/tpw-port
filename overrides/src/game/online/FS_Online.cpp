@@ -1197,6 +1197,8 @@ void CFSOnlineSystem::EnterChatSatellite(int32_t index) {
         CFSOnlinePark* park = mParksInCity2->ReturnParkInfo(index);
         // TPW_PORT_FIX unlistedcity EnterChatSatellite | Mac: hides the globe's panels and opens the info panel, which reads the park's city unchecked (0x101eabb4) and crashes on a city not on the list | Port: the click does nothing, before the panels are hidden | Why: the panel would refuse the park with the panels already hidden and nothing left to show them again
         if (!PortParkCityListed(park)) return;
+        // TPW_PORT_FIX unlistedtheme EnterChatSatellite | Mac: hides the globe's panels and opens the info panel, whose visit loads the park with an empty theme when its theme is not on the server's list | Port: the click does nothing, before the panels are hidden, as for a city not on the list | Why: the panel refuses the park (CreateOnlineParkInfoPanel), and with the panels already hidden nothing would show them again
+        if (!PortParkThemeListed(park)) return;
         gLobbyScreens->mDownloadGlobe->Slot50();
         CreateOnlineParkInfoPanel(park, nullptr, SatelliteOnlineParkInfoPanelCancelCallback, GeneralParkDownloadCompleteCallback, nullptr);
     }
@@ -1619,6 +1621,11 @@ void CFSOnlineSystem::GotoPlayerFTPPostGetParkInfoCallback(int32_t result, const
     (void)context;
     // TPW_PORT_FIX unlistedcity GotoPlayerFTPPostGetParkInfoCallback | Mac: starts the download, whose FTP step reads the park's city unchecked (0x101772ec) and crashes on a city not on the list | Port: the goto ends as a failed one, before the park is kept | Why: a park id can answer with a park of a city the server's config dropped, and the goto's own failure path already handles the rest
     if (result == 0 && park != nullptr && !PortParkCityListed(park)) {
+        CompleteFTPDownload(1);
+        return;
+    }
+    // TPW_PORT_FIX unlistedtheme GotoPlayerFTPPostGetParkInfoCallback | Mac: starts the download, and the visit loads the park with an empty theme when its theme is not on the server's list | Port: the goto ends as a failed one, before the park is kept, as for a city not on the list | Why: such a park was loaded in another world than its own (an empty theme name), with rides that world's ride database has not got
+    if (result == 0 && park != nullptr && !PortParkThemeListed(park)) {
         CompleteFTPDownload(1);
         return;
     }

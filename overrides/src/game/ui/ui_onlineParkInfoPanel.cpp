@@ -184,6 +184,8 @@ void CreateOnlineParkInfoPanel(const CFSOnlinePark* park, InterfaceWindow* paren
     if (gOnlineParkInfoPanel != nullptr) return;
     // TPW_PORT_FIX unlistedcity CreateOnlineParkInfoPanel | Mac: builds the panel and reads the park's city unchecked (0x101eabb4 reads NULL + 0x60) on a city not on the list | Port: no panel at all, nothing stored | Why: a click on such a park (a row of the find or list panel, a satellite) crashed the client
     if (!PortParkCityListed(park)) return;
+    // TPW_PORT_FIX unlistedtheme CreateOnlineParkInfoPanel | Mac: builds the panel, whose visit sets the current theme to the park's theme name: NULL, an empty theme, for a theme not on the server's list (GameSys.cpp, state 9) | Port: no panel at all, nothing stored, as for a city not on the list | Why: a click on such a park (a row of the find or list panel, a satellite) then a visit loaded it in another world than its own (Wonder Land's resources for a Halloween World park), with rides that world's ride database has not got
+    if (!PortParkThemeListed(park)) return;
     gOnlineParkInfoPark = *park;
     gOnlineParkInfoCancel = onCancel;
     gOnlineParkInfoDownload = onDownload;
