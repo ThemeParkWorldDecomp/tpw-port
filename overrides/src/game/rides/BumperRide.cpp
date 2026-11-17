@@ -40,6 +40,7 @@
 #include "TPSound.h"
 #include "TpiBumperKind.h"
 #include "TpiGateFlow.h"
+#include "TpiGreatLake.h"
 #include "ui_main.h"
 #include "World.h"
 #include <cmath>
@@ -1457,6 +1458,93 @@ void Dispatch(int target, uint32_t* ride, int32_t x, int32_t y) {
 
 }  // namespace
 
+namespace {
+
+// The Great Lake's chain of a ride record (include/TpiGreatLake.h), while its plot's circle is still the ride's.
+tpw::TpiLakeRide* TpiLakeRideOf(const void* ride) {
+    if (ride == nullptr) return nullptr;
+    for (tpw::TpiLakeRide& r : tpw::gTpiLakeRides) {
+        if (r.ride != ride || r.cols.empty()) continue;
+        tabCOLOBJECT* head = PtrAt<tabCOLOBJECT>(ride, 0xc0);
+        if (head != r.cols[0] || (head->flags & 1) == 0) return nullptr;
+        return &r;
+    }
+    return nullptr;
+}
+
+int32_t TpiLakeIndex(const tpw::TpiLakeRide& r, const tabCOLOBJECT* col) {
+    for (size_t k = 0; k < r.cols.size(); ++k)
+        if (r.cols[k] == col) return static_cast<int32_t>(k);
+    return -1;
+}
+
+// A collision object a bump of `ride` may be kept in: any but another ride's lake circle.
+bool TpiLakeColFor(const void* ride, const tabCOLOBJECT* col) {
+    if ((col->flags & tpw::kTpiLakeColFlag) == 0) return true;
+    const tpw::TpiLakeRide* r = TpiLakeRideOf(ride);
+    return r != nullptr && TpiLakeIndex(*r, col) >= 0;
+}
+
+// The Great Lake just built (or rebuilt from a save): its plot's circle joined to the lake's circles, its ring's buoys
+// moved out onto the lake. Any other ride, or no way onto the lake, is left as the Mac builds it.
+void TpiLakeJoin(uint32_t* ride) {
+    for (tpw::TpiLakeRide& r : tpw::gTpiLakeRides)
+        if (r.ride == ride) r = tpw::TpiLakeRide{};
+    const tpw::TpiLake& lake = tpw::gTpiLake;
+    if (!lake.loaded || static_cast<int32_t>(ride[0x10 / 4]) != lake.rideId || static_cast<int32_t>(ride[0]) != -11) return;
+    tabCOLOBJECT* head = PtrAt<tabCOLOBJECT>(ride, 0xc0);
+    if (head == nullptr) return;
+    tpw::TpiLakeNet net = tpw::TpiLakeBuild(lake, {head->x, head->y, head->radiusX}, static_cast<int32_t>(ride[0xb0 / 4]));
+    if (net.Empty()) return;
+    tpw::TpiLakeRide* slot = nullptr;
+    for (tpw::TpiLakeRide& r : tpw::gTpiLakeRides)
+        if (r.ride == nullptr || TpiLakeRideOf(r.ride) == nullptr) {
+            slot = &r;
+            break;
+        }
+    if (slot == nullptr) return;
+    std::vector<void*> cols{head};
+    tabCOLOBJECT* last = head;
+    for (size_t k = 1; k < net.nodes.size(); ++k) {
+        tabCOLOBJECT* o = BMP_StartColObject(net.nodes[k].x, net.nodes[k].y, net.nodes[k].r);
+        if (o == nullptr) {   // out of collision objects: the ones made go back, the ride stays the Mac's
+            for (size_t j = 1; j < cols.size(); ++j) {
+                static_cast<tabCOLOBJECT*>(cols[j])->flags = 0;
+                gColList.count = gColList.count - 1;
+            }
+            At<uint32_t>(head, 0x14) = At<uint32_t>(last, 0x14);
+            return;
+        }
+        o->flags |= tpw::kTpiLakeColFlag;
+        At<uint32_t>(o, 0x14) = At<uint32_t>(last, 0x14);
+        At<Ptr32<tabCOLOBJECT>>(last, 0x14) = o;
+        last = o;
+        cols.push_back(o);
+    }
+    size_t i = 0;
+    for (tabBUOY* buoy = PtrAt<tabBUOY>(ride, 0xa8); buoy != nullptr; buoy = buoy->next.get(), ++i) {
+        buoy->x = net.buoys[i % net.buoys.size()].x;
+        buoy->y = net.buoys[i % net.buoys.size()].y;
+    }
+    for (; i < net.buoys.size(); ++i) BMP_AddBuoyToRide(reinterpret_cast<tagBUMPRIDE*>(ride), net.buoys[i].x, net.buoys[i].y);
+    slot->ride = ride;
+    slot->cols = std::move(cols);
+    slot->net = std::move(net);
+}
+
+// A lake boat's steering to (x, y), whose circle is `hit`: 1 and the middle of the overlap with the next circle on the
+// chain, 0 when the target is in the circle the boat is in, -1 when the boat or the target is not on a chain.
+int32_t TpiLakeSteer(tagBUMP* b, const tabCOLOBJECT* hit, int32_t& ax, int32_t& ay) {
+    const tpw::TpiLakeRide* r = TpiLakeRideOf(b->owner.get());
+    if (r == nullptr) return -1;
+    const int32_t at = TpiLakeIndex(*r, b->col.get());
+    const int32_t to = TpiLakeIndex(*r, hit);
+    if (at < 0 || to < 0) return -1;
+    return tpw::TpiLakeAim(r->net, at, b->x, b->y, to, ax, ay) ? 1 : 0;
+}
+
+}  // namespace
+
 int32_t BMP_CreateRide(int32_t kind, int32_t x, int32_t y, int32_t rot, int32_t id, int32_t f10) {
     uint32_t* world = World_5();
     if (world[0] != 0x4a454647u) return 0;
@@ -1491,6 +1579,8 @@ int32_t BMP_CreateRide(int32_t kind, int32_t x, int32_t y, int32_t rot, int32_t 
         ride[0x10 / 4] = static_cast<uint32_t>(f10);
         uint32_t idx = ride[0] + 14;
         if (idx <= 13) Dispatch(kTop[idx], ride, x, y);
+        // TPW_PORT_FIX mods BMP_CreateRide | Mac: a ride of kind -11 (boats) has one circle on its plot and a ring of 8 buoys in it | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGreatLake.h): in the mod's worlds the Great Lake's circle is joined by a chain of circles over the water to Theme Park Inc's circles on the lake (tpw::TpiLakeBuild, its objects marked 0x80 on the ride's list, so BMP_DestroyRide frees them), and its buoys move to Theme Park Inc's buoys; off, an original world, any other ride, or no water behind it, the Mac's | Why: tpw-mods tpi-worlds; the Great Lake's boats sail on the lake, as in Theme Park Inc
+        if (tpw::TpiWorldInPlay()) TpiLakeJoin(ride);
     }
     return IdOf_2(ride);
 }
@@ -1619,6 +1709,16 @@ void BMP_DrawCarsForRide(int32_t ride, float step) {
         }
     }
 
+    // TPW_PORT_FIX mods BMP_DrawCarsForRide | Mac: a car's corners stand on the ground (or the ride) under them | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGreatLake.h): in the mod's worlds a Great Lake boat's corner over the lake's water floats at the water level and one on land stands on it, both tpw::kTpiLakeLift higher, so that the boat's wake (kept by the converter) is drawn over the water or the plot, never in it; off, an original world or any other ride, the Mac's | Why: tpw-mods tpi-worlds; under the water the lake's own ground would hold the boats up, and a wake level with the ground z-fights it (0.5.4)
+    if (tpw::TpiWorldInPlay() && rec != nullptr && tpw::gTpiLake.loaded && W_2(rec, 0x10) == tpw::gTpiLake.rideId && W_2(rec, 0) == -11) {
+        const bool sails = TpiLakeRideOf(rec) != nullptr;
+        for (int32_t k = 0; k < n; k++) {
+            if (sails && tpw::gTpiLake.Water(static_cast<int32_t>(std::floor(cars[k].x / 10.0f)), static_cast<int32_t>(std::floor(cars[k].z / 10.0f))))
+                cars[k].y = tpw::gTpiLake.waterLevel + tpw::kTpiLakeLift;
+            else
+                cars[k].y = cars[k].y + tpw::kTpiLakeLift;
+        }
+    }
     // Pass 3: the cars.
     for (int32_t g = 0; g < n; g += 4) {
         Corner* q = &cars[g];
@@ -1931,6 +2031,21 @@ void BMP_AI(tagBUMP* b) {
         uint8_t* own = OwnerOf(b);
         uint32_t index = static_cast<uint32_t>(Wd_2(own, 0)) + 14;
         if (index <= 13 && kLeave[index]) {
+            // TPW_PORT_FIX mods BMP_AI | Mac: when the ride's time is up a boat (kind -11) unloads where it is | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGreatLake.h): in the mod's worlds a Great Lake boat out on the lake first sails back into its plot's circle (by the chain, as SetNavRoute steers it), and unloads there, or where it is after 0x1000 turns; off, an original world or any other ride, the Mac's | Why: tpw-mods tpi-worlds; the boats unload on the plot, not out on the lake
+            if (tpw::TpiWorldInPlay()) {
+                const tpw::TpiLakeRide* lake = TpiLakeRideOf(own);
+                if (lake != nullptr && PointInColObject(b->x, b->y, static_cast<tabCOLOBJECT*>(lake->cols[0])) == 0 &&
+                    Wd_2(b, 0x88) > -0x1000) {
+                    Wd_2(b, 0x88) = Wd_2(b, 0x88) - 1;
+                    b->flags |= 0x4000;   // the end of the ride's time took the turning away (kClearAnim); it sails back
+                    int32_t rc = SetNavRoute(b, Wd_2(own, 0x90), Wd_2(own, 0x94));
+                    if ((b->flags & 0x20000) && rc <= Wd_2(own, 0x68)) {
+                        b->flags &= ~0x20000u;
+                        b->flags |= 0x10000;
+                    }
+                    return;
+                }
+            }
             BMP_LeaveBump(b);
             int32_t handle = Wd_2(b, 0x20);
             if (handle != 0) SOUND_FadeSoundEffect(handle);
@@ -2079,6 +2194,21 @@ int32_t SetNavRoute(tagBUMP* b, int32_t x, int32_t y) {
             W_4(b, 0x6c) = x;
             W_4(b, 0x70) = y;
             return -1;
+        }
+        // TPW_PORT_FIX mods SetNavRoute | Mac: a target in a circle that does not overlap the bump's is reached by the centre of the overlapping circle nearest the target | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGreatLake.h): in the mod's worlds a Great Lake boat whose target is in another circle of its chain steers to the middle of the overlap of its circle and the next circle on the shortest chain to the target's (tpw::TpiLakeAim); off, an original world, any other bump, or a target off the chain, the Mac's | Why: tpw-mods tpi-worlds; the nearest circle's centre leads a boat into the shore of a winding lake, where it would stay
+        int32_t ax = 0, ay = 0;
+        const int32_t lake = tpw::TpiWorldInPlay() ? TpiLakeSteer(b, hit, ax, ay) : -1;
+        if (lake >= 0) {
+            if (lake == 1) {
+                W_4(b, 0x6c) = ax;
+                W_4(b, 0x70) = ay;
+                b->flags |= 0x20000;
+            } else {
+                W_4(b, 0x6c) = W_4(b, 0x74) + x;
+                W_4(b, 0x70) = W_4(b, 0x78) + y;
+            }
+            b->flags &= ~0x10000u;
+            return BumpToPoint(b, W_4(b, 0x6c), W_4(b, 0x70));
         }
         if (DoAreasIntersect(b->col.get(), hit) != 0) {
             W_4(b, 0x6c) = W_4(b, 0x74) + x;
@@ -2799,6 +2929,11 @@ void BMP_InsideArea(tagBUMP* b) {
             uint32_t f = p->flags;
             if ((f & 1) != 0) {
                 n--;
+                // TPW_PORT_FIX mods BMP_InsideArea | Mac: a bump out of its circle moves into any circle it is in | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGreatLake.h): in the mod's worlds not into a Great Lake circle (flag 0x80) of another ride's chain; off or an original world, the Mac's | Why: tpw-mods tpi-worlds; another ride's bumps stay on their own ride
+                if ((f & tpw::kTpiLakeColFlag) != 0 && tpw::TpiWorldInPlay() && !TpiLakeColFor(b->owner.get(), p)) {
+                    p++;
+                    continue;
+                }
                 if ((f & 0x40) == 0 && PointInColObject(x, y, p) != 0) {
                     found = true;
                     break;

@@ -23,6 +23,7 @@
 #include "TPEngine.h"
 #include "TpiBumperKind.h"
 #include "TpiGateFlow.h"
+#include "TpiGreatLake.h"
 #include "TPSound.h"
 #include "TrackCell.h"
 #include "ui_main.h"
@@ -724,6 +725,12 @@ LLCRPlacement* LLCR_PlaceRideBlock(int32_t x, int32_t y, int32_t /*unused*/, int
         }
     }
 
+    // TPW_PORT_FIX mods LLCR_PlaceRideBlock | Mac: a ride may be placed wherever its cells allow | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGreatLake.h): in the mod's worlds the Great Lake (tpw::gTpiLake's ride) may be placed only where every cell behind its footprint, the row past the edge away from its entrance and exit, is the lake's water (tpw::TpiLakeBackOnWater): elsewhere the check refuses it and the preview shows it refused; off, an original world, any other ride, or a world without the lake's data, the Mac's | Why: tpw-mods tpi-worlds; the Great Lake's boats leave its plot by its back onto the lake
+    if (tpw::TpiWorldInPlay() && tpw::gTpiLake.loaded && static_cast<int32_t>(gLLCCE0E0) == tpw::gTpiLake.rideId &&
+        !tpw::TpiLakeBackOnWater(tpw::gTpiLake, width, height, place)) {
+        if (check != 0) return nullptr;
+        if (build == 0) gLLCCC214 = 1;
+    }
     int32_t trackKind = LLCC_SystemGetRideTrack();
     if (trackKind >= 3 || trackKind < 1) return &gLLCRPlacement;
 

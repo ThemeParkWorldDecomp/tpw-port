@@ -46,6 +46,7 @@
 #include "TPGlobals.h"
 #include "TpiGateFlow.h"
 #include "TpiGenerations.h"
+#include "TpiGreatLake.h"
 #include "TPMain.h"
 #include "UIInterface.h"
 #include "World.h"
@@ -373,6 +374,19 @@ bool CWorld::SetupNewLevel(char* levelFolder) {
             int32_t loaded = 0;
             if (LbFile_Load(buffer, text.data(), static_cast<uint32_t>(length), &loaded).Succeeded())
                 tpw::TpiParsePeeps(text.data(), text.size(), tpw::gTpiPeeps);
+        }
+    }
+    // TPW_PORT_FIX mods CWorld::SetupNewLevel | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGreatLake.h): with the mod on, reads the level's TpiLake.sam (the lake's water and Theme Park Inc's circles and buoys for the Great Lake's boats, which the converter writes into the Land of Invention only) into tpw::gTpiLake, and forgets the chains of the rides built before; a level without the file leaves it not loaded | Why: tpw-mods tpi-worlds, the Great Lake's boats sail on the lake | Off: the lake stays not loaded, no file is read
+    tpw::gTpiLake.Clear();
+    for (tpw::TpiLakeRide& lakeRide : tpw::gTpiLakeRides) lakeRide = tpw::TpiLakeRide{};
+    if (gModTpiWorlds) {
+        std::sprintf(buffer, "%s:%s", levelFolder, tpw::kTpiLakeFile);
+        const int32_t length = LbFile_GetLength(buffer);
+        if (length > 0) {
+            std::string text(static_cast<size_t>(length), '\0');
+            int32_t loaded = 0;
+            if (LbFile_Load(buffer, text.data(), static_cast<uint32_t>(length), &loaded).Succeeded())
+                tpw::TpiParseLake(text.data(), text.size(), tpw::gTpiLake);
         }
     }
     mTurn = 0;

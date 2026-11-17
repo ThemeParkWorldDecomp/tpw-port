@@ -2,6 +2,10 @@
 
 ## 0.5.6 (not released yet)
 
+### New Features
+
+- In the TPI Worlds and Rides mod's Land of Invention, The Great Lake is now a real boating lake: it can only be built with its back on the lake's water (buy the land by the lake first), and its boats sail out onto the lake with their wake on the water, then come back to let their riders off, who stay seated so you can ride along in first person; a Great Lake built away from the water in an older park keeps its boats on its own plot
+
 ### Bug Fixes
 
 - Fixed the game freezing when land was bought in a TPI Worlds and Rides mod park whose fence crosses a bridge or tunnel, such as the land by the Arabian Nights bridge: 0.5.5 broke the fence where it crosses them when the park was loaded, and parks saved since then get the fence back when they are loaded

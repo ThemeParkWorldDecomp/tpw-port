@@ -662,6 +662,11 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     add_executable(tpw_host_tpi_ride_camera ${TPW_DECOMP_DIR}/tests/host_tpi_ride_camera.cpp)
     target_include_directories(tpw_host_tpi_ride_camera PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_ride_camera COMMAND tpw_host_tpi_ride_camera)
+    # Its Great Lake (include/TpiGreatLake.h): placed only with its back on the lake's water, its boats' circles over water
+    # and the plot, and a long run of boats never over land, off the circles or stuck, on a made-up lake.
+    add_executable(tpw_host_tpi_great_lake ${TPW_DECOMP_DIR}/tests/host_tpi_great_lake.cpp)
+    target_include_directories(tpw_host_tpi_great_lake PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_great_lake COMMAND tpw_host_tpi_great_lake)
   endif()
   # A map or track cell found by its 1 based id (include/CellIdLookup.h): the id 0 lands one cell before the grid, inside
   # the world, as the Mac's 32 bit sum puts it, and map cell 0's thing list is empty, without game data. The original
