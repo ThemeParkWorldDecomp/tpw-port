@@ -1101,6 +1101,10 @@ bool PortFreeFlyFrame(float dt) {
     if (down(kPortFreeA) || Key(0xf)) right -= 1.0f;
     if (down(kPortFreeE) || down(kPortFreePgUp)) up += 1.0f;
     if (down(kPortFreeQ) || down(kPortFreePgDn)) up -= 1.0f;
+    // TPW_PORT_FIX gamepad PortFreeFlyFrame | Mac: (none) | Port: the gamepad's left stick and triggers add their shares (PortFreePadFrame, include/PortFreeCamera.h) to the keys', within the keys' full speed | Why: fly mode from a gamepad; with no pad the shares are 0 and the keys' wish is the same
+    forward = std::fmin(std::fmax(forward + gPortFreePad.fly[0], -1.0f), 1.0f);
+    right = std::fmin(std::fmax(right + gPortFreePad.fly[1], -1.0f), 1.0f);
+    up = std::fmin(std::fmax(up + gPortFreePad.fly[2], -1.0f), 1.0f);
     const float ahead[3] = {gCameraMatrix.m[2][0], gCameraMatrix.m[2][1], gCameraMatrix.m[2][2]};
     const float side[3] = {gCameraMatrix.m[0][0], gCameraMatrix.m[0][1], gCameraMatrix.m[0][2]};
     float move[3];
@@ -1232,6 +1236,8 @@ void HandleCamera() {
         }
     }
     gCameraModeB = gCameraModeA;
+    // TPW_PORT_FIX gamepad HandleCamera | Mac: (none) | Port: with gPortFreeCamera on, the gamepad's sticks and triggers are this frame's input first (PortFreePadFrame, include/PortFreeCamera.h), as the deltas the wheel and the drags write | Why: the Free camera from a gamepad; with no pad, or the launcher's Gamepad off, it adds nothing
+    if (gPortFreeCamera) PortFreePadFrame(dt);
     // TPW_PORT_FIX freecam HandleCamera | Mac: (none) | Port: with gPortFreeCamera on, fly mode's frame (PortFreeFlyFrame), which builds the camera itself, or else the free camera's input for this frame (PortFreeOrbitInput) | Why: the Free camera's orbit and fly mode, as SPEC asks; with the setting off nothing runs
     if (gPortFreeCamera) {
         if (PortFreeFlyFrame(dt)) {

@@ -471,6 +471,8 @@ void Usage(const char* program) {
                  "  --wheel DX,DY@N  a scripted wheel event with SDL's precise deltas on pass N (repeatable)\n"
                  "  --cam-drag B:DX,DY@N[/K]  a scripted camera drag with button B (0 left, 1 right, 2 middle): down on pass N,\n"
                  "                 DX, DY pixels in K steps (default 8), up on pass N+K+1 (repeatable)\n"
+                 "  --pad ACTION@N  a scripted virtual gamepad on pass N: attach, detach, AXIS=VALUE (leftx, lefty, rightx, righty,\n"
+                 "                 lt, rt; -32768 to 32767) or BUTTON=1 or 0 (a, b, x, y, back, start, lb, rb, ...; repeatable)\n"
                  "  --key NAME@N   a scripted key: down on pass N, up on pass N+1 (esc, return, space, tab, cmd, ctrl, shift,\n"
                  "                 option or an SDL key name; repeatable)\n"
                  "  --hold NAME@N-M  a scripted key held from pass N to pass M (its modifier counts for the clicks between)\n"
@@ -513,7 +515,7 @@ void Usage(const char* program) {
 bool TakesValue(const std::string& arg) {
     static const char* const kWithValue[] = {"--game",  "--data",        "--play",       "--import",     "--program",    "--window-click", "--window-wheel",
                                              "--window-size", "--user",  "--edition",     "--resolution", "--aspect",     "--frames",
-                                             "--click", "--drag",        "--wheel",      "--cam-drag",   "--type",       "--type-env",   "--dump-frames", "--dump-every",
+                                             "--click", "--drag",        "--wheel",      "--cam-drag",   "--pad",   "--type",       "--type-env",   "--dump-frames", "--dump-every",
                                              "--dump-limit", "--display", "--write-icon", "--language", "--language-root",
                                              "--renderer", tpw::launcher::kFromLauncherOption, tpw::launcher::kGameAppTestOption};
     for (const char* option : kWithValue)
@@ -1292,6 +1294,24 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
                  "through the ground %d",
                  gPortFreeSwipeZooms ? "zooms" : "moves", gPortFreeInvertLook ? 1 : 0, gPortFreeLookSensitivity,
                  gPortFreeFlySpeed, gPortFreeSmoothing ? 1 : 0, gPortFreeThroughGround ? 1 : 0);
+        // Its "Gamepad" (TPW_PORT_FIX gamepad, include/PortFreeCamera.h), on unless launcher.ini says 0: the run loop opens
+        // SDL's gamepads and gives the camera their sticks, triggers and buttons. Off, the game opens no gamepad.
+        static_assert(kPortFreePadLeftX == int{SDL_GAMEPAD_AXIS_LEFTX} && kPortFreePadRightY == int{SDL_GAMEPAD_AXIS_RIGHTY} &&
+                          kPortFreePadLeftTrigger == int{SDL_GAMEPAD_AXIS_LEFT_TRIGGER} &&
+                          kPortFreePadRightTrigger == int{SDL_GAMEPAD_AXIS_RIGHT_TRIGGER} &&
+                          kPortFreePadAxisCount == int{SDL_GAMEPAD_AXIS_COUNT},
+                      "the free camera's gamepad axes are SDL's");
+        static_assert(kPortFreePadNorth == SDL_GAMEPAD_BUTTON_NORTH && kPortFreePadBack == SDL_GAMEPAD_BUTTON_BACK &&
+                          kPortFreePadLeftShoulder == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER &&
+                          kPortFreePadRightShoulder == SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER,
+                      "the free camera's gamepad buttons are SDL's");
+        gPortFreePadOn = backend.Setting(tpw::ui::kFreeGamepadKey) != "0";
+        if (gPortFreePadOn) {
+            tpw::gPortPadAxis = PortFreeHookPadAxis;
+            tpw::gPortPadButton = PortFreeHookPadButton;
+            tpw::gPortPadGone = PortFreeHookPadGone;
+        }
+        tpw::Log("free camera gamepad: %s", gPortFreePadOn ? "on" : "off");
     }
     gOnlineServerSetting = backend.Setting(tpw::ui::kOnlineServerKey);
     gOnlineServerFound = backend.Setting(tpw::ui::kOnlineServerFoundKey);
@@ -1844,6 +1864,35 @@ int LauncherMain(int argc, char** argv) {
                 return 2;
             }
             config.wheels.push_back(wheel);
+        }
+        else if (arg == "--pad") {
+            const std::string spec = value();
+            tpw::Config::ScriptedPad pad{};
+            static const char* const kAxes[] = {"leftx", "lefty", "rightx", "righty", "lt", "rt"};   // SDL_GamepadAxis order
+            static const char* const kButtons[] = {"a",  "b",  "x",  "y",  "back", "guide", "start", "l3",
+                                                   "r3", "lb", "rb", "up", "down", "left",  "right"};   // SDL_GamepadButton
+            const size_t at = spec.rfind('@');
+            const std::string action = spec.substr(0, at == std::string::npos ? 0 : at);
+            pad.pass = at == std::string::npos ? 0 : std::atoi(spec.c_str() + at + 1);
+            const size_t eq = action.find('=');
+            const std::string name = action.substr(0, eq), level = eq == std::string::npos ? "" : action.substr(eq + 1);
+            pad.kind = -1;
+            if (eq == std::string::npos) {
+                pad.kind = name == "attach" ? 0 : name == "detach" ? 1 : -1;
+            } else {
+                for (int i = 0; i < 6; ++i)
+                    if (name == kAxes[i]) pad.kind = 2, pad.index = i;
+                for (int i = 0; i < 15; ++i)
+                    if (name == kButtons[i]) pad.kind = 3, pad.index = i;
+                char* end = nullptr;
+                pad.value = static_cast<int32_t>(std::strtol(level.c_str(), &end, 10));
+                if (level.empty() || *end != 0 || pad.value < -32768 || pad.value > 32767) pad.kind = -1;
+            }
+            if (pad.kind < 0 || pad.pass < 1) {
+                tpw::LogRawF("launcher: --pad wants attach@N, detach@N, AXIS=VALUE@N or BUTTON=1@N: %s\n", spec.c_str());
+                return 2;
+            }
+            config.pads.push_back(pad);
         }
         else if (arg == "--cam-drag") {
             const char* spec = value();

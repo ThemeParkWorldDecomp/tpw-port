@@ -554,6 +554,14 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_free_camera PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
     add_test(NAME free_camera COMMAND tpw_host_free_camera)
   endif()
+  # The Free camera from a gamepad (the port's fix gamepad, include/PortFreeCamera.h): SDL's standard layout's axis levels
+  # and buttons fed in, and the deltas, fly shares and camera table keys they give checked (the dead zone, the curve, the
+  # frame's ms, the settings). Made only with the port's fixes, as free_camera is.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_gamepad ${TPW_DECOMP_DIR}/tests/host_gamepad.cpp)
+    target_include_directories(tpw_host_gamepad PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    add_test(NAME gamepad COMMAND tpw_host_gamepad)
+  endif()
   # The TPI Worlds and Rides mod's second ring of islands (TPW_MOD_HOOK tpi_islands, include/tpi_island_ring.h): which ring a
   # world is in, where the arrows go inside a ring, where Tab lands, and that ring two stands out of ring one's fog. The original
   # has one ring, so the program is made only with the port's fixes. No game data.

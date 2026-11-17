@@ -68,6 +68,7 @@ inline bool PortWasdNothing(int32_t key, int32_t modifiers) {
 // TPW_PORT_FIX wasd-stuck PortWasdLetGoAll | Mac: no such setting | Port: with gPortWasdCamera on, every camera key the four still hold is let go when the game loses the focus (ThemeParkWorld::HandleActivateWindow) and when the park's window goes (Engine_GameWinMsg) | Why: a camera key must never outlive its key; one left held kept the camera scrolling through a trip to the lobby (reported by the maintainer)
 inline void PortWasdLetGoAll() {
     PortFreeLetGoAll();   // freecam: and every key the free camera holds
+    PortFreePadLetGoButtons();   // gamepad: and every camera key a gamepad's button holds
     for (int16_t& held : gPortWasdHeld) {
         if (held == 0) continue;
         gKeyTableCamera->KeyUp(held, 0);

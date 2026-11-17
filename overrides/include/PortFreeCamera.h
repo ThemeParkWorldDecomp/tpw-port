@@ -376,3 +376,144 @@ void PortFreeHookDragEnd();
 void PortFreeHookPinch(float scale);
 bool PortFreeHookTableKey(int32_t key, int32_t modifiers);
 
+// TPW_PORT_FIX gamepad PortFreePadFrame | Mac: (none: the Mac version took no gamepad) | Port: with gPortFreeCamera and the launcher's "Gamepad" (gPortFreePadOn) on, a gamepad in SDL's standard layout is free camera input, over the park and not in first person: its sticks and triggers are kept as levels (PortFreePadAxis) and each frame turned into dt ms of the deltas the wheel and the drags write (PortFreePadFrame: in the orbit the left stick moves, the right stick turns and tilts, the right trigger zooms in and the left out; in fly mode the left stick flies along the view and sideways, the right stick looks, the right trigger rises and the left sinks), past a dead zone and on a squared curve, at the Look sensitivity, Invert vertical look and Fly speed settings; its buttons press what the keys press (PortFreePadButton: in the orbit the shoulders the camera table's turn keys, Y starts and ends fly mode as Tab does, Back resets the view as Home does) | Why: the Free camera from a gamepad, with no new camera code; off, or with no pad, nothing changes
+// The launcher's "Gamepad" row, under Free camera: on, the run loop opens gamepads and sends them here.
+inline bool gPortFreePadOn = false;
+// SDL's standard gamepad layout (SDL_GamepadAxis, SDL_GamepadButton; launcher/main.cpp checks the numbers).
+enum PortFreePadAxisId : int {
+    kPortFreePadLeftX, kPortFreePadLeftY, kPortFreePadRightX, kPortFreePadRightY, kPortFreePadLeftTrigger,
+    kPortFreePadRightTrigger, kPortFreePadAxisCount
+};
+inline constexpr int kPortFreePadNorth = 3;           // Y on an Xbox pad, the triangle on a PlayStation one: fly mode
+inline constexpr int kPortFreePadBack = 4;            // Back, View, Share or Select: the reset
+inline constexpr int kPortFreePadLeftShoulder = 9;    // turn left
+inline constexpr int kPortFreePadRightShoulder = 10;  // turn right
+// A stick moves nothing within kPortFreePadDeadZone of the middle (of 32767, SDL's usual dead zone), a trigger nothing
+// below kPortFreePadTriggerZone (30 of 255, XInput's trigger threshold); past them the share rises with the square of the
+// way to the end, so a small push is a fine one.
+inline constexpr int kPortFreePadDeadZone = 8000;
+inline constexpr int kPortFreePadTriggerZone = 3855;
+// At full tilt, a millisecond: the right stick turns kPortFreePadTurn and tilts kPortFreePadTilt radians at Look
+// sensitivity 1, the left stick moves the orbit kPortFreePadMove of the zoom, a trigger zooms by e to the
+// kPortFreePadZoom; in fly mode the left stick and the triggers move at the Fly speed, as W A S D, Page Up and Page Down do.
+inline constexpr float kPortFreePadTurn = 0.0025f;
+inline constexpr float kPortFreePadTilt = 0.0015f;
+inline constexpr float kPortFreePadMove = 0.001f;
+inline constexpr float kPortFreePadZoom = 0.0012f;
+struct PortFreePadState {
+    int16_t axis[kPortFreePadAxisCount] = {};   // the levels, as SDL gives them
+    int16_t tableHeld[3] = {};                  // the camera table's key the left shoulder, the right one and Back hold
+    bool northHeld = false;
+    float fly[3] = {};                          // fly mode's wish this frame: forward, right and up shares (-1 to 1)
+};
+inline PortFreePadState gPortFreePad;
+
+// A trigger's share, 0 to 1.
+inline float PortFreePadTrigger(int16_t level) {
+    if (level <= kPortFreePadTriggerZone) return 0.0f;
+    const float way = std::fmin(static_cast<float>(level - kPortFreePadTriggerZone) / (32767.0f - kPortFreePadTriggerZone), 1.0f);
+    return way * way;
+}
+// A stick's shares, -1 to 1 each: the dead zone is a circle, and the curve keeps the stick's direction.
+inline void PortFreePadStick(int16_t x, int16_t y, float& sx, float& sy) {
+    sx = sy = 0.0f;
+    const float fx = static_cast<float>(x);
+    const float fy = static_cast<float>(y);
+    const float length = std::sqrt(fx * fx + fy * fy);
+    if (length <= static_cast<float>(kPortFreePadDeadZone)) return;
+    const float way = std::fmin((length - kPortFreePadDeadZone) / (32767.0f - kPortFreePadDeadZone), 1.0f);
+    sx = fx / length * way * way;
+    sy = fy / length * way * way;
+}
+
+// An axis moved (SDL's standard numbering): the level is kept until it moves again.
+inline void PortFreePadAxis(int axis, int16_t value) {
+    if (!gPortFreeCamera || !gPortFreePadOn || axis < 0 || axis >= kPortFreePadAxisCount) return;
+    gPortFreePad.axis[axis] = value;
+}
+
+// One frame of dt ms of the gamepad's sticks and triggers, before HandleCamera takes the deltas.
+inline void PortFreePadFrame(float dt) {
+    gPortFreePad.fly[0] = gPortFreePad.fly[1] = gPortFreePad.fly[2] = 0.0f;
+    if (!gPortFreeCamera || !gPortFreePadOn || (gFirstPersonFlags & kFirstPersonAny) != 0) return;
+    float lx, ly, rx, ry;
+    PortFreePadStick(gPortFreePad.axis[kPortFreePadLeftX], gPortFreePad.axis[kPortFreePadLeftY], lx, ly);
+    PortFreePadStick(gPortFreePad.axis[kPortFreePadRightX], gPortFreePad.axis[kPortFreePadRightY], rx, ry);
+    const float rise = PortFreePadTrigger(gPortFreePad.axis[kPortFreePadRightTrigger]) -
+                       PortFreePadTrigger(gPortFreePad.axis[kPortFreePadLeftTrigger]);
+    // The right stick: right turns the view right, down looks further down (as a mouse drag), up toward the horizon.
+    const float sense = gPortFreeLookSensitivity * dt;
+    if (rx != 0.0f) gPortFree.dYaw += rx * kPortFreePadTurn * sense;
+    if (ry != 0.0f) gPortFree.dPitch += ry * kPortFreePadTilt * sense * (gPortFreeInvertLook ? -1.0f : 1.0f);
+    // The left stick: up is forward (SDL's stick is below 0 pushed up).
+    if (PortFreeFlying()) {
+        gPortFreePad.fly[0] = -ly;
+        gPortFreePad.fly[1] = lx;
+        gPortFreePad.fly[2] = rise;
+        return;
+    }
+    const float move = kPortFreePadMove * dt * PortFreeSpeedFactor(PortFreeModifiersNow());
+    if (ly != 0.0f) gPortFree.dForward -= ly * move;
+    if (lx != 0.0f) gPortFree.dRight += lx * move;
+    if (rise != 0.0f) gPortFree.zoomScale *= std::exp(-rise * kPortFreePadZoom * dt);
+}
+
+// Lets go of what one of the buttons holds (0 the left shoulder, 1 the right one, 2 Back).
+inline void PortFreePadLetGo(int which) {
+    int16_t& held = gPortFreePad.tableHeld[which];
+    if (held == 0) return;
+    gKeyTableCamera->KeyUp(held, 0);
+    held = 0;
+}
+
+// A button went down or up (SDL's standard numbering). parkShown: the park's window is up. True when the camera took it.
+inline bool PortFreePadButton(int button, bool down, bool parkShown) {
+    if (!gPortFreeCamera || !gPortFreePadOn) return false;
+    const int which = button == kPortFreePadLeftShoulder ? 0 : button == kPortFreePadRightShoulder ? 1 : button == kPortFreePadBack ? 2 : -1;
+    if (button == kPortFreePadNorth) {
+        // Fly mode, as Tab: the keys the orbit took are let go first.
+        if (!down) {
+            gPortFreePad.northHeld = false;
+            return true;
+        }
+        if (!parkShown || (gFirstPersonFlags & kFirstPersonAny) != 0) return false;
+        if (!gPortFreePad.northHeld) {
+            for (int i = 0; i < kPortFreeKeyCount; ++i) {
+                if (i != kPortFreeTab) PortFreeLetGoKey(i);
+            }
+            PortFreePadLetGo(0);
+            PortFreePadLetGo(1);
+            gPortFree.flyWanted = !PortFreeFlying();
+        }
+        gPortFreePad.northHeld = true;
+        return true;
+    }
+    if (which < 0) return false;
+    if (!down) {
+        PortFreePadLetGo(which);
+        return true;
+    }
+    if (!parkShown || (gFirstPersonFlags & kFirstPersonAny) != 0) return false;
+    if (which < 2 && PortFreeFlying()) return false;   // the turn keys are the orbit's; fly mode looks with the right stick
+    // The left and right arrows (turn, the Isometric option's quarter turn kept) and Home (the reset).
+    static constexpr int16_t kCodes[3] = {0x2500, 0x2700, 0x2400};
+    if (gPortFreePad.tableHeld[which] == 0) gKeyTableCamera->KeyDown(kCodes[which], 0);
+    gPortFreePad.tableHeld[which] = kCodes[which];
+    return true;
+}
+
+// Every camera table key the buttons hold comes up (the park's window went, or the pad did).
+inline void PortFreePadLetGoButtons() {
+    for (int i = 0; i < 3; ++i) PortFreePadLetGo(i);
+    gPortFreePad.northHeld = false;
+}
+// The gamepad went (unplugged, or the game lost the focus): its sticks are let go and its buttons come up.
+inline void PortFreePadGone() {
+    for (int16_t& level : gPortFreePad.axis) level = 0;
+    PortFreePadLetGoButtons();
+}
+
+// The run loop's gamepad hooks (platform/platform.h tpw::gPortPadAxis and the rest), in src/game/TPMain.cpp.
+void PortFreeHookPadAxis(int axis, int16_t value);
+bool PortFreeHookPadButton(int button, bool down);
+void PortFreeHookPadGone();

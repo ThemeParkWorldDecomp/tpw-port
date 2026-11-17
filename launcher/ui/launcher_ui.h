@@ -39,7 +39,8 @@ inline constexpr const char* kFarZoomKey = "far_zoom";
 // tilts freely, zooms further, flies and takes a trackpad's swipes; absent or "0": the original's camera) and its
 // settings, shown only while it is on: "Two-finger swipe" ("zoom": zooms and rotates; absent or "move": moves the
 // camera), "Invert vertical look" ("1"), "Look sensitivity" and "Fly speed" (0.25 to 4, absent 1), "Smoothing" (absent
-// or "1": on) and "Fly through the ground" ("1").
+// or "1": on), "Fly through the ground" ("1") and "Gamepad" (TPW_PORT_FIX gamepad; absent or "1": a connected gamepad moves
+// the camera; "0": the game opens no gamepad).
 inline constexpr const char* kFreeCameraKey = "free_camera";
 inline constexpr const char* kFreeSwipeKey = "free_camera_swipe";
 inline constexpr const char* kFreeInvertKey = "free_camera_invert_look";
@@ -47,6 +48,7 @@ inline constexpr const char* kFreeSensitivityKey = "free_camera_look_sensitivity
 inline constexpr const char* kFreeFlySpeedKey = "free_camera_fly_speed";
 inline constexpr const char* kFreeSmoothingKey = "free_camera_smoothing";
 inline constexpr const char* kFreeThroughGroundKey = "free_camera_through_ground";
+inline constexpr const char* kFreeGamepadKey = "free_camera_gamepad";
 // Whether the Settings box has the Free camera rows: only with the port's fixes, as the camera itself is.
 #ifdef TPW_PORT_FIX
 inline constexpr bool kFreeCameraRow = true;
@@ -402,6 +404,7 @@ public:
     // The Free camera's switch, and its first setting's control (Two-finger swipe), as last drawn (empty when not shown).
     Rect FreeCameraRect() const { return settingsOpen_ ? freeCameraRect_ : Rect{}; }
     Rect FreeSwipeRect() const { return settingsOpen_ ? freeSwipeRect_ : Rect{}; }
+    Rect FreeGamepadRect() const { return settingsOpen_ ? freeGamepadRect_ : Rect{}; }   // its Gamepad switch
     // The Settings box's "Online server" field where the last frame drew it, in points (empty when the box is closed),
     // whether it is being edited, and the greyed automatic server it shows while empty.
     Rect OnlineServerRect() const { return settingsOpen_ ? onlineServerRect_ : Rect{}; }
@@ -551,6 +554,7 @@ private:
     int freeFlySpeed_ = 4;
     bool freeSmoothing_ = true;
     bool freeThroughGround_ = false;
+    bool freeGamepad_ = true;
     int interfaceSize_ = 0;         // the Settings box's "Interface size": 0 100%, 1 85%, 2 70%
     std::vector<int> samChoices_;   // the Graphics section: for each of SamOptions(), 0 the detail level's own, else 1 + its choice
     int frameRate_ = 0;             // the Settings box's "Frame rate limit": 0 Monitor, else frames a second (FrameRateSetting)
@@ -628,6 +632,7 @@ private:
     Rect wasdCameraRect_;      // last frame's (WasdCameraRect)
     Rect freeCameraRect_;      // last frame's (FreeCameraRect)
     Rect freeSwipeRect_;       // last frame's (FreeSwipeRect)
+    Rect freeGamepadRect_;     // last frame's (FreeGamepadRect)
     Rect onlineServerRect_;    // last frame's (OnlineServerRect)
     Rect rendererRect_;        // last frame's (RendererRect)
     bool settingsScrolls_ = false;   // last frame's (SettingsScrolls)

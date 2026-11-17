@@ -357,6 +357,12 @@ bool PortFreeHookTableKey(int32_t key, int32_t modifiers) {
     }
     return false;
 }
+// TPW_PORT_FIX gamepad PortFreeHookPadButton | Mac: (none) | Port: the run loop's gamepad hooks (include/PortFreeCamera.h): a button is the free camera's only while the park's window is up, so none presses a camera key in the lobby | Why: the Free camera from a gamepad
+void PortFreeHookPadAxis(int axis, int16_t value) { PortFreePadAxis(axis, value); }
+
+bool PortFreeHookPadButton(int button, bool down) { return PortFreePadButton(button, down, gGameWindow != nullptr); }
+
+void PortFreeHookPadGone() { PortFreePadGone(); }
 
 // Command 3 (quit) asks for confirmation in the lobby (state 2) and in a park (state
 // 10); in any other state it ends UGamework::Run at once.

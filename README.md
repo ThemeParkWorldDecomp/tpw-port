@@ -94,6 +94,7 @@ Settings:
 | Smooth wheel zoom | Off | The wheel eases toward the pointer. |
 | Zoom out further | Off | The camera goes further out. |
 | Free camera | Off | Tilt, zoom and fly anywhere: Q E turn, Z X tilt, Page Up/Down zoom, Tab flies, Home resets. Its own settings show under it. |
+| Gamepad (under Free camera) | On | A gamepad moves the free camera: left stick moves (flying: flies), right stick turns and tilts (looks), right and left triggers zoom in and out (rise and sink), LB and RB turn, Y (triangle) flies, View (Share, Select) resets. |
 | Several keys at once | Off | Walk and turn at once, as on the PC. |
 | W A S D move the camera | Off | W A S D scroll and walk (Z Q S D on AZERTY). A and S no longer open All items and All staff. |
 | Varied sounds | On | Sounds vary, as on the PC. Off is the Mac's way. |
@@ -283,7 +284,7 @@ use `build\tpw_launcher.exe 2> log.txt`.
 - [tpw-decomp](https://github.com/ThemeParkWorldDecomp/tpw-decomp) submodule: the translated game, bugs included.
 - launcher/: the launcher. launcher/net/ is the only internet code.
 - platform/: Mac and Windows shims on SDL3 and OpenGL. platform/vulkan/: the Linux Vulkan renderer.
-- overrides/: 594 fixes, listed in [FIXES.md](FIXES.md).
+- overrides/: 598 fixes, listed in [FIXES.md](FIXES.md).
 - mods/: the [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) submodule, via TPW_MOD_HOOK. `-DTPW_MODS_DIR=<folder>` points elsewhere.
 
 ### The Windows build

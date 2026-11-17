@@ -145,6 +145,7 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     freeFlySpeed_ = FreeQuarters(backend_.Setting(kFreeFlySpeedKey));
     freeSmoothing_ = backend_.Setting(kFreeSmoothingKey) != "0";
     freeThroughGround_ = backend_.Setting(kFreeThroughGroundKey) == "1";
+    freeGamepad_ = backend_.Setting(kFreeGamepadKey) != "0";
     for (const SamOption& option : SamOptions()) samChoices_.push_back(SamChoice(option, backend_.Setting(option.key)) + 1);
     samRects_.resize(SamOptions().size());
     frameRate_ = FrameRateSetting(backend_.Setting(kFrameRateKey));
@@ -1298,7 +1299,7 @@ void LauncherUi::DrawSettings(const Rect& w) {
     // A row added below is counted here too; the Settings scroll test checks the sum against what is drawn.
     float bodyH = 2 * (text_.LineHeight(style::kBodyBold) + 4) + 40 + text_.LineHeight(style::kSmall) + 14 + 3 * rowH +
                   4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + (kRideBadgesRow ? 11 : 10) * rowH +
-                  (kFreeCameraRow ? (freeCamera_ ? 7 : 1) : 0) * rowH +
+                  (kFreeCameraRow ? (freeCamera_ ? 8 : 1) : 0) * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + static_cast<float>(SamOptions().size() + 1) * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH + (rendererRow_ ? rowH : 0.0f) +
@@ -1523,7 +1524,7 @@ void LauncherUi::DrawSettings(const Rect& w) {
         }
         y += rowH;
     }
-    freeCameraRect_ = freeSwipeRect_ = {};
+    freeCameraRect_ = freeSwipeRect_ = freeGamepadRect_ = {};
     if (kFreeCameraRow) {   // Free camera and, while it is on, its settings, a step in (launcher_ui.h kFreeCameraKey)
         auto keep = [this](const char* key, const std::string& value) {
             std::string err;
@@ -1589,6 +1590,9 @@ void LauncherUi::DrawSettings(const Rect& w) {
                       kFreeSmoothingKey, nullptr);
             toggleRow(indent, "free-through-ground", "Fly through the ground", "Flying can go below the ground and the water",
                       freeThroughGround_, kFreeThroughGroundKey, nullptr);
+            toggleRow(indent, "free-gamepad", "Gamepad",
+                      "Sticks move and look, triggers zoom, Y flies, View resets, bumpers turn", freeGamepad_,
+                      kFreeGamepadKey, &freeGamepadRect_);
         }
     }
     {

@@ -228,6 +228,90 @@ void EndFreeDrag() {
 // Whether a fine wheel delta is fractional (a trackpad's or a high-resolution wheel's).
 bool Fractional(float value) { return value != static_cast<float>(static_cast<int32_t>(value)); }
 #endif
+#ifdef TPW_PORT_FIX
+// TPW_PORT_FIX gamepad UGamework::Run | Mac: (none: the Mac version took no gamepad) | Port: with the launcher's Free camera and Gamepad on (tpw::gPortPadAxis and its hooks, set before the game starts) SDL's gamepad subsystem opens at the start, each gamepad is opened as it connects (one connected at the start too) and closed as it goes, and its axes and buttons, in SDL's standard layout, go to the free camera; an unplugged pad and the focus loss let go of what the pads hold; a scripted virtual gamepad (--pad) comes through the same events; off, no gamepad subsystem and no gamepad events | Why: the Free camera from a gamepad
+struct Pads {
+    bool system = false;                  // SDL's gamepad subsystem is open
+    std::vector<SDL_Gamepad*> open;
+    int32_t axisEvents = 0;               // what the pads sent, for the log when one goes
+    int32_t buttonEvents = 0;
+    SDL_JoystickID scriptedId = 0;        // the scripted virtual gamepad (--pad), and its joystick for setting it
+    SDL_Joystick* scripted = nullptr;
+};
+Pads gPads;
+
+// Opens SDL's gamepad subsystem, once. SDL then sends SDL_EVENT_GAMEPAD_ADDED for each pad already connected.
+void OpenPadSystem() {
+    if (gPads.system) return;
+    // The scripted pad drives a window that is not in front (a test run never takes the focus): its events count.
+    if (!tpw::config().pads.empty()) SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) {
+        tpw::Log("gamepad: SDL's gamepad subsystem did not open (%s); no gamepad", SDL_GetError());
+        return;
+    }
+    gPads.system = true;
+    tpw::Log("gamepad: SDL's gamepad subsystem open");
+}
+
+void OpenPad(SDL_JoystickID id) {
+    if (SDL_GetGamepadFromID(id) != nullptr) return;
+    SDL_Gamepad* pad = SDL_OpenGamepad(id);
+    if (pad == nullptr) {
+        tpw::Log("gamepad: %d did not open (%s)", static_cast<int>(id), SDL_GetError());
+        return;
+    }
+    gPads.open.push_back(pad);
+    const char* name = SDL_GetGamepadName(pad);
+    tpw::Log("gamepad: %s connected", name != nullptr ? name : "a gamepad");
+}
+
+void ClosePad(SDL_JoystickID id) {
+    SDL_Gamepad* pad = SDL_GetGamepadFromID(id);
+    if (pad == nullptr) return;
+    tpw::Log("gamepad: disconnected (%d axis and %d button events)", gPads.axisEvents, gPads.buttonEvents);
+    gPads.open.erase(std::remove(gPads.open.begin(), gPads.open.end(), pad), gPads.open.end());
+    SDL_CloseGamepad(pad);
+    if (tpw::gPortPadGone != nullptr) tpw::gPortPadGone();
+}
+
+// One step of the scripted gamepad (--pad), on its pass: a virtual pad of SDL's standard layout, set as a real one moves.
+void ScriptedPadStep(const tpw::Config::ScriptedPad& step, int32_t pass) {
+    if (step.kind == 0) {
+        OpenPadSystem();
+        if (!gPads.system || gPads.scripted != nullptr) return;
+        SDL_VirtualJoystickDesc desc;
+        SDL_INIT_INTERFACE(&desc);
+        desc.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+        desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
+        desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+        desc.name = "Scripted gamepad";
+        gPads.scriptedId = SDL_AttachVirtualJoystick(&desc);
+        gPads.scripted = gPads.scriptedId != 0 ? SDL_OpenJoystick(gPads.scriptedId) : nullptr;
+        tpw::Log("scripted gamepad: attached%s (pass %d)", gPads.scripted != nullptr ? "" : ", but it did not open", pass);
+        return;
+    }
+    if (gPads.scripted == nullptr) {
+        tpw::Log("scripted gamepad: none attached (pass %d)", pass);
+        return;
+    }
+    if (step.kind == 1) {
+        SDL_CloseJoystick(gPads.scripted);
+        SDL_DetachVirtualJoystick(gPads.scriptedId);
+        gPads.scripted = nullptr;
+        gPads.scriptedId = 0;
+        tpw::Log("scripted gamepad: detached (pass %d)", pass);
+    } else if (step.kind == 2) {
+        // A trigger's joystick axis runs the whole range for SDL's 0 to 32767.
+        const bool trigger = step.index == SDL_GAMEPAD_AXIS_LEFT_TRIGGER || step.index == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER;
+        const int32_t raw = trigger ? std::clamp(step.value * 2 - 32768, -32768, 32767) : step.value;
+        SDL_SetJoystickVirtualAxis(gPads.scripted, step.index, static_cast<int16_t>(raw));
+        tpw::Log("scripted gamepad: axis %d to %d (pass %d)", step.index, step.value, pass);
+    } else {
+        SDL_SetJoystickVirtualButton(gPads.scripted, step.index, step.value != 0);
+        tpw::Log("scripted gamepad: button %d %s (pass %d)", step.index, step.value != 0 ? "down" : "up", pass);
+    }
+}
+#endif
 
 bool MouseButtonFromSDL(uint8_t sdlButton, MouseButton& button) {
     switch (sdlButton) {
@@ -316,6 +400,9 @@ void UGamework::Run() {
         gHeldKeys.clear();
     };
 #endif
+#ifdef TPW_PORT_FIX
+    if (tpw::gPortPadAxis != nullptr) OpenPadSystem();   // gamepad: the launcher's Gamepad on
+#endif
     while (mRunning) {
 #ifdef TPW_PORT_FIX
         if (gPointerOutside && !gScripted.active && tpw::gPortPointerLeft != nullptr) tpw::gPortPointerLeft();   // pointerleave
@@ -403,6 +490,24 @@ void UGamework::Run() {
                 HandleMouseWheel(event, static_cast<int32_t>(sdl.wheel.integer_y));
                 break;
             }
+#ifdef TPW_PORT_FIX
+            // gamepad: a pad connects (or was connected at the start), goes, moves an axis, presses a button
+            case SDL_EVENT_GAMEPAD_ADDED:
+                if (gPads.system) OpenPad(sdl.gdevice.which);
+                break;
+            case SDL_EVENT_GAMEPAD_REMOVED:
+                ClosePad(sdl.gdevice.which);
+                break;
+            case SDL_EVENT_GAMEPAD_AXIS_MOTION:
+                ++gPads.axisEvents;
+                if (tpw::gPortPadAxis != nullptr) tpw::gPortPadAxis(sdl.gaxis.axis, sdl.gaxis.value);
+                break;
+            case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+            case SDL_EVENT_GAMEPAD_BUTTON_UP:
+                ++gPads.buttonEvents;
+                if (tpw::gPortPadButton != nullptr) tpw::gPortPadButton(sdl.gbutton.button, sdl.gbutton.down);
+                break;
+#endif
 #if defined(TPW_PORT_FIX) && SDL_VERSION_ATLEAST(3, 4, 0)
             // TPW_PORT_FIX freecam pinch | Mac: (none) | Port: SDL 3.4's trackpad pinch goes to the Free camera's hook (zoom in orbit, a push in fly) | Why: SPEC's pinch; older SDLs have no pinch event, so the case is left out there
             case SDL_EVENT_PINCH_UPDATE:
@@ -469,6 +574,7 @@ void UGamework::Run() {
             case SDL_EVENT_WINDOW_FOCUS_LOST:
 #ifdef TPW_PORT_FIX
                 EndFreeDrag();   // freecam
+                if (tpw::gPortPadGone != nullptr) tpw::gPortPadGone();   // gamepad
 #endif
                 HandleActivateWindow(tpw::MainWindow(), false);
                 break;
@@ -663,6 +769,12 @@ void UGamework::Run() {
             const int32_t steps = static_cast<int32_t>(wheel.y);
             if (steps != 0) HandleMouseWheel(event, steps);
         }
+#ifdef TPW_PORT_FIX
+        // The scripted gamepad (--pad, gamepad): a virtual pad, whose events come through the queue above next pass.
+        for (const tpw::Config::ScriptedPad& pad : tpw::config().pads) {
+            if (pad.pass == gFrames + 1) ScriptedPadStep(pad, gFrames + 1);
+        }
+#endif
         // The scripted camera drags (--cam-drag): the button, the moves and the release as the real ones above go.
         for (const tpw::Config::ScriptedCamDrag& drag : tpw::config().camDrags) {
             const int32_t step = gFrames + 1 - drag.pass;

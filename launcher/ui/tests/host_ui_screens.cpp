@@ -2956,9 +2956,16 @@ void CheckFreeCameraSwitch(SDL_Renderer* renderer) {
     CheckEq(b.Setting(kFreeSwipeKey), "zoom", "free camera: Two-finger swipe's second choice keeps zoom");
     clickAt(ui, swipe.x + swipe.w * 0.25f, swipe.CentreY());
     CheckEq(b.Setting(kFreeSwipeKey), "move", "free camera: and its first move");
+    // Gamepad (kFreeGamepadKey, TPW_PORT_FIX gamepad): on with nothing kept, a click keeps "0", a second "1".
+    Check(ui.FreeGamepadRect().w > 0 && ui.FreeGamepadRect().y > swipe.y, "free camera: its Gamepad switch shows below");
+    CheckEq(b.Setting(kFreeGamepadKey), "", "free camera: Gamepad keeps nothing until the player chooses");
+    clickAt(ui, ui.FreeGamepadRect().CentreX(), ui.FreeGamepadRect().CentreY());
+    CheckEq(b.Setting(kFreeGamepadKey), "0", "free camera: Gamepad is on by default, a click turns it off");
+    clickAt(ui, ui.FreeGamepadRect().CentreX(), ui.FreeGamepadRect().CentreY());
+    CheckEq(b.Setting(kFreeGamepadKey), "1", "free camera: a second click on again");
     click(ui);
     CheckEq(b.Setting(kFreeCameraKey), "0", "free camera: a second click turns it off");
-    Check(ui.FreeSwipeRect().w == 0, "free camera: off again, its settings are hidden");
+    Check(ui.FreeSwipeRect().w == 0 && ui.FreeGamepadRect().w == 0, "free camera: off again, its settings are hidden");
     b.settings[kFreeCameraKey] = "1";
     LauncherUi again(renderer, b);
     again.ShowSettings(true);
