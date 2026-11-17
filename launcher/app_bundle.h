@@ -46,8 +46,10 @@ bool RunFromAppBundle(int argc, char** argv, const std::string& dataFolder, std:
 // The note RunFromAppBundle's execv left for the run that followed, once; empty when there was none.
 std::string TakeBundleNote();
 
-// The folder holding the bare program (SDL_GetBasePath's folder, with its trailing separator): for a program inside a
-// bundle, the folder that holds the .app, where the install script's files are (launcher/ui/updater.h FindInstall).
+// The folder holding the bare program, with its trailing separator (game_app.h ProgramFolderOf: on macOS the program's
+// own path with links resolved, else SDL_GetBasePath's folder): for a program inside a bundle, the folder that holds the
+// .app, and for the installer's application, whose program is a link, build/, where the install script's files are
+// (launcher/ui/updater.h FindInstall).
 std::string ProgramFolder();
 
 #if defined(__APPLE__)

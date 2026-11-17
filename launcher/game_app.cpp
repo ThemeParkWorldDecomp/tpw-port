@@ -44,6 +44,23 @@ bool AppRunsProgram(const std::string& app, const std::string& program) {
     return fs::equivalent(contents / "MacOS" / named, program, ec) && !ec;   // links followed: a missing end is false
 }
 
+std::string ProgramFolderOf(const std::string& base, const std::string& program) {
+    std::string folder = base;
+    const size_t last = program.rfind('/');
+    if (last != std::string::npos) folder = program.substr(0, last + 1);
+    // inside a bundle: Contents/MacOS/ for the program, Contents/Resources/ for SDL; the .app's own folder
+    for (const char* inside : {"/Contents/Resources/", "/Contents/MacOS/"}) {
+        const size_t at = folder.rfind(inside);
+        if (at == std::string::npos || at + std::strlen(inside) != folder.size()) continue;
+        const std::string app = folder.substr(0, at);
+        if (app.size() < 4 || app.compare(app.size() - 4, 4, ".app") != 0) continue;
+        const size_t slash = app.rfind('/');
+        if (slash != std::string::npos) folder = app.substr(0, slash + 1);
+        break;
+    }
+    return folder;
+}
+
 std::string GamePlist(bool us, const std::string& launcherPlist) {
     std::string identifier = PlistString(launcherPlist, "CFBundleIdentifier");
     std::string version = PlistString(launcherPlist, "CFBundleShortVersionString");

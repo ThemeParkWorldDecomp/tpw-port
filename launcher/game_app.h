@@ -61,6 +61,13 @@ std::string PlistString(const std::string& plist, const char* key);
 // CFBundleExecutable>, links followed, is that very file (a symbolic link to it, a hard link of it, or it). The
 // installer's application in /Applications has a link to build/tpw_launcher as its program (app_bundle.h).
 bool AppRunsProgram(const std::string& app, const std::string& program);
+// The folder the install script's files are in (launcher/ui/updater.h FindInstall), with its trailing separator, for
+// app_bundle.h ProgramFolder: the folder of `program` (the program's own path with links resolved; empty when unknown,
+// and on Windows), else SDL's `base` (SDL_GetBasePath); for a program inside a bundle, the folder that holds the .app.
+// The program comes first because SDL answers from the application macOS opened, and the installer's application in
+// /Applications runs build/tpw_launcher through a link: SDL's answer there is /Applications/, where no install is, so
+// the window's Update opened the release page instead of updating (slappyhead, 2026-11-10).
+std::string ProgramFolderOf(const std::string& base, const std::string& program);
 // The game bundle's Info.plist, from the launcher's own (its program, identifier and version): the game's name, the
 // launcher's identifier with .stp or .tpw, the icon file "icon" (icon.icns in Contents/Resources).
 std::string GamePlist(bool us, const std::string& launcherPlist);

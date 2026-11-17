@@ -22,9 +22,10 @@
 #include <unistd.h>
 #endif
 
+#include "game_app.h"   // ProgramFolderOf, on every system
+
 #if defined(__APPLE__) || defined(_WIN32)
 #include "app_icon.h"
-#include "game_app.h"
 #include "path_text.h"
 
 extern "C" void* objc_autoreleasePoolPush(void);
@@ -315,20 +316,11 @@ std::string TakeBundleNote() {
 
 std::string ProgramFolder() {
     const char* base = SDL_GetBasePath();
-    std::string folder = base != nullptr ? base : "";
 #if defined(__APPLE__)
-    // inside a bundle SDL answers Contents/Resources/ (or, were it asked for, Contents/MacOS/): the .app's own folder
-    for (const char* inside : {"/Contents/Resources/", "/Contents/MacOS/"}) {
-        const size_t at = folder.rfind(inside);
-        if (at == std::string::npos || at + std::strlen(inside) != folder.size()) continue;
-        const std::string app = folder.substr(0, at);
-        if (app.size() < 4 || app.compare(app.size() - 4, 4, ".app") != 0) continue;
-        const size_t slash = app.rfind('/');
-        if (slash != std::string::npos) folder = app.substr(0, slash + 1);
-        break;
-    }
+    return ProgramFolderOf(base != nullptr ? base : "", ExecutablePath());   // game_app.h: the program, links resolved
+#else
+    return ProgramFolderOf(base != nullptr ? base : "", "");
 #endif
-    return folder;
 }
 
 }  // namespace tpw::launcher

@@ -264,6 +264,26 @@ void LinkedApp() {
     fs::remove_all(root, ec);
 }
 
+// The folder the update looks for the install script's files in (app_bundle.h ProgramFolder): the program's own, links
+// resolved, before SDL's, which names the application macOS opened (slappyhead, 2026-11-10: the installer's application
+// in /Applications made Update open the release page).
+void ProgramFolders() {
+    const std::string dir = "/Users/x/Library/Application Support/STP-TPW Launcher/";
+    const std::string build = dir + "build/";
+    Check(ProgramFolderOf("/Applications/STP:TPW Launcher.app/Contents/Resources/", build + "tpw_launcher") == build,
+          "the installer's application: its program's link resolved to build/tpw_launcher gives build/, not /Applications/");
+    Check(ProgramFolderOf(build + "STP:TPW Launcher.app/Contents/Resources/", build + "STP:TPW Launcher.app/Contents/MacOS/tpw_launcher") == build,
+          "the bundle beside the program (the themepark command): the folder holding the .app");
+    Check(ProgramFolderOf(build, build + "tpw_launcher") == build, "the bare program: its own folder");
+    Check(ProgramFolderOf(build + "STP:TPW Launcher.app/Contents/Resources/", "") == build,
+          "no program path: SDL's answer, inside a bundle the folder holding the .app");
+    Check(ProgramFolderOf(build, "") == build, "no program path, no bundle: SDL's answer as it is");
+    Check(ProgramFolderOf("C:\\Games\\build\\", "") == "C:\\Games\\build\\", "Windows: SDL's answer as it is");
+    Check(ProgramFolderOf("/x/Contents/Resources/", "") == "/x/Contents/Resources/", "a Contents folder outside a .app is not a bundle");
+    Check(ProgramFolderOf("/Applications/STP:TPW Launcher.app/Contents/Resources/", build + "STP:TPW Launcher.app/Contents/MacOS/other") == build,
+          "the program wins over SDL even when both are bundles");
+}
+
 void WindowsNames() {
     Check(GameExeName(true) == "Sim Theme Park.exe" && GameExeName(false) == "Theme Park World.exe", "the programs' names");
     Check(GameAppId(true) == "org.tpw-port.launcher.stp" && GameAppId(false) == "org.tpw-port.launcher.tpw",
@@ -395,6 +415,7 @@ int main() {
     Resample();
     Icns();
     LinkedApp();
+    ProgramFolders();
     WindowsNames();
     CommandLine();
     Version();
