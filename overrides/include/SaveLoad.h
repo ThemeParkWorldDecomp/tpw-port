@@ -161,6 +161,11 @@ bool PortIsEarlySave(const uint8_t* modules, uint32_t size);
 // Subscribes every live thing of the world to the message types its constructor or Init subscribed it to.
 class CMessageCentre;
 void PortSubscribeLoadedThings(CMessageCentre& centre);
+namespace tpw {
+// The research projects a park gets on loading for the rides it did not have when it began (TPW_PORT_FIX newrides,
+// src/game/save/SaveLoad.cpp; CSaveLoad::PostLoadOperations calls it). Here so that tests/host_new_rides_research.cpp reaches it.
+void AddResearchForNewRides();
+}  // namespace tpw
 
 // TPW_PORT_FIX heldpark gPortMissingRides | Mac: a park that needs a ride the game has not got fails to load and nothing says which; as a game starts, the new park the level began with is played instead and leaving it autosaves over the player's park | Port: Load keeps the rides the park lacked; the park is held: the player is told which rides in the game's error dialog, nothing is saved and the game goes back to the menu | Why: a park built with the Gold rides or a mod's rides (the PlayStation rides) on was lost the first time the game started with them off
 // The rides the last park Load refused needed and the ride database has not got (the bits of the park's ride record that

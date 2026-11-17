@@ -781,6 +781,30 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   elseif(TPW_PORT_FIX)
     add_test(NAME replay_missing_ride COMMAND tpw_host_replay_missing_ride)
   endif()
+  # The research projects a park gets on loading for the rides it did not have when it began (the port's fix newrides,
+  # tests/host_new_rides_research.cpp): the real tpw::AddResearchForNewRides, the projects' setup, NextProject and the ride
+  # database's walk on a made-up lab; the world, the lab and the object controls being the test's stand-ins. Made only with
+  # the port's fixes: the original sets a park's projects up once, when it starts.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_new_rides_research ${TPW_DECOMP_DIR}/tests/host_new_rides_research.cpp
+      ${TPW_DECOMP_DIR}/src/game/save/SaveLoad.cpp ${TPW_DECOMP_DIR}/src/game/buildings/ResearchLab.cpp
+      ${TPW_DECOMP_DIR}/src/game/rides/RideDB.cpp)
+    target_include_directories(tpw_host_new_rides_research PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    tpw_slice(TARGET tpw_host_new_rides_research NAME new_rides_research KEEP
+      __ZN3tpw22AddResearchForNewRidesEv   # tpw::AddResearchForNewRides()
+      __ZN16CResearchProject12SetupProjectEPK8RideInfo   # CResearchProject::SetupProject(RideInfo const*)
+      __ZN16CResearchProject16SetupStatUpgradeEPK8RideInfo   # CResearchProject::SetupStatUpgrade(RideInfo const*)
+      __ZNK16CResearchProject18IsProjectCompletedEv   # CResearchProject::IsProjectCompleted() const
+      __ZN12CResearchLab11NextProjectE11ResearchCat   # CResearchLab::NextProject(ResearchCat)
+      __ZN13CRideDatabase12GetFirstRideEv   # CRideDatabase::GetFirstRide()
+      __ZN13CRideDatabase11GetNextRideEv   # CRideDatabase::GetNextRide()
+      __ZN13CRideDatabase11GetRideInfoE12tag_IDX_TYPEI25IDXTYPEUniqueNameObjectIdtE)   # CRideDatabase::GetRideInfo(tag_IDX_TYPE<...>)
+    if(tpw_platform_tests_skipped)
+      set_target_properties(tpw_host_new_rides_research PROPERTIES EXCLUDE_FROM_ALL ON)
+    else()
+      add_test(NAME new_rides_research COMMAND tpw_host_new_rides_research)
+    endif()
+  endif()
   # The options panel's Screen resolution slider in the launcher (the port's fix resslider): the real DoScroll,
   # CPlayerSettings::SetResolution and PortApplyGameSize, the windows and the clock being the test's stand-ins. Made only with
   # the port's fixes: the original has no such choice of sizes.

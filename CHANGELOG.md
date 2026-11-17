@@ -25,6 +25,7 @@
 - Fixed the Depth Charge flume in the TPI Worlds and Rides mod showing its lift belt on the flat and downhill track and water on the climbs
 - Fixed the TPI Worlds and Rides mod's worlds missing Theme Park Inc's scenery round the park (the waterfall, the water wheel, the ponds' water, the ticket booths): a new park has it, and a park saved before gets it when loaded
 - Fixed the TPI Worlds and Rides mod's special rides wearing out: like in Theme Park Inc they never wear, and one worn in a park saved before gets its life back when the park is loaded
+- Gold rides switched on after a park began now get their research when the park loads, so their upgrades can be researched
 
 ### Changes
 
