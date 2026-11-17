@@ -20,6 +20,12 @@
 // again and the cell takes the level's attribute and is reset (mode 0x1e), keeping its saved flag 0x40
 // (TpiRepairedFlags), with its track cell when that belongs to nothing (mode 7). A cell something is built on stays as
 // it is, and a second load changes nothing.
+// A hoarding post (track type 0x19) belongs to nothing too, and 0.5.5 reset the posts of a fence that crossed a walkway
+// with the rest (a player's Arabian Nights park: the old east fence over the tunnel), leaving a hole the next land bought walked to
+// and never left (LLCC_BuildHoardingDB), and block cells naming a post that was gone. The walkway repair now keeps posts
+// (TpiWalkwayTrackToReset), and on loading, each post a park saved after such a reset (its footbridge cell's track
+// cell parentless and no post, its three block cells still naming it) is a post again, linked to its neighbours
+// (RepairTpiLostHoardingPosts); a second load changes nothing.
 // The same mod's repair of the shops of parks saved before converter 15: a park keeps each object type's control
 // (CControlManager, made once from the record when the type is first seen), so its shops keep the RipOffOK converter 14
 // gave them (0 where the shops folder named none) and visitors still walk away from their prices; on loading, a shop
@@ -54,9 +60,10 @@
 #pragma once
 
 
-// TPW_PORT_FIX mods TpiSaveRepair | Mac: no such header; Theme Park World has no converted worlds | Port: which map and track cells of a park saved before converter 14 RepairTpiHiddenCells resets as land on loading in the mod's worlds (TPW_MOD_HOOK tpi_worlds), which shop controls and placed shops of a park saved before converter 15 RepairTpiShops repairs, which walkway cells of a park saved before converter 16 RepairTpiWalkways makes footbridge cells, which controls, research projects and placed objects of a park saved before converter 14 RepairTpiPlacedTypes and RepairTpiResearch repair, and which placed rides' scripts RepairTpiRideScripts starts | Why: tpw-mods tpi-worlds; parks saved with 0.5.1 kept Land of Invention's walkable bridges hidden, so no path could cross them, parks saved before 0.5.3 kept shop prices visitors walked away from and an unchoosable photo booth, parks saved before 0.5.4 kept gaps in the paths under the bridges' decks that the decks hid, and quads that fought the decks, parks started before converter 14 never showed Land of Invention's staff room and turned their placed security cameras into staff room buildings, and Golden Ticket rides placed before 0.5.2 kept waiting on SPECIAL, their parts hidden and no riders
+// TPW_PORT_FIX mods TpiSaveRepair | Mac: no such header; Theme Park World has no converted worlds | Port: which map and track cells of a park saved before converter 14 RepairTpiHiddenCells resets as land on loading in the mod's worlds (TPW_MOD_HOOK tpi_worlds), which shop controls and placed shops of a park saved before converter 15 RepairTpiShops repairs, which walkway cells of a park saved before converter 16 RepairTpiWalkways makes footbridge cells, which hoarding posts on them it keeps and which lost ones RepairTpiLostHoardingPosts restores, which controls, research projects and placed objects of a park saved before converter 14 RepairTpiPlacedTypes and RepairTpiResearch repair, and which placed rides' scripts RepairTpiRideScripts starts | Why: tpw-mods tpi-worlds; parks saved with 0.5.1 kept Land of Invention's walkable bridges hidden, so no path could cross them, parks saved before 0.5.3 kept shop prices visitors walked away from and an unchoosable photo booth, parks saved before 0.5.4 kept gaps in the paths under the bridges' decks that the decks hid, and quads that fought the decks, parks saved with 0.5.5 lost the fence's posts over the walkways, so buying land froze the game, parks started before converter 14 never showed Land of Invention's staff room and turned their placed security cameras into staff room buildings, and Golden Ticket rides placed before 0.5.2 kept waiting on SPECIAL, their parts hidden and no riders
 
 #include <cstdint>
+#include <vector>
 
 #include "TpiRideScript.h"
 
@@ -96,6 +103,159 @@ inline bool TpiStaleHiddenTrackCell(int32_t mode, uint16_t parent, bool shown) {
 // footbridge (0x1e) and anything built there are kept.
 inline bool TpiWalkwayToFootbridge(int32_t mode, uint8_t level, uint16_t parent, bool levelHides) {
     return levelHides && level == 0x80 && parent == 0 && (mode == 0 || mode == 1 || mode == 2 || mode == 5 || mode == 7);
+}
+
+// Whether RepairTpiWalkways resets the track cell of a walkway cell it makes a footbridge: one that belongs to nothing
+// (parent 0) and is not the hidden quad's mode 7 already, as before, but never a hoarding post (type 0x19). A post has
+// parent 0 too, and a reset post (mode 7, no hoarding links) left a hole in the park's fence where it crossed a
+// tunnel's or bridge's walkway: the next land bought walked the fence (LLCC_BuildHoardingDB) to the hole and stood
+// there forever (a player's Arabian Nights park on 0.5.5, the old east fence over the tunnel at (65,65)), and its three block
+// cells (type 0xc) kept naming it, which the context help read as a track cell (a player's Polar Zone park, (49,41)).
+inline bool TpiWalkwayTrackToReset(int32_t type, uint16_t parent) { return parent == 0 && type != 7 && type != 0x19; }
+
+// One track cell as RepairTpiLostHoardingPosts sees it: its mode, parent, hoarding links (mHoardingNeighbours, the
+// bits 1 up, 4 right, 0x10 down, 0x40 left), heading (mDirection), flags, and whether its map cell is a footbridge
+// (mode 0x1e). The grid is 128 x 128, cell x + (y << 7), id 1 + x + (y << 7), as the world's.
+struct TpiHoardingCell {
+    int32_t type;
+    uint16_t parent;
+    uint8_t hoarding;
+    uint8_t direction;
+    uint16_t flags;
+    int16_t overlap;
+    bool footbridge;
+};
+
+constexpr int32_t kTpiHoardingGrid = 128;
+
+// The opposite of one of the four headings (OPPOSITE in the cell system).
+inline uint8_t TpiOppositeHeading(uint8_t heading) {
+    switch (heading) {
+        case 1: return 0x10;
+        case 4: return 0x40;
+        case 0x10: return 1;
+        case 0x40: return 4;
+        default: return 0;
+    }
+}
+
+// The cell two cells away along a heading (the hoarding's step), or -1 outside the `width` x `height` level.
+inline int32_t TpiHoardingStep(int32_t index, uint8_t heading, int32_t width, int32_t height) {
+    int32_t x = index & 0x7f, y = index >> 7;
+    switch (heading) {
+        case 1: y -= 2; break;
+        case 4: x += 2; break;
+        case 0x10: y += 2; break;
+        case 0x40: x -= 2; break;
+        default: return -1;
+    }
+    if (x < 0 || y < 0 || x >= width || y >= height) return -1;
+    return x + (y << 7);
+}
+
+// A hoarding post a park saved after a 0.5.5 load reset it (TpiWalkwayTrackToReset): its map cell is a footbridge, its
+// track cell belongs to nothing and is no post, and the three cells of its block (+x, +y, +x +y), which
+// LLCC_BuildHoardingDB gives every post it lays (type 0xc, parent the post's id), still name it. A reset keeps them
+// (their parent is not 0), and nothing else leaves a parentless cell with such a block.
+inline bool TpiLostHoardingPost(const TpiHoardingCell* cells, int32_t index, int32_t width, int32_t height) {
+    const int32_t x = index & 0x7f, y = index >> 7;
+    if (x + 1 >= width || y + 1 >= height) return false;
+    const TpiHoardingCell& cell = cells[index];
+    if (!cell.footbridge || cell.parent != 0 || cell.type == 0x19) return false;
+    const uint16_t id = static_cast<uint16_t>(index + 1);
+    const int32_t block[3] = {index + 1, index + kTpiHoardingGrid, index + kTpiHoardingGrid + 1};
+    for (int32_t other : block)
+        if (cells[other].type != 0xc || cells[other].parent != id) return false;
+    return true;
+}
+
+// The overlap counter a post of these links has, as the cell system's walks set it (TrackCellShape): 1 for a corner (two
+// links at a right angle) or a crossroad (more than two), else 0.
+inline int16_t TpiPostOverlap(uint8_t links) {
+    const uint8_t hv = links & 0x55;
+    int32_t count = 0;
+    for (uint8_t bit = 1; bit != 0 && bit <= 0x40; bit = static_cast<uint8_t>(bit << 2))
+        if ((hv & bit) != 0) ++count;
+    if (count > 2) return 1;
+    return (count == 2 && hv != 0x11 && hv != 0x44) ? 1 : 0;
+}
+
+// Restores every lost post of the grid (TpiLostHoardingPosts) in place and answers how many: type 0x19 again; linked
+// (mHoardingNeighbours) to each post two cells away that is linked back to it, or that is lost too; its heading the link
+// that leads on from the post whose heading points at it (the fence's walk goes one way round), else its first link; its
+// flags the linked post's with the bridge flag (Modify 0x85: a post on freeform ground, as a footbridge is, has flag 1
+// alone of 0xf); its overlap counter that of its shape (TpiPostOverlap). A lost cell with no link stays as it is.
+// `cells` holds the whole 128 x 128 grid; `restored`, when given, gets each restored cell's index.
+inline int32_t TpiRestoreLostHoardingPosts(TpiHoardingCell* cells, int32_t width, int32_t height, std::vector<int32_t>* restored) {
+    const uint8_t headings[4] = {1, 4, 0x10, 0x40};
+    const int32_t total = kTpiHoardingGrid * kTpiHoardingGrid;
+    std::vector<bool> lost(total, false), headed(total, false);
+    std::vector<uint8_t> links(total, 0);
+    std::vector<uint16_t> flags(total, 0);
+    for (int32_t index = 0; index < total; ++index)
+        if ((index & 0x7f) < width && (index >> 7) < height) lost[index] = TpiLostHoardingPost(cells, index, width, height);
+    for (int32_t index = 0; index < total; ++index) {
+        if (!lost[index]) continue;
+        uint8_t mask = 0;
+        uint16_t from = 0;
+        bool haveFlags = false;
+        for (uint8_t heading : headings) {
+            const int32_t next = TpiHoardingStep(index, heading, width, height);
+            if (next < 0) continue;
+            const TpiHoardingCell& n = cells[next];
+            if (lost[next] || (n.type == 0x19 && (n.hoarding & TpiOppositeHeading(heading)) != 0)) {
+                mask = static_cast<uint8_t>(mask | heading);
+                if (!lost[next] && !haveFlags) {
+                    from = n.flags;
+                    haveFlags = true;
+                }
+            }
+        }
+        links[index] = mask;
+        flags[index] = static_cast<uint16_t>((from & ~0xfu) | 1u);
+    }
+    // The headings: a post whose neighbour's heading points at it leads on along its other link. A run of lost posts
+    // takes its headings one after another from the post before it.
+    for (bool changed = true; changed;) {
+        changed = false;
+        for (int32_t index = 0; index < total; ++index) {
+            if (!lost[index] || links[index] == 0 || headed[index]) continue;
+            for (uint8_t heading : headings) {
+                if ((links[index] & heading) == 0) continue;
+                const int32_t next = TpiHoardingStep(index, heading, width, height);
+                if (next < 0) continue;
+                const bool known = !lost[next] || headed[next];
+                if (!known) continue;
+                if (cells[next].direction != TpiOppositeHeading(heading)) continue;
+                const uint8_t rest = static_cast<uint8_t>(links[index] & ~heading);
+                uint8_t mine = 0;
+                if ((rest & TpiOppositeHeading(heading)) != 0) mine = TpiOppositeHeading(heading);
+                for (uint8_t h : headings)
+                    if (mine == 0 && (rest & h) != 0) mine = h;
+                cells[index].direction = mine;
+                headed[index] = true;
+                changed = true;
+                break;
+            }
+        }
+    }
+    int32_t count = 0;
+    for (int32_t index = 0; index < total; ++index) {
+        if (!lost[index] || links[index] == 0) continue;
+        TpiHoardingCell& cell = cells[index];
+        if (!headed[index]) {
+            cell.direction = 0;
+            for (uint8_t h : headings)
+                if (cell.direction == 0 && (links[index] & h) != 0) cell.direction = h;
+        }
+        cell.type = 0x19;
+        cell.hoarding = links[index];
+        cell.flags = flags[index];
+        cell.overlap = TpiPostOverlap(links[index]);
+        if (restored != nullptr) restored->push_back(index);
+        ++count;
+    }
+    return count;
 }
 
 // A control's RipOffOK after loading (`saved`, from the park file), for an object type with the record's RipOffOK

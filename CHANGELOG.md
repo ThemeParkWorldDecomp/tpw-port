@@ -2,6 +2,10 @@
 
 ## 0.5.6 (not released yet)
 
+### Bug Fixes
+
+- Fixed the game freezing when land was bought in a TPI Worlds and Rides mod park whose fence crosses a bridge or tunnel, such as the land by the Arabian Nights bridge: 0.5.5 broke the fence where it crosses them when the park was loaded, and parks saved since then get the fence back when they are loaded
+
 ## 0.5.5 (2026-11-14)
 
 ### New Features

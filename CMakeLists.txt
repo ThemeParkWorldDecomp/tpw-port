@@ -668,6 +668,15 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_tpi_save_repair PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_save_repair COMMAND tpw_host_tpi_save_repair)
   endif()
+  # The same mod's repair of a park's fence over the walkways (TPW_MOD_HOOK tpi_worlds, include/TpiSaveRepair.h): the
+  # walkway repair keeps hoarding posts and a load step puts back the ones 0.5.5 reset, on a made-up fence crossing a
+  # corridor of footbridge cells, with a capped model of LLCC_BuildHoardingDB's walk, without game data. The original has
+  # no such mod, so it is made only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_tpi_hoarding ${TPW_DECOMP_DIR}/tests/host_tpi_hoarding.cpp)
+    target_include_directories(tpw_host_tpi_hoarding PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_hoarding COMMAND tpw_host_tpi_hoarding)
+  endif()
   # The TPI Worlds and Rides mod's soft edge of the park's land (TPW_MOD_HOOK tpi_worlds, include/TpiParkEdge.h): which
   # corners of a height field cell are darkened, each from the cell under its grid point, on made-up ownership maps,
   # without game data. The original has no such mod, so it is made only with the port's fixes.

@@ -855,7 +855,7 @@ void RepairTpiHiddenCells() {
 }  // namespace
 
 namespace {
-// TPW_PORT_FIX mods RepairTpiWalkways | Mac: no such pass | Port: TPW_MOD_HOOK tpi_worlds (include/TpiSaveRepair.h): in one of the mod's worlds, the level's attribute map is read again (LoadLevelAttributeMap, into the cells' attribute bytes, which are then put back as saved), and each map cell whose level attribute is 0x80 alone over a quad the level hides (gHeightfieldCopy), a bridge's walkway since converter 16 or a tunnel's since 17, that belongs to nothing and holds land, a path or a hidden quad's mode 2, 5 or 7, becomes a footbridge cell as in a new park: a path is deleted first (CMapCell::Delete, its links cut both ways), the quad is the level's again (SetHeightfieldTexture's copy tile 0x37), the cell takes the level's attribute and is reset (CMapCell::Reset: mode 0x1e), keeping its saved flag 0x40, and its track cell, when it belongs to nothing, too (mode 7) | Why: see CSaveLoad::PostLoadOperations, below
+// TPW_PORT_FIX mods RepairTpiWalkways | Mac: no such pass | Port: TPW_MOD_HOOK tpi_worlds (include/TpiSaveRepair.h): in one of the mod's worlds, the level's attribute map is read again (LoadLevelAttributeMap, into the cells' attribute bytes, which are then put back as saved), and each map cell whose level attribute is 0x80 alone over a quad the level hides (gHeightfieldCopy), a bridge's walkway since converter 16 or a tunnel's since 17, that belongs to nothing and holds land, a path or a hidden quad's mode 2, 5 or 7, becomes a footbridge cell as in a new park: a path is deleted first (CMapCell::Delete, its links cut both ways), the quad is the level's again (SetHeightfieldTexture's copy tile 0x37), the cell takes the level's attribute and is reset (CMapCell::Reset: mode 0x1e), keeping its saved flag 0x40, and its track cell, when it belongs to nothing and is no hoarding post (a post, type 0x19, stays: tpw::TpiWalkwayTrackToReset), too (mode 7) | Why: see CSaveLoad::PostLoadOperations, below
 // Each cell it changes gets a new time stamp, as the cell system's own changes do; the count goes to the log.
 void RepairTpiWalkways() {
     if (!tpw::TpiWorldInPlay()) return;
@@ -889,7 +889,8 @@ void RepairTpiWalkways() {
         cell->Reset(true);
         cell->mFlags = tpw::TpiRepairedFlags(saved, cell->mFlags);
         CTrackCell* track = &gGameWorld->mTrackCells[index];
-        if (track->mParentID == 0 && static_cast<int32_t>(track->mType) != 7) track->Reset();
+        // A hoarding post on the walkway stays a post: reset, the fence's walk round the park (LLCC_BuildHoardingDB) would never end.
+        if (tpw::TpiWalkwayTrackToReset(static_cast<int32_t>(track->mType), track->mParentID)) track->Reset();
         ++made;
         tag_IDX_TYPE<IDXTYPEUniqueNameMapId, uint16_t> id;
         id.mIndex = static_cast<uint16_t>(index + 1u);
@@ -898,6 +899,45 @@ void RepairTpiWalkways() {
     if (made != 0)
         SamsUtilities::UDebug("port: tpi-worlds: %d bridge walkway cells (%d of them path) made footbridge cells", static_cast<int>(made),
                               static_cast<int>(paths));
+}
+}  // namespace
+
+namespace {
+// TPW_PORT_FIX mods RepairTpiLostHoardingPosts | Mac: no such pass | Port: TPW_MOD_HOOK tpi_worlds (include/TpiSaveRepair.h): in one of the mod's worlds, each hoarding post a park saved after a 0.5.5 load reset it (a footbridge cell's track cell with no parent that is no post, whose three block cells, type 0xc, still name it) is a post again (type 0x19): linked to the posts beside it that are linked back (mHoardingNeighbours), headed on along the fence, the bridge flag, the overlap counter of its shape, its tile set again (SetHFieldTile, the hoarding links read), and a new time stamp | Why: see CSaveLoad::PostLoadOperations, below
+// The count goes to the log.
+void RepairTpiLostHoardingPosts() {
+    if (!tpw::TpiWorldInPlay()) return;
+    const sHField* levelField = gHeightfieldCopy;
+    if (levelField == nullptr) return;
+    const int32_t width = static_cast<int32_t>(levelField->mF18[0]), height = static_cast<int32_t>(levelField->mF18[1]);
+    const int32_t side = tpw::kTpiHoardingGrid;
+    std::vector<tpw::TpiHoardingCell> cells(static_cast<size_t>(side * side));
+    for (int32_t index = 0; index < side * side; ++index) {
+        const CTrackCell& track = gGameWorld->mTrackCells[index];
+        cells[index] = {static_cast<int32_t>(track.mType), track.mParentID, track.mHoardingNeighbours, track.mDirection, track.mFlags,
+                        track.mOverlapCounter, static_cast<int32_t>(gGameWorld->mMapCells[index].mType) == 0x1e};
+    }
+    std::vector<int32_t> restored;
+    if (tpw::TpiRestoreLostHoardingPosts(cells.data(), width < side ? width : side, height < side ? height : side, &restored) == 0) return;
+    CMap* map = gGameWorld->GetMap();
+    const uint8_t hoardingLinks = gLLCC4818;
+    gLLCC4818 = 1;
+    for (int32_t index : restored) {
+        CTrackCell* track = &gGameWorld->mTrackCells[index];
+        const tpw::TpiHoardingCell& cell = cells[index];
+        track->mType = static_cast<CELL_MODES>(cell.type);
+        track->mNeighbours = 0;
+        track->mHoardingNeighbours = cell.hoarding;
+        track->mDirection = cell.direction;
+        track->mFlags = cell.flags;
+        track->mOverlapCounter = cell.overlap;
+        track->SetHFieldTile();
+        tag_IDX_TYPE<IDXTYPEUniqueNameMapId, uint16_t> id;
+        id.mIndex = static_cast<uint16_t>(index + 1);
+        map->SetTimeStamp(map->MakeNewTimeStamp(), id);
+    }
+    gLLCC4818 = hoardingLinks;
+    SamsUtilities::UDebug("port: tpi-worlds: %d hoarding posts lost over the walkways put back in the park's fence", static_cast<int>(restored.size()));
 }
 }  // namespace
 
@@ -1176,6 +1216,8 @@ void CSaveLoad::PostLoadOperations() {
     RepairTpiShops();
     // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park's cells are as it saved them) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, the bridges' walkway cells a park saved as land, path or a hidden quad's mode become footbridge cells as in a new park (RepairTpiWalkways, include/TpiSaveRepair.h); anything built there is kept | Why: the mod's converter 16 makes the walkways footbridge cells like Lost Kingdom's (mode 0x1e), since the deck hides a path built under it and parks were left with gaps no guest crosses (the maintainer's Land of Invention park on 0.5.3), but a park keeps each saved cell's attribute byte and mode; off, or an original world, a park loads as it was saved
     RepairTpiWalkways();
+    // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park's cells are as it saved them) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, after the walkways are footbridge cells, each hoarding post of the park's fence that a 0.5.5 load reset there (its block cells still naming it) is a post again, linked to its neighbours (RepairTpiLostHoardingPosts, include/TpiSaveRepair.h) | Why: 0.5.5's walkway repair reset the posts of a fence crossing a tunnel's or bridge's walkway, so the fence had a hole: buying land froze the game (LLCC_BuildHoardingDB walked to the hole and never left, a player's Arabian Nights park) and the context help crashed on the post's block cells (a player's Polar Zone park); off, or an original world, a park loads as it was saved
+    RepairTpiLostHoardingPosts();
     // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park keeps each ride's script as it saved it) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, each placed ride whose animation set has an O group and whose saved script has SPECIAL still 0 gets it, as a ride placed now starts with it (RepairTpiRideScripts, include/TpiSaveRepair.h) | Why: the mod's 0.5.2 sets SPECIAL only when a ride is placed (CObject::CreateRideScript), and a park keeps each script with its variables, so Golden Ticket rides placed before it (the maintainer's Diving Bell Drop in Polar Zone) still looped their O animation: crane and bell hidden, no riders, the queue stuck; off, or an original world, a park loads as it was saved
     RepairTpiRideScripts();
     // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a ride's object keeps the bumper ride id it saved) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, each placed ride whose saved bumper ride id has a kind outside Theme Park World's -1 to -14 gets the id BMP_Load rebuilt the ride under, the stand-in's kind -6 with its index (RepairTpiBumperIds, include/TpiBumperKind.h) | Why: before 0.5.2 the mod's The Scorpions was built from the 208 bytes past gRideTemplates and kept that word as its kind, so parks saved with it rebuilt the ride from far outside the table on loading; BMP_Load now rebuilds it as the bumper cars it is built as since 0.5.2, and its object must name it by the same id; off, or an original world, a park loads as it was saved
