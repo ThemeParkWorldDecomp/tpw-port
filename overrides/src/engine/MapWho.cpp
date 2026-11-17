@@ -29,11 +29,34 @@
 #include "tb_texturecache.h"
 #include "tpw_probe.h"
 // TPW_PORT_FIX freecam CMapWho::RenderWindow/CMapWho::Render | Mac: outside first person the ground is drawn by the overhead gamut, and fog is on only in first person | Port: while the Free camera looks low (gPortFreeLowView) the ground is drawn by DivideAndConquer with the fog flag, as in first person, but the fog space is moved out of reach (kPortFreeFogNear, kPortFreeFogFar) and DivideAndConquer tests the whole map; Render puts both flag words and the fog space back at its end, so GameSys's first-person fog XOR and first person's own fog are not disturbed | Why: the gamut covers only what a high camera sees, so a low view showed holes at the horizon, and first person's fog (230 to 250 at the longest View distance) left plain fog colour where the far park, the mountains and the land around it should be
-#include "TPCamera.h"   // gPortFreeLowView (freecam, CMapWho::RenderWindow and CMapWho::Render)
+#include "TPCamera.h"   // gPortFreeLowView (freecam, CMapWho::RenderWindow and CMapWho::Render), gPortDrawDistance (drawdist)
 #include "Wavelet.h"
 #include <cmath>
 #include <cstring>
 #include <new>
+
+// TPW_PORT_FIX drawdist CMapWho::Render | Mac: first person draws out to the View distance's distance (gei_Display.mFirstPersonViewDistance) with its fog space | Port: while first person draws with fog and the launcher's "Draw distance" is not Original (gPortDrawDistance), Render sets the view distance and fog space PortDrawSpaceFor gives (as far as two points of the map can be apart, PortDrawWorldReach, for Whole world) and puts the original's back at its end; the park view's own reach, which also reads mFirstPersonViewDistance (CGamut), is not changed | Why: first person showed plain fog colour 60 to 250 out, where the park goes on
+namespace {
+
+// drawdist: how far apart two points of the map can be: its diagonal, from the field's lowest point to its highest, and
+// one cell more, rounded up to a whole 100, never under 700 (the original's longest view distance) nor past the free
+// camera's fog (kPortFreeFogNear): Draw distance's Whole world reaches this far (CMapWho::Render).
+float PortDrawWorldReach(const sHField& field) {
+    const double width = static_cast<double>(field.mF18[0]) * field.mF08[2];
+    const double depth = static_cast<double>(field.mF18[1]) * field.mF08[3];
+    const double height = static_cast<double>(field.mF20[1]) - field.mF20[0];
+    const double ww = width * width;
+    const double dd = depth * depth;
+    const double hh = height * height;
+    const double sum = ww + dd + hh;
+    const double cell = std::fmax(field.mF08[2], field.mF08[3]);
+    const double farthest = std::sqrt(sum) + cell;
+    if (!std::isfinite(farthest) || farthest <= kPortDrawOriginalFarthest) return kPortDrawOriginalFarthest;
+    const double steps = std::ceil(farthest / 100.0);
+    return static_cast<float>(std::fmin(steps * 100.0, kPortFreeFogNear));
+}
+
+}  // namespace
 
 // tb_lightmanager_frame.cpp (engine library of SimTheme Park 2.04b3): the light manager's
 // per-frame lighting. The inventory files the range under tb_mapzoom.cpp (the construction and
@@ -312,6 +335,18 @@ void CMapWho::Render() {
         gei_Display.mFlags |= CDisplay::kEnableFog;
         gei_Display.SetFogSpace(kPortFreeFogNear, kPortFreeFogFar);
     }
+    // drawdist: first person's view distance and fog space at the launcher's Draw distance, put back at the end (the
+    // TPW_PORT_FIX drawdist comment above PortDrawWorldReach)
+    const float viewDistance = gei_Display.mFirstPersonViewDistance;
+    const bool drawFarther = gPortDrawDistance != kPortDrawOriginal && !fogAway &&
+                             (gei_Display.mFlags & CDisplay::kEnableFog) != 0 && gIsFirstPerson() != 0;
+    if (drawFarther) {
+        const float reach =
+            gei_HField != nullptr && gei_HField->mF00 != nullptr ? PortDrawWorldReach(*gei_HField->mF00) : kPortDrawOriginalFarthest;
+        const PortDrawSpace space = PortDrawSpaceFor(gPortDrawDistance, viewDistance, fogNear, fogFar, reach);
+        gei_Display.mFirstPersonViewDistance = space.viewDistance;
+        gei_Display.SetFogSpace(space.fogNear, space.fogFar);
+    }
     gei_Display.ResetWindow();
     const int16_t precision = FPU_SetSinglePrecision();
     if ((gei_Display.mFlags & 4) == 0) {
@@ -400,12 +435,14 @@ void CMapWho::Render() {
         FPU_RestorePrecision(precision);
     gei_Display.mFlags = displayFlags;
     gei_System.mFlags = systemFlags;   // so the clearing above, and every flag the windows set, are undone
-    if (fogAway) gei_Display.SetFogSpace(fogNear, fogFar);
+    if (fogAway || drawFarther) gei_Display.SetFogSpace(fogNear, fogFar);
+    if (drawFarther) gei_Display.mFirstPersonViewDistance = viewDistance;
     return;   // 1 in the original
 failed:
     gei_Display.mFlags = displayFlags;
     gei_System.mFlags = systemFlags;
-    if (fogAway) gei_Display.SetFogSpace(fogNear, fogFar);
+    if (fogAway || drawFarther) gei_Display.SetFogSpace(fogNear, fogFar);
+    if (drawFarther) gei_Display.mFirstPersonViewDistance = viewDistance;
     gei_ErrorHandler.GetAltTabStatus();   // the original returns its answer
 }
 

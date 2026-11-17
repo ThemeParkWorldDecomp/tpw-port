@@ -2,6 +2,7 @@
 // Will_HandleCameraMessages in src/game/TPCamera.cpp).
 // The globals are in this file's part of the BSS (0x102b59f8..0x102b5c08); their names are invented.
 #pragma once
+#include <cmath>
 #include <cstdint>
 
 #include "tb_matrix.h"
@@ -79,7 +80,7 @@ extern float gCameraWideZoomMax;       // 0x102b5a04  300.0 once set
 // TPW_PORT_FIX farzoom gPortFarZoom | Mac: (none: the park view zooms out to 130) | Port: true when the launcher's "Zoom out further" is on: the park view zooms out to kPortFarZoomOut (HandleCamera, WheelZoom); false, the original's limit, by default | Why: a player can see more of the park at once; a display setting, as an opt-in that keeps the original's limit by default
 // False unless the launcher sets it, so a program that does not (the differential tests) keeps the original's limit.
 inline bool gPortFarZoom = false;
-inline constexpr float kPortFarZoomOut = 300.0f;   // the original's own wide limit (gCameraWideZoomMax)
+inline constexpr float kPortFarZoomOut = 800.0f;   // the largest parks whole on the screen (the original's own wide limit is 300)
 // TPW_PORT_FIX freecam gPortFreeCamera | Mac: (none: the tilt follows the zoom, the zoom stays within 70 and 130) | Port: true when the launcher's "Free camera" is on: the park view tilts freely, zooms from kPortFreeZoomIn to kPortFreeZoomOut and never goes below the ground, flies, and takes Q E Z X Page Up Page Down, middle and Option drags and a trackpad's swipes and pinches (include/PortFreeCamera.h, HandleCamera); false, the original camera, by default | Why: a modern camera for the park, as an opt-in that keeps the original's camera by default
 // False unless the launcher sets it, so a program that does not (the differential tests) keeps the original camera.
 inline bool gPortFreeCamera = false;
@@ -88,6 +89,36 @@ inline bool gPortFreeLowView = false;
 // The fog space while gPortFreeLowView: past the whole map seen from anywhere the free camera goes, so no vertex is fogged.
 inline constexpr float kPortFreeFogNear = 1.0e6f;
 inline constexpr float kPortFreeFogFar = 2.0e6f;
+// TPW_PORT_FIX drawdist gPortDrawDistance | Mac: first person (riding a ride, walking with the camcorder) draws out to the View distance's distance with its fog (200 to 700; the fog ends 60 to 250 out) | Port: the launcher's "Draw distance": kPortDrawOriginal, the original's; kPortDrawFarther (the launcher's default), the View distance's distance and fog space times kPortDrawFartherScale; kPortDrawWhole, the whole map, with the fog only at its far edge (PortDrawSpaceFor); CMapWho::Render sets them while first person draws and puts the original's back after | Why: first person showed plain fog colour 60 to 250 out, where the park goes on; drawing only, the park plays the same
+// kPortDrawOriginal unless the launcher sets it, so a program that does not (the differential tests) keeps the original's.
+inline constexpr int32_t kPortDrawOriginal = 0;
+inline constexpr int32_t kPortDrawFarther = 1;
+inline constexpr int32_t kPortDrawWhole = 2;
+inline int32_t gPortDrawDistance = kPortDrawOriginal;
+inline constexpr float kPortDrawFartherScale = 1.5f;
+inline constexpr float kPortDrawOriginalFarthest = 700.0f;   // the original's longest view distance (View distance Max)
+// What first person draws with at Draw distance `step`: from the View distance's view distance and fog space, and `reach`,
+// how far apart two points of the map can be (PortDrawWorldReach). Original keeps all three; Farther multiplies
+// them by kPortDrawFartherScale; Whole world reaches the whole map, with the fog ending at `reach` and starting where the
+// View distance's own starts in proportion. Nothing comes out nearer than the original's.
+struct PortDrawSpace {
+    float viewDistance;
+    float fogNear;
+    float fogFar;
+};
+inline PortDrawSpace PortDrawSpaceFor(int32_t step, float viewDistance, float fogNear, float fogFar, float reach) {
+    PortDrawSpace space{viewDistance, fogNear, fogFar};
+    if (step == kPortDrawFarther) {
+        space.viewDistance = viewDistance * kPortDrawFartherScale;
+        space.fogNear = fogNear * kPortDrawFartherScale;
+        space.fogFar = fogFar * kPortDrawFartherScale;
+    } else if (step == kPortDrawWhole && fogFar > 0.0f && reach > fogFar) {
+        space.viewDistance = std::fmax(viewDistance, 2.0f * reach);
+        space.fogNear = reach * (fogNear / fogFar);
+        space.fogFar = reach;
+    }
+    return space;
+}
 extern int8_t gCameraWalkOnce;         // 0x102b59f8  set once by the first-person block
 extern float gCameraF59FC;             // 0x102b59fc  0.0 once set; nothing else reads it
 // Initialised data (0x1029cc60..0x1029ccb8).

@@ -26,11 +26,11 @@ inline int32_t (*gPortFreeModifiers)() = nullptr;
 inline bool (*gPortFreeTableKey)(int32_t key, int32_t modifiers) = nullptr;
 
 // The limits. The tilt (gCameraPitch, the angle down from the horizon) goes from just above the horizon to straight down;
-// the zoom (gCameraF68, the distance from the target) from 25 to 300.
+// the zoom (gCameraF68, the distance from the target) from 25 to 500.
 inline constexpr float kPortFreePitchLow = 0.05f;      // about 3 degrees
 inline constexpr float kPortFreePitchHigh = 1.5533f;   // about 89 degrees
 inline constexpr float kPortFreeZoomIn = 25.0f;
-inline constexpr float kPortFreeZoomOut = 300.0f;
+inline constexpr float kPortFreeZoomOut = 500.0f;   // past it, a low view looks past the land's edge (sky under the horizon)
 // The eye stays this far above the height field under it. Not less: where the park's ground is a model and not the height
 // field (outside the entrance gate), a lower eye sits under that model and sees the sky through it (the live check's
 // pictures p2-low-hole and p2-low-fixed).

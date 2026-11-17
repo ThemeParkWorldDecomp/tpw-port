@@ -206,6 +206,7 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     freeGamepad_ = backend_.Setting(kFreeGamepadKey) != "0";
     for (const SamOption& option : SamOptions()) samChoices_.push_back(SamChoice(option, backend_.Setting(option.key)) + 1);
     samRects_.resize(SamOptions().size());
+    drawDistance_ = DrawDistanceSetting(backend_.Setting(kDrawDistanceKey));
     frameRate_ = FrameRateSetting(backend_.Setting(kFrameRateKey));
     pcSoundPicks_ = backend_.Setting(kPcSoundPicksKey) != "0";
     rideBadges_ = backend_.Setting(kRideBadgesKey) != "0";
@@ -1348,7 +1349,7 @@ void LauncherUi::DrawSettings(const Rect& w) {
                   4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + (kRideBadgesRow ? 11 : 10) * rowH +
                   (kFreeCameraRow ? (freeCamera_ ? 8 : 1) : 0) * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH +
-                  text_.LineHeight(style::kBodyBold) + 4 + static_cast<float>(SamOptions().size() + 1) * rowH +
+                  text_.LineHeight(style::kBodyBold) + 4 + static_cast<float>(SamOptions().size() + 1 + (kDrawDistanceRow ? 1 : 0)) * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH + (rendererRow_ ? rowH : 0.0f) +
                   (gameShown_ ? GameOptionsHeight(rowH) + text_.LineHeight(style::kSmall) + 6 : 0.0f);
     float ph = std::min(w.h - 2 * metric::kMargin, titleH + bodyH + 40);
@@ -1783,10 +1784,12 @@ void LauncherUi::DrawSettings(const Rect& w) {
                    colour::kInkSoft);
         y += text_.LineHeight(style::kSmall) + 6;
     }
+    drawDistanceRect_ = {};
+    size_t stripe = 0;   // the rows' alternating colours, the Draw distance row counted
     for (size_t i = 0; i < SamOptions().size(); ++i) {
         const SamOption& option = SamOptions()[i];
         Rect row{in.x, y, in.w, rowH - 6};
-        canvas_.FillRound(row, 10, i % 2 ? colour::kCream : colour::kYellowSoft.WithAlpha(120));
+        canvas_.FillRound(row, 10, stripe++ % 2 ? colour::kCream : colour::kYellowSoft.WithAlpha(120));
         std::vector<std::string> labels = {"Default"};
         labels.insert(labels.end(), option.shown.begin(), option.shown.end());
         const float segW = 80.0f * static_cast<float>(labels.size());
@@ -1803,10 +1806,30 @@ void LauncherUi::DrawSettings(const Rect& w) {
             if (!backend_.SaveSetting(option.key, value, err)) settingsMessage_ = "Cannot keep the setting: " + err;
         }
         y += rowH;
+        if (kDrawDistanceRow && i == 0) {   // Draw distance, right below View distance (launcher_ui.h kDrawDistanceKey)
+            Rect drawRow{in.x, y, in.w, rowH - 6};
+            canvas_.FillRound(drawRow, 10, stripe++ % 2 ? colour::kCream : colour::kYellowSoft.WithAlpha(120));
+            const std::vector<std::string> drawLabels = {"Original", "Farther", "Whole world"};
+            const float drawW = 3 * 120.0f;
+            float dy = drawRow.y + (drawRow.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+            text_.Draw(style::kBodyBold, drawRow.x + 12, dy,
+                       text_.Fit(style::kBodyBold, "Draw distance", drawRow.w - 12 - drawW - 24, false), colour::kInk);
+            text_.Draw(style::kSmall, drawRow.x + 12, dy + text_.LineHeight(style::kBodyBold),
+                       text_.Fit(style::kSmall, "How far rides and walks see", drawRow.w - 12 - drawW - 24,
+                                 false),
+                       colour::kInkSoft);
+            drawDistanceRect_ = {drawRow.Right() - 12 - drawW, drawRow.CentreY() - 18, drawW, 36};
+            if (ui_.Segmented("draw-distance", drawDistanceRect_, drawLabels, std::vector<bool>(3, true), drawDistance_)) {
+                std::string err;
+                if (!backend_.SaveSetting(kDrawDistanceKey, kDrawDistanceValues[drawDistance_], err))
+                    settingsMessage_ = "Cannot keep the setting: " + err;
+            }
+            y += rowH;
+        }
     }
     {   // the Frame rate limit (kFrameRateKey): kFrameRateLowest up to the monitor's refresh, which is Monitor (no limit)
         Rect row{in.x, y, in.w, rowH - 6};
-        canvas_.FillRound(row, 10, SamOptions().size() % 2 ? colour::kCream : colour::kYellowSoft.WithAlpha(120));
+        canvas_.FillRound(row, 10, stripe % 2 ? colour::kCream : colour::kYellowSoft.WithAlpha(120));
         if (frameRateTopStale_) {   // the monitor's refresh rate, read again only when the window or the mode changed
             frameRateTopStale_ = false;
             frameRateHighest_ = 60;

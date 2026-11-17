@@ -55,6 +55,24 @@ inline constexpr bool kFreeCameraRow = true;
 #else
 inline constexpr bool kFreeCameraRow = false;
 #endif
+// launcher.ini's key for the Settings box's "Draw distance" (TPW_PORT_FIX drawdist, include/TPCamera.h gPortDrawDistance),
+// how far first person (riding a ride, walking with the camcorder) draws: "original" (the original's, the
+// View distance's), absent or "farther" (the default, half as far again), "whole" (the whole map, fog only at its edge).
+inline constexpr const char* kDrawDistanceKey = "draw_distance";
+// Its choices, in the row's order, and the one it shows: 0 Original, 1 Farther (also when absent or unknown), 2 Whole world.
+inline constexpr const char* kDrawDistanceValues[3] = {"original", "farther", "whole"};
+inline constexpr int kDrawDistanceDefault = 1;
+inline int DrawDistanceSetting(const std::string& value) {
+    for (int i = 0; i < 3; ++i)
+        if (value == kDrawDistanceValues[i]) return i;
+    return kDrawDistanceDefault;
+}
+// Whether the Settings box has the Draw distance row: only with the port's fixes, as the setting itself is.
+#ifdef TPW_PORT_FIX
+inline constexpr bool kDrawDistanceRow = true;
+#else
+inline constexpr bool kDrawDistanceRow = false;
+#endif
 // The look sensitivity and the fly speed, kept as a multiplier from 0.25 to 4 ("1.25"), in the sliders' quarters (1 to
 // 16). Anything else is 1, four quarters.
 inline int FreeQuarters(const std::string& value) {
@@ -386,6 +404,10 @@ public:
     // and the choice it shows: 0 Default (the detail level's own), else 1 + the index of its choice.
     Rect SamOptionRect(size_t index) const { return settingsOpen_ ? samRects_[index] : Rect{}; }
     int SamOptionChoice(size_t index) const { return samChoices_[index]; }
+    // The Graphics section's Draw distance switch, right below View distance, in the last frame, in points (empty when the
+    // box is closed or has no such row), and the choice it shows (DrawDistanceSetting).
+    Rect DrawDistanceRect() const { return settingsOpen_ ? drawDistanceRect_ : Rect{}; }
+    int DrawDistanceChoice() const { return drawDistance_; }
     // The Graphics section's Frame rate limit slider in the last frame, in points (empty when the box is closed), its top
     // (the launcher monitor's refresh rate) and the limit it shows: 0 Monitor, else frames a second.
     Rect FrameRateRect() const { return settingsOpen_ ? frameRateRect_ : Rect{}; }
@@ -581,6 +603,7 @@ private:
     bool freeThroughGround_ = false;
     bool freeGamepad_ = true;
     int interfaceSize_ = 0;         // the Settings box's "Interface size": 0 100%, 1 85%, 2 70%
+    int drawDistance_ = kDrawDistanceDefault;   // the Settings box's "Draw distance" (DrawDistanceSetting)
     std::vector<int> samChoices_;   // the Graphics section: for each of SamOptions(), 0 the detail level's own, else 1 + its choice
     int frameRate_ = 0;             // the Settings box's "Frame rate limit": 0 Monitor, else frames a second (FrameRateSetting)
     int frameRateHighest_ = 60;     // the slider's top: the refresh rate of the launcher's monitor (60 when unknown)
@@ -651,6 +674,7 @@ private:
     std::vector<Rect> languageRows_;   // last frame's open list (LanguageListRow)
     std::vector<Rect> samRects_;   // last frame's (SamOptionRect), one for each of SamOptions()
     Rect frameRateRect_;       // last frame's (FrameRateRect)
+    Rect drawDistanceRect_;    // last frame's (DrawDistanceRect)
     Rect soundPanRect_;        // last frame's (SoundPanRect)
     Rect rideBadgesRect_;      // last frame's (RideBadgesRect)
     Rect severalKeysRect_;     // last frame's (SeveralKeysRect)

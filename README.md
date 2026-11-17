@@ -107,6 +107,7 @@ Settings:
 | Language | The edition's own | Text and advisor voice, from your discs' languages. |
 | Game options | The game's own | The game's Options panel (Config.tcf, gms.dat). Greyed while playing. |
 | Graphics | Default | Eight low/med/high.sam settings. Default follows Graphics quality. |
+| Draw distance (under Graphics) | Farther | How far rides and camcorder walks draw. Original is the original game's distance, Farther half as far again, Whole world the whole park and land with fog only at the edge. |
 | Frame rate limit | Monitor | 30 up to your refresh rate. |
 | Check for updates | On | See Updates. |
 | Online server | Empty | Automatic, or type an address. |
@@ -287,7 +288,7 @@ use `build\tpw_launcher.exe 2> log.txt`.
 - [tpw-decomp](https://github.com/ThemeParkWorldDecomp/tpw-decomp) submodule: the translated game, bugs included.
 - launcher/: the launcher. launcher/net/ is the only internet code.
 - platform/: Mac and Windows shims on SDL3 and OpenGL. platform/vulkan/: the Linux Vulkan renderer.
-- overrides/: 617 fixes, listed in [FIXES.md](FIXES.md).
+- overrides/: 621 fixes, listed in [FIXES.md](FIXES.md).
 - mods/: the [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) submodule, via TPW_MOD_HOOK. `-DTPW_MODS_DIR=<folder>` points elsewhere.
 
 ### The Windows build

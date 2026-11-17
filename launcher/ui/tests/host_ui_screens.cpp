@@ -1303,6 +1303,27 @@ std::vector<Shot> Shots() {
                          Screen::Home, {}});
     }
 
+    // The Graphics section's Draw distance row (launcher_ui.h kDrawDistanceKey), scrolled into view, at the window's start
+    // size and in the smallest window.
+    for (const auto& [name, w, h] : std::vector<std::tuple<std::string, float, float>>{
+             {"40-settings-draw-distance", metric::kStartWidth, metric::kStartHeight},
+             {"40-settings-draw-distance-smallest", metric::kMinWidth, metric::kMinHeight}}) {
+        const float high = h, wide = w;
+        shots.push_back({name, static_cast<int>(wide), static_cast<int>(high), PartialUsEur,
+                         [high, wide](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                             ui.ShowSettings(true);
+                             frames(1);
+                             ui.HandleEvent(MotionEvent(wide * 0.5f, high * 0.5f));
+                             for (int notch = 0; notch < 80 &&
+                                                 (ui.DrawDistanceRect().w == 0 || ui.DrawDistanceRect().Bottom() > high * 0.6f);
+                                  ++notch) {
+                                 ui.HandleEvent(WheelEvent(-1));
+                                 frames(1);
+                             }
+                         },
+                         Screen::Home, {}});
+    }
+
     // The Language section (launcher_ui.h LanguageKey) with the European edition's list open, on the five-language disc's
     // data: scrolled until the rows are in view, the list below its field.
     shots.push_back({"28-settings-language-open", metric::kStartWidth, metric::kStartHeight, FiveLanguages,
@@ -3326,6 +3347,64 @@ void CheckVisitorLooks(SDL_Renderer* renderer) {
     Check(again.SamOptionChoice(index) == 4, "visitor looks: a new window shows the kept choice");
 }
 
+// The Settings box's Draw distance row (launcher_ui.h kDrawDistanceKey; TPW_PORT_FIX drawdist): only with the port's fixes,
+// right below View distance, Farther (the first step above the original's) by default and when launcher.ini has nothing
+// or an unknown value, a click on a choice keeps "original", "farther" or "whole", and a new window shows the kept one.
+void CheckDrawDistance(SDL_Renderer* renderer) {
+    Check(DrawDistanceSetting("") == 1 && DrawDistanceSetting("farther") == 1 && DrawDistanceSetting("bogus") == 1 &&
+              DrawDistanceSetting("original") == 0 && DrawDistanceSetting("whole") == 2,
+          "draw distance: absent or unknown is Farther; original and whole read as themselves");
+    Check(kDrawDistanceDefault == 1, "draw distance: the default is the first step above Original");
+    CheckEq(SamOptions()[0].key, "sam_view_distance", "draw distance: View distance is the Graphics section's first row");
+    FakeBackend b;
+    const float width = metric::kMinWidth, height = metric::kMinHeight;
+    {
+        LauncherUi ui(renderer, b);
+        auto frames = [&](int n) {
+            for (int i = 0; i < n; ++i) ui.Frame(kDt, width, height, 1);
+        };
+        ui.ShowSettings(true);
+        frames(1);
+        Check(ui.DrawDistanceChoice() == 1, "draw distance: Farther by default");
+        if (!kDrawDistanceRow) {
+            Check(ui.DrawDistanceRect().w == 0, "draw distance: no row without the port's fixes");
+            return;
+        }
+        const auto inBox = [&](const Rect& r) { return r.y > metric::kMargin && r.Bottom() <= height - metric::kMargin; };
+        ui.HandleEvent(MotionEvent(width * 0.5f, height * 0.5f));
+        for (int notch = 0; notch < 60 && !inBox(ui.DrawDistanceRect()); ++notch) {
+            ui.HandleEvent(WheelEvent(-1));
+            frames(1);
+        }
+        const Rect row = ui.DrawDistanceRect();
+        Check(row.w > 0 && inBox(row), "draw distance: the row scrolls into the box");
+        const Rect view = ui.SamOptionRect(0), next = ui.SamOptionRect(1);
+        Check(view.Bottom() <= row.y && row.Bottom() <= next.y, "draw distance: the row sits between View distance and the next");
+        CheckEq(b.Setting(kDrawDistanceKey), "", "draw distance: nothing written until changed");
+        const auto click = [&](int choice) {
+            const float x = row.x + row.w * (static_cast<float>(choice) + 0.5f) / 3.0f, y = row.CentreY();
+            ui.HandleEvent(MotionEvent(x, y));
+            frames(1);
+            ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, x, y));
+            frames(1);
+            ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, x, y));
+            frames(1);
+        };
+        click(2);
+        CheckEq(b.Setting(kDrawDistanceKey), "whole", "draw distance: a click on Whole world keeps whole");
+        click(0);
+        CheckEq(b.Setting(kDrawDistanceKey), "original", "draw distance: a click on Original keeps original");
+        Check(ui.DrawDistanceChoice() == 0, "draw distance: the row shows Original");
+        ui.ShowSettings(false);
+        frames(1);
+        Check(ui.DrawDistanceRect().w == 0, "draw distance: no switch while the box is closed");
+    }
+    LauncherUi again(renderer, b);
+    again.ShowSettings(true);
+    again.Frame(kDt, width, height, 1);
+    Check(again.DrawDistanceChoice() == 0, "draw distance: a new window shows the kept Original");
+}
+
 bool Overlaps(const Rect& a, const Rect& b) {
     return a.w > 0 && b.w > 0 && a.x < b.Right() && b.x < a.Right() && a.y < b.Bottom() && b.y < a.Bottom();
 }
@@ -4378,6 +4457,7 @@ void CheckKeepSettings(const std::string& screens) {
         Check(backend.SaveSetting(kFarZoomKey, "1", err), "keep settings: Zoom out further is saved: " + err);
         Check(backend.SaveSetting(kFreeCameraKey, "1", err), "keep settings: Free camera is saved: " + err);
         Check(backend.SaveSetting(kFreeFlySpeedKey, "2.5", err), "keep settings: the fly speed is saved: " + err);
+        Check(backend.SaveSetting(kDrawDistanceKey, "whole", err), "keep settings: Draw distance is saved: " + err);
         Check(backend.SaveSetting("mod.test-unlisted", "1", err), "keep settings: another key is saved: " + err);
         CheckEq(saved("mod.test-on"), "1", "keep settings: the switch is in the file before Play");
         backend.SetLastChoice(assets::EditionName(assets::kEditionUs), err);   // what Play does
@@ -4388,6 +4468,7 @@ void CheckKeepSettings(const std::string& screens) {
         CheckEq(saved(kFarZoomKey), "1", "keep settings: Zoom out further stays after Play");
         CheckEq(saved(kFreeCameraKey), "1", "keep settings: Free camera stays after Play");
         CheckEq(saved(kFreeFlySpeedKey), "2.5", "keep settings: the fly speed stays after Play");
+        CheckEq(saved(kDrawDistanceKey), "whole", "keep settings: Draw distance stays after Play");
         CheckEq(saved("mod.test-unlisted"), "(absent)", "keep settings: only the keys named are written again");
         CheckEq(saved("mod.test-never"), "(absent)", "keep settings: a key never saved is not written");
     }
@@ -4425,6 +4506,7 @@ int main(int argc, char** argv) {
         CheckSettingsScroll(renderer);
         CheckLanguages(renderer);
         CheckVisitorLooks(renderer);
+        CheckDrawDistance(renderer);
         CheckSoundPanSwitch(renderer);
         CheckRideBadgesSwitch(renderer);
         CheckGameOptions(renderer);

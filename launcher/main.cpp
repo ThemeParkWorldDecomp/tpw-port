@@ -1255,6 +1255,12 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
     // The Settings box's "Zoom out further" (HandleCamera, include/TPCamera.h): off, the original's limit, by default.
     gPortFarZoom = backend.Setting(tpw::ui::kFarZoomKey) == "1";
     if (gPortFarZoom) tpw::Log("zoom out further (the launcher's Settings)");
+    // The Settings box's "Draw distance" (CMapWho::Render, include/TPCamera.h): Farther by default, Original the original's.
+    static_assert(kPortDrawOriginal == 0 && kPortDrawFarther == 1 && kPortDrawWhole == 2 &&
+                      tpw::ui::kDrawDistanceDefault == kPortDrawFarther,
+                  "the Draw distance row's choices are gPortDrawDistance's steps");
+    gPortDrawDistance = tpw::ui::DrawDistanceSetting(backend.Setting(tpw::ui::kDrawDistanceKey));
+    tpw::Log("draw distance: %s (the launcher's Settings)", tpw::ui::kDrawDistanceValues[gPortDrawDistance]);
     {   // the Settings box's interface size (UI_SetRealScreenRez)
         const std::string size = backend.Setting(tpw::ui::kInterfaceSizeKey);
         gUIScale = size == "85" ? 0.85f : size == "70" ? 0.7f : 1.0f;

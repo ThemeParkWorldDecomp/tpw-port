@@ -947,7 +947,7 @@ void WheelZoom(float dt) {
         // The target's far limit is HandleCamera's (TPW_PORT_FIX farzoom there), kPortFarZoomOut with "Zoom out further" on, so
         // the smooth wheel zoom reaches the same limit. as the step and the keys
         float high = wide ? Bits(0x43960000u) : gPortFarZoom ? kPortFarZoomOut : Bits(0x43020000u);
-        // TPW_PORT_FIX freecam WheelZoom | Mac: (none) | Port: with gPortFreeCamera on, HandleCamera's free zoom limits (25 to 300) | Why: the smooth wheel zoom reaches the free camera's limits
+        // TPW_PORT_FIX freecam WheelZoom | Mac: (none) | Port: with gPortFreeCamera on, HandleCamera's free zoom limits (25 to 500) | Why: the smooth wheel zoom reaches the free camera's limits
         if (gPortFreeCamera) {
             low = kPortFreeZoomIn;
             high = kPortFreeZoomOut;
@@ -1456,7 +1456,7 @@ void HandleCamera() {
             gCameraWideZoomMax = Bits(0x43960000u);
             gCameraWideZoomMaxOnce = 1;
         }
-        // TPW_PORT_FIX freecam HandleCamera | Mac: the park view's zoom is kept within 70 and 130 (40 and 300 with the hidden full zoom out) | Port: with gPortFreeCamera on, within kPortFreeZoomIn (25) and kPortFreeZoomOut (300), whatever the hidden mode | Why: the Free camera zooms further in and out, as SPEC asks
+        // TPW_PORT_FIX freecam HandleCamera | Mac: the park view's zoom is kept within 70 and 130 (40 and 300 with the hidden full zoom out) | Port: with gPortFreeCamera on, within kPortFreeZoomIn (25) and kPortFreeZoomOut (500), whatever the hidden mode | Why: the Free camera zooms further in and out, as SPEC asks
         if (gPortFreeCamera) {
             if (gCameraF68 < kPortFreeZoomIn) gCameraF68 = kPortFreeZoomIn;
             else if (gCameraF68 > kPortFreeZoomOut) gCameraF68 = kPortFreeZoomOut;
@@ -1465,7 +1465,7 @@ void HandleCamera() {
             if (gCameraF68 < gCameraWideZoomMin) gCameraF68 = gCameraWideZoomMin;
             else if (gCameraF68 > gCameraWideZoomMax) gCameraF68 = gCameraWideZoomMax;
         } else {
-            // TPW_PORT_FIX farzoom HandleCamera | Mac: the park view's zoom is kept within 70 and 130 (40 and 300 with the hidden full zoom out, AllowFullCameraZoomout) | Port: with the launcher's "Zoom out further" on (gPortFarZoom, off by default), within 70 and kPortFarZoomOut; the hidden full zoom out as on the Mac | Why: a player can see more of the park at once, as an opt-in that keeps the original's limit by default; the nearest zoom stays the original's
+            // TPW_PORT_FIX farzoom HandleCamera | Mac: the park view's zoom is kept within 70 and 130 (40 and 300 with the hidden full zoom out, AllowFullCameraZoomout) | Port: with the launcher's "Zoom out further" on (gPortFarZoom, off by default), within 70 and kPortFarZoomOut (800); the hidden full zoom out as on the Mac | Why: a player can see more of the park at once, as an opt-in that keeps the original's limit by default; the nearest zoom stays the original's
             const float farthest = gPortFarZoom ? kPortFarZoomOut : Bits(0x43020000u);
             if (gCameraF68 < Bits(0x428c0000u)) gCameraF68 = Bits(0x428c0000u);
             else if (gCameraF68 > farthest) gCameraF68 = farthest;
