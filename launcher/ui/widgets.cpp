@@ -134,12 +134,26 @@ void Ui::Panel(const Rect& r, Rgba top, Rgba bottom, float radius) {
     canvas_.OutlinedGradient(r, radius, metric::kOutline, top, bottom, colour::kInk);
 }
 
-float Ui::ButtonWidth(std::string_view label) const {
-    return std::max(96.0f, text_.Width(style::kButton, label) + 44);
+namespace {
+constexpr float kIconGap = 6;   // between an IconButton's picture and its label
+}  // namespace
+
+float Ui::ButtonWidth(std::string_view label, float iconW) const {
+    return std::max(96.0f, text_.Width(style::kButton, label) + 44 + (iconW > 0 ? iconW + kIconGap : 0.0f));
 }
 
 bool Ui::Button(const std::string& id, const Rect& r, std::string_view label, ButtonKind kind, bool enabled,
                 Style labelStyle) {
+    return DrawButton(id, r, label, kind, enabled, labelStyle, 0, nullptr);
+}
+
+bool Ui::IconButton(const std::string& id, const Rect& r, std::string_view label, ButtonKind kind, float iconW,
+                    const std::function<void(const Rect& slot)>& icon) {
+    return DrawButton(id, r, label, kind, true, style::kButton, iconW, &icon);
+}
+
+bool Ui::DrawButton(const std::string& id, const Rect& r, std::string_view label, ButtonKind kind, bool enabled,
+                    Style labelStyle, float iconW, const std::function<void(const Rect& slot)>* icon) {
     bool clicked = Clicked(id, r, enabled);
     bool hot = interactive_ && enabled && Hovered(r);
     bool held = hot && input_.down && active_ == id;
@@ -173,7 +187,14 @@ bool Ui::Button(const std::string& id, const Rect& r, std::string_view label, Bu
     Rect gloss = d.Inset(metric::kOutline + 3);
     gloss.h *= 0.42f;
     canvas_.FillRound(gloss, gloss.h * 0.5f, colour::kPaper.WithAlpha(enabled ? 80 : 40));
-    text_.DrawCentred(labelStyle, d.Moved(0, 0.5f), label, label_colour);
+    if (icon == nullptr || !*icon) {
+        text_.DrawCentred(labelStyle, d.Moved(0, 0.5f), label, label_colour);
+        return clicked;
+    }
+    const float textW = text_.Width(labelStyle, label);
+    const float x = std::round(d.CentreX() - (iconW + kIconGap + textW) * 0.5f);
+    (*icon)({x, d.y, iconW, d.h});
+    text_.DrawCentred(labelStyle, {x + iconW + kIconGap, d.y + 0.5f, textW, d.h}, label, label_colour);
     return clicked;
 }
 

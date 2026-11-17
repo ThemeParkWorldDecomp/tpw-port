@@ -33,6 +33,7 @@
 ### Changes
 
 - Updated SDL, which the launcher and the game use for the window, sound, mouse and keyboard, to version 3.4.20
+- The launcher opens bigger and keeps every button at the top: Mods (with a diamond when no mod is on), Settings, and About / Game Data, now one screen with your game data, logs and licenses
 
 ## 0.5.5 (2026-11-14)
 

@@ -1,4 +1,4 @@
-// window.h: the launcher's own window: about 800 x 560 points, resizable, sharp on high-density screens, running the
+// window.h: the launcher's own window: about 925 x 685 points, resizable, sharp on high-density screens, running the
 // screens of launcher_ui.h until the player presses Play or closes it. Closed, it is gone when this returns; after Play it
 // stays on the Starting screen until the game's window is shown (CloseStartingWindow). launcher/main.cpp opens it when
 // no --game is given.

@@ -1103,11 +1103,41 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   string(APPEND fonts_text "}  // namespace tpw::ui::fontdata\n")
   file(WRITE ${TPW_UI_FONTS_CPP}.new "${fonts_text}")
   configure_file(${TPW_UI_FONTS_CPP}.new ${TPW_UI_FONTS_CPP} COPYONLY)
+  # The libraries' license texts, as published beside their sources, compiled in the same way (as text ending in a
+  # zero) for the About / Game Data box's Licenses box (versions.cpp): their licenses ask that the notices go with every
+  # copy of the program, and the release archives hold only the program and README.md.
+  set(TPW_UI_LICENSES
+      kSdl ${CMAKE_CURRENT_SOURCE_DIR}/third_party/SDL3/LICENSE.txt
+      kZlib ${TPW_DECOMP_DIR}/third_party/zlib/LICENSE
+      kLibarchive ${TPW_DECOMP_DIR}/third_party/libarchive/COPYING
+      kXz ${TPW_DECOMP_DIR}/third_party/xz/COPYING.0BSD
+      kStb ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb/LICENSE
+      kFredoka ${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts/fredoka/OFL.txt
+      kNunito ${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts/nunito/OFL.txt
+      kLgpl ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ffmpeg/COPYING.LGPLv2.1)
+  set(TPW_UI_LICENSES_CPP ${CMAKE_CURRENT_BINARY_DIR}/ui_licenses.cpp)
+  set(licenses_text "// Written by CMakeLists.txt from the license files in third_party/.\n")
+  string(APPEND licenses_text "namespace tpw::ui::licensedata {\n")
+  list(LENGTH TPW_UI_LICENSES licenses_length)
+  math(EXPR licenses_last "${licenses_length} - 1")
+  foreach(i RANGE 0 ${licenses_last} 2)
+    math(EXPR j "${i} + 1")
+    list(GET TPW_UI_LICENSES ${i} name)
+    list(GET TPW_UI_LICENSES ${j} license)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${license})
+    file(READ ${license} hex HEX)
+    string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," hex "${hex}")
+    string(APPEND licenses_text "extern const char ${name}[];\nconst char ${name}[] = {\n${hex}0x00\n};\n")
+  endforeach()
+  string(APPEND licenses_text "}  // namespace tpw::ui::licensedata\n")
+  file(WRITE ${TPW_UI_LICENSES_CPP}.new "${licenses_text}")
+  configure_file(${TPW_UI_LICENSES_CPP}.new ${TPW_UI_LICENSES_CPP} COPYONLY)
 
   file(GLOB TPW_LAUNCHER_UI_SOURCES CONFIGURE_DEPENDS launcher/ui/*.cpp)
   # launcher/net/: the only network code of the port (the update check's questions, over the system's curl). Nothing else
   # may talk to the internet: devtools/check_offline.py holds the tree to that (port_CONTRIBUTING.md, "Playable offline").
-  add_library(tpw_launcher_ui STATIC ${TPW_LAUNCHER_UI_SOURCES} launcher/net/net.cpp ${TPW_UI_FONTS_CPP})
+  add_library(tpw_launcher_ui STATIC ${TPW_LAUNCHER_UI_SOURCES} launcher/net/net.cpp ${TPW_UI_FONTS_CPP}
+              ${TPW_UI_LICENSES_CPP})
   target_include_directories(tpw_launcher_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/launcher/ui ${CMAKE_CURRENT_SOURCE_DIR}/launcher/net)
   target_include_directories(tpw_launcher_ui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb ${TPW_DECOMP_DIR}/platform)   # path_text.h
   target_link_libraries(tpw_launcher_ui PUBLIC SDL3::SDL3 tpw_assets ZLIB::ZLIB)

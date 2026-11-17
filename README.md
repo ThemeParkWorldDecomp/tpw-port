@@ -39,8 +39,8 @@ Launcher locations:
 
 ## Mods
 
-Optional extras from [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods). Open Mods, next to Settings. All are off by default, and all off is
-the original game. A park saved with a mod needs it on to load.
+Optional extras from [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods). Open Mods, at the top next to Settings and About / Game Data. All
+are off by default, and all off is the original game. A park saved with a mod needs it on to load.
 
 ## PS1 Exclusives
 
@@ -80,6 +80,9 @@ Every mod works on US, European and Gold.
 2. Drop your disc on the window: Mac CD, PC CD, or a zip, 7-Zip, RAR or disc image of either. Split archive: drop all
    parts, or the first.
 3. Wait for the check. Press Play.
+
+The buttons are at the top: Mods, Settings, and About / Game Data, which shows what your discs unlocked and
+holds Show logs, Export logs and Licenses.
 
 Changed files are rechecked at each start. Edited `.sam` files are kept.
 
@@ -252,7 +255,7 @@ Data folder (files, saves, logs):
 - Linux: `~/.local/share/STP-TPW Launcher`
 - Flatpak: `~/.var/app/io.github.ThemeParkWorldDecomp.Launcher/data/STP-TPW Launcher`
 
-`make clean` and `build.cmd clean` never touch it. Log: `logs/launcher.log`. About box: Show logs, Export logs. Windows has no console:
+`make clean` and `build.cmd clean` never touch it. Log: `logs/launcher.log`. About / Game Data: Show logs, Export logs. Windows has no console:
 use `build\tpw_launcher.exe 2> log.txt`.
 
 ### Edited settings files
@@ -397,7 +400,7 @@ Open an issue or post on [Discord](https://discord.gg/QSvugmgCwW) with:
 
 1. The launcher version (`tpw_launcher --version`). For -dev, the log's `build: ...` line.
 2. Your system and edition.
-3. The log: About box, Export logs. It holds no user names.
+3. The log: About / Game Data, Export logs. It holds no user names.
 4. What you did.
 
 Update to the newest release first.
@@ -445,10 +448,13 @@ Thanks: samueleagle91 (spamaerie) made the Windows build. slappyhead first ran i
 No license yet for the port's own code. Bundled:
 
 - FFmpeg 9.0.2, LGPL 2.1+ (third_party/ffmpeg/COPYING.LGPLv2.1, NOTE.md). Built from source, so you can rebuild it.
-- SDL3 3.4.20, zlib 1.3.2 (zlib License), libjpeg 6b (IJG License).
+- SDL3 3.4.20, zlib 1.3.2 (zlib License), libjpeg 6b (IJG License). This software is based in part on the work of the
+  Independent JPEG Group.
 - libarchive 3.8.11 (BSD 2-Clause, tpw-decomp/third_party/libarchive/COPYING).
 - liblzma, XZ Utils 5.8.4 (0BSD, tpw-decomp/third_party/xz/COPYING.0BSD).
 - Fredoka and Nunito fonts (OFL 1.1, third_party/fonts). stb_truetype, stb_rect_pack (MIT or public domain).
+
+The launcher shows each of these licences in full: About / Game Data, Licenses.
 
 libarchive's licence, as its COPYING gives it (each of its files names its own authors):
 

@@ -34,6 +34,9 @@ constexpr size_t kLogLimit = 4000;     // rows kept in the checking log
 constexpr float kNoticeSeconds = 4.5f;
 constexpr float kStartupNoticeSeconds = 9.0f;   // the startup check's notice: the window may still be opening
 constexpr float kBannerHeight = 44;    // the update banner under the title (DrawUpdateBanner)
+constexpr const char* kAboutLabel = "About / Game Data";   // the header's third button (DrawHeader)
+constexpr float kDiamondW = 22, kDiamondH = 18;              // the Mods button's diamond (Diamond)
+constexpr float kAboutWidth = 700;     // the About / Game Data and Licenses boxes' widest
 
 // The tiles' header bands.
 constexpr Rgba kAccents[3] = {colour::kSkyChip, colour::kOrange, colour::kYellow};
@@ -85,6 +88,43 @@ void Cloud(Canvas& canvas, float cx, float cy, float s, Rgba c) {
     canvas.FillCircle(cx - 24 * s, cy + 2 * s, 17 * s, c);
     canvas.FillCircle(cx + 2 * s, cy - 8 * s, 24 * s, c);
     canvas.FillCircle(cx + 26 * s, cy + 2 * s, 16 * s, c);
+}
+
+// The Mods button's diamond while no mod is on, in `r` (kDiamondW x kDiamondH): a cut gem seen from the side, a flat
+// table on top, a crown of five facets and a pavilion of three down to the point, in four blues lit from the top left,
+// with a white glint, outlined in ink like the rest of the launcher.
+void Diamond(Canvas& canvas, const Rect& r) {
+    auto at = [&](float u, float v) { return Point{r.x + u * r.w, r.y + v * r.h}; };
+    const float girdle = 0.32f;
+    const Point left = at(0, girdle), right = at(1, girdle), bottom = at(0.5f, 1);
+    const Point topLeft = at(0.24f, 0), topMid = at(0.5f, 0), topRight = at(0.76f, 0);
+    const Point g1 = at(0.35f, girdle), g2 = at(0.65f, girdle);
+    canvas.FillTriangle(left, topLeft, g1, colour::kGemPale);
+    canvas.FillTriangle(topLeft, topMid, g1, colour::kGemLight);
+    canvas.FillTriangle(topMid, g2, g1, colour::kGemPale);
+    canvas.FillTriangle(topMid, topRight, g2, colour::kGemLight);
+    canvas.FillTriangle(topRight, right, g2, colour::kGemMid);
+    canvas.FillTriangle(left, g1, bottom, colour::kGemMid);
+    canvas.FillTriangle(g1, g2, bottom, colour::kGemLight);
+    canvas.FillTriangle(g2, right, bottom, colour::kGemDeep);
+    // The facets' edges, faint, and the outline.
+    const Rgba edge = colour::kGemDeep.WithAlpha(110);
+    canvas.Polyline({left, right}, 0.9f, edge);
+    canvas.Polyline({topLeft, g1, topMid, g2, topRight}, 0.9f, edge);
+    canvas.Polyline({g1, bottom, g2}, 0.9f, edge);
+    canvas.Polyline({left, topLeft, topRight, right, bottom, left}, 1.6f, colour::kInk);
+    // A four-pointed glint on the dark facet.
+    const Point c = at(0.69f, 0.54f);
+    const float s = r.h * 0.2f, k = s * 0.3f;
+    canvas.FillTriangle({c.x, c.y - s}, {c.x + k, c.y}, {c.x - k, c.y}, colour::kPaper);
+    canvas.FillTriangle({c.x, c.y + s}, {c.x - k, c.y}, {c.x + k, c.y}, colour::kPaper);
+    canvas.FillTriangle({c.x - s, c.y}, {c.x, c.y - k}, {c.x, c.y + k}, colour::kPaper);
+    canvas.FillTriangle({c.x + s, c.y}, {c.x, c.y + k}, {c.x, c.y - k}, colour::kPaper);
+}
+
+// A Game data row's height (DrawAbout counts the rows, DrawGameData draws them).
+float GameDataRowHeight(Text& text) {
+    return 10 + text.LineHeight(style::kBodyBold) + 3 + text.LineHeight(style::kSmall) + 10;
 }
 }  // namespace
 
@@ -273,10 +313,10 @@ void LauncherUi::HandleEvent(const SDL_Event& e) {
                 else if (gamePlayerOpen_) gamePlayerOpen_ = false;
                 else if (editedOpen_ >= 0) editedOpen_ = -1;
                 else if (armedRemove_ >= 0) armedRemove_ = -1;
+                else if (licensesOpen_) licensesOpen_ = false;
                 else if (aboutOpen_) aboutOpen_ = false;
                 else if (settingsOpen_) settingsOpen_ = false;
                 else if (modsOpen_) modsOpen_ = false;
-                else if (gameDataOpen_) gameDataOpen_ = false;
                 else if (screen_ == Screen::Result || screen_ == Screen::Play) screen_ = Screen::Home;
             }
             break;
@@ -315,9 +355,8 @@ void LauncherUi::OfferPaths(const std::vector<std::string>& paths) {
         ShowNotice("Wait for the check of an edition to finish", true);
         return;
     }
-    aboutOpen_ = settingsOpen_ = modsOpen_ = false;
-    gameDataReturn_ = gameDataReturn_ || gameDataOpen_;   // the drop is checked as anywhere, then the box comes back
-    gameDataOpen_ = false;
+    gameDataReturn_ = gameDataReturn_ || aboutOpen_;   // the drop is checked as anywhere, then the box comes back
+    aboutOpen_ = settingsOpen_ = modsOpen_ = licensesOpen_ = false;
     editedOpen_ = -1;
     armedRemove_ = -1;
     if (backend_.Running()) {
@@ -455,6 +494,13 @@ void LauncherUi::ShowScreen(Screen screen) {
 
 void LauncherUi::ShowAbout(bool open) {
     aboutOpen_ = open;
+    if (!open) licensesOpen_ = false;
+    if (open) RefreshLanguages();
+}
+
+void LauncherUi::ShowLicenses(bool open) {
+    licensesOpen_ = open;
+    if (open) aboutOpen_ = true;
 }
 
 void LauncherUi::ShowEdited(int index) {
@@ -473,11 +519,6 @@ void LauncherUi::ShowSettings(bool open) {
 
 void LauncherUi::ShowMods(bool open) {
     modsOpen_ = open && modsShown_;
-}
-
-void LauncherUi::ShowGameData(bool open) {
-    gameDataOpen_ = open;
-    if (open) RefreshLanguages();
 }
 
 void LauncherUi::ShowLanguageList(int index) {
@@ -644,40 +685,46 @@ float LauncherUi::DrawHeader(const Rect& w, bool buttons) {
                        colour::kInk, 2);
     headerButtonsRect_ = Rect{};
     if (buttons) {
+        // All the launcher's buttons are here, from the right: About / Game Data, Settings and Mods (the maintainer, 2026-11-16).
+        // The smallest window holds them clear of the title and its version (metric::kMinWidth). There is no Play here:
+        // the tiles have their own (the maintainer, 2026-11-08). Each button is a whole number of points wide, so the buttons and
+        // their 10-point gaps sit on whole points whatever their labels measure.
         float h = 36, y = kTitleTop + 8;
         float x = w.Right() - metric::kMargin;
-        float aw = ui_.ButtonWidth("About");
+        float aw = std::floor(ui_.ButtonWidth(kAboutLabel));
         x -= aw;
-        if (ui_.Button("about", {x, y, aw, h}, "About", ButtonKind::Quiet)) aboutOpen_ = true;
-        float sw = ui_.ButtonWidth("Settings");
+        aboutButtonRect_ = {x, y, aw, h};
+        if (ui_.Button("about", aboutButtonRect_, kAboutLabel, ButtonKind::Quiet)) ShowAbout(true);
+        float sw = std::floor(ui_.ButtonWidth("Settings"));
         x -= sw + 10;
-        if (ui_.Button("settings", {x, y, sw, h}, "Settings", ButtonKind::Quiet)) {
+        settingsButtonRect_ = {x, y, sw, h};
+        if (ui_.Button("settings", settingsButtonRect_, "Settings", ButtonKind::Quiet)) {
             settingsOpen_ = true;
             armedRemove_ = -1;
             RefreshLanguages();
         }
         if (modsShown_) {
             // While a mod is on the button says how many ("1 mod on"), in the yellow of a choice made: the game is not
-            // the original then.
+            // the original then. While none is, a diamond beside "Mods" invites a look (the maintainer, 2026-11-16).
             const int on = ModsOn();
-            const std::string label = on == 0 ? "Mods" : std::to_string(on) + (on == 1 ? " mod on" : " mods on");
-            float mw = ui_.ButtonWidth(label);
-            x -= mw + 10;
-            modsButtonRect_ = {x, y, mw, h};
-            if (on > 0) modsOnRect_ = modsButtonRect_;
-            if (ui_.Button("mods", modsButtonRect_, label, on == 0 ? ButtonKind::Quiet : ButtonKind::Plain))
-                modsOpen_ = true;
+            if (on == 0) {
+                float mw = std::floor(ui_.ButtonWidth("Mods", kDiamondW));
+                x -= mw + 10;
+                modsButtonRect_ = {x, y, mw, h};
+                if (ui_.IconButton("mods", modsButtonRect_, "Mods", ButtonKind::Quiet, kDiamondW, [&](const Rect& slot) {
+                        modsDiamondRect_ = {slot.x, std::round(slot.CentreY() - kDiamondH * 0.5f), kDiamondW, kDiamondH};
+                        Diamond(canvas_, modsDiamondRect_);
+                    }))
+                    modsOpen_ = true;
+            } else {
+                const std::string label = std::to_string(on) + (on == 1 ? " mod on" : " mods on");
+                float mw = std::floor(ui_.ButtonWidth(label));
+                x -= mw + 10;
+                modsButtonRect_ = modsOnRect_ = {x, y, mw, h};
+                if (ui_.Button("mods", modsButtonRect_, label, ButtonKind::Plain)) modsOpen_ = true;
+            }
         }
-        // The homes' Game data button, where it clears the title and its version; in a narrower window the home has it
-        // in its body (DrawHome, DrawReady). There is no Play here: the tiles have their own (the maintainer, 2026-11-08).
-        float gw = ui_.ButtonWidth("Game data");
-        if (screen_ == Screen::Home && x - gw - 10 > titleVersionRect_.Right() + 16) {
-            x -= gw + 10;
-            gameDataButtonRect_ = {x, y, gw, h};
-            gameDataInHeader_ = true;
-            if (ui_.Button("game-data", gameDataButtonRect_, "Game data", ButtonKind::Quiet)) ShowGameData(true);
-        }
-        headerButtonsRect_ ={x, y, w.Right() - metric::kMargin - x, h};
+        headerButtonsRect_ = {x, y, w.Right() - metric::kMargin - x, h};
     }
     return kContentTop;
 }
@@ -838,15 +885,6 @@ void LauncherUi::DrawHome(const Rect& w) {
         Browse(false, DialogPurpose::Import);
     if (ui_.Button("browse-folder", {bx + fw + 12, cy, dw, buttonH}, "Choose a folder...", ButtonKind::Plain))
         Browse(true, DialogPurpose::Import);
-    // The Game data box, as on the all-confirmed home: in the header where it fits, else in the field's bottom right
-    // corner, clear of its centred words and buttons (a fresh download starts on this home, all locked).
-    if (!gameDataInHeader_) {
-        const float gw = ui_.ButtonWidth("Game data"), gh = 32;
-        gameDataButtonRect_ = {field.Right() - metric::kOutline - 10 - gw, field.Bottom() - metric::kOutline - 10 - gh, gw,
-                               gh};
-        if (ui_.Button("game-data", gameDataButtonRect_, "Game data", ButtonKind::Quiet)) ShowGameData(true);
-    }
-
     DrawTiles(tiles);
 
     // A playable edition's own Play, in its tile's header band: there at every window size, where the header's gives way
@@ -863,25 +901,16 @@ void LauncherUi::DrawHome(const Rect& w) {
 }
 
 // The home once every edition is confirmed: no drop field, two large tiles (the US edition, then the European one), each
-// with its Gold Edition switch and its Play button. The whole window still takes a drop (DrawDropOverlay), and "Game
-// data" opens the Game data box.
+// with its Gold Edition switch and its Play button. The whole window still takes a drop (DrawDropOverlay), and the
+// header's About / Game Data opens the Game data box.
 void LauncherUi::DrawReady(const Rect& w) {
     float top = DrawUpdateBanner(w, DrawHeader(w, true));
     const float m = metric::kMargin;
 
-    // The bottom row, a margin above the window's edge: "Game data" on the left, unless the header has it (DrawHeader).
-    // The row keeps its place either way, so the tiles' Play buttons stay where the play test clicks them
+    // The two tiles: US on the left, European on the right (Sim Theme Park is always named first, the maintainer, 2026-10-25), down
+    // to a margin above the window's edge: nothing below them (the maintainer, 2026-11-16). The play test clicks their Play buttons
     // (devtools/playtest.sh).
-    const float rowH = 34;
-    Rect row{m, w.Bottom() - m - rowH, w.w - 2 * m, rowH};
-    float gw = ui_.ButtonWidth("Game data");
-    if (!gameDataInHeader_) {
-        gameDataButtonRect_ = {row.x, row.y, gw, rowH};
-        if (ui_.Button("game-data", gameDataButtonRect_, "Game data", ButtonKind::Quiet)) ShowGameData(true);
-    }
-
-    // The two tiles: US on the left, European on the right (Sim Theme Park is always named first, the maintainer, 2026-10-25).
-    Rect area{m, top, w.w - 2 * m, row.y - metric::kGap - top};
+    Rect area{m, top, w.w - 2 * m, w.Bottom() - m - top};
     float tw = (area.w - metric::kGap) * 0.5f;
     static constexpr int kOrder[2] = {0, 1};   // status_ index of the left and the right tile
     static constexpr const char* kGames[2] = {"Sim Theme Park", "Theme Park World"};   // by status_ index
@@ -2016,40 +2045,111 @@ void LauncherUi::DrawMods(const Rect& w) {
     }
 }
 
-// The Game data box: the six things the player's discs unlock, each locked or unlocked with one line, from the editions'
-// statuses (every frame) and the data folder's languages (read when it opens and after an import). A drop on it is checked as
-// anywhere (OfferPaths), and the box opens again after; removing and checking an edition again stay in Settings.
-void LauncherUi::DrawGameData(const Rect& w) {
+// The About / Game Data box (the header's third button; the maintainer, 2026-11-16: the About and Game data boxes as one): the
+// launcher's name and version, what it is and that it is not EA's in two short lines, the logs (Show logs, Export logs)
+// and Licenses, then the six things the player's discs unlock (DrawGameData), with how to add more and Open Settings at
+// the bottom. In a window too short for it all only the Game data rows scroll: the logs and the footer stay in reach. A
+// drop on it is checked as anywhere (OfferPaths), and the box opens again after.
+void LauncherUi::DrawAbout(const Rect& w) {
+    const float kRowH = 32;   // the logs row
+    const float kFooterH = 34;
     canvas_.FillRound(w, 0, colour::kDim);
-    const std::vector<GameDataRow> rows = GameData();
-    const float pw = std::min(w.w - 2 * metric::kMargin, 640.0f);
-    const float titleH = text_.LineHeight(style::kHeadline) + 12;
-    const float bold = text_.LineHeight(style::kBodyBold), small = text_.LineHeight(style::kSmall);
-    const float rowH = 10 + bold + 3 + small + 10, buttonH = 34;
-    const float bodyH = rows.size() * (rowH + 6) + 4 + buttonH;
-    const float ph = std::min(w.h - 2 * metric::kMargin, titleH + bodyH + 40);
-    Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
-    gameDataBoxRect_ = panel;
+    const float pw = std::min(w.w - 2 * metric::kMargin, kAboutWidth), inW = pw - 40;
+    const float titleH = text_.LineHeight(style::kHeadline) + 8;
+    const float small = text_.LineHeight(style::kSmall), smallBold = text_.LineHeight(style::kSmallBold);
+    const float linesH = small * text_.Wrap(style::kSmall, kTagline, inW).size() +
+                         smallBold * text_.Wrap(style::kSmallBold, kDisclaimer, inW).size() + 12;
+    const float logsH = kRowH + 14 + (!logsFolder_.empty() && exported_.ok ? kRowH + 10 : 0.0f);
+    const float headingH = text_.LineHeight(style::kHeading) + 6;
+    const float rowsH = GameData().size() * (GameDataRowHeight(text_) + 6);
+    const float contentH = titleH + linesH + logsH + headingH + rowsH + 4 + kFooterH;
+    const float ph = std::min(w.h - 2 * metric::kMargin, contentH + 40);
+    Rect panel{std::round(w.CentreX() - pw * 0.5f), std::round(w.CentreY() - ph * 0.5f), pw, ph};
+    aboutBoxRect_ = panel;
     ui_.Panel(panel, colour::kPaper, colour::kCream);
     Rect in = panel.Inset(20);
     float y = in.y;
-    text_.Draw(style::kHeadline, in.x, y, "Game data", colour::kInk);
+    // The version in the title, as --version and the log file's first line give it.
+    std::string title = std::string("About ") + kProductNameWithVersion;
     float cw = ui_.ButtonWidth("Close");
-    if (ui_.Button("gamedata-close", {in.Right() - cw, y, cw, 36}, "Close", ButtonKind::Quiet)) gameDataOpen_ = false;
+    text_.Draw(style::kHeadline, in.x, y, text_.Fit(style::kHeadline, title, in.w - cw - 12, false), colour::kInk);
+    if (ui_.Button("about-close", {in.Right() - cw, y, cw, 36}, "Close", ButtonKind::Quiet)) ShowAbout(false);
     y += titleH;
+    y += text_.DrawWrapped(style::kSmall, in.x, y, in.w, kTagline, colour::kInkSoft);
+    y += text_.DrawWrapped(style::kSmallBold, in.x, y, in.w, kDisclaimer, colour::kInk) + 12;
 
-    // Scrolls as Mods does, in a window too short for the rows: the rows scroll, and the footer (how to add more, Open
-    // Settings) stays at the bottom, in reach without scrolling.
-    const float bodyTop = y, rowsH = rows.size() * (rowH + 6);
-    const bool scrolls = ph < titleH + bodyH + 40;
-    const float footerTop = scrolls ? in.Bottom() - buttonH : bodyTop + rowsH + 4;
-    const float shown = footerTop - 4 - bodyTop;
+    // The logs row: the log file (platform/log_file.h, logs/launcher.log), and at its right end the libraries' licenses.
+    const float lw = ui_.ButtonWidth("Licenses");
+    licensesButtonRect_ = {in.Right() - lw, y, lw, kRowH};
+    if (ui_.Button("about-licenses", licensesButtonRect_, "Licenses", ButtonKind::Quiet)) ShowLicenses(true);
+    if (!logsFolder_.empty()) {
+        const char* label = "Show logs";
+        float sw = ui_.ButtonWidth(label);
+        showLogsRect_ = {in.x, y, sw, kRowH};
+        // The log file selected in the file manager when it can; else its folder.
+        if (ui_.Button("about-logs", showLogsRect_, label, ButtonKind::Quiet) &&
+            !(showLogs_ != nullptr && showLogs_(logsFolder_)) && !SDL_OpenURL(FileUrl(logsFolder_).c_str()))
+            ShowNotice(std::string("Could not open the logs folder: ") + SDL_GetError(), true);
+        float tx = in.x + sw + 12;
+        if (exportLogs_ != nullptr) {
+            // Export logs: the log file's recent runs as one file in the Downloads folder, to attach to a bug report without
+            // a hunt for hidden folders.
+            const char* exportLabel = "Export logs";
+            float ew = ui_.ButtonWidth(exportLabel);
+            exportLogsRect_ = {tx, y, ew, kRowH};
+            if (ui_.Button("about-export-logs", exportLogsRect_, exportLabel, ButtonKind::Quiet)) {
+                exported_ = exportLogs_(logsFolder_);
+                ShowNotice(exported_.message, !exported_.ok);
+                if (!exported_.ok) exported_ = LogsExport{};
+            }
+            tx += ew + 12;
+        }
+        text_.Draw(style::kSmall, tx, y + (kRowH - small) * 0.5f,
+                   text_.Fit(style::kSmall,
+                             exportLogs_ != nullptr ? "Attach the exported file to a bug report."
+                                                    : "One file holds the logs of the recent runs.",
+                             licensesButtonRect_.x - 12 - tx, false),
+                   colour::kInkSoft);
+        if (exported_.ok) {   // where the copy went, and a button to show that folder
+            y += kRowH + 10;
+            const char* openLabel = "Open Downloads";
+            float ow = ui_.ButtonWidth(openLabel);
+            openDownloadsRect_ = {in.x, y, ow, kRowH};
+            if (ui_.Button("about-open-downloads", openDownloadsRect_, openLabel, ButtonKind::Quiet) &&
+                !SDL_OpenURL(FileUrl(exported_.folder).c_str()))
+                ShowNotice(std::string("Could not open the Downloads folder: ") + SDL_GetError(), true);
+            float sx = in.x + ow + 12;
+            text_.Draw(style::kSmallBold, sx, y + (kRowH - smallBold) * 0.5f,
+                       text_.Fit(style::kSmallBold, exported_.message, in.Right() - sx, false), colour::kInk);
+        }
+    }
+    y += kRowH + 14;
+
+    // The Game data part, under a heading and a rule.
+    canvas_.FillRound({in.x, y - 7, in.w, 2}, 1, colour::kInk.WithAlpha(40));
+    text_.Draw(style::kHeading, in.x, y, "Game Data", colour::kInk);
+    y += headingH;
+    const bool scrolls = ph < contentH + 40;
+    DrawGameData(panel, in, y, scrolls ? in.Bottom() - kFooterH : y + rowsH + 4);
+}
+
+// The About / Game Data box's Game data part: the six things the player's discs unlock, each locked or unlocked with
+// one line, from the editions' statuses (every frame) and the data folder's languages (read when the box opens and after
+// an import), from `top`, scrolled when they do not fit above `footerTop`; then how to add more, and Settings, where an
+// edition is removed or checked again.
+void LauncherUi::DrawGameData(const Rect& panel, const Rect& in, float top, float footerTop) {
+    const std::vector<GameDataRow> rows = GameData();
+    const float bold = text_.LineHeight(style::kBodyBold), small = text_.LineHeight(style::kSmall);
+    const float rowH = GameDataRowHeight(text_), buttonH = 34;
+    const float rowsH = rows.size() * (rowH + 6);
+    const float shown = footerTop - 4 - top;
+    const bool scrolls = rowsH > shown + 0.5f;
     const float barW = 6, barMargin = panel.Right() - metric::kOutline - in.Right();
-    const Rect bar{in.Right() + std::round((barMargin - barW) * 0.5f), bodyTop, barW, shown};
-    float offset = 0;
+    const Rect bar{in.Right() + std::round((barMargin - barW) * 0.5f), top, barW, shown};
+    float y = top, offset = 0;
     if (scrolls) {
         offset = ui_.Scroll("gamedata", panel, 50, std::max(0.0f, rowsH - shown), bar, shown);
-        ui_.Clip({panel.x + metric::kOutline, bodyTop, panel.w - 2 * metric::kOutline, shown});
+        ui_.Clip({panel.x + metric::kOutline, top, panel.w - 2 * metric::kOutline, shown});
         y -= offset;
     }
 
@@ -2079,7 +2179,6 @@ void LauncherUi::DrawGameData(const Rect& w) {
         ui_.ScrollBar(bar, shown, rowsH, offset, colour::kYellowSoft);
     }
 
-    // Below: how to add more, and Settings, where an edition is removed or checked again.
     y = footerTop;
     const float sw = ui_.ButtonWidth("Open Settings");
     text_.Draw(style::kSmall, in.x, y + (buttonH - small) * 0.5f,
@@ -2088,96 +2187,66 @@ void LauncherUi::DrawGameData(const Rect& w) {
                colour::kInkSoft);
     gameDataSettingsRect_ = {in.Right() - sw, y, sw, buttonH};
     if (ui_.Button("gamedata-settings", gameDataSettingsRect_, "Open Settings", ButtonKind::Quiet)) {
-        gameDataOpen_ = false;
+        ShowAbout(false);
         ShowSettings(true);
     }
 }
 
-void LauncherUi::DrawAbout(const Rect& w) {
-    const float kLogsRowH = 32;   // the Show logs row, when there is a logs folder
+// The Licenses box, over the About / Game Data box: each library the launcher and the game are built with (versions.h),
+// its version and license, and the notice its license asks to go with the program (the license's own text, compiled in),
+// scrolled. The text is wrapped once a width, and only the lines in view are drawn.
+void LauncherUi::DrawLicenses(const Rect& w) {
     canvas_.FillRound(w, 0, colour::kDim);
-    float pw = std::min(w.w - 2 * metric::kMargin, 640.0f), inW = pw - 40;
-    const std::vector<MadeWith> rows = MadeWithRows(text_);   // the "Made with" table below
-    const size_t kRows = rows.size();
-    float contentH = text_.LineHeight(style::kHeadline) + 10 +
-                     text_.LineHeight(style::kBody) * text_.Wrap(style::kBody, kTagline, inW).size() + 6 +
-                     text_.LineHeight(style::kSmallBold) * text_.Wrap(style::kSmallBold, kDisclaimer, inW).size() + 12 +
-                     (logsFolder_.empty() ? 0.0f : kLogsRowH + 12) +
-                     (logsFolder_.empty() || !exported_.ok ? 0.0f : kLogsRowH + 12) +
-                     text_.LineHeight(style::kBodyBold) + 4 + kRows * (text_.LineHeight(style::kSmall) + 6);
-    float ph = std::min(w.h - 2 * metric::kMargin, contentH + 44);
-    Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
+    const float pw = std::min(w.w - 2 * metric::kMargin, kAboutWidth), ph = w.h - 2 * metric::kMargin;
+    Rect panel{std::round(w.CentreX() - pw * 0.5f), metric::kMargin, pw, ph};
+    licensesBoxRect_ = panel;
     ui_.Panel(panel, colour::kPaper, colour::kCream);
     Rect in = panel.Inset(20);
     float y = in.y;
-    // The version in the title, as --version and the log file's first line give it.
-    std::string title = std::string("About ") + kProductNameWithVersion;
-    text_.Draw(style::kHeadline, in.x, y, title, colour::kInk);
+    text_.Draw(style::kHeadline, in.x, y, "Licenses", colour::kInk);
     float cw = ui_.ButtonWidth("Close");
-    if (ui_.Button("about-close", {in.Right() - cw, y, cw, 36}, "Close", ButtonKind::Quiet)) aboutOpen_ = false;
-    y += text_.LineHeight(style::kHeadline) + 10;
-    y += text_.DrawWrapped(style::kBody, in.x, y, in.w, kTagline, colour::kInk) + 6;
-    y += text_.DrawWrapped(style::kSmallBold, in.x, y, in.w, kDisclaimer, colour::kInk) + 12;
+    if (ui_.Button("licenses-close", {in.Right() - cw, y, cw, 36}, "Close", ButtonKind::Quiet)) licensesOpen_ = false;
+    y += text_.LineHeight(style::kHeadline) + 8;
+    y += text_.DrawWrapped(style::kSmall, in.x, y, in.w,
+                           "The launcher and the game are built with these libraries and fonts. Their licenses ask for "
+                           "these notices to go with every copy.",
+                           colour::kInkSoft) +
+         10;
 
-    // The log file (platform/log_file.h, logs/launcher.log): the button shows it in the Finder or Explorer.
-    if (!logsFolder_.empty()) {
-        const char* label = "Show logs";
-        float lw = ui_.ButtonWidth(label);
-        showLogsRect_ = {in.x, y, lw, kLogsRowH};
-        // The log file selected in the file manager when it can; else its folder.
-        if (ui_.Button("about-logs", showLogsRect_, label, ButtonKind::Quiet) &&
-            !(showLogs_ != nullptr && showLogs_(logsFolder_)) && !SDL_OpenURL(FileUrl(logsFolder_).c_str()))
-            ShowNotice(std::string("Could not open the logs folder: ") + SDL_GetError(), true);
-        float tx = in.x + lw + 12;
-        if (exportLogs_ != nullptr) {
-            // Export logs: the log file's recent runs as one file in the Downloads folder, to attach to a bug report without
-            // a hunt for hidden folders.
-            const char* exportLabel = "Export logs";
-            float ew = ui_.ButtonWidth(exportLabel);
-            exportLogsRect_ = {tx, y, ew, kLogsRowH};
-            if (ui_.Button("about-export-logs", exportLogsRect_, exportLabel, ButtonKind::Quiet)) {
-                exported_ = exportLogs_(logsFolder_);
-                ShowNotice(exported_.message, !exported_.ok);
-                if (!exported_.ok) exported_ = LogsExport{};
+    const float textW = in.w - 12;   // room for the bar
+    if (licenseLines_.empty() || licenseWidth_ != textW) {
+        licenseLines_.clear();
+        licenseHeads_.clear();
+        for (const MadeWith& m : MadeWithRows(text_)) {
+            for (const std::string& line : text_.Wrap(style::kSmallBold, m.name + " " + m.version + ": " + m.license, textW)) {
+                licenseLines_.push_back(line);
+                licenseHeads_.push_back(true);
             }
-            tx += ew + 12;
+            for (const std::string& line : text_.Wrap(style::kSmall, m.notice, textW)) {
+                licenseLines_.push_back(line);
+                licenseHeads_.push_back(false);
+            }
+            licenseLines_.emplace_back();
+            licenseHeads_.push_back(false);
         }
-        text_.Draw(style::kSmall, tx, y + (kLogsRowH - text_.LineHeight(style::kSmall)) * 0.5f,
-                   text_.Fit(style::kSmall,
-                             exportLogs_ != nullptr ? "Attach the exported file to a bug report."
-                                                    : "One file holds the logs of the recent runs.",
-                             in.Right() - tx, false),
-                   colour::kInkSoft);
-        y += kLogsRowH + 12;
-        if (exported_.ok) {   // where the copy went, and a button to show that folder
-            const char* openLabel = "Open Downloads";
-            float ow = ui_.ButtonWidth(openLabel);
-            openDownloadsRect_ = {in.x, y, ow, kLogsRowH};
-            if (ui_.Button("about-open-downloads", openDownloadsRect_, openLabel, ButtonKind::Quiet) &&
-                !SDL_OpenURL(FileUrl(exported_.folder).c_str()))
-                ShowNotice(std::string("Could not open the Downloads folder: ") + SDL_GetError(), true);
-            float sx = in.x + ow + 12;
-            text_.Draw(style::kSmallBold, sx, y + (kLogsRowH - text_.LineHeight(style::kSmallBold)) * 0.5f,
-                       text_.Fit(style::kSmallBold, exported_.message, in.Right() - sx, false), colour::kInk);
-            y += kLogsRowH + 12;
-        }
+        licenseWidth_ = textW;
     }
-
-    text_.Draw(style::kBodyBold, in.x, y, "Made with", colour::kInk);
-    y += text_.LineHeight(style::kBodyBold) + 4;
-    float c1 = in.w * 0.46f, c2 = in.w * 0.16f;
-    float lh = text_.LineHeight(style::kSmall) + 6;
-    for (size_t i = 0; i < kRows; ++i) {
-        if (y + lh > in.Bottom()) break;
-        if (i % 2 == 0) canvas_.FillRound({in.x, y, in.w, lh}, 6, colour::kYellowSoft.WithAlpha(140));
-        float ty = y + 3;
-        text_.Draw(style::kSmallBold, in.x + 10, ty, text_.Fit(style::kSmallBold, rows[i].name, c1 - 16, false),
-                   colour::kInk);
-        text_.Draw(style::kSmall, in.x + c1, ty, rows[i].version, colour::kInk);
-        text_.Draw(style::kSmall, in.x + c1 + c2, ty,
-                   text_.Fit(style::kSmall, rows[i].license, in.w - c1 - c2 - 10, false), colour::kInk);
-        y += lh;
+    const float lh = std::max(text_.LineHeight(style::kSmall), text_.LineHeight(style::kSmallBold));
+    const float total = licenseLines_.size() * lh, shown = in.Bottom() - y;
+    const float barW = 6, barMargin = panel.Right() - metric::kOutline - in.Right();
+    const Rect bar{in.Right() + std::round((barMargin - barW) * 0.5f), y, barW, shown};
+    const float offset = ui_.Scroll("licenses", panel, 50, std::max(0.0f, total - shown), bar, shown);
+    ui_.Clip({panel.x + metric::kOutline, y, panel.w - 2 * metric::kOutline, shown});
+    const size_t first = static_cast<size_t>(std::max(0.0f, std::floor(offset / lh)));
+    for (size_t i = first; i < licenseLines_.size(); ++i) {
+        const float ly = y - offset + i * lh;
+        if (ly > in.Bottom()) break;
+        const bool head = licenseHeads_[i];
+        text_.Draw(head ? style::kSmallBold : style::kSmall, in.x, ly, licenseLines_[i],
+                   head ? colour::kInk : colour::kInkSoft);
     }
+    ui_.Unclip();
+    ui_.ScrollBar(bar, shown, total, offset, colour::kYellowSoft);
 }
 
 // The Customized settings box (tpw-port #94): the edition's .sam settings files the player changed after its disc was
@@ -2288,14 +2357,14 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
     input_.entered = false;
     const bool wasEditing = onlineServerEditing_;
 
-    // A drop made in the Game data box: the box opens again once the result is left for the home (not for Play).
+    // A drop made in the About / Game Data box: the box opens again once the result is left for the home (not for Play).
     if (gameDataReturn_ && screen_ == Screen::Home && !backend_.Running()) {
         gameDataReturn_ = false;
         ShowGameData(true);
     } else if (gameDataReturn_ && (screen_ == Screen::Play || screen_ == Screen::Starting)) {
         gameDataReturn_ = false;
     }
-    bool overlay = aboutOpen_ || settingsOpen_ || modsOpen_ || gameDataOpen_ || editedOpen_ >= 0;
+    bool overlay = aboutOpen_ || settingsOpen_ || modsOpen_ || editedOpen_ >= 0;
     if (!settingsOpen_) languageOpen_ = -1;
     if (!settingsOpen_) gamePlayerOpen_ = false;
     if (settingsOpen_ && !settingsWereOpen_) {   // opened: the edition chosen to play and its last player, as they are now
@@ -2309,8 +2378,9 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
     tilesShown_ = false;
     readyShown_ = false;
     showLogsRect_ = titleRect_ = titleVersionRect_ = headerButtonsRect_ = updateBannerRect_ = Rect{};
-    exportLogsRect_ = openDownloadsRect_ = modsButtonRect_ = modsOnRect_ = gameDataButtonRect_ = Rect{};
-    gameDataInHeader_ = false;
+    exportLogsRect_ = openDownloadsRect_ = modsButtonRect_ = modsOnRect_ = modsDiamondRect_ = Rect{};
+    aboutButtonRect_ = settingsButtonRect_ = Rect{};
+    if (!aboutOpen_) licensesOpen_ = false;
     for (Rect& r : editedBadge_) r = Rect{};
     for (Rect& r : tilePlay_) r = Rect{};
     if (editedOpen_ < 0) restoreRects_.clear();
@@ -2329,8 +2399,12 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
         ui_.SetInteractive(!dragging_);
         if (settingsOpen_) DrawSettings(window);
         if (modsOpen_) DrawMods(window);
-        if (gameDataOpen_) DrawGameData(window);
-        if (aboutOpen_) DrawAbout(window);
+        if (aboutOpen_) {
+            ui_.SetInteractive(!dragging_ && !licensesOpen_);   // under the Licenses box, while it is open
+            DrawAbout(window);
+            ui_.SetInteractive(!dragging_);
+        }
+        if (licensesOpen_) DrawLicenses(window);
         if (editedOpen_ >= 0) DrawEdited(window);
     }
     dropOverlay_ = DrawDropOverlay(window);

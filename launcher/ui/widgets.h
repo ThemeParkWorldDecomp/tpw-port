@@ -6,6 +6,7 @@
 // Everything is in points (draw.h).
 #pragma once
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -80,7 +81,12 @@ public:
     void Panel(const Rect& r, Rgba top, Rgba bottom, float radius = metric::kRadius);
     bool Button(const std::string& id, const Rect& r, std::string_view label, ButtonKind kind, bool enabled = true,
                 Style labelStyle = style::kButton);
-    float ButtonWidth(std::string_view label) const;   // a comfortable width for the label
+    // A button with a picture before its label, the two centred together: `icon` draws it in the slot it is given,
+    // `iconW` wide and the face's height, which moves with the face as it lifts and presses.
+    bool IconButton(const std::string& id, const Rect& r, std::string_view label, ButtonKind kind, float iconW,
+                    const std::function<void(const Rect& slot)>& icon);
+    // A comfortable width for the label (and a picture `iconW` wide before it, IconButton).
+    float ButtonWidth(std::string_view label, float iconW = 0) const;
     // Returns where it drew the tile: `r`, a little grown while the pointer is over it (never while a drag is).
     Rect Tile(const std::string& id, const Rect& r, const TileView& view);
     // `fraction` < 0: busy without a known amount (a block sweeps back and forth).
@@ -136,6 +142,8 @@ public:
     void ScrollBar(const Rect& track, float shown, float total, float offset, Rgba trackColour);
 
 private:
+    bool DrawButton(const std::string& id, const Rect& r, std::string_view label, ButtonKind kind, bool enabled,
+                    Style labelStyle, float iconW, const std::function<void(const Rect& slot)>* icon);
     // The drop field's icon: a tray, and an arrow dropping into it, `size` square from `top`; `k` 1 is the lime of a
     // drop taken, and `bounce` how far the arrow bobs.
     void DropIcon(float cx, float top, float size, float k, float bounce, Rgba ink);

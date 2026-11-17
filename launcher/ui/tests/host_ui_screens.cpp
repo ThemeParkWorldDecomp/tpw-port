@@ -661,11 +661,18 @@ void Render(const std::string& dir, const Shot& shot, int scale) {
         auto frames = [&](int n) {
             for (int i = 0; i < n; ++i) step(kDt);
         };
+        // Every frame but the last is drawn into a one-pixel viewport: the software renderer then clips each triangle
+        // and blit to it, so those frames cost their layout and almost no drawing. The launcher never sets the viewport,
+        // and each frame clears and draws the whole window again, so the last frame's picture is the same.
+        const SDL_Rect pixel{0, 0, 1, 1};
+        SDL_SetRenderViewport(renderer, &pixel);
         frames(1);
         if (shot.drive) shot.drive(ui, backend, frames);
-        // Let the springs settle: two seconds in long steps (the springs integrate in small ones of their own), as
-        // every frame costs a full software drawing.
-        for (int i = 0; i < 20; ++i) step(0.1f);
+        // Let the springs settle: two seconds in long steps (the springs integrate in small ones of their own).
+        for (int i = 0; i < 20; ++i) {
+            if (i == 19) SDL_SetRenderViewport(renderer, nullptr);
+            step(0.1f);
+        }
         Check(ui.CurrentScreen() == shot.screen, label + ": not on the expected screen");
         Check(SDL_FlushRenderer(renderer), label + ": SDL_FlushRenderer: " + SDL_GetError());
         SDL_Surface* rgb = SDL_ConvertSurface(surface, SDL_PIXELFORMAT_RGB24);
@@ -879,6 +886,28 @@ void CheckAboutRows(LauncherUi& ui) {
     if (row) CheckEq(row->license, "GNU LGPL 2.1 or later", "About: FFmpeg's licence");
 #else
     Check(find("FFmpeg") == nullptr, "About leaves FFmpeg out (the build skips the films)");
+#endif
+
+    // The Licenses box's texts (the maintainer, 2026-11-16: the "Made with" table gone, its licences' notices kept): each row's
+    // notice is what its licence asks a program built with it to carry.
+    const auto has = [&](const std::string& prefix, const std::string& text, const std::string& what) {
+        const MadeWith* r = find(prefix);
+        Check(r != nullptr && r->notice.find(text) != std::string::npos, "Licenses: " + what);
+    };
+    for (const MadeWith& r : rows) Check(r.notice.size() > 100, "Licenses: " + r.name + " has its notice");
+    has("SDL", "This software is provided 'as-is'", "SDL's zlib License text");
+    has("zlib", "Jean-loup Gailly and Mark Adler", "zlib's notice");
+    has("libjpeg", "This software is based in part on the work of the Independent JPEG Group",
+        "libjpeg's sentence the IJG License asks for");
+    has("libarchive", "Redistribution and use in source and binary forms", "libarchive's BSD notice");
+    has("liblzma", "Permission to use, copy, modify, and/or distribute", "liblzma's 0BSD text");
+    has("stb_truetype", "Permission is hereby granted", "stb's licence");
+    has("Fredoka", "SIL OPEN FONT LICENSE", "Fredoka's OFL");
+    has("Fredoka", "The Fredoka Project Authors", "Fredoka's copyright");
+    has("Nunito", "SIL OPEN FONT LICENSE", "Nunito's OFL");
+#if TPW_TEST_FFMPEG
+    has("FFmpeg", "GNU LESSER GENERAL PUBLIC LICENSE", "FFmpeg's notice carries the LGPL's text");
+    has("FFmpeg", "github.com/ThemeParkWorldDecomp/tpw-port", "FFmpeg's notice says where the source is");
 #endif
 }
 
@@ -1501,11 +1530,50 @@ std::vector<Shot> Shots() {
                          ui.OfferPaths({"/media/Theme Park Inc"});
                      },
                      Screen::Result, {}});
-    shots.push_back({"64-home-gamedata-button-smallest", metric::kMinWidth, metric::kMinHeight, nullptr, nullptr,
+    shots.push_back({"64-home-header-smallest-update", metric::kMinWidth, metric::kMinHeight, nullptr, nullptr,
                      Screen::Home, "found"});
-    // A wide window: the button in the header, where its Play was, on both homes.
-    shots.push_back({"65-home-gamedata-header-wide", 1600, 1000, PartialUsEur, nullptr, Screen::Home, {}});
-    shots.push_back({"66-ready-gamedata-header-wide", 1600, 1000, FillEverything, nullptr, Screen::Home, {}});
+    // A wide window: the same three buttons in the header, on both homes.
+    shots.push_back({"65-home-header-wide", 1600, 1000, PartialUsEur, nullptr, Screen::Home, {}});
+    shots.push_back({"66-ready-header-wide", 1600, 1000, FillEverything, nullptr, Screen::Home, {}});
+
+    // The 0.5.7 layout (the maintainer, 2026-11-16): the three header buttons with the Mods diamond at zero mods, the yellow
+    // "2 mods on" otherwise, at the start size, the smallest and a large one; the About / Game Data box; its Licenses.
+    const auto twoMods = [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+        ui.SetMods({EnableStrikes(), StaffCrossBridges()});
+        frames(1);
+    };
+    const auto bothOn = [](FakeBackend& b) {
+        FillEverything(b);
+        b.settings[ModKey("enable-strikes")] = "1";
+        b.settings[ModKey("staff-cross-bridges")] = "1";
+    };
+    shots.push_back({"70-home-mods-diamond", metric::kStartWidth, metric::kStartHeight, FillEverything, twoMods,
+                     Screen::Home, {}});
+    shots.push_back({"71-home-two-mods-on", metric::kStartWidth, metric::kStartHeight, bothOn, twoMods, Screen::Home, {}});
+    shots.push_back({"72-home-mods-diamond-smallest", metric::kMinWidth, metric::kMinHeight, FillEverything, twoMods,
+                     Screen::Home, {}});
+    shots.push_back({"73-home-mods-diamond-large", 1600, 1000, FillEverything, twoMods, Screen::Home, {}});
+    shots.push_back({"74-home-empty-mods-diamond", metric::kStartWidth, metric::kStartHeight, nullptr, twoMods,
+                     Screen::Home, {}});
+    const auto aboutBox = [](bool licenses) {
+        return [licenses](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+            ui.SetMods({EnableStrikes(), Ps1RidesConverted(), TpiWorldsConverted()});
+            ui.SetLogsFolder("/Users/player/Library/Application Support/STP-TPW Launcher/logs");
+            ui.SetExportLogs(&FakeExportLogs);
+            ui.ShowAbout(true);
+            if (licenses) ui.ShowLicenses(true);
+            frames(1);
+        };
+    };
+    shots.push_back({"75-about-gamedata", metric::kStartWidth, metric::kStartHeight, everything, aboutBox(false),
+                     Screen::Home, {}});
+    shots.push_back({"76-about-gamedata-smallest", metric::kMinWidth, metric::kMinHeight, everything, aboutBox(false),
+                     Screen::Home, {}});
+    shots.push_back({"77-about-gamedata-locked", metric::kStartWidth, metric::kStartHeight, nullptr, aboutBox(false),
+                     Screen::Home, {}});
+    shots.push_back({"78-licenses", metric::kStartWidth, metric::kStartHeight, everything, aboutBox(true), Screen::Home, {}});
+    shots.push_back({"79-licenses-smallest", metric::kMinWidth, metric::kMinHeight, everything, aboutBox(true),
+                     Screen::Home, {}});
     return shots;
 }
 
@@ -2133,14 +2201,14 @@ void CheckTilePlay(SDL_Renderer* renderer) {
                 }
 
     // The case of the bug: at the start width the header had no room for its Play beside Mods, Settings and About. The
-    // header has no Play now; its leftmost button is Mods, or Game data where that fits.
+    // header has no Play now; its leftmost button is Mods.
     {
         FakeBackend b;
         b.FillAll(assets::kEditionUs);
         LauncherUi ui(renderer, b);
         ui.SetMods({EnableStrikes(), StaffCrossBridges()});
         ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
-        Check(ui.HeaderButtonsRect().x == (ui.GameDataInHeader() ? ui.GameDataButtonRect().x : ui.ModsButtonRect().x),
+        Check(ui.HeaderButtonsRect().x == ui.ModsButtonRect().x,
               "tile Play: no header Play beside Mods at the start width");
         Check(ui.TilePlayRect(0).w > 0, "tile Play: there all the same on the tile");
     }
@@ -2244,7 +2312,7 @@ void CheckTilePlay(SDL_Renderer* renderer) {
         Check(ui.TilePlayRect(0).w == 0 && ui.TilePlayRect(1).w == 0 && ui.TilePlayRect(2).w == 0,
               "all confirmed: no small tile's Play");
         const Rect us = ui.ReadyPlayRect(0), eu = ui.ReadyPlayRect(1);
-        Check(us.Contains(205, 456) && eu.Contains(595, 456), "all confirmed: the large Play buttons where the play test clicks");
+        Check(us.Contains(236, 627) && eu.Contains(689, 627), "all confirmed: the large Play buttons where the play test clicks");
         std::printf("all confirmed: Play buttons %.0f,%.0f %.0fx%.0f and %.0f,%.0f %.0fx%.0f\n", us.x, us.y, us.w, us.h, eu.x,
                     eu.y, eu.w, eu.h);
     }
@@ -3487,27 +3555,34 @@ void CheckGameData(SDL_Renderer* renderer) {
     };
     const auto starts = [](const std::string& s, const std::string& head) { return s.compare(0, head.size(), head) == 0; };
 
-    // Where the button is: the header's first (leftmost) button in a wide window, below the header in a narrow one.
-    const auto placed = [](LauncherUi& ui, bool wide, const std::string& what) {
-        const Rect button = ui.GameDataButtonRect(), header = ui.HeaderButtonsRect();
-        Check(button.w > 0, what + ": the home has the Game data button");
-        Check(ui.GameDataInHeader() == wide, what + (wide ? ": the button is in the header" : ": the button is in the body"));
-        if (wide) {
-            Check(button.x == header.x && button.y == header.y && button.h == header.h,
-                  what + ": the header's leftmost button, where its Play was (no Play beside it)");
-            Check(button.x >= ui.TitleVersionRect().Right() + 16, what + ": the button clears the title's version");
-        } else {
-            Check(button.y > header.Bottom(), what + ": the button is below the header");
-        }
+    // Where the button is: the header's About / Game Data, its rightmost, at every window size (the maintainer, 2026-11-16: every
+    // button at the top, none in the home's body).
+    const auto placed = [](LauncherUi& ui, const std::string& what) {
+        const Rect button = ui.AboutButtonRect(), header = ui.HeaderButtonsRect();
+        Check(button.w > 0, what + ": the home has the About / Game Data button");
+        Check(button.Right() == header.Right() && button.y == header.y && button.h == header.h,
+              what + ": the button is the header's rightmost");
+        Check(header.x >= ui.TitleVersionRect().Right() + 16, what + ": the header's buttons clear the title's version");
         for (int i = 0; i < 3; ++i)
             Check(!Overlaps(button, ui.TileRect(i)), what + ": the button is clear of tile " + std::to_string(i));
+    };
+    // The box's About part: the logs and Licenses buttons in the box, above the rows, whatever the window's height.
+    const auto aboutPart = [](LauncherUi& ui, const std::string& what) {
+        const Rect box = ui.GameDataBoxRect(), licenses = ui.LicensesButtonRect();
+        Check(licenses.w > 0 && box.Contains(licenses.CentreX(), licenses.CentreY()), what + ": Licenses is in the box");
+        for (const Rect& r : {ui.ShowLogsRect(), ui.ExportLogsRect()}) {
+            Check(r.w > 0 && box.Contains(r.CentreX(), r.CentreY()), what + ": Show logs and Export logs are in the box");
+            Check(r.Right() <= licenses.x && r.y == licenses.y, what + ": the logs buttons share Licenses' row, left of it");
+        }
+        const Rect settings = ui.GameDataSettingsRect();
+        Check(settings.y > licenses.Bottom() && settings.Bottom() <= box.Bottom(),
+              what + ": Open Settings is at the bottom, below the logs");
     };
 
     const float sizes[3][2] = {{metric::kStartWidth, metric::kStartHeight}, {metric::kMinWidth, metric::kMinHeight},
                                {1600, 1000}};
     for (int size = 0; size < 3; ++size) {
         const float w = sizes[size][0], h = sizes[size][1];
-        const bool wide = size == 2;
         const std::string at = " at " + std::to_string(static_cast<int>(w)) + "x" + std::to_string(static_cast<int>(h));
 
         // A fresh download: the drop-field home, everything locked.
@@ -3516,16 +3591,19 @@ void CheckGameData(SDL_Renderer* renderer) {
             FakeBackend b;
             LauncherUi ui(renderer, b);
             ui.SetMods({EnableStrikes(), Ps1Rides(), TpiWorlds()});
+            ui.SetLogsFolder("/logs");
+            ui.SetExportLogs(&FakeExportLogs);
             auto frames = [&](int n) {
                 for (int i = 0; i < n; ++i) ui.Frame(kDt, w, h, 1);
             };
             frames(1);
-            const Rect button = ui.GameDataButtonRect();
+            const Rect button = ui.AboutButtonRect();
             Check(ui.ReadyPlayRect(0).w == 0, what + ": the drop-field home");
-            placed(ui, wide, what);   // the body is drawn after the header: a second button there would move the rect
+            placed(ui, what);
             press(ui, button, frames);
             frames(1);   // the box opened in the click's frame shows from the next
-            Check(ui.GameDataOpen() && ui.GameDataBoxRect().w > 0, what + ": the button opens the Game data box");
+            Check(ui.GameDataOpen() && ui.GameDataBoxRect().w > 0, what + ": the button opens the About / Game Data box");
+            aboutPart(ui, what);
             Check(ui.SettingsBodyCounted() == 0 && ui.InterfaceSizeRect().w == 0, what + ": not Settings");
             const Rect box = ui.GameDataBoxRect();
             Check(box.y >= metric::kMargin - 1 && box.Bottom() <= h - metric::kMargin + 1 && box.x >= 0 && box.Right() <= w,
@@ -3594,20 +3672,16 @@ void CheckGameData(SDL_Renderer* renderer) {
             };
             frames(1);
             Check(ui.ReadyPlayRect(0).w > 0, what + ": the all-confirmed home");
-            placed(ui, wide, what);
-            if (wide) {
-                // The row below the tiles keeps its place (the play test clicks the tiles' Play), empty but for a drag's
-                // hint; the header keeps the button during a drag.
-                Check(ui.TileRect(0).Bottom() > ui.GameDataButtonRect().Bottom(), what + ": the tiles are below the header");
-                ui.HandleEvent(DropEvent(SDL_EVENT_DROP_BEGIN));
-                ui.HandleEvent(DropEvent(SDL_EVENT_DROP_POSITION, w * 0.5f, 20));
-                frames(1);
-                Check(ui.GameDataInHeader() && ui.GameDataButtonRect().w > 0 && !ui.GameDataOpen(),
-                      what + ": during a drag the header keeps the button");
-                ui.HandleEvent(DropEvent(SDL_EVENT_DROP_COMPLETE));
-                frames(1);
-            }
-            press(ui, ui.GameDataButtonRect(), frames);
+            placed(ui, what);
+            // The tiles are below the header, and it keeps the button during a drag.
+            Check(ui.TileRect(0).y > ui.AboutButtonRect().Bottom(), what + ": the tiles are below the header");
+            ui.HandleEvent(DropEvent(SDL_EVENT_DROP_BEGIN));
+            ui.HandleEvent(DropEvent(SDL_EVENT_DROP_POSITION, w * 0.5f, 20));
+            frames(1);
+            Check(ui.AboutButtonRect().w > 0 && !ui.GameDataOpen(), what + ": during a drag the header keeps the button");
+            ui.HandleEvent(DropEvent(SDL_EVENT_DROP_COMPLETE));
+            frames(1);
+            press(ui, ui.AboutButtonRect(), frames);
             Check(ui.GameDataOpen() && ui.SettingsBodyCounted() == 0, what + ": Game data opens its box, not Settings");
             const std::vector<GameDataRow> rows = ui.GameData();
             Check(names(rows) == kNames, what + ": the six rows, in order");
@@ -3638,7 +3712,7 @@ void CheckGameData(SDL_Renderer* renderer) {
                 for (int i = 0; i < n; ++i) ui.Frame(kDt, w, h, 1);
             };
             frames(1);
-            press(ui, ui.GameDataButtonRect(), frames);
+            press(ui, ui.AboutButtonRect(), frames);
             Check(ui.GameDataOpen(), what + ": the box opens");
             const std::vector<GameDataRow> rows = ui.GameData();
             Check(names(rows) == kNames, what + ": the six rows, in order");
@@ -3673,10 +3747,10 @@ void CheckGameData(SDL_Renderer* renderer) {
         std::unique_ptr<Updater> updater = MakeUpdater(b, "found");
         ui.SetUpdater(updater.get());
         ui.Frame(kDt, metric::kMinWidth, metric::kMinHeight, 1);
-        Check(ui.GameDataButtonRect().w > 0 && !Overlaps(ui.GameDataButtonRect(), ui.UpdateBannerRect()),
+        Check(ui.AboutButtonRect().w > 0 && !Overlaps(ui.AboutButtonRect(), ui.UpdateBannerRect()),
               "game data: the button is clear of the update banner at the smallest size");
         for (int i = 0; i < 3; ++i)
-            Check(!Overlaps(ui.GameDataButtonRect(), ui.TileRect(i)),
+            Check(!Overlaps(ui.AboutButtonRect(), ui.TileRect(i)),
                   "game data: under the update banner, the button is clear of tile " + std::to_string(i));
     }
 
@@ -3729,9 +3803,9 @@ void CheckGameData(SDL_Renderer* renderer) {
     }
 }
 
-// No footer on either home (the maintainer, 2026-11-08): the tiles, or on the all-confirmed home the "Game data" row under them,
-// sit a margin above the window's bottom edge at the start size and the smallest, and the version is the one beside the
-// title; and the About box's Show logs button, there only when the window has a logs folder.
+// No footer on either home (the maintainer, 2026-11-08) and no row under the tiles (the maintainer, 2026-11-16): the tiles sit a margin above
+// the window's bottom edge at the start size and the smallest, and the version is the one beside the title; and the
+// About box's Show logs button, there only when the window has a logs folder.
 void CheckVersionAndLogs(SDL_Renderer* renderer) {
     for (bool ready : {false, true}) {
         for (int size = 0; size < 2; ++size) {
@@ -3745,10 +3819,10 @@ void CheckVersionAndLogs(SDL_Renderer* renderer) {
             ui.Frame(kDt, w, h, 1);
             const Rect v = ui.TitleVersionRect();
             Check(v.w > 0 && v.h > 0 && v.Bottom() < h * 0.25f, what + ": the version is drawn beside the title");
-            const float bottom = h - metric::kMargin - (ready ? 34 + metric::kGap : 0);
+            const float bottom = h - metric::kMargin;
             for (int i = 0; i < (ready ? 2 : 3); ++i)
                 Check(std::abs(ui.TileRect(i).Bottom() - bottom) < 0.5f,
-                      what + ": tile " + std::to_string(i) + " sits " + (ready ? "above the Game data row" : "a margin above the bottom"));
+                      what + ": tile " + std::to_string(i) + " sits a margin above the bottom, no row under it");
             if (ready) Check(ui.ReadyPlayRect(0).w > 0, what + ": the Play buttons are drawn");
         }
     }
@@ -3822,6 +3896,161 @@ void CheckVersionAndLogs(SDL_Renderer* renderer) {
     eui.ShowAbout(true);
     eui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
     Check(eui.OpenDownloadsRect().w == 0 && eui.ExportLogsRect().w > 0, "About: Open Downloads is gone once the box was closed");
+}
+
+// The launcher's layout for 0.5.7 (the maintainer, 2026-11-16): the window opens at 925 x 685 points (125 more each way than the
+// 800 x 560 before) and is never smaller than 880 x 520; every button is in the header, from the left Mods, Settings and
+// About / Game Data, clear of the title's version at every size, with as many mods on as a two-digit count; the Mods
+// button has a diamond beside its label only while no mod is on, and says "N mods on" in yellow otherwise; the About /
+// Game data box opens the Licenses box, and Escape closes Licenses before About.
+void CheckHeaderAndSizes(SDL_Renderer* renderer) {
+    Check(metric::kStartWidth == 925 && metric::kStartHeight == 685, "sizes: the window opens at 925 x 685");
+    Check(metric::kMinWidth == 880 && metric::kMinHeight == 520, "sizes: the smallest window is 880 x 520");
+    Check(metric::kStartWidth == 800 + 125 && metric::kStartHeight == 560 + 125, "sizes: 125 more each way than 800 x 560");
+
+    // Twelve mods, as many as `on` of them on.
+    const auto twelve = [](FakeBackend& b, int on) {
+        std::vector<ModRow> mods;
+        for (int i = 0; i < 12; ++i) {
+            ModRow mod = EnableStrikes();
+            mod.id += "-" + std::to_string(i);
+            if (i < on) b.settings[ModKey(mod.id)] = "1";
+            mods.push_back(mod);
+        }
+        return mods;
+    };
+    const float sizes[4][2] = {{metric::kMinWidth, metric::kMinHeight}, {metric::kStartWidth, metric::kStartHeight},
+                               {1600, 1000}, {2560, 1440}};
+    for (bool ready : {false, true})
+        for (const auto& size : sizes)
+            for (int on : {0, 1, 4, 12}) {
+                const float w = size[0], h = size[1];
+                const std::string what = std::string(ready ? "header, all-confirmed home" : "header, home") + " at " +
+                                         std::to_string(static_cast<int>(w)) + "x" + std::to_string(static_cast<int>(h)) +
+                                         ", " + std::to_string(on) + " mods on";
+                FakeBackend b;
+                if (ready) FillEverything(b);
+                const std::vector<ModRow> mods = twelve(b, on);
+                LauncherUi ui(renderer, b);
+                ui.SetMods(mods);
+                ui.Frame(kDt, w, h, 1);
+                const Rect mb = ui.ModsButtonRect(), sb = ui.SettingsButtonRect(), ab = ui.AboutButtonRect();
+                const Rect header = ui.HeaderButtonsRect(), version = ui.TitleVersionRect();
+                Check(mb.w > 0 && sb.w > 0 && ab.w > 0, what + ": the three buttons are drawn");
+                Check(mb.Right() + 10 == sb.x && sb.Right() + 10 == ab.x, what + ": Mods, Settings, About / Game Data, in order");
+                Check(mb.y == sb.y && sb.y == ab.y && mb.h == ab.h, what + ": on one line");
+                Check(header.x == mb.x && header.Right() == ab.Right(), what + ": the header's buttons are these three");
+                Check(version.Right() + 10 <= mb.x, what + ": clear of the title's version");
+                Check(ab.Right() == w - metric::kMargin, what + ": a margin from the window's right edge");
+                Check((ui.ReadyPlayRect(0).w > 0) == ready, what + ": the home expected");
+                const float tileTop = ui.TileRect(0).y;
+                Check(tileTop > ab.Bottom(), what + ": the tiles are below the buttons");
+                // Nothing below the tiles: they reach down to a margin above the window's bottom edge.
+                for (int i = 0; i < (ready ? 2 : 3); ++i)
+                    Check(std::abs(ui.TileRect(i).Bottom() - (h - metric::kMargin)) < 0.5f,
+                          what + ": tile " + std::to_string(i) + " fills down to the bottom margin");
+                const Rect diamond = ui.ModsDiamondRect();
+                if (on == 0) {
+                    Check(diamond.w > 0 && diamond.h > 0, what + ": the diamond is drawn");
+                    Check(diamond.x >= mb.x + 8 && diamond.Right() <= mb.Right() - 8 && diamond.y >= mb.y + 4 &&
+                              diamond.Bottom() <= mb.Bottom() - 4,
+                          what + ": the diamond is inside the Mods button");
+                    Check(ui.ModsOnRect().w == 0, what + ": no \"mods on\" label");
+                } else {
+                    Check(diamond.w == 0, what + ": no diamond while a mod is on");
+                    Check(ui.ModsOnRect().w > 0 && ui.ModsOnRect().x == mb.x, what + ": the yellow \"mods on\" button");
+                }
+                if (on == 12 && (w == metric::kMinWidth || w == metric::kStartWidth))
+                    std::printf("  %s: version ends %.0f, buttons %.0f..%.0f (Mods %.0f wide)\n", what.c_str(),
+                                version.Right(), header.x, header.Right(), mb.w);
+            }
+
+    // The diamond in pixels: blue facets inside its rect at zero mods, none there once a mod is on.
+    for (int on : {0, 1}) {
+        const int w = metric::kStartWidth, h = metric::kStartHeight;
+        SDL_Surface* surface = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_XRGB8888);
+        SDL_Renderer* soft = surface ? SDL_CreateSoftwareRenderer(surface) : nullptr;
+        Check(soft != nullptr, std::string("diamond: software renderer: ") + SDL_GetError());
+        if (soft) {
+            FakeBackend b;
+            FillEverything(b);
+            if (on) b.settings[ModKey("enable-strikes")] = "1";
+            Rect where;
+            {
+                LauncherUi ui(soft, b);
+                ui.SetMods({EnableStrikes(), StaffCrossBridges()});
+                for (int i = 0; i < 3; ++i) ui.Frame(kDt, w, h, 1);
+                // With a mod on: inside the yellow button, clear of its round ends and outline (the sky shows there).
+                const Rect mb = ui.ModsButtonRect();
+                where = on ? Rect{mb.x + mb.h * 0.5f, mb.y + 5, mb.w - mb.h, mb.h - 10} : ui.ModsDiamondRect();
+                SDL_FlushRenderer(soft);
+            }
+            int blue = 0;
+            SDL_Surface* rgb = SDL_ConvertSurface(surface, SDL_PIXELFORMAT_RGB24);
+            if (rgb) {
+                const uint8_t* px = static_cast<const uint8_t*>(rgb->pixels);
+                for (int y = static_cast<int>(where.y); y < static_cast<int>(where.Bottom()); ++y)
+                    for (int x = static_cast<int>(where.x); x < static_cast<int>(where.Right()); ++x) {
+                        const uint8_t* p = px + static_cast<size_t>(y) * rgb->pitch + x * 3;
+                        if (p[2] > p[0] + 60 && p[2] > 150) ++blue;
+                    }
+                SDL_DestroySurface(rgb);
+            }
+            if (on)
+                Check(blue == 0, "diamond: none of its blue in the Mods button with a mod on");
+            else
+                Check(blue > static_cast<int>(where.w * where.h * 0.25f), "diamond: its blue facets fill it at zero mods (" +
+                                                                                 std::to_string(blue) + " pixels)");
+            SDL_DestroyRenderer(soft);
+        }
+        if (surface) SDL_DestroySurface(surface);
+    }
+
+    // The About / Game Data box's Licenses: opened from the box, every library's text in it, Escape closes it first.
+    for (int size = 0; size < 2; ++size) {
+        const float w = size == 0 ? metric::kStartWidth : metric::kMinWidth;
+        const float h = size == 0 ? metric::kStartHeight : metric::kMinHeight;
+        const std::string what = "licenses at " + std::to_string(static_cast<int>(w)) + "x" + std::to_string(static_cast<int>(h));
+        FakeBackend b;
+        LauncherUi ui(renderer, b);
+        ui.SetLogsFolder("/logs");
+        ui.SetExportLogs(&FakeExportLogs);
+        auto frames = [&](int n) {
+            for (int i = 0; i < n; ++i) ui.Frame(kDt, w, h, 1);
+        };
+        frames(1);
+        Check(ui.LicensesButtonRect().w == 0 && ui.LicensesBoxRect().w == 0, what + ": no Licenses with the box closed");
+        ui.ShowAbout(true);
+        frames(1);
+        const Rect lb = ui.LicensesButtonRect();
+        Check(lb.w > 0 && ui.GameDataBoxRect().Contains(lb.CentreX(), lb.CentreY()), what + ": Licenses in the box");
+        ui.HandleEvent(MotionEvent(lb.CentreX(), lb.CentreY()));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, lb.CentreX(), lb.CentreY()));
+        frames(1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, lb.CentreX(), lb.CentreY()));
+        frames(2);
+        const Rect box = ui.LicensesBoxRect();
+        Check(ui.LicensesOpen() && box.w > 0, what + ": a click on Licenses opens its box");
+        Check(box.x >= 0 && box.Right() <= w && box.y >= 0 && box.Bottom() <= h, what + ": the box fits the window");
+        std::string all;
+        for (const std::string& line : ui.LicensesLines()) all += line + "\n";
+        for (const char* text : {"SDL", "zlib", "Independent JPEG Group", "libarchive", "liblzma", "stb_truetype",
+                                 "Fredoka", "Nunito", "SIL OPEN FONT LICENSE"})
+            Check(all.find(text) != std::string::npos, what + ": the box has " + text);
+#if TPW_TEST_FFMPEG
+        Check(all.find("GNU LESSER GENERAL PUBLIC LICENSE") != std::string::npos, what + ": the box has the LGPL's text");
+#endif
+        SDL_Event escape{};
+        escape.type = SDL_EVENT_KEY_DOWN;
+        escape.key.key = SDLK_ESCAPE;
+        ui.HandleEvent(escape);
+        frames(1);
+        Check(!ui.LicensesOpen() && ui.GameDataOpen(), what + ": Escape closes Licenses, About stays");
+        ui.HandleEvent(escape);
+        frames(1);
+        Check(!ui.GameDataOpen(), what + ": a second Escape closes About");
+    }
 }
 
 // The launcher's version beside the large title on both homes, at the smallest window, the start size and two large
@@ -4147,14 +4376,30 @@ int main(int argc, char** argv) {
         CheckGameData(renderer);
         CheckVersionAndLogs(renderer);
         CheckTitleVersion(renderer);
+        CheckHeaderAndSizes(renderer);
         CheckUpdateBanner(renderer);
         CheckEdited(renderer);
         SDL_DestroyRenderer(renderer);
     }
     SDL_DestroySurface(scratch);
 
+    // TPW_UI_SHOTS: draw only the pictures whose names hold one of its comma-separated parts (a quicker run while
+    // working on a screen; the ctest draws them all).
+    const char* only = std::getenv("TPW_UI_SHOTS");
+    const auto wanted = [&](const std::string& name) {
+        if (only == nullptr || *only == 0) return true;
+        std::string parts = only;
+        for (size_t at = 0; at <= parts.size();) {
+            const size_t end = std::min(parts.find(',', at), parts.size());
+            const std::string part = parts.substr(at, end - at);
+            if (!part.empty() && name.find(part) != std::string::npos) return true;
+            at = end + 1;
+        }
+        return false;
+    };
     for (const Shot& shot : Shots())
-        for (int scale : {1, 2}) Render(dir, shot, scale);
+        if (wanted(shot.name))
+            for (int scale : {1, 2}) Render(dir, shot, scale);
 
     for (const std::string& path : g_written) std::printf("wrote %s\n", path.c_str());
     std::printf("launcher_ui: %d checks, %d failed, %zu pictures\n", g_checks, g_failures, g_written.size());

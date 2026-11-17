@@ -1,6 +1,6 @@
 // launcher_ui.h: the launcher's screens (launcher-design REPORT section 5): the drop field with its Browse buttons and
 // the three edition tiles (once all three editions are confirmed, two large tiles to play from instead); the checking log with its counter and progress bar; the result; Play with the edition
-// switch and the Gold toggles; the Settings and About boxes; and the Customized settings box of an edition whose .sam
+// switch and the Gold toggles; the Mods, Settings and About / Game Data boxes (and its Licenses box); and the Customized settings box of an edition whose .sam
 // settings files the player edited (its badge on the edition's tile). Driven by SDL3 events: mouse, wheel, Escape and the
 // drop events (DROP_BEGIN, DROP_POSITION, DROP_FILE, DROP_COMPLETE; DROP_TEXT is ignored). The window loop is
 // window.h's; the screenshot test drives this class on a software renderer with a scripted backend.
@@ -316,9 +316,19 @@ public:
     // For the screenshot test.
     Screen CurrentScreen() const { return screen_; }
     void ShowScreen(Screen screen);
+    // The About / Game Data box (the header's third button): open or closed, and the same with ShowGameData. Opening it
+    // reads the data folder's languages again (the Game data rows name them).
     void ShowAbout(bool open);
-    // The About box's "Made with" rows (versions.h).
+    // The libraries the Licenses box lists, with their notices (versions.h).
     std::vector<MadeWith> AboutRows() const { return MadeWithRows(text_); }
+    // The Licenses box (the About / Game Data box's Licenses button): open or closed, whether it is open, where the last
+    // frame drew the button, the box, and the box's text (every line, at the box's width, scrolled or not), in points
+    // (empty when not shown).
+    void ShowLicenses(bool open);
+    bool LicensesOpen() const { return licensesOpen_; }
+    Rect LicensesButtonRect() const { return aboutOpen_ ? licensesButtonRect_ : Rect{}; }
+    Rect LicensesBoxRect() const { return licensesOpen_ ? licensesBoxRect_ : Rect{}; }
+    const std::vector<std::string>& LicensesLines() const { return licenseLines_; }
     void ShowSettings(bool open);
     // Opens the Customized settings box of an edition (0 US, 1 European, 2 Gold; -1 closes it), as its badge does.
     void ShowEdited(int index);
@@ -334,16 +344,16 @@ public:
                    ? restoreRects_[static_cast<size_t>(row)] : Rect{};
     }
     void ShowMods(bool open);
-    // The Game data box: open or closed, as the homes' Game data button does; whether it is open; its rows as the last
-    // frame drew them (GameDataRows); and where the last frame drew the homes' Game data button (in the header where it
-    // fits, else in the home's body: GameDataInHeader), the box and its Settings button, in points (empty when not shown).
-    void ShowGameData(bool open);
-    bool GameDataOpen() const { return gameDataOpen_; }
+    // The About / Game Data box seen as its Game data part: open or closed (ShowAbout); whether it is open; its rows as
+    // the last frame drew them (GameDataRows); and where the last frame drew the header's About / Game Data button, the
+    // box and its Open Settings button, in points (empty when not shown).
+    void ShowGameData(bool open) { ShowAbout(open); }
+    bool GameDataOpen() const { return aboutOpen_; }
     std::vector<GameDataRow> GameData() const { return GameDataRows(all_, languages_, mods_); }
-    Rect GameDataButtonRect() const { return gameDataButtonRect_; }
-    bool GameDataInHeader() const { return gameDataInHeader_; }
-    Rect GameDataBoxRect() const { return gameDataOpen_ ? gameDataBoxRect_ : Rect{}; }
-    Rect GameDataSettingsRect() const { return gameDataOpen_ ? gameDataSettingsRect_ : Rect{}; }
+    Rect AboutButtonRect() const { return aboutButtonRect_; }
+    Rect SettingsButtonRect() const { return settingsButtonRect_; }
+    Rect GameDataBoxRect() const { return aboutOpen_ ? aboutBoxRect_ : Rect{}; }
+    Rect GameDataSettingsRect() const { return aboutOpen_ ? gameDataSettingsRect_ : Rect{}; }
     void ArmRemove(assets::Edition edition);
     void ShowNotice(const std::string& message, bool problem);
     // Play's edition switch and Gold Edition toggle, as if clicked (the toggle's state is kept in launcher.ini, GoldKey).
@@ -430,7 +440,7 @@ public:
     Rect ExportLogsRect() const { return exportLogsRect_; }
     Rect OpenDownloadsRect() const { return openDownloadsRect_; }
     // The title row in the last frame, in points: the product's name, the version label drawn to its right, and the
-    // header's buttons (About, Settings, Mods and the homes' Game data where it fits; empty on screens without them).
+    // header's buttons (Mods, Settings, About / Game Data; empty on screens without them).
     Rect TitleRect() const { return titleRect_; }
     Rect TitleVersionRect() const { return titleVersionRect_; }
     Rect HeaderButtonsRect() const { return headerButtonsRect_; }
@@ -438,6 +448,8 @@ public:
     // (empty when not shown).
     Rect ModsButtonRect() const { return modsButtonRect_; }
     Rect ModsOnRect() const { return modsOnRect_; }
+    // The diamond the Mods button shows while no mod is on, in the last frame, in points (empty when not shown).
+    Rect ModsDiamondRect() const { return modsDiamondRect_; }
     // The Mods box and the switch of the mod of row `index` where the last frame drew them (scrolled with the box), in
     // points (empty when the box is closed), and whether the box scrolled.
     Rect ModsBoxRect() const { return modsOpen_ ? modsBoxRect_ : Rect{}; }
@@ -504,9 +516,12 @@ private:
     void DrawPlay(const Rect& window);
     void DrawSettings(const Rect& window);
     void DrawAbout(const Rect& window);
+    // The About / Game Data box's Game data part: the rows in `in` from `top` (scrolled in a short window) and the
+    // footer at `footerTop`.
+    void DrawGameData(const Rect& panel, const Rect& in, float top, float footerTop);
+    void DrawLicenses(const Rect& window);
     void DrawEdited(const Rect& window);
     void DrawMods(const Rect& window);
-    void DrawGameData(const Rect& window);
     // The Game options section of the Settings box (settings_game.cpp): its height, and drawing it at `y` in `in`.
     float GameOptionsHeight(float rowH);
     void DrawGameOptions(const Rect& in, float& y, float rowH);
@@ -527,7 +542,13 @@ private:
 
     Input input_;              // gathered from events since the last frame
     Screen screen_ = Screen::Home;
-    bool aboutOpen_ = false, settingsOpen_ = false, modsOpen_ = false;
+    bool aboutOpen_ = false, settingsOpen_ = false, modsOpen_ = false;   // aboutOpen_: the About / Game Data box
+    bool licensesOpen_ = false;
+    Rect aboutButtonRect_, aboutBoxRect_, settingsButtonRect_;   // last frame's (AboutButtonRect, GameDataBoxRect, ...)
+    Rect licensesButtonRect_, licensesBoxRect_;
+    std::vector<std::string> licenseLines_;   // the Licenses box's text wrapped at licenseWidth_ (wrapped once a width)
+    std::vector<bool> licenseHeads_;          // which of them are a library's heading
+    float licenseWidth_ = 0;
     int editedOpen_ = -1;      // the edition whose Customized settings box is open (status_ index), -1 none
     std::vector<assets::EditedFile> editedFiles_;   // its edited .sam files, read when it opens and after a restore
     Rect editedBadge_[3];      // last frame's (EditedBadgeRect)
@@ -644,16 +665,14 @@ private:
     std::vector<ModRow> mods_;
     std::vector<bool> modOn_;
     std::string modsMessage_;
-    Rect modsButtonRect_, modsOnRect_, modsBoxRect_;
+    Rect modsButtonRect_, modsOnRect_, modsBoxRect_, modsDiamondRect_;
     std::vector<Rect> modSwitchRects_;
     bool modsScrolls_ = false;
 
-    // The Game data box: open, to open again once a drop made while it was open is done (back on the home), and the
-    // last frame's rects.
-    bool gameDataOpen_ = false;
+    // The About / Game Data box: to open again once a drop made while it was open is done (back on the home), and the
+    // last frame's Open Settings button.
     bool gameDataReturn_ = false;
-    bool gameDataInHeader_ = false;   // this frame's homes have the button in the header (a wide enough window)
-    Rect gameDataButtonRect_, gameDataBoxRect_, gameDataSettingsRect_;
+    Rect gameDataSettingsRect_;
 
     // The Game options section (SetGameSettings): the files as last read, the edition and the player they are read for
     // (empty player: the last one played), and the last frame's rects.

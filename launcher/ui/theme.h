@@ -31,13 +31,11 @@ inline constexpr const char* kVersionLabel = "v" TPW_UI_VERSION;
 inline constexpr const char* kProductNameWithVersion = TPW_UI_PRODUCT_NAME " v" TPW_UI_VERSION;
 #undef TPW_UI_VERSION
 #undef TPW_UI_PRODUCT_NAME
-// How the games are mentioned: descriptively, never as a logo (launcher-design section 5, "Trademark naming").
+// How the games are mentioned: descriptively, never as a logo (launcher-design section 5, "Trademark naming"). The About /
+// Game data box shows both, one short line each, small (the maintainer, 2026-11-16).
 inline constexpr const char* kTagline =
-    "An unofficial port for playing your own copy of Sim Theme Park or Theme Park World (Mac or Windows).";
-// Shown in the About box, word for word.
-inline constexpr const char* kDisclaimer =
-    "Not affiliated with or endorsed by Electronic Arts. Sim Theme Park and Theme Park World are trademarks of their "
-    "respective owners. No game content is included; you need your own discs.";
+    "An unofficial port for playing your own copy of Sim Theme Park or Theme Park World.";
+inline constexpr const char* kDisclaimer = "Not affiliated with or endorsed by EA. No game content included: you need your own discs.";
 
 struct Rgba {
     uint8_t r, g, b, a;
@@ -64,6 +62,11 @@ inline constexpr Rgba kSkyChip{120, 196, 242, 255};
 inline constexpr Rgba kGrey{196, 194, 204, 255};
 inline constexpr Rgba kShadow{28, 18, 48, 80};
 inline constexpr Rgba kDim{28, 18, 48, 140};         // behind the About box
+// The Mods button's diamond (DrawDiamond in launcher_ui.cpp): a cut gem in four blues, lit from the top left.
+inline constexpr Rgba kGemPale{226, 246, 255, 255};
+inline constexpr Rgba kGemLight{150, 220, 255, 255};
+inline constexpr Rgba kGemMid{72, 168, 245, 255};
+inline constexpr Rgba kGemDeep{30, 104, 214, 255};
 }  // namespace colour
 
 namespace metric {
@@ -73,12 +76,15 @@ inline constexpr float kRadius = 16;     // panel corners
 inline constexpr float kOutline = 3;     // the dark outline of panels, tiles and buttons
 inline constexpr float kShadowDrop = 5;  // how far a shadow sits below its panel
 inline constexpr float kShadowBlur = 10;
-// The smallest window the layout is made for: the title row holds the title, its version, Settings and About side by
-// side (720 before the version joined it).
-inline constexpr int kMinWidth = 760;
+// The smallest window the layout is made for: the title row holds the title, its version and the three buttons (Mods
+// with "12 mods on", Settings, About / Game Data) side by side. It still fits a 1280 x 720 screen at 125% (1024 x 576
+// points) and a 1366 x 768 one at 125% (1093 x 614) (the maintainer, 2026-11-16: the buttons fit every screen size).
+inline constexpr int kMinWidth = 880;
 inline constexpr int kMinHeight = 520;
-inline constexpr int kStartWidth = 800;
-inline constexpr int kStartHeight = 560;
+// The window as it opens: 125 points wider and taller than 0.5.6's 800 x 560 (the maintainer, 2026-11-16). On a screen with less
+// room it opens as large as the screen's usable area allows, never below the minimum (window.cpp).
+inline constexpr int kStartWidth = 925;
+inline constexpr int kStartHeight = 685;
 }  // namespace metric
 
 }  // namespace tpw::ui

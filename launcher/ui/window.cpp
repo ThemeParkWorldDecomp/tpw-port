@@ -198,12 +198,19 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
         }
         if (placement.videoStarted != nullptr) placement.videoStarted();
     }
+    // The size it opens at: --window-size's, else metric::kStartWidth x kStartHeight, made smaller on a screen whose
+    // usable area (less the menu bar, the taskbar or the Dock) has less room, with some kept for the window's title bar,
+    // but never below the smallest the layout is made for.
+    int width = placement.width > 0 ? std::max(placement.width, metric::kMinWidth) : metric::kStartWidth;
+    int height = placement.height > 0 ? std::max(placement.height, metric::kMinHeight) : metric::kStartHeight;
+    SDL_Rect usable{};
+    const SDL_DisplayID display = placement.display != 0 ? placement.display : SDL_GetPrimaryDisplay();
+    if (display != 0 && SDL_GetDisplayUsableBounds(display, &usable) && usable.w > 0 && usable.h > 0) {
+        if (placement.width <= 0) width = std::max(metric::kMinWidth, std::min(width, usable.w - 32));
+        if (placement.height <= 0) height = std::max(metric::kMinHeight, std::min(height, usable.h - 48));
+    }
     // Made hidden, placed, then shown, so it never appears on another screen first.
-    SDL_Window* window = SDL_CreateWindow(kProductNameWithVersion,
-                                          placement.width > 0 ? std::max(placement.width, metric::kMinWidth)
-                                                              : metric::kStartWidth,
-                                          placement.height > 0 ? std::max(placement.height, metric::kMinHeight)
-                                                               : metric::kStartHeight,
+    SDL_Window* window = SDL_CreateWindow(kProductNameWithVersion, width, height,
                                           SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN);
     if (!window) {
         err = std::string("cannot open the launcher window: ") + SDL_GetError();
