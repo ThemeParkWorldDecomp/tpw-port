@@ -46,8 +46,6 @@
 #include "SoundBalance.h"
 #include "AudioPlaceHolder.h"
 #include "UI_Base.h"
-#include "InterfaceWindow.h"
-#include "ui_controls.h"
 #include "TPSettings.h"
 #include "TPAdvisor.h"
 #include "TPCamera.h"
@@ -188,16 +186,6 @@ int ResolutionPreset(const char* size) {
 
 #ifdef TPW_PORT_FIX
 #include "game_size_rules.h"
-
-// The Settings box's "Several keys at once" (TPW_PORT_FIX severalkeys, platform/gamework.cpp), read at the start. The run loop
-// is told of it through PortKeyTogether, below.
-bool gSeveralKeysSetting = false;
-
-// TPW_PORT_FIX typing-order PortKeyTogether | Mac: no such settings: the key that is down is released before the next one goes down | Port: the run loop's tpw::gPortKeyTogether (platform/gamework.cpp), whether a key stays down with the next one: every key with "Several keys at once", the four with "W A S D move the camera" (PortWasdPlace, include/port_wasd.h), and none while an edit box has the keyboard (a player's or a park's name, a ride's sign, the online chat), where letters are typed one key at a time as the Mac's | Why: a letter goes to an edit box at its key-up (TPMain.cpp HandleTyping); kept down together, the letters were typed in the order they came up, so a quickly typed "dk", K pressed before D was let go, came out "kd" with "Several keys at once" on, and "as" came out "sa" with W A S D on
-bool PortKeyTogether(uint8_t macKeyCode) {
-    if (gUIKeyboardWindow != nullptr && gUIKeyboardWindow->WhatAmI() == kUIKindEditBox) return false;
-    return gSeveralKeysSetting || (gPortWasdCamera && PortWasdPlace(macKeyCode));
-}
 
 // A size of the slider's lists that is not a preset's name (1920x1080): 0 when it is not one. It is exactly that size.
 bool ListedSize(const char* name, int32_t& wide, int32_t& high) {
@@ -1260,21 +1248,18 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
     // The Settings box's "Stereo panning" (CSprocketsModule::SetChannelInfo, platform/sound_device.h): off, every sound centred.
     tpw::gPortSoundPan = backend.Setting(tpw::ui::kSoundPanKey) == "1";
     if (tpw::gPortSoundPan) tpw::Log("stereo panning (the launcher's Settings)");
-    // The Settings box's "Several keys at once" (UGamework::Run, platform/gamework.cpp): off, one key at a time. The run loop asks
-    // PortKeyTogether (TPW_PORT_FIX typing-order), so tpw::gPortSeveralKeys stays off.
-    gSeveralKeysSetting = backend.Setting(tpw::ui::kSeveralKeysKey) == "1";
-    if (gSeveralKeysSetting) tpw::Log("several keys at once (the launcher's Settings)");
+    // The Settings box's "Several keys at once" (UGamework::Run, platform/gamework.cpp): off, one key at a time.
+    tpw::gPortSeveralKeys = backend.Setting(tpw::ui::kSeveralKeysKey) == "1";
+    if (tpw::gPortSeveralKeys) tpw::Log("several keys at once (the launcher's Settings)");
     // The Settings box's "W A S D move the camera" (PortWasdCameraKey, include/port_wasd.h): off, the original's keys.
     gPortWasdCamera = backend.Setting(tpw::ui::kWasdCameraKey) == "1";
     if (gPortWasdCamera) tpw::Log("W A S D move the camera (the launcher's Settings)");
-    // A held A is released before the next key goes down, as every other key is, with the setting or without it (TPW_PORT_FIX
-    // keya, platform/gamework.cpp); with it, a key-up the run loop cannot match lets go of the camera key that key still holds
-    // (TPW_PORT_FIX wasd-stuck).
-    tpw::gPortReleaseKeyA = true;
+    // With it, a held A is released before the next key goes down, and a key-up the run loop cannot match lets go of the
+    // camera key that key still holds (TPW_PORT_FIX wasd-stuck, platform/gamework.cpp).
+    tpw::gPortReleaseKeyA = gPortWasdCamera;
     tpw::gPortStrayKeyUp = gPortWasdCamera ? PortWasdStrayKeyUp : nullptr;
-    // And keys stay down together: every key with "Several keys at once", two of the four for the diagonals (TPW_PORT_FIX
-    // wasd-diagonal, platform/gamework.cpp), but none while an edit box has the keyboard (TPW_PORT_FIX typing-order).
-    tpw::gPortKeyTogether = gSeveralKeysSetting || gPortWasdCamera ? PortKeyTogether : nullptr;
+    // And two of the four stay down together, for the diagonals (TPW_PORT_FIX wasd-diagonal, platform/gamework.cpp).
+    tpw::gPortKeyTogether = gPortWasdCamera ? PortWasdPlace : nullptr;
     gOnlineServerSetting = backend.Setting(tpw::ui::kOnlineServerKey);
     gOnlineServerFound = backend.Setting(tpw::ui::kOnlineServerFoundKey);
     // The Settings box's Graphics section: the original's options files' values the player chose (EngineStartup_OptionsFile).
