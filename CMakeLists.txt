@@ -987,6 +987,28 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   add_executable(tpw_host_particle_texture ${TPW_DECOMP_DIR}/tests/host_particle_texture.cpp)
   target_include_directories(tpw_host_particle_texture PRIVATE ${TPW_INCLUDE_DIR} ${TPW_DECOMP_DIR}/platform)
   add_test(NAME particle_texture COMMAND tpw_host_particle_texture)
+  # The procedural textures of the cells in view when more of the procedural window is in view than Prepare's list and the
+  # handler's ring hold (the port's fix proccap): the real CHField::Prepare and GetTexturesUsed on a map of 128 by 128 cells,
+  # the gamut, the texture cache and the handler being the test's stand-ins. Made in both builds; without the port's fixes
+  # it checks only a view the list holds, since the original reads past the list in the others, as the game did.
+  add_executable(tpw_host_proc_cap ${TPW_DECOMP_DIR}/tests/host_proc_cap.cpp ${TPW_DECOMP_DIR}/src/engine/tb_hfield.cpp
+                 ${TPW_DECOMP_DIR}/platform/arena.cpp)
+  target_include_directories(tpw_host_proc_cap PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+  # the test's own switch for the fixed path: the export takes TPW_PORT_FIX out of tests/, so the test cannot use it
+  if(TPW_PORT_FIX)
+    target_compile_definitions(tpw_host_proc_cap PRIVATE TPW_TEST_PORT_FIX)
+  endif()
+  tpw_slice(TARGET tpw_host_proc_cap NAME proc_cap KEEP
+    __ZN7CHField7PrepareEv   # CHField::Prepare()
+    __ZN7CHField15GetTexturesUsedEPPvRiPP13CTextureEntry   # CHField::GetTexturesUsed(void**, int&, CTextureEntry**)
+    __ZN7CHField14QSort_texturesEPPvii   # CHField::QSort_textures(void**, int, int)
+    _gPortProcCapped   # the port's fix proccap (only in the port's builds)
+    _gTileOverlays)
+  if(tpw_platform_tests_skipped)
+    set_target_properties(tpw_host_proc_cap PROPERTIES EXCLUDE_FROM_ALL ON)
+  else()
+    add_test(NAME proc_cap COMMAND tpw_host_proc_cap)
+  endif()
 
   # The launcher's own window (launcher/ui/): widgets drawn with SDL_Renderer, text with stb_truetype
   # (third_party/stb/), in the fonts of third_party/fonts/, which are compiled in as byte arrays written here at

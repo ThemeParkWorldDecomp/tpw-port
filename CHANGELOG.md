@@ -11,6 +11,7 @@
 
 ### Bug Fixes
 
+- Fixed the game crashing when Free camera or Zoom out further showed a lot of a park at once, zoomed far out or tilted low (seen in the Land of Invention on a trackpad): when that much ground is in view, the patches of ground farthest from the camera are now drawn with a simpler texture
 - Fixed the game freezing when land was bought in a TPI Worlds and Rides mod park whose fence crosses a bridge or tunnel, such as the land by the Arabian Nights bridge: 0.5.5 broke the fence where it crosses them when the park was loaded, and parks saved since then get the fence back when they are loaded
 - Fixed the game crashing when you point at certain fence cells over the tunnels in the TPI Worlds and Rides mod's Polar Zone and Arabian Nights parks loaded with 0.5.5
 - On a Mac, the launcher's Update button now updates the launcher and the game when the launcher is opened from Applications, instead of opening the release page (Thanks slappyhead)

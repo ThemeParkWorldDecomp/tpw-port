@@ -29,6 +29,7 @@
 #include "tb_textureentry.h"
 #include "tpw_probe.h"
 #include "Wavelet.h"
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -646,6 +647,76 @@ void CHField::CalcLine(uint8_t* codes, SVertex* vertices, uint32_t* spare, int32
     CClipping::CPP_TestData(unused, gei_Clipping, codes + low, first, count, 0x10, 0xff);
 }
 
+// TPW_PORT_FIX proccap CHField::Prepare | Mac: every cell of the procedural textures' window in view is listed for its procedural texture, up to 2500 (kMaxOverlays), while the handler's ring of tiles holds 1500, 2000 or 2500 (the PROCEDURALTEXTURECACHE option), and GetTexturesUsed takes one listed entry for each such cell with no limit | Port: when more of the window's cells are in view than both hold, only the ones nearest the camera get procedural textures; the others take the mesh's own texture, the original's picture with procedural texturing off, in Prepare and GetTexturesUsed alike; with fewer in view nothing changes | Why: the original's camera never showed that many, but Far zoom and the Free camera's wider zoom and low tilt do: GetTexturesUsed then read past the 2500 entries and the game crashed (Land of Invention zoomed out on a trackpad, 0.5.6 test build), and a list longer than the ring gave cells another cell's picture
+// Set by Prepare while it keeps only the nearest cells (gPortProcChosen); tests/unit_HFieldFrame.cpp reads it.
+bool gPortProcCapped = false;
+
+namespace {
+
+// The cells of the window that keep their procedural textures this frame (row * 128 + column), set by Prepare when
+// gPortProcCapped.
+uint8_t gPortProcChosen[128 * 128];
+
+bool PortProcCellChosen(int32_t column, int32_t row) {
+    if (column < 0 || column > 127 || row < 0 || row > 127) return false;
+    return gPortProcChosen[row * 128 + column] != 0;
+}
+
+// Counts the cells of the window in view that are not hidden and, when they are more than the list and the ring hold,
+// marks the nearest of them (by their distance from the camera over the ground, in cells; ties in the order Prepare
+// visits them) as the ones to keep. Returns whether it did.
+bool PortChooseProcCells(const CHField& field, SGamutQuads& quads) {
+    gPortProcCapped = false;
+    int32_t limit = CHField::kMaxOverlays;
+    const int32_t ring = field.mProcTextures != nullptr ? field.mProcTextures->mCount : 0;
+    if (ring > 0 && ring < limit) limit = ring;
+    const int8_t* bytes = reinterpret_cast<const int8_t*>(&quads);
+    const int8_t* lows = bytes + offsetof(SGamutQuads, mLow);
+    const int8_t* highs = bytes + offsetof(SGamutQuads, mHigh);
+    const float cameraColumn = field.mInvCellX * gei_ViewMatrix->m[3][0];
+    const float cameraRow = field.mInvCellZ * gei_ViewMatrix->m[3][2];
+    // Distances in whole cells, the last bin taking everything from 255 out.
+    int32_t bins[256] = {};
+    int32_t total = 0;
+    auto distance = [&](int32_t column, int32_t row) {
+        const float dx = static_cast<float>(column) + 0.5f - cameraColumn;
+        const float dz = static_cast<float>(row) + 0.5f - cameraRow;
+        const float d = std::sqrt(dx * dx + dz * dz);
+        return d >= 255.0f ? 255 : static_cast<int32_t>(d);
+    };
+    auto inWindow = [&](int32_t column, int32_t row) {
+        if (column < field.mF234 || column > field.mF23C || row < field.mF238 || row > field.mF240) return false;
+        const sHFieldQuad& cell = field.mF00->mQuads[static_cast<int32_t>(static_cast<uint32_t>(column) +
+                                                                          static_cast<uint32_t>(row) * field.mF00->mF18[0])];
+        return (cell.mF00 & kCellHidden) == 0;
+    };
+    for (int32_t row = quads.mFirstRow; row < quads.mEndRow; row++) {
+        for (int32_t column = lows[row]; column < highs[row]; column++) {
+            if (!inWindow(column, row)) continue;
+            ++bins[distance(column, row)];
+            ++total;
+        }
+    }
+    if (total <= limit) return false;
+    // The nearest bins wholly, then the cells of the bin that crosses the limit in Prepare's order.
+    int32_t edge = 0;
+    int32_t below = 0;
+    while (edge < 255 && below + bins[edge] <= limit) below += bins[edge++];
+    int32_t room = limit - below;
+    std::memset(gPortProcChosen, 0, sizeof gPortProcChosen);
+    for (int32_t row = quads.mFirstRow; row < quads.mEndRow; row++) {
+        for (int32_t column = lows[row]; column < highs[row]; column++) {
+            if (!inWindow(column, row) || column < 0 || column > 127 || row < 0 || row > 127) continue;
+            const int32_t d = distance(column, row);
+            if (d < edge || (d == edge && room-- > 0)) gPortProcChosen[row * 128 + column] = 1;
+        }
+    }
+    gPortProcCapped = true;
+    return true;
+}
+
+}  // namespace
+
 int32_t CHField::Prepare() {
     if ((gei_System.mFlags & (CSystem::kViewChanged | CSystem::kLightsChanged)) == 0) return 1;
     // Not first person: the cells and grid points in view are the gamut's.
@@ -660,6 +731,9 @@ int32_t CHField::Prepare() {
     if ((gei_TextureSettings.mFlags & CTextureSettings::kProcTexturesOn) != 0 && mProcTextures == nullptr)
         gei_TextureSettings.mFlags &= ~CTextureSettings::kProcTexturesOn;
     int32_t listed = 0;
+    const bool capped = (gei_TextureSettings.mFlags & CTextureSettings::kProcTexturesOn) != 0 &&
+                        PortChooseProcCells(*this, quads);
+    if (!capped) gPortProcCapped = false;
     for (int32_t row = quads.mFirstRow; row < quads.mEndRow; row++) {
         for (int32_t column = quadColumns.Low(row); column < quadColumns.High(row); column++) {
             // No bounds check, as in the original.
@@ -674,6 +748,7 @@ int32_t CHField::Prepare() {
             bool procedural = false;
             if ((gei_TextureSettings.mFlags & CTextureSettings::kProcTexturesOn) != 0)
                 procedural = column >= mF234 && column <= mF23C && row >= mF238 && row <= mF240;
+            if (procedural && capped) procedural = PortProcCellChosen(column, row);
             if (procedural) {
                 if (listed >= kMaxOverlays) continue;
                 mPrepareEntries[listed].mTile =
@@ -754,6 +829,8 @@ void CHField::GetTexturesUsed(void** textures, int32_t& count, CTextureEntry** e
             if ((gei_TextureSettings.mFlags & CTextureSettings::kProcTexturesOn) != 0) {
                 procedural = x >= mF234 && x <= mF23C && z >= mF238 && z <= mF240;
             }
+            if (procedural && gPortProcCapped) procedural = PortProcCellChosen(x, z);
+            if (procedural && procCount >= kMaxOverlays) procedural = false;   // never past the list's end
             CTextureEntry* entry;
             if (procedural) {
                 entry = mPrepareEntries[procCount++].mTexture;
