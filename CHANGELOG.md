@@ -9,6 +9,7 @@
 - With Free camera on, Tab switches to flying: W A S D move the camera the way it looks, the right button held looks around, the wheel moves forward and back, Shift goes faster and Alt slower, and Home goes back to the normal camera. Invert vertical look, Look sensitivity, Fly speed, Smoothing and Fly through the ground are set under Free camera in Settings
 - With Free camera on, a gamepad moves the camera too: the left stick moves the camera (or flies), the right stick turns and tilts it (or looks around), the right and left triggers zoom in and out (or rise and sink), the bumpers turn it, the top face button (Y on Xbox, triangle on PlayStation) switches to flying and back, and View (Back, Share or Select) goes back to the normal camera. Xbox, PlayStation, Switch and most other pads work, plugged in before or while you play, and Look sensitivity, Invert vertical look and Fly speed apply to it. The Gamepad switch under Free camera in Settings turns it off
 - In the TPI Worlds and Rides mod, each of the three Theme Park Inc islands now plays its own world's music on the island screen, made from that world's park music, where it played the music of the world it borrows from
+- In the TPI Worlds and Rides mod, the three Theme Park Inc islands have the lapping waves round their shores that the original four have, and the island screen's sea reaches further, so the second ring of islands sits in open water and the sea's edge never comes into view
 
 ### Bug Fixes
 

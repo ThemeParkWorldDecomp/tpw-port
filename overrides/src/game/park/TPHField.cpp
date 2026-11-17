@@ -70,6 +70,7 @@
 #include "TPEmbed.h"
 #include "TPEngine.h"
 #include "TPGlobals.h"
+#include "TpiWorlds.h"
 #include "TPMain.h"
 #include "TPMovie.h"
 #include "TPSettings.h"
@@ -235,6 +236,13 @@ sHField* gHeightfieldCopy;
 int32_t LoadLevelHeightfield(int32_t useLevel, int32_t mode) {
     char folder[1024], shared[1024];
     std::sprintf(folder, "%s:Terrain", useLevel ? gTPFileInfo.GetLevelPath().mData : get_theme_path());
+    // TPW_PORT_FIX mods LoadLevelHeightfield | Mac: the island screen's terrain and sea from lobby:Terrain | Port: TPW_MOD_HOOK tpi_islands (gModTpiIslands, include/TpiWorlds.h; assets/tpi_lobby_sea.h): with the mod on, from lobby:tpisea when the converter wrote it: the same files with the sea carried on outwards, its texture, mapping, animation and fog as the original's | Why: tpw-mods tpi-worlds: the second ring of islands stands near the original sea's edge, and the camera saw past it | Off: lobby:Terrain
+    const char* level = useLevel ? std::strrchr(gTPFileInfo.GetLevelPath().mData, ':') : nullptr;   // "data:lobby" (LBLobbyMeshes.cpp)
+    if (level != nullptr && gModTpiIslands && std::strcmp(level + 1, "lobby") == 0) {
+        char sea[1024];
+        std::snprintf(sea, sizeof sea, "%s:tpisea:base.md2", gTPFileInfo.GetLevelPath().mData);
+        if (DoesFileExist(sea, 0) != 0) std::snprintf(folder, sizeof folder, "%s:tpisea", gTPFileInfo.GetLevelPath().mData);
+    }
     BuildSharedTexturePath(shared);
     SetupDirectoryForMeshLoad(const_cast<char*>("base.md2"), folder, shared);
     LoadRideAnimSet(const_cast<char*>("Base"), 8, &gHeightfieldRideSet, nullptr, 1);

@@ -137,6 +137,12 @@ endif()
 if(NOT TPW_INCLUDE_DIR)
   set(TPW_INCLUDE_DIR ${TPW_DECOMP_DIR}/include)
 endif()
+# The sea test checks the sea against the second ring's places (include/tpi_island_ring.h, port fixes only). The test names
+# its own macro: only the translation's sources may name the fixes' one (devtools/split/export_split.py).
+if(TPW_BUILD_ASSETS_TESTS AND TPW_PORT_FIX)
+  target_include_directories(tpw_tpi_lobby_sea_tests PRIVATE ${TPW_INCLUDE_DIR})
+  target_compile_definitions(tpw_tpi_lobby_sea_tests PRIVATE TPI_SEA_RING_TWO)
+endif()
 if(TPW_BUILD_LAUNCHER)
   if(NOT TPW_LINUX)   # Linux: the OpenGL calls are the platform layer's own (platform/gl_entry.cpp), nothing is linked
     find_package(OpenGL QUIET)
