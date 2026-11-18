@@ -14,6 +14,13 @@ inline bool gPortWasdCamera = false;
 // view changed in between.
 inline int16_t gPortWasdHeld[4] = {};
 
+// The original camera table codes for up, left, down and right.
+inline int16_t PortMovementCameraKey(unsigned direction) {
+    static constexpr int16_t kParkKeys[4] = {104, 100, 98, 102};             // keypad 8, 4, 2, 6
+    static constexpr int16_t kWalkKeys[4] = {0x2600, 0x2500, 0x2800, 0x2700};   // up, left, down, right
+    return (gFirstPersonFlags & kFirstPersonAny) != 0 ? kWalkKeys[direction] : kParkKeys[direction];
+}
+
 // Which of the four (0 W, 1 A, 2 S, 3 D) a key of the key tables is, by its place on the keyboard (Z Q S D on AZERTY); -1 for
 // any other key, and with gPortWasdCamera off.
 inline int PortWasdIndex(int32_t key) {
@@ -49,9 +56,7 @@ inline bool PortWasdCameraKey(int32_t key, int32_t modifiers, bool down) {
     if (!down) PortWasdLetGo(key);
     if (modifiers != 0) return false;
     if (down) {
-        static constexpr int16_t kParkKeys[4] = {104, 100, 98, 102};             // keypad 8, 4, 2, 6: camera ids 13, 15, 14, 16
-        static constexpr int16_t kWalkKeys[4] = {0x2600, 0x2500, 0x2800, 0x2700};   // up, left, down, right: ids 0, 6, 1, 7
-        const int16_t code = (gFirstPersonFlags & kFirstPersonAny) != 0 ? kWalkKeys[index] : kParkKeys[index];
+        const int16_t code = PortMovementCameraKey(index);
         int16_t& held = gPortWasdHeld[index];
         if (held != 0 && held != code) gKeyTableCamera->KeyUp(held, 0);
         gKeyTableCamera->KeyDown(code, 0);

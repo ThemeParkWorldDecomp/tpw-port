@@ -51,20 +51,21 @@ def run(cmd, text_in=None):
     return subprocess.run(cmd, input=text_in, capture_output=True, encoding="utf-8", errors="replace", check=True).stdout
 
 
-def symbols(nm, files):
+def symbols(nm, files, dynamic=False):
     """(undefined, weak, defined) external symbol names, as the object files spell them. The weak ones are the undefined
     references the linker lets stay so (a declaration with __attribute__((weak)), nm's w or v): nothing defining one, it
     gets the address zero instead of an error."""
     undefined, weak, defined = set(), set(), set()
     for f in files:
-        for line in run([nm, "-g", f]).splitlines():
+        command = [nm, "-g", "-D", f] if dynamic else [nm, "-g", f]
+        for line in run(command).splitlines():
             parts = line.split()
             if len(parts) == 2 and parts[0] == "U":
                 undefined.add(parts[1])
             elif len(parts) == 2 and parts[0] in ("w", "v"):
                 weak.add(parts[1])
             elif len(parts) == 3 and parts[1] not in "Uu":
-                defined.add(parts[2])
+                defined.add(parts[2].split("@", 1)[0] if dynamic else parts[2])
                 if WINDOWS and parts[2].startswith("__imp_"):
                     defined.add(parts[2][6:])   # an import library's data: the linker auto-imports the plain name
     return undefined, weak, defined
@@ -131,6 +132,9 @@ def main():
     ap.add_argument("--include-dir", required=True)
     ap.add_argument("--syslib", action="append", default=[], help="a library the launcher links (dlsym'ed)")
     ap.add_argument("--provides", action="append", default=[], help="a static library the launcher links; the symbols it defines get no stand-in")
+    ap.add_argument("--dynamic-provides", action="append", default=[], help="a target shared library whose exports get no stand-in")
+    ap.add_argument("--no-host-libs", action="store_true", help="resolve runtime symbols from target libraries only")
+    ap.add_argument("--elf", action="store_true", help="generate ELF symbol aliases when cross-compiling")
     ap.add_argument("--c-function", action="append", default=[], help="an unmangled name that is a function")
     ap.add_argument("--nm", default="nm")
     ap.add_argument("--cxxfilt", default="c++filt")
@@ -139,7 +143,7 @@ def main():
 
     undefined, weak, defined = symbols(args.nm, args.inputs)
     labels = []
-    if WINDOWS or LINUX:
+    if WINDOWS or LINUX or args.elf:
         # An asm label in the Mach-O spelling (__asm__("__ZN..."), on a declaration, weak or not) names a C++ symbol
         # with one underscore more than COFF and ELF give it. Each gets a thunk to that name (label_thunks), which is
         # stood in for in turn when nothing defines it. A weak declaration's label counts too: without its thunk the
@@ -148,8 +152,9 @@ def main():
         labels = sorted(s for s in undefined | weak | defined if s.startswith("__Z"))
         undefined = (undefined - set(labels)) | {s[1:] for s in labels}
     defined |= symbols(args.nm, args.provides)[2]
+    defined |= symbols(args.nm, args.dynamic_provides, dynamic=True)[2]
     needed = sorted(undefined - defined)
-    system = SystemLibraries(args.syslib)
+    system = SystemLibraries(args.syslib) if not args.no_host_libs else None
     names = [c_name(s) for s in needed]
     # c_name already removes Mach-O's extra underscore. Older Apple c++filt versions strip one by default on
     # stdin; that would turn _Z... into Z... and classify every C++ function as a variable on a clean Mac.
@@ -158,7 +163,7 @@ def main():
     functions, variables, special = [], [], []
     for symbol, name, pretty in zip(needed, names, demangled):
         mangled = name.startswith("_Z")
-        if system.has(name) or (not mangled and reserved(name)):
+        if (system is not None and system.has(name)) or (not mangled and reserved(name)):
             continue
         if pretty.startswith("tpw_stub_"):   # defined by the generated file itself
             continue

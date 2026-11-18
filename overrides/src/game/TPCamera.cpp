@@ -46,6 +46,9 @@
 #include "UIInterface.h"
 #include "World.h"
 #include "PortFreeCamera.h"
+#ifdef __ANDROID__
+#include "mobile_controls.h"
+#endif
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -1257,6 +1260,10 @@ void HandleCamera() {
     int32_t edge;       // the pointer is at a window edge with edge scrolling on
     int32_t firstOk;    // a first-person view that is not held back
     int32_t keyScroll = 0;
+#ifdef __ANDROID__
+    float stickX, stickY;
+    tpw::mobile::CameraAxes(stickX, stickY);
+#endif
     if ((gFirstPersonFlags & 0x16) != 0) {
         edge = 0;
         firstOk = (gFirstPersonFlags & 0x800) == 0 ? 1 : 0;
@@ -1269,6 +1276,9 @@ void HandleCamera() {
         }
         firstOk = 0;
         if (Key(0xd) || Key(0xe) || Key(0xf) || Key(0x10)) keyScroll = 1;
+#ifdef __ANDROID__
+        if (stickX != 0.0f || stickY != 0.0f) keyScroll = 1;
+#endif
     }
 
     // Which sides of the map the position is outside of: 1 x < 0, 4 z < 0, 2 x past the end, 8 z past the end.
@@ -1373,6 +1383,11 @@ void HandleCamera() {
             }
             gCameraYaw = gCameraF5BF4;
         } else {
+#ifdef __ANDROID__
+            f30 += stickX * 0.7f;
+            f31 -= stickY * 0.7f;
+            if (stickX != 0.0f || stickY != 0.0f) gFirstPersonFlags &= ~0x1000u;
+#endif
             const float target = gCameraF5BF4;
             float f3;
             if (isometric != 0) {

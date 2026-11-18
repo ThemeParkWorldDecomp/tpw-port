@@ -1,0 +1,11 @@
+<resources>
+    <color name="tpw_icon_background">#26243E</color>
+    <style name="TpwLauncherTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorAccent">#557A1C</item>
+        <item name="android:windowBackground">#C1E9FB</item>
+        <item name="android:statusBarColor">#90CAF0</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">#D7F1FC</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

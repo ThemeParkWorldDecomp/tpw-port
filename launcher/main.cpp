@@ -2206,7 +2206,11 @@ int LauncherMain(int argc, char** argv) {
 }
 }  // namespace
 
+#ifdef __ANDROID__
+int TpwLauncherMain(int argc, char** argv) {
+#else
 int main(int argc, char** argv) {
+#endif
     // --version and --help need no log file; every other run opens one before anything logs, and ends it with how the
     // run ended (exit: code N here; a crash or an abort writes its own from the signal handler).
     gArgc = argc;

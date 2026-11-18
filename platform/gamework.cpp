@@ -13,6 +13,9 @@
 #include "fit.h"
 #include "platform.h"
 #include "platform/online_boss.h"
+#ifdef __ANDROID__
+#include "android/mobile_controls.h"
+#endif
 
 namespace SamsUtilities {
 
@@ -532,6 +535,9 @@ void UGamework::Run() {
                 break;
 #endif
             case SDL_EVENT_KEY_DOWN: {
+#ifdef __ANDROID__
+                if (tpw::mobile::GeneratedTextKey(sdl.key)) break;
+#endif
                 // Alt+Enter on Windows and Linux toggles full screen (fit::FullScreenToggleKey; never on a Mac). It is
                 // the host's key: the game is not told of the press, no key is remembered for it, and its release is
                 // the ordinary one (whichever key came up releases the remembered key, below).
@@ -571,6 +577,9 @@ void UGamework::Run() {
                 break;
             }
             case SDL_EVENT_KEY_UP:
+#ifdef __ANDROID__
+                if (tpw::mobile::GeneratedTextKey(sdl.key)) break;
+#endif
                 // 0x100056a0: releases the remembered key, whichever key came up. The Event Manager repeated the key
                 // that went down last until that key came up.
                 if (IsModifierKey(sdl.key.scancode)) break;
@@ -586,6 +595,14 @@ void UGamework::Run() {
 #endif
                 if (gKey.character != 0 || gKey.keyCode != 0) releaseKey();
                 break;
+#ifdef __ANDROID__
+            case SDL_EVENT_TEXT_INPUT:
+                tpw::mobile::CommitText(sdl.text.text);
+                break;
+            case SDL_EVENT_SCREEN_KEYBOARD_HIDDEN:
+                tpw::mobile::KeyboardHidden();
+                break;
+#endif
             case SDL_EVENT_WINDOW_FOCUS_GAINED:
                 HandleActivateWindow(tpw::MainWindow(), true);
 #ifdef TPW_PORT_FIX
@@ -854,6 +871,9 @@ void UGamework::Run() {
 #ifdef TPW_PORT_FIX
         // TPW_PORT_FIX online-server UGamework::Run | Mac: the online library's comms thread called the game's online callbacks itself, at any moment | Port: the online server client's answers are given here, on the game's thread, once a pass before Process (none unless the launcher names a server) | Why: a callback that ran on another thread raced the game's online objects, which the callbacks change and may delete
         tpw::online::boss::Pump();
+#endif
+#ifdef __ANDROID__
+        tpw::mobile::UpdateControls();
 #endif
         if (!Process()) mRunning = false;
         if (tpw::config().probe) {
