@@ -90,6 +90,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
             return;
         }
         mLayout.removeCallbacks(clearControlFocus);
+        if (!focused) cancelTouchPointer();
         boolean ownDialog = !focused && showingControls;
         if (ownDialog) nativeControlDialog(true);
         try {
@@ -105,8 +106,6 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
                 menuWhenFocused = false;
                 menu();
             }
-        } else {
-            cancelTouchPointer();
         }
     }
 
@@ -301,8 +300,8 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
         boolean motion = event.getActionMasked() == MotionEvent.ACTION_MOVE;
         if (!moved && outsideSlop(event, primary, downX, downY)) {
             moved = true;
-            if (!touchpad && motion && !twoFingerTap && (mouseButtons & LEFT) == 0) {
-                // The SDL thread still has the pointer at the initial contact, where it can check for a thumb.
+            if (motion && !twoFingerTap && (mouseButtons & LEFT) == 0) {
+                // Look for a slider before the first move takes the cursor away in either mode.
                 sliderDragRequested = true;
                 nativeSliderDrag(true);
             }

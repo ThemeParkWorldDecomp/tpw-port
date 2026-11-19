@@ -89,11 +89,13 @@ void InstallControlEvents() {
 bool HandleSliderDrag(const SDL_Event& event) {
     if (event.type != gSliderDragEvent.load(std::memory_order_relaxed)) return false;
     if (event.user.code) {
-        // The move preceding this event hit-tested the point where the finger first touched.
+        // The cursor is still where the gesture began, even in relative touchpad mode.
         if (gUIActive && gUICaptureDevice == nullptr && (gUIButtonFlags & 1) == 0 &&
             gUIPointerIn != nullptr && gUIPointerIn->mCallback == UI_DefaultThumbtrackCallback) {
             gTouchSliderThumb = gUIPointerIn;
             UI_DeviceButtonDown(0, gUIPointerX, gUIPointerY);
+            // Route moves to the thumb even before the queued button-down runs.
+            gTouchSliderThumb->CaptureDevice();
         }
     } else {
         if (!gSliderMouseHeld && gTouchSliderThumb != nullptr && gUIButtonWindow[0] == gTouchSliderThumb) {
