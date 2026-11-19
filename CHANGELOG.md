@@ -2,6 +2,10 @@
 
 ## 0.6.0 (not released yet)
 
+### New Features
+
+- A new mod, Entertainers' second acts: eight entertainer costumes perform the second act their sprite files hold but the game never plays, chosen at random with their first: the vampire, Frankenstein's monster and the hunchback in Halloween World, the dinosaur, the explorer and the tribal dancer in the Lost Kingdom, and the orange alien and the purple monster in the Space Zone. Saved games are unchanged
+
 ### Bug Fixes
 
 - Fixed the park music in the SimCoaster/TPI - New Worlds, Rides and Sprites mod's Arabian Nights (and in a very busy Polar Zone) turning into one short burst of noise repeated many times a second when the park got busy: SimCoaster AKA Theme Park Inc's own music files for those two worlds are missing some pieces in every copy of the game, and a missing piece is now never played and another piece of the same level plays instead

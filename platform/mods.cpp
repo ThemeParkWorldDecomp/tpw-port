@@ -1,6 +1,7 @@
 // mods.cpp: the hooks the mods that are on switch on, put into the game (mods.h).
 #include "mods.h"
 
+#include "EntertainerSecondActs.h"
 #include "Ps1PickRotation.h"
 #include "Ps1SaveRepair.h"
 #include "RideBadges.h"
@@ -19,6 +20,7 @@ void Apply(const Hooks& hooks) {
     gModPs1PickRotation = hooks.ps1PickRotation;
     gModTpiWorlds = hooks.tpiWorlds;
     gModTpiIslands = hooks.tpiIslands;
+    gModEntertainerSecondActs = hooks.entertainerSecondActs;
 }
 
 }  // namespace tpw::mods

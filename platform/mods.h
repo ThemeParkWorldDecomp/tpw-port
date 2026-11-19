@@ -31,6 +31,7 @@ struct Hooks {
     bool ps1PickRotation = false;     // ps1_pick_rotation: a PlayStation ride picked from Buy Ride starts half a turn round, its entrance at the bottom like a PC ride's (include/Ps1PickRotation.h)
     bool tpiWorlds = false;           // tpi_worlds: the game's worlds are the original four and the three made from the player's Theme Park Inc copy (include/TpiWorlds.h)
     bool tpiIslands = false;          // tpi_islands: the island screen has a second group of islands for those worlds, and a switch between the groups (include/TpiWorlds.h)
+    bool entertainerSecondActs = false;   // entertainer_second_acts: the eight costumes with an unused second act play it at random as well as their first (include/EntertainerSecondActs.h)
 };
 
 // A compiled-in mod, as its mod.json describes it.
@@ -61,7 +62,7 @@ inline std::string Key(const Mod& mod) { return "mod." + mod.id; }
 // Puts `hooks` into the game (the hooks' flags, include/ThingReceivers.h's gModStrikeGate, gModStrikeMessages and
 // gModStaffBridgeWander and gModPs1Ground, include/RideBadges.h's gModPs1Badge, include/Ps1SaveRepair.h's gModPs1SaveRepair
 // include/Ps1PickRotation.h's gModPs1PickRotation and
-// include/TpiWorlds.h's gModTpiWorlds and gModTpiIslands). Before the game starts, once; never called, the
+// include/TpiWorlds.h's gModTpiWorlds and gModTpiIslands, include/EntertainerSecondActs.h's gModEntertainerSecondActs). Before the game starts, once; never called, the
 // game's hooks stay off.
 void Apply(const Hooks& hooks);
 
