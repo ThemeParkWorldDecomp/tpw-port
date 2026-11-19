@@ -27,6 +27,8 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     static final int RIGHT = MotionEvent.BUTTON_SECONDARY;
     private static final int[] MOUSE_BUTTONS = {LEFT, RIGHT};
     private static final int[] MODIFIER_KEYS = {KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_SHIFT_LEFT};
+    private static final float TRIGGER_PRESS = 0.55f;
+    private static final float TRIGGER_RELEASE = 0.40f;
 
     private TouchControls controls;
     private ControlSettings settings;
@@ -183,6 +185,15 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
         refreshHeldActions();
     }
 
+    private static InputDevice.MotionRange triggerRange(InputDevice device, int key) {
+        if (device == null || (key != KeyEvent.KEYCODE_BUTTON_L2 && key != KeyEvent.KEYCODE_BUTTON_R2)) return null;
+        boolean left = key == KeyEvent.KEYCODE_BUTTON_L2;
+        InputDevice.MotionRange range = device.getMotionRange(left ? MotionEvent.AXIS_LTRIGGER : MotionEvent.AXIS_RTRIGGER);
+        if (range != null && range.getRange() > 0) return range;
+        range = device.getMotionRange(left ? MotionEvent.AXIS_BRAKE : MotionEvent.AXIS_GAS);
+        return range != null && range.getRange() > 0 ? range : null;
+    }
+
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         InputDevice device = event.getDevice();
@@ -195,6 +206,8 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
         if (controls.editingLayout()) return true;
         int key = event.getKeyCode();
         if (settings.binding(key) == null) return super.dispatchKeyEvent(event);
+        // Use one source per trigger. Some pads also send button events at full travel.
+        if (triggerRange(device, key) != null) return true;
         if (controller != event.getDeviceId()) {
             releaseController();
             controller = event.getDeviceId();
@@ -258,6 +271,14 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
         applyMouseButtons();
     }
 
+    private void updateTrigger(MotionEvent event, InputDevice.MotionRange range, int key, int sample) {
+        if (range == null || controller != event.getDeviceId()) return;
+        int axis = range.getAxis();
+        float value = sample < event.getHistorySize() ? event.getHistoricalAxisValue(axis, sample) : event.getAxisValue(axis);
+        float travel = (value - range.getMin()) / range.getRange();
+        setPadKey(key, travel >= (padKeys.get(key) ? TRIGGER_RELEASE : TRIGGER_PRESS));
+    }
+
     @Override
     public boolean dispatchGenericMotionEvent(MotionEvent event) {
         if (controls != null && event.isFromSource(InputDevice.SOURCE_JOYSTICK) && event.getAction() == MotionEvent.ACTION_MOVE) {
@@ -276,6 +297,12 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
             stickCameraY = event.getAxisValue(useZ ? MotionEvent.AXIS_RZ : MotionEvent.AXIS_RY);
             updateCamera();
             setArrowSources(pressedArrows, directions(event.getAxisValue(MotionEvent.AXIS_HAT_X), event.getAxisValue(MotionEvent.AXIS_HAT_Y)));
+            InputDevice.MotionRange leftTrigger = triggerRange(device, KeyEvent.KEYCODE_BUTTON_L2);
+            InputDevice.MotionRange rightTrigger = triggerRange(device, KeyEvent.KEYCODE_BUTTON_R2);
+            for (int sample = 0; sample <= event.getHistorySize(); ++sample) {
+                updateTrigger(event, leftTrigger, KeyEvent.KEYCODE_BUTTON_L2, sample);
+                updateTrigger(event, rightTrigger, KeyEvent.KEYCODE_BUTTON_R2, sample);
+            }
             return true;
         }
         if (mSurface != null && event.isFromSource(InputDevice.SOURCE_MOUSE) && event.getAction() == MotionEvent.ACTION_HOVER_MOVE) {

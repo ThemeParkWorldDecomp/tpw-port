@@ -18,6 +18,8 @@ W launcherze wybierz **Ustawienia → Rozmiar interfejsu gry** i ustaw **100%**,
 | X / Y | Backspace / Enter. |
 | Start / Select | Menu gry / pokaż lub ukryj panel kamery. |
 
+L2 i R2 korzystają z tego samego mapowania, gdy kontroler zgłasza je jako osie analogowe albo przyciski. Jeśli Android udostępnia oś dla danego spustu, gra używa jej także wtedy, gdy kontroler zgłasza dodatkowe naciśnięcie przycisku na końcu ruchu.
+
 **⚙ → Tryb myszy** przełącza między bezpośrednim celowaniem (**Dotyk**) a przesunięciem kursora względem jego aktualnej pozycji (**Touchpad**). Przesunięcie palca celuje, a osobne stuknięcie klika. W trybie **Dotyk** możesz od razu przeciągnąć suwak za uchwyt. W trybie **Touchpad** ustaw kursor na uchwycie lub torze suwaka, unieś palec i przesuń go ponownie, aby zmienić wartość. Stuknięcie dwoma palcami działa jak PPM. Pod przyciskami zoomu są **PPM**, który anuluje aktywne narzędzie budowy, oraz **⌫**, który wysyła Backspace. Akcję otwierania klawiatury można przypisać w mapowaniu pada.
 
 W **⚙ → Przesuń kontrolki** przeciągnij wybrane przyciski lub drążek i naciśnij **Gotowe**. Położenia, czułości obu analogów, tryb myszy i mapowanie gry są zapisywane. W **⚙** można też otworzyć skróty budowy obejmujące obrót projektu, zakup atrakcji, mapę oraz Ctrl i Shift. Ctrl przy stawianiu zostawia projekt do ponownego użycia, a Ctrl i LPM pobierają projekt istniejącego obiektu.
