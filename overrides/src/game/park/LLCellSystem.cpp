@@ -29,6 +29,7 @@
 #include "TbError.h"
 #include "ThingReceivers.h"
 #include "TpiGateFlow.h"
+#include "TpiLandBuy.h"
 #include "TPConfig.h"
 #include "TPDialog.h"
 #include "TPEngine.h"
@@ -1013,12 +1014,19 @@ void ClearInside(CTrackCell* scanned) {
     if (AnyFlagged(square)) ClearAndRetile(square);
 }
 
+// Whether a scan of the fill stops before the cell at (x, y), leaving it as it is.
+bool ScanLeavesLevel(int32_t x, int32_t y) {
+    // TPW_PORT_FIX mods LLCC_FillInsideOfPark | Mac: each of the four scans runs until a locked cell and reads through the cells past the level's edge | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiLandBuy.h): in one of the mod's worlds a scan stops before a cell whose square of four leaves the level (tpw::TpiFillCellLeavesLevel), a guard behind the gate check of LLCC_IsHoardingEditLegal; off, or an original world, the Mac's | Why: tpw-mods tpi-worlds; a fence that did not close round the park walked the scans off the map onto a missing cell, and the game crashed
+    return tpw::TpiWorldInPlay() && tpw::TpiFillCellLeavesLevel(x, y);
+}
+
 // The four scans across the park, one for each heading of the walk (the heading is the direction of the walk along the hoarding): the cells at
 // two cell steps from the walk's cell up to and including the first locked one. Heading 0x10 scans towards -x, 4 towards +y, 1 towards +x.
 void ScanTowardsMinusX(int32_t x, int32_t y) {
     int32_t k = x;
     int32_t locked;
     do {
+        if (ScanLeavesLevel(k - 2, y)) return;
         CTrackCell* scanned = TrackCellOfId(CellId(k - 2, y));
         ClearInside(scanned);
         locked = scanned->IsFlag(0x20);
@@ -1030,6 +1038,7 @@ void ScanTowardsPlusY(int32_t x, int32_t y) {
     int32_t k = y;
     int32_t locked;
     do {
+        if (ScanLeavesLevel(x, k + 2)) return;
         CTrackCell* scanned = TrackCellOfId(CellId(x, k + 2));
         ClearInside(scanned);
         locked = scanned->IsFlag(0x20);
@@ -1041,6 +1050,7 @@ void ScanTowardsPlusX(int32_t x, int32_t y) {
     int32_t k = x;
     int32_t locked;
     do {
+        if (ScanLeavesLevel(k + 2, y)) return;
         CTrackCell* scanned = TrackCellOfId(CellId(k + 2, y));
         ClearInside(scanned);
         locked = scanned->IsFlag(0x20);
@@ -1054,6 +1064,7 @@ void ScanTowardsMinusY(int32_t x, int32_t y, bool* reachedTop) {
     int32_t k = y - 2;
     int32_t locked;
     do {
+        if (ScanLeavesLevel(x, k)) return;
         CTrackCell* scanned = TrackCellOfId(CellId(x, k));
         ClearInside(scanned);
         k -= 2;
@@ -1189,6 +1200,8 @@ int32_t LLCC_IsHoardingEditLegal(int32_t x1, int32_t y1, int32_t x2, int32_t y2,
     if (!CMap::IsXYValid(lox, loy)) return 0;
     if (!CMap::IsXYValid(hix, hiy)) return 0;
     if (hix - lox <= 2 || hiy - loy <= 2) return 0;
+    // TPW_PORT_FIX mods LLCC_IsHoardingEditLegal | Mac: a side that passes exactly through a gate post is refused below; a rectangle round the gate is refused by the freeform run, the land outside every original gate being freeform | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiLandBuy.h): in one of the mod's worlds, where a freeform cell does not count (TallySideCell), a rectangle that meets the gate (either post or the opening between them, tpw::TpiEditMeetsGate) is refused here; off, or an original world, the Mac's | Why: tpw-mods tpi-worlds; a Buy Land rectangle round the gate made the new fence a loop round the gate alone, and filling the park's inside crashed the game
+    if (tpw::TpiWorldInPlay() && tpw::TpiEditMeetsGate(lox, loy, hix, hiy, gHoardingLeft, gHoardingTop, gHoardingRight, gHoardingBottom)) return 0;
     SideTally sides[4] = {};
     int32_t corners = 0;
     // The cell of the first corner is asked for its flag; the answer is not used.

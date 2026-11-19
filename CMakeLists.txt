@@ -774,6 +774,15 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_tpi_hoarding PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_hoarding COMMAND tpw_host_tpi_hoarding)
   endif()
+  # The TPI Worlds and Rides mod's land buying round the park gate (TPW_MOD_HOOK tpi_worlds, include/TpiLandBuy.h): a
+  # Buy Land rectangle that meets the gate is refused in the mod's worlds, as the freeform run refuses it in the original's,
+  # and the fill's scans stop at the level's edge, on a made-up level with models of the edit check's freeform run and the
+  # fill's scans, without game data. The original has no such mod, so it is made only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_tpi_land_buy ${TPW_DECOMP_DIR}/tests/host_tpi_land_buy.cpp)
+    target_include_directories(tpw_host_tpi_land_buy PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_land_buy COMMAND tpw_host_tpi_land_buy)
+  endif()
   # The TPI Worlds and Rides mod's soft edge of the park's land (TPW_MOD_HOOK tpi_worlds, include/TpiParkEdge.h): which
   # corners of a height field cell are darkened, each from the cell under its grid point, on made-up ownership maps,
   # without game data. The original has no such mod, so it is made only with the port's fixes.
