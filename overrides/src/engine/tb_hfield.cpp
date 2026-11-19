@@ -43,6 +43,8 @@
 // TPW_PORT_FIX freecam CHField::DivideAndConquer | Mac: the cells within half the view distance of the camera are tested (230 with fog off, 350 at most with fog), against a far plane 1000 out | Port: with gPortFreeCamera (the launcher's "Free camera"), outside the island screen (PortFreeCameraDraws), every cell of the map is tested, fog on or off, against a far plane that reaches the map's farthest corner (PortFreeFarPlane); the block near the camera and the procedural textures' window stay the original's | Why: the free camera looks along the ground from anywhere up to 150 outside the map, so the map's far side is up to 1400 away: the ground stopped at the view distance and the sky showed where the far park should be
 #include "TpiGateFlow.h"   // tpw::TpiWorldInPlay (TPW_MOD_HOOK tpi_worlds, CHField::Execute)
 #include "TpiParkEdge.h"   // tpw::TpiParkEdgeCorners (the same)
+#include "PortGroundPool.h"   // tpw::PortGroundPixels, tpw::PortGroundLevel (groundpool, CHField::Prepare)
+#include <vector>
 
 // tb_hfield.cpp range of the engine library (SimTheme Park 2.04b3): the view volume and
 // the height field. PARTIAL: only what engine start-up and shutdown run; the rest of the
@@ -686,7 +688,7 @@ void CHField::CalcLine(uint8_t* codes, SVertex* vertices, uint32_t* spare, int32
     CClipping::CPP_TestData(unused, gei_Clipping, codes + low, first, count, 0x10, 0xff);
 }
 
-// TPW_PORT_FIX proccap CHField::Prepare | Mac: every cell of the procedural textures' window in view is listed for its procedural texture, up to 2500 (kMaxOverlays), while the handler's ring of tiles holds 1500, 2000 or 2500 (the PROCEDURALTEXTURECACHE option), and GetTexturesUsed takes one listed entry for each such cell with no limit | Port: when more of the window's cells are in view than both hold, only the ones nearest the camera get procedural textures; the others take the mesh's own texture, the original's picture with procedural texturing off, in Prepare and GetTexturesUsed alike; with fewer in view nothing changes | Why: the original's camera never showed that many, but Far zoom and the Free camera's wider zoom and low tilt do: GetTexturesUsed then read past the 2500 entries and the game crashed (Land of Invention zoomed out on a trackpad, 0.5.6 test build), and a list longer than the ring gave cells another cell's picture
+// TPW_PORT_FIX proccap CHField::Prepare | Mac: every cell of the procedural textures' window in view is listed for its procedural texture, up to 2500 (kMaxOverlays), while the handler's ring of tiles holds 1500, 2000 or 2500 (the PROCEDURALTEXTURECACHE option), and GetTexturesUsed takes one listed entry for each such cell with no limit | Port: when more of the window's cells are in view than both hold, only the ones nearest the camera get the ring's procedural textures; the others take the pool's (groundpool, below), or the mesh's own texture (the original's picture with procedural texturing off) until the pool has one, in Prepare and GetTexturesUsed alike; with fewer in view nothing changes | Why: the original's camera never showed that many, but Far zoom and the Free camera's wider zoom and low tilt do: GetTexturesUsed then read past the 2500 entries and the game crashed (Land of Invention zoomed out on a trackpad, 0.5.6 test build), and a list longer than the ring gave cells another cell's picture
 // Set by Prepare while it keeps only the nearest cells (gPortProcChosen); tests/unit_HFieldFrame.cpp reads it.
 bool gPortProcCapped = false;
 
@@ -756,6 +758,45 @@ bool PortChooseProcCells(const CHField& field, SGamutQuads& quads) {
 
 }  // namespace
 
+// TPW_PORT_FIX groundpool CHField::Prepare | Mac: (none; the original never had more of the window in view than the ring holds) | Port: while gPortProcCapped, a chosen cell keeps the ring's tile only when it covers more than half the ring's size on the screen; every other cell of the window in view asks the pool (PortGroundAsk, src/engine/tb_init.cpp) for a tile the size it covers (include/PortGroundPool.h), and draws with the pool's tile, else the ring's tile it still has, else the mesh's texture; a cell's regenerate flag makes the pool's tile again and lets go of the ring's; GetTexturesUsed takes the same entries (gPortProcDraw) | Why: past the ring's nearest cells the ground had the mesh's plain texture, a visible circle at the Free camera's far zoom and long Draw distances; full size tiles for every cell would take about 256 MB, the pool at most 16 MB
+namespace {
+
+// The entry each cell of the window the pool draws (row * 128 + column, both from the window's corner), set by Prepare
+// while gPortProcCapped; null for the mesh's texture.
+CTextureEntry* gPortProcDraw[128 * 128];
+
+struct PortPoolCell {
+    int32_t column;
+    int32_t row;
+};
+std::vector<PortPoolCell> gPortPoolCells;
+
+CTextureEntry* PortProcDrawn(const CHField& field, int32_t column, int32_t row) {
+    const int32_t x = column - field.mF234;
+    const int32_t y = row - field.mF238;
+    if (x < 0 || x > 127 || y < 0 || y > 127) return nullptr;
+    return gPortProcDraw[y * 128 + x];
+}
+
+// The pixels across the cell (column, row) covers on the screen: its width, at its distance from the camera (measured as
+// PortChooseProcCells does, in cells, with the camera's height over the ground's zero; the ground's own heights are small
+// beside a far camera's), through the projection (gei_ProjectionMatrix: cos and sin of half the field of view; with no
+// perspective as at distance 1) on the display's width.
+float PortGroundCellPixels(const CHField& field, int32_t column, int32_t row) {
+    const float cellX = field.mInvCellX != 0.0f ? 1.0f / field.mInvCellX : 1.0f;
+    const float cellZ = field.mInvCellZ != 0.0f ? 1.0f / field.mInvCellZ : 1.0f;
+    const float dx = (static_cast<float>(column) + 0.5f) * cellX - gei_ViewMatrix->m[3][0];
+    const float dy = gei_ViewMatrix->m[3][1];
+    const float dz = (static_cast<float>(row) + 0.5f) * cellZ - gei_ViewMatrix->m[3][2];
+    const float halfWidth = 0.5f * static_cast<float>(gei_Display.mWidth);
+    const float cosine = gei_ProjectionMatrix.m[0][0];
+    const float sine = gei_ProjectionMatrix.m[2][3];
+    if (!(sine > 0.0f)) return tpw::PortGroundPixels(cellX, 1.0f, cosine, halfWidth);
+    return tpw::PortGroundPixels(cellX, std::sqrt(dx * dx + dy * dy + dz * dz), cosine / sine, halfWidth);
+}
+
+}  // namespace
+
 int32_t CHField::Prepare() {
     if ((gei_System.mFlags & (CSystem::kViewChanged | CSystem::kLightsChanged)) == 0) return 1;
     // Not first person: the cells and grid points in view are the gamut's.
@@ -773,6 +814,8 @@ int32_t CHField::Prepare() {
     const bool capped = (gei_TextureSettings.mFlags & CTextureSettings::kProcTexturesOn) != 0 &&
                         PortChooseProcCells(*this, quads);
     if (!capped) gPortProcCapped = false;
+    gPortPoolCells.clear();
+    if (capped) std::memset(gPortProcDraw, 0, sizeof gPortProcDraw);
     for (int32_t row = quads.mFirstRow; row < quads.mEndRow; row++) {
         for (int32_t column = quadColumns.Low(row); column < quadColumns.High(row); column++) {
             // No bounds check, as in the original.
@@ -787,13 +830,51 @@ int32_t CHField::Prepare() {
             bool procedural = false;
             if ((gei_TextureSettings.mFlags & CTextureSettings::kProcTexturesOn) != 0)
                 procedural = column >= mF234 && column <= mF23C && row >= mF238 && row <= mF240;
-            if (procedural && capped) procedural = PortProcCellChosen(column, row);
+            if (procedural && capped) {
+                // groundpool: a chosen cell covering half the ring's size or less, and every cell not chosen, goes to the pool
+                // (when it is in the ring's table).
+                const float pixels = PortGroundCellPixels(*this, column, row);
+                const bool ring =
+                    PortProcCellChosen(column, row) &&
+                    tpw::PortGroundLevel(pixels, mProcTextures != nullptr ? mProcTextures->mSize : 0) == 0;
+                if (!ring && PortProcCellChosen(column, row)) gPortProcChosen[row * 128 + column] = 0;
+                procedural = ring;
+                const int32_t x = column - mF234;
+                const int32_t y = row - mF238;
+                if (!ring && x <= 127 && y <= 127) {
+                    const uint32_t tile = static_cast<uint32_t>(y * 0x100 + x);
+                    sTileOverlay overlay;
+                    overlay.mFlags = cell->mF00;
+                    if ((cell->mF00 & kCellRegenerate) != 0) {
+                        cell->mF00 &= static_cast<uint16_t>(~kCellRegenerate);
+                        PortGroundDirty(tile);
+                        SProcTexture** slot = mProcTextures != nullptr ? &mProcTextures->mTiles[y * 128 + x] : nullptr;
+                        if (slot != nullptr && *slot != nullptr) {
+                            (*slot)->mSlot = nullptr;
+                            *slot = nullptr;
+                        }
+                    }
+                    if ((cell->mF00 & kCellOverlay) != 0) {
+                        CTextureEntry* entry = mF04[cell->mF02].mTexture->GetTextureEntry(0);
+                        overlay.mData = entry;
+                        overlay.mWidth = entry->mWidth;
+                        overlay.mHeight = entry->mHeight;
+                        overlay.mFormat = kBytesPerPixel[gei_TextureSettings.mFormat];
+                    } else {
+                        overlay.mData = nullptr;
+                    }
+                    PortGroundAsk(tile, pixels, overlay);
+                    gPortPoolCells.push_back({column, row});
+                    continue;
+                }
+            }
             if (procedural) {
                 if (listed >= kMaxOverlays) continue;
                 mPrepareEntries[listed].mTile =
                     static_cast<uint32_t>((row - mF238) * 0x100 + (column - mF234));
                 sTileOverlay& overlay = gTileOverlays[listed];
                 overlay.mFlags = cell->mF00;
+                if ((cell->mF00 & kCellRegenerate) != 0) PortGroundDirty(mPrepareEntries[listed].mTile);   // groundpool
                 cell->mF00 &= static_cast<uint16_t>(~kCellRegenerate);
                 if ((cell->mF00 & kCellOverlay) != 0) {
                     CTextureEntry* entry = mF04[cell->mF02].mTexture->GetTextureEntry(0);
@@ -819,6 +900,28 @@ int32_t CHField::Prepare() {
     }
     if ((gei_TextureSettings.mFlags & CTextureSettings::kProcTexturesOn) != 0 && listed > 0)
         mProcTextures->PrepareList(mPrepareEntries, gTileOverlays, listed);
+    // groundpool: the pool makes what it can this frame; each pool cell draws with the pool's tile, else the ring's tile
+    // it still has (safe to use after PrepareList), else the mesh's texture.
+    if ((gei_TextureSettings.mFlags & CTextureSettings::kProcTexturesOn) != 0) PortGroundRun(mProcTextures);
+    for (const PortPoolCell& at : gPortPoolCells) {
+        const int32_t x = at.column - mF234;
+        const int32_t y = at.row - mF238;
+        CTextureEntry* entry = PortGroundTexture(static_cast<uint32_t>(y * 0x100 + x));
+        if (entry == nullptr && mProcTextures != nullptr && mProcTextures->mTiles[y * 128 + x] != nullptr)
+            entry = mProcTextures->mTiles[y * 128 + x]->mTexture;
+        float priority = 0.0f;
+        if (entry == nullptr) {
+            const sHFieldQuad& cell = mF00->mQuads[static_cast<int32_t>(static_cast<uint32_t>(at.column) +
+                                                                       static_cast<uint32_t>(at.row) * mF00->mF18[0])];
+            CsTexture* texture = mF04[cell.mF02].mTexture;
+            if (texture == nullptr) continue;
+            entry = texture->GetTextureEntry(0);
+            priority = kPicturePriority;
+        }
+        gPortProcDraw[y * 128 + x] = entry;
+        if (entry != nullptr) entry->Lock();
+        gei_TCache->Prepare(entry, priority);
+    }
     mF1296C = listed;
     return 1;
 }
@@ -868,7 +971,11 @@ void CHField::GetTexturesUsed(void** textures, int32_t& count, CTextureEntry** e
             if ((gei_TextureSettings.mFlags & CTextureSettings::kProcTexturesOn) != 0) {
                 procedural = x >= mF234 && x <= mF23C && z >= mF238 && z <= mF240;
             }
-            if (procedural && gPortProcCapped) procedural = PortProcCellChosen(x, z);
+            CTextureEntry* pooled = nullptr;   // groundpool: the entry Prepare chose for a pool cell
+            if (procedural && gPortProcCapped && !PortProcCellChosen(x, z)) {
+                procedural = false;
+                pooled = PortProcDrawn(*this, x, z);
+            }
             if (procedural && procCount >= kMaxOverlays) procedural = false;   // never past the list's end
             CTextureEntry* entry;
             if (procedural) {
@@ -877,6 +984,7 @@ void CHField::GetTexturesUsed(void** textures, int32_t& count, CTextureEntry** e
                 CsTexture* texture = mF04[quad.mF02].mTexture;
                 entry = texture != nullptr ? texture->GetTextureEntry(0) : nullptr;
             }
+            if (pooled != nullptr) entry = pooled;
             entries[entryCount++] = entry;
             void* page = entry != nullptr ? entry->GetTexture() : nullptr;
             int32_t found = 0;

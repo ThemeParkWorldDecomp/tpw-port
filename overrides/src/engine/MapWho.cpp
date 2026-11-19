@@ -30,6 +30,8 @@
 #include "tpw_probe.h"
 // TPW_PORT_FIX freecam CMapWho::RenderWindow/CMapWho::Render | Mac: outside first person the ground is drawn by the overhead gamut, and fog is on only in first person | Port: while the Free camera looks low (gPortFreeLowView) the ground is drawn by DivideAndConquer with the fog flag, as in first person, but the fog space is moved out of reach (kPortFreeFogNear, kPortFreeFogFar) and DivideAndConquer tests the whole map; Render puts both flag words and the fog space back at its end, so GameSys's first-person fog XOR and first person's own fog are not disturbed | Why: the gamut covers only what a high camera sees, so a low view showed holes at the horizon, and first person's fog (230 to 250 at the longest View distance) left plain fog colour where the far park, the mountains and the land around it should be
 #include "TPCamera.h"   // gPortFreeLowView (freecam, CMapWho::RenderWindow and CMapWho::Render), gPortDrawDistance (drawdist)
+// TPW_PORT_FIX groundpool CMapWho::Render | Mac: the height field lists its cells (CHField::Prepare) only in a frame whose view or lights changed | Port: while the far ground's pool has tiles still to make (gPortGroundPending, src/engine/tb_init.cpp), the frame counts as changed, and the flag is put back at the end | Why: the pool makes a few tiles a frame, so a still camera would otherwise keep the far cells' stand-ins
+#include "tb_proctexture.h"   // gPortGroundPending (groundpool, CMapWho::Render)
 #include "Wavelet.h"
 #include <cmath>
 #include <cstring>
@@ -326,6 +328,9 @@ void CMapWho::Render() {
         gei_System.mFlags &= ~CSystem::kAltTab;
     }
     const uint32_t systemFlags = gei_System.mFlags;
+    // groundpool: the height field lists its cells again while the pool has tiles to make (the flag word is put back at the
+    // end)
+    if (gPortGroundPending) gei_System.mFlags |= CSystem::kViewChanged;
     // freecam: fog also while the Free camera looks low, but starting out of reach; both flag words and the fog space are
     // put back at the end, and nothing is changed before the returns above (the TPW_PORT_FIX comment at the includes)
     const float fogNear = gei_Display.mFogNear;

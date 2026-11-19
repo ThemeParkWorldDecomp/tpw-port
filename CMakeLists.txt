@@ -773,6 +773,15 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_tpi_park_edge PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_park_edge COMMAND tpw_host_tpi_park_edge)
   endif()
+  # The far ground's procedural texture sizes (the port's fix groundpool, include/PortGroundPool.h): the size chosen for the
+  # pixels a cell covers, the step down that keeps a view's cells in the pool's budget and the shrink of a tile, without
+  # game data. The original has no pool, so it is made only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_ground_pool ${TPW_DECOMP_DIR}/tests/host_ground_pool.cpp)
+    target_include_directories(tpw_host_ground_pool PRIVATE ${TPW_INCLUDE_DIR})
+    target_compile_definitions(tpw_host_ground_pool PRIVATE TPW_TEST_PORT_FIX)
+    add_test(NAME ground_pool COMMAND tpw_host_ground_pool)
+  endif()
   # A park file's packed block cut short or damaged, unpacked with the block's length (the port's fixes parkload and
   # truncsave): no read past the block, and only a whole block unpacks. The program builds the packing and that unpacking of
   # src/bullfrog/LbZLib.cpp, with the host's zlib; the original has no such call, so it is made only with the port's fixes.
