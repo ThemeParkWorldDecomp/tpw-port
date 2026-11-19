@@ -76,7 +76,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
         super.onCreate(state);
         if (mLayout == null) return;
         settings = new ControlSettings(this);
-        controls = new TouchControls(this, settings);
+        controls = new TouchControls(this, settings, getIntent().getIntExtra(SetupActivity.INTERFACE_SCALE, 100) > 100);
         mLayout.setMotionEventSplittingEnabled(true);
         mLayout.addView(controls, new ViewGroup.LayoutParams(-1, -1));
         touchSlop = ViewConfiguration.get(this).getScaledTouchSlop();

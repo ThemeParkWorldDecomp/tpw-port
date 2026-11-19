@@ -19,6 +19,7 @@ final class TouchControls extends FrameLayout {
     private static final int BUTTON_SIZE = 48;
     private final ThemeParkActivity game;
     private final ControlSettings settings;
+    private final boolean largerInterface;
     private final List<View> toolbar = new ArrayList<>(), editingShortcuts = new ArrayList<>(), building = new ArrayList<>();
     private final Button ctrl, shift;
     private final Button gear, resetLayout, resumePark;
@@ -29,10 +30,11 @@ final class TouchControls extends FrameLayout {
     private int dragFinger = -1;
     private float dragX, dragY;
 
-    TouchControls(ThemeParkActivity game, ControlSettings settings) {
+    TouchControls(ThemeParkActivity game, ControlSettings settings, boolean largerInterface) {
         super(game);
         this.game = game;
         this.settings = settings;
+        this.largerInterface = largerInterface;
         setClipChildren(false);
 
         button(building, "buy", game.getString(R.string.buy), game.getString(R.string.buy_rides), () -> game.press(KeyEvent.KEYCODE_B));
@@ -108,9 +110,16 @@ final class TouchControls extends FrameLayout {
         int stickY = height / 5;
         int zoomY = stickY + stick.getMeasuredHeight() + dp(4);
         int panelCenter = stickX + stickWidth / 2;
-        layoutRow(toolbar, width, panelCenter, zoomY);
-        layoutRow(editingShortcuts, width, panelCenter, zoomY + dp(BUTTON_SIZE + 6));
-        layoutRow(building, width, width / 2, height - dp(76));
+        layoutRow(toolbar, width, panelCenter, zoomY, 0);
+        layoutRow(editingShortcuts, width, panelCenter, zoomY + dp(BUTTON_SIZE + 6), 0);
+        int buildLeft = 0;
+        if (largerInterface) {
+            // A centred 4:3 viewport puts the enlarged park toolbar farthest to the right.
+            int gameHeight = Math.min(height, Math.round(width * 0.75f));
+            int gameLeft = (width - Math.round(gameHeight * (4f / 3f))) / 2;
+            buildLeft = Math.min(width / 2, gameLeft + Math.round(gameHeight * 0.40f) + dp(8));
+        }
+        layoutRow(building, width, width / 2, height - dp(76), buildLeft);
         if (stick.getVisibility() == VISIBLE) place(stick, stickX, stickY, stickWidth);
         int gearWidth = gear.getMeasuredWidth();
         int margin = dp(12);
@@ -127,14 +136,14 @@ final class TouchControls extends FrameLayout {
         }
     }
 
-    private void layoutRow(List<View> row, int width, int center, int y) {
+    private void layoutRow(List<View> row, int width, int center, int y, int minLeft) {
         int total = 0, count = 0;
         for (View view : row) if (view.getVisibility() == VISIBLE) { total += view.getMeasuredWidth(); ++count; }
         int spacing = dp(6);
-        int available = Math.max(1, width - (count + 1) * spacing);
+        int available = Math.max(1, width - minLeft - (count + 1) * spacing);
         float scale = total > available ? (float) available / total : 1;
         int rowWidth = (int) (total * scale) + Math.max(0, count - 1) * spacing;
-        int x = clamp(center - rowWidth / 2, Math.max(0, width - rowWidth));
+        int x = minLeft + clamp(center - rowWidth / 2 - minLeft, Math.max(0, width - rowWidth - minLeft));
         for (View view : row) {
             if (view.getVisibility() != VISIBLE) continue;
             int cellWidth = Math.max(1, (int) (view.getMeasuredWidth() * scale));
