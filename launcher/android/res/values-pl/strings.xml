@@ -53,7 +53,7 @@
     <string name="mouse_mode_touchpad">Tryb myszy · Touchpad</string>
     <string name="touch_mode_hint">Dotyk – celuj palcem, stuknij, aby kliknąć</string>
     <string name="touchpad_mode_hint">Touchpad – przesuwaj kursor względem jego położenia</string>
-    <string name="touch_drag_hint">Aby przesunąć suwak w grze, przytrzymaj palec w miejscu, a potem przeciągnij.</string>
+    <string name="touch_drag_hint">Przeciągnij suwak za uchwyt. W trybie Touchpad najpierw przytrzymaj palec w miejscu.</string>
     <string name="resume_park">Wznów grę</string>
     <string name="move_controls">Przesuń kontrolki</string>
     <string name="finish_move_controls">Zakończ przesuwanie kontrolek</string>

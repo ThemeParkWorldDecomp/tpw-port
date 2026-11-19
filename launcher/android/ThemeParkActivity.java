@@ -33,7 +33,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     private int padModifiers, overlayModifiers;
     private float touchCameraX, touchCameraY, stickCameraX, stickCameraY;
     private int gamePointer = -1, secondPointer = -1;
-    private boolean moved, twoFingerTap;
+    private boolean moved, twoFingerTap, sliderDragRequested;
     private float downX, downY, lastX, lastY, secondX, secondY;
     private long touchStart;
     private int touchSlop;
@@ -55,6 +55,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     private static native void nativeRotate(int direction);
     private static native void nativeControlDialog(boolean opening);
     private static native void nativeResumePark();
+    private static native void nativeSliderDrag(boolean start);
 
     @Override
     protected String[] getLibraries() {
@@ -278,7 +279,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
                 moved = twoFingerTap = false;
                 if (!settings.touchpadMode()) aimAtTouch(event, index);
                 mLayout.postDelayed(beginTouchDrag, ViewConfiguration.getLongPressTimeout());
-            } else if (gamePointer >= 0 && secondPointer < 0 && !twoFingerTap && gamePointerButton == 0) {
+            } else if (gamePointer >= 0 && secondPointer < 0 && !twoFingerTap && !sliderDragRequested && gamePointerButton == 0) {
                 secondPointer = event.getPointerId(index);
                 secondX = event.getRawX(index);
                 secondY = event.getRawY(index);
@@ -296,10 +297,19 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
         int other = event.findPointerIndex(secondPointer);
         if (other >= 0 && outsideSlop(event, other, secondX, secondY)) moved = true;
         if (primary < 0) return;
-        if (outsideSlop(event, primary, downX, downY)) moved = true;
+        boolean touchpad = settings.touchpadMode();
+        boolean motion = event.getActionMasked() == MotionEvent.ACTION_MOVE;
+        if (!moved && outsideSlop(event, primary, downX, downY)) {
+            moved = true;
+            if (!touchpad && motion && !twoFingerTap && (mouseButtons & LEFT) == 0) {
+                // The SDL thread still has the pointer at the initial contact, where it can check for a thumb.
+                sliderDragRequested = true;
+                nativeSliderDrag(true);
+            }
+        }
         if (twoFingerTap) return;
-        if (!settings.touchpadMode()) {
-            aimAtTouch(event, primary);
+        if (!touchpad) {
+            if (moved || gamePointerButton != 0 || !motion) aimAtTouch(event, primary);
         } else if ((moved || gamePointerButton != 0) && mSurface != null && mSurface.getWidth() > 1 && mSurface.getHeight() > 1) {
             float x = event.getRawX(primary), y = event.getRawY(primary);
             float scale = settings.cursorScale() * 1.2f;
@@ -328,6 +338,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
         else secondPointer = -1;
         if (gamePointer >= 0 || secondPointer >= 0) return;
         mLayout.removeCallbacks(beginTouchDrag);
+        finishSliderDrag();
         if (gamePointerButton != 0) {
             setTouchButton(0);
             return;
@@ -339,7 +350,14 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     private void cancelTouchPointer() {
         mLayout.removeCallbacks(beginTouchDrag);
         gamePointer = secondPointer = -1;
+        finishSliderDrag();
         setTouchButton(0);
+    }
+
+    private void finishSliderDrag() {
+        if (!sliderDragRequested) return;
+        sliderDragRequested = false;
+        nativeSliderDrag(false);
     }
 
     private void setTouchButton(int button) {

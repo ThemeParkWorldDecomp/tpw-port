@@ -7,6 +7,7 @@
 #include <cstdint>
 
 #include "Game.h"
+#include "InterfaceScrollBar.h"
 #include "InterfaceWindow.h"
 #include "UI_Base.h"
 #include "keytable_actions.h"
@@ -20,9 +21,12 @@ std::atomic<uint32_t> gStick{0};
 std::atomic<bool> gKeyboardRequested{false};
 std::atomic<bool> gControlDialogOpen{false};
 std::atomic<bool> gResumeParkRequested{false};
+std::atomic<Uint32> gSliderDragEvent{0};
 std::atomic<int> gTurns{0};
 float gCameraX = 0, gCameraY = 0;
 bool gParkPausedByFocus = false;
+InterfaceWindow* gTouchSliderThumb = nullptr;
+bool gSliderMouseHeld = false;
 
 bool Editing() {
     return gUIKeyboardWindow != nullptr && gUIKeyboardWindow->WhatAmI() == kUIKindEditBox;
@@ -64,13 +68,47 @@ extern "C" JNIEXPORT void JNICALL Java_org_tpwport_android_ThemeParkActivity_nat
     gResumeParkRequested.store(true, std::memory_order_relaxed);
 }
 
+extern "C" JNIEXPORT void JNICALL Java_org_tpwport_android_ThemeParkActivity_nativeSliderDrag(JNIEnv*, jclass, jboolean start) {
+    SDL_Event event{};
+    event.type = gSliderDragEvent.load(std::memory_order_relaxed);
+    if (event.type == 0) return;
+    event.user.code = start;
+    SDL_PushEvent(&event);
+}
+
 namespace tpw::mobile {
 
-void InstallControlFocusFilter() {
+void InstallControlEvents() {
+    gSliderDragEvent.store(SDL_RegisterEvents(1), std::memory_order_relaxed);
     SDL_SetEventFilter([](void*, SDL_Event* event) {
         // SDL suspends during the dialog. Skip the game's extra pause on losing focus to its own controls.
         return event->type != SDL_EVENT_WINDOW_FOCUS_LOST || !gControlDialogOpen.load(std::memory_order_relaxed);
     }, nullptr);
+}
+
+bool HandleSliderDrag(const SDL_Event& event) {
+    if (event.type != gSliderDragEvent.load(std::memory_order_relaxed)) return false;
+    if (event.user.code) {
+        // The move preceding this event hit-tested the point where the finger first touched.
+        if (gUIActive && gUICaptureDevice == nullptr && (gUIButtonFlags & 1) == 0 &&
+            gUIPointerIn != nullptr && gUIPointerIn->mCallback == UI_DefaultThumbtrackCallback) {
+            gTouchSliderThumb = gUIPointerIn;
+            UI_DeviceButtonDown(0, gUIPointerX, gUIPointerY);
+        }
+    } else {
+        if (!gSliderMouseHeld && gTouchSliderThumb != nullptr && gUIButtonWindow[0] == gTouchSliderThumb) {
+            UI_DeviceButtonUp(0, gUIPointerX, gUIPointerY);
+        }
+        gTouchSliderThumb = nullptr;
+        gSliderMouseHeld = false;
+    }
+    return true;
+}
+
+bool ShareSliderButton(bool down) {
+    if (gTouchSliderThumb == nullptr || gUIButtonWindow[0] != gTouchSliderThumb) return false;
+    gSliderMouseHeld = down;
+    return true;
 }
 
 void ParkFocusWillBeLost() {

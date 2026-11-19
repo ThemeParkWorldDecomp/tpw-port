@@ -366,7 +366,7 @@ void UGamework::HandleCommand(int32_t command, uint32_t) {
 void UGamework::Run() {
     if (!Initialise()) return;
 #ifdef __ANDROID__
-    tpw::mobile::InstallControlFocusFilter();
+    tpw::mobile::InstallControlEvents();
 #endif
     // 0x100056a0, and the start of 0x100054c4: the remembered key comes up with the modifiers it went down with.
     auto releaseKey = [this]() {
@@ -430,6 +430,9 @@ void UGamework::Run() {
 #endif
         SDL_Event sdl;
         while (mRunning && SDL_PollEvent(&sdl)) {
+#ifdef __ANDROID__
+            if (tpw::mobile::HandleSliderDrag(sdl)) continue;
+#endif
             switch (sdl.type) {
             case SDL_EVENT_QUIT:
             case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
@@ -459,6 +462,9 @@ void UGamework::Run() {
             case SDL_EVENT_MOUSE_BUTTON_UP: {
                 MouseButton button;
                 if (!MouseButtonFromSDL(sdl.button.button, button)) break;
+#ifdef __ANDROID__
+                if (button == kMouseButton0 && tpw::mobile::ShareSliderButton(sdl.button.down)) break;
+#endif
                 const tpw::Event event = MakeEvent(sdl.button.x, sdl.button.y);
 #ifdef TPW_PORT_FIX
                 // freecam: a button the camera takes, and its key-up
