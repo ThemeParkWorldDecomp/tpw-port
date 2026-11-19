@@ -26,7 +26,7 @@ Jeśli przejście w tło zatrzymało park, po powrocie pojawi się przycisk **Wz
 
 ## Pierwsze uruchomienie
 
-Uruchom **Theme Park World** z listy aplikacji. Ikona przedstawia kolejkę górską, a ekran startowy używa kolorystyki launchera PC. Na szerokim ekranie wybór gry i import danych są obok siebie. Na wąskim ekranie można je przewijać w jednej kolumnie.
+Uruchom **Theme Park World** z listy aplikacji. Ikona przedstawia kolejkę górską. W granatowo-zielonym launcherze żółty przycisk **Graj** znajduje się pod wyborem wydania i języka. Na szerokim ekranie wybór gry i import danych są obok siebie. Na wąskim ekranie wybór gry jest nad importem.
 
 W programie startowym wybierz **Importuj pliki** i wskaż obrazy płyt lub archiwa własnej kopii gry. Do danych z rozpakowanego folderu służy **Importuj folder**. Ekran startowy udostępnia wybór wydania, język, ustawienia i mody. Dane dodatkowego języka można zaimportować później. Mody korzystające z płyt PlayStation albo SimCoaster odblokowują się po rozpoznaniu odpowiednich danych.
 

@@ -5,10 +5,12 @@ import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.database.Cursor;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.LayerDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.net.Uri;
 import android.os.Bundle;
@@ -17,6 +19,7 @@ import android.provider.OpenableColumns;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -42,15 +45,32 @@ public final class SetupActivity extends Activity {
     private static final int[] INTERFACE_SCALES = {100, 115, 125};
     private static final int PICK_FILES = 1;
     private static final int PICK_FOLDER = 2;
-    private static final int INK = 0xFF2B203C;
-    private static final int CREAM = 0xFFFFF9E8;
-    private static final int ORANGE = 0xFFFFB35D;
-    private static final int YELLOW = 0xFFFFE27E;
-    private static final int LIME = 0xFFB6E763;
+    private static final int NAVY = 0xFF0C2032;
+    private static final int PAPER = 0xFFF3F9E9;
+    private static final int MUTED = 0xFFB7D4CD;
+    private static final int GOLD = 0xFFFFD570;
+    private static final int INK = 0xFF20291C;
+
+    private enum ButtonStyle {
+        NAVIGATION(0xFF2A4A66, 0xFF19344E, 0xFF587D9A, PAPER),
+        CHOICE(0xFF214B3E, 0xFF142F2E, 0xFF699778, PAPER),
+        IMPORT(0xFF365B61, 0xFF213F49, 0xFF698E91, PAPER),
+        PLAY(0xFFFFECA2, 0xFFF4BA43, 0xFFFFD880, INK);
+
+        final int top, bottom, edge, text;
+
+        ButtonStyle(int top, int bottom, int edge, int text) {
+            this.top = top;
+            this.bottom = bottom;
+            this.edge = edge;
+            this.text = text;
+        }
+    }
+
     private final ExecutorService work = Executors.newSingleThreadExecutor();
     private Button play, files, folder, edition, language, options, mods;
     private TextView gameTitle, status;
-    private LinearLayout header, quickActions, panels, gamePanel, dataPanel;
+    private LinearLayout body, header, quickActions, panels, gamePanel, dataPanel;
     private ProgressBar progress;
     private boolean busy;
     private String[] editions = {}, europeanLanguages = {}, americanLanguages = {};
@@ -71,57 +91,62 @@ public final class SetupActivity extends Activity {
     private void createScreen() {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-            new int[] {0xFF94D1F4, 0xFFE6F8FF}));
-        LinearLayout body = column();
-        body.setPadding(dp(16), dp(16), dp(16), dp(24));
-        scroll.addView(body);
+        scroll.setBackground(gradient(0xFF203D56, NAVY, NAVY, 0, 0));
+        FrameLayout page = new FrameLayout(this);
+        body = column();
+        page.addView(body, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL));
+        scroll.addView(page);
         setContentView(scroll);
 
         header = new LinearLayout(this);
+        header.setBackground(frame(0xFF253F58, 0xFF142A41, 0xFF4B677F, 19));
         header.addView(launcherTitle());
         quickActions = new LinearLayout(this);
-        options = launcherButton(R.string.settings, CREAM, () -> showOptions(false));
-        mods = launcherButton(R.string.mods, YELLOW, () -> showOptions(true));
+        options = launcherButton(R.string.settings, ButtonStyle.NAVIGATION, () -> showOptions(false));
+        mods = launcherButton(R.string.mods, ButtonStyle.NAVIGATION, () -> showOptions(true));
         quickActions.addView(options);
         quickActions.addView(mods);
         header.addView(quickActions);
         body.addView(header);
 
-        gamePanel = panel(YELLOW);
-        gameTitle = label(getString(R.string.select_edition), 29, true);
-        gameTitle.setAccessibilityHeading(true);
+        gamePanel = panel(0xFF3E7050, 0xFF24483B, 0xFF79A177);
+        gameTitle = heading(getString(R.string.select_edition), 30);
         addRow(gamePanel, gameTitle, 0);
-        edition = launcherButton(R.string.edition, CREAM, () -> choose(false));
-        language = launcherButton(R.string.language, CREAM, () -> choose(true));
-        play = launcherButton(R.string.play, LIME, () -> startActivity(new Intent(this, ThemeParkActivity.class)
+        edition = launcherButton(R.string.edition, ButtonStyle.CHOICE, () -> choose(false));
+        language = launcherButton(R.string.language, ButtonStyle.CHOICE, () -> choose(true));
+        alignStart(edition);
+        alignStart(language);
+        play = launcherButton(R.string.play, ButtonStyle.PLAY, () -> startActivity(new Intent(this, ThemeParkActivity.class)
             .putExtra(EDITION, chosenEdition).putExtra(LANGUAGE, chosenLanguage)
             .putExtra(INTERFACE_SCALE, interfaceScale())));
-        play.setTextSize(20);
-        play.setMinHeight(dp(54));
-        addRow(gamePanel, edition, 18);
+        play.setTextSize(22);
+        play.setTypeface(Typeface.create("sans-serif-black", Typeface.NORMAL));
+        play.setMinHeight(dp(56));
+        addRow(gamePanel, edition, 12);
         addRow(gamePanel, language, 8);
         addRow(gamePanel, play, 14);
 
-        dataPanel = panel(CREAM);
-        TextView dataTitle = label(getString(R.string.game_data), 24, true);
-        dataTitle.setAccessibilityHeading(true);
+        dataPanel = panel(0xFF31554E, 0xFF203C40, 0xFF668B7F);
+        TextView dataTitle = heading(getString(R.string.game_data), 25);
         addRow(dataPanel, dataTitle, 0);
-        status = label("", 16, false);
+        status = label("", 15, PAPER);
+        status.setBackground(gradient(0xFF1C3937, 0xFF172E33, 0xFF55796C, 10, 1));
+        status.setPadding(dp(12), dp(10), dp(12), dp(10));
         status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         addRow(dataPanel, status, 8);
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progress.setIndeterminate(true);
+        progress.setIndeterminateTintList(ColorStateList.valueOf(GOLD));
         addRow(dataPanel, progress, 6);
-        files = launcherButton(R.string.import_files, ORANGE, () -> launchPicker(false));
-        folder = launcherButton(R.string.import_folder, ORANGE, () -> launchPicker(true));
-        addRow(dataPanel, files, 18);
+        files = launcherButton(R.string.import_files, ButtonStyle.IMPORT, () -> launchPicker(false));
+        folder = launcherButton(R.string.import_folder, ButtonStyle.IMPORT, () -> launchPicker(true));
+        addRow(dataPanel, files, 12);
         addRow(dataPanel, folder, 8);
 
         panels = new LinearLayout(this);
         panels.addView(gamePanel);
         panels.addView(dataPanel);
-        addRow(body, panels, 16);
+        addRow(body, panels, 12);
         arrangeScreen(getResources().getConfiguration());
     }
 
@@ -130,11 +155,11 @@ public final class SetupActivity extends Activity {
         title.setGravity(Gravity.CENTER_VERTICAL);
         ImageView icon = new ImageView(this);
         icon.setImageResource(getApplicationInfo().icon);
-        LinearLayout.LayoutParams image = new LinearLayout.LayoutParams(dp(46), dp(46));
-        image.setMarginEnd(dp(10));
+        icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LinearLayout.LayoutParams image = new LinearLayout.LayoutParams(dp(48), dp(48));
+        image.setMarginEnd(dp(11));
         title.addView(icon, image);
-        TextView name = label("STP/TPW Launcher", 24, true);
-        name.setAccessibilityHeading(true);
+        TextView name = heading("STP/TPW Launcher", 27);
         title.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
         return title;
     }
@@ -146,23 +171,30 @@ public final class SetupActivity extends Activity {
     }
 
     private void arrangeScreen(Configuration configuration) {
-        boolean wide = configuration.screenWidthDp >= 600;
+        boolean wide = configuration.screenWidthDp >= 600 && configuration.fontScale <= 1.25f;
+        boolean compact = configuration.screenHeightDp < (wide ? 420 : 550);
+        body.getLayoutParams().width = configuration.screenWidthDp > 940 ? dp(940) : -1;
+        body.setPadding(dp(compact ? 10 : 16), dp(compact ? 8 : 14), dp(compact ? 10 : 16), dp(20));
+        header.setPadding(dp(14), dp(compact ? 8 : 12), dp(14), dp(compact ? 11 : 15));
         int orientation = wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL;
         header.setOrientation(orientation);
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.getChildAt(0).setLayoutParams(new LinearLayout.LayoutParams(wide ? 0 : -1, -2, wide ? 1 : 0));
         LinearLayout.LayoutParams actions = new LinearLayout.LayoutParams(wide ? -2 : -1, -2);
-        actions.topMargin = wide ? 0 : dp(12);
+        actions.topMargin = wide ? 0 : dp(8);
+        actions.setMarginStart(wide ? dp(12) : 0);
         quickActions.setLayoutParams(actions);
         options.setLayoutParams(actionParams(0, wide));
         mods.setLayoutParams(actionParams(8, wide));
 
         panels.setOrientation(orientation);
-        gamePanel.setLayoutParams(new LinearLayout.LayoutParams(wide ? 0 : -1, -2, wide ? 11 : 0));
-        LinearLayout.LayoutParams data = new LinearLayout.LayoutParams(wide ? 0 : -1, -2, wide ? 9 : 0);
+        ((LinearLayout.LayoutParams) panels.getLayoutParams()).topMargin = dp(compact ? 8 : 12);
+        gamePanel.setLayoutParams(new LinearLayout.LayoutParams(wide ? 0 : -1, wide ? -1 : -2, wide ? 11 : 0));
+        LinearLayout.LayoutParams data = new LinearLayout.LayoutParams(wide ? 0 : -1, wide ? -1 : -2, wide ? 9 : 0);
         data.topMargin = wide ? 0 : dp(12);
         data.setMarginStart(wide ? dp(12) : 0);
         dataPanel.setLayoutParams(data);
+        body.requestLayout();
     }
 
     private LinearLayout.LayoutParams actionParams(int start, boolean wrap) {
@@ -177,11 +209,10 @@ public final class SetupActivity extends Activity {
         return layout;
     }
 
-    private LinearLayout panel(int fill) {
+    private LinearLayout panel(int top, int bottom, int edge) {
         LinearLayout layout = column();
-        layout.setBackground(shape(fill, INK, 18, 2));
-        layout.setPadding(dp(18), dp(18), dp(18), dp(18));
-        layout.setElevation(dp(3));
+        layout.setBackground(frame(top, bottom, edge, 19));
+        layout.setPadding(dp(16), dp(14), dp(16), dp(18));
         return layout;
     }
 
@@ -195,40 +226,64 @@ public final class SetupActivity extends Activity {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
-    private TextView label(String text, int size, boolean heading) {
+    private TextView label(String text, int size, int color) {
         TextView label = new TextView(this);
         label.setText(text);
-        label.setTextColor(INK);
+        label.setTextColor(color);
         label.setTextSize(size);
-        if (heading) label.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
         return label;
     }
 
-    private GradientDrawable shape(int fill, int stroke, int radius, int width) {
-        GradientDrawable shape = new GradientDrawable();
-        shape.setColor(fill);
+    private TextView heading(String text, int size) {
+        TextView title = label(text, size, PAPER);
+        title.setTypeface(Typeface.create("sans-serif-condensed", Typeface.BOLD));
+        title.setAccessibilityHeading(true);
+        return title;
+    }
+
+    private GradientDrawable gradient(int top, int bottom, int stroke, int radius, int width) {
+        GradientDrawable shape = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] {top, bottom});
         shape.setCornerRadius(dp(radius));
-        shape.setStroke(dp(width), stroke);
+        if (width > 0) shape.setStroke(dp(width), stroke);
         return shape;
     }
 
-    private Button launcherButton(int text, int fill, Runnable action) {
+    private LayerDrawable frame(int top, int bottom, int edge, int radius) {
+        LayerDrawable frame = new LayerDrawable(new GradientDrawable[] {
+            gradient(0xFF253E57, 0xFF081929, 0xFF0A1827, radius, 1),
+            gradient(top, bottom, edge, radius - 4, 1)
+        });
+        frame.setLayerInset(1, dp(4), dp(4), dp(4), dp(6));
+        return frame;
+    }
+
+    private void alignStart(Button button) {
+        button.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+    }
+
+    private Button launcherButton(int text, ButtonStyle style, Runnable action) {
+        Button button = launcherButton(text, style);
+        button.setOnClickListener(view -> action.run());
+        return button;
+    }
+
+    private Button launcherButton(int text, ButtonStyle style) {
         Button button = new Button(this);
         button.setText(text);
         button.setAllCaps(false);
-        button.setTextColor(INK);
+        button.setTextColor(new ColorStateList(new int[][] {{-android.R.attr.state_enabled}, {}},
+            new int[] {0xFFB9C7BD, style.text}));
         button.setTextSize(16);
         button.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         button.setMinHeight(dp(48));
-        button.setPadding(dp(14), dp(8), dp(14), dp(8));
+        button.setPadding(dp(14), dp(7), dp(14), dp(9));
         button.setStateListAnimator(null);
         StateListDrawable background = new StateListDrawable();
-        background.addState(new int[] {-android.R.attr.state_enabled}, shape(0xFFE0DCCB, 0xFF938A94, 12, 1));
-        background.addState(new int[] {android.R.attr.state_pressed}, shape(0xFFFFC66C, INK, 12, 2));
-        background.addState(new int[] {android.R.attr.state_focused}, shape(fill, 0xFF24598D, 12, 3));
-        background.addState(new int[0], shape(fill, INK, 12, 1));
+        background.addState(new int[] {-android.R.attr.state_enabled}, frame(0xFF394A48, 0xFF273835, 0xFF68756E, 12));
+        background.addState(new int[] {android.R.attr.state_pressed}, frame(style.bottom, style.top, GOLD, 12));
+        background.addState(new int[] {android.R.attr.state_focused}, frame(style.top, style.bottom, 0xFFFFF1BE, 12));
+        background.addState(new int[0], frame(style.top, style.bottom, style.edge, 12));
         button.setBackground(background);
-        button.setOnClickListener(view -> action.run());
         return button;
     }
 
@@ -240,43 +295,53 @@ public final class SetupActivity extends Activity {
             return;
         }
         ScrollView scroll = new ScrollView(this);
-        LinearLayout fields = new LinearLayout(this);
-        fields.setOrientation(LinearLayout.VERTICAL);
-        int margin = Math.round(22 * getResources().getDisplayMetrics().density);
-        fields.setPadding(margin, margin / 2, margin, margin / 2);
+        LinearLayout fields = column();
+        fields.setPadding(dp(18), dp(4), dp(18), dp(12));
         scroll.addView(fields);
         AlertDialog dialog = new AlertDialog.Builder(this).setTitle(showMods ? R.string.mods : R.string.settings)
             .setView(scroll).setPositiveButton(R.string.done, null).create();
         if (!showMods) {
-            button(fields, R.string.controls, () -> {
+            Button controls = launcherButton(R.string.controls, ButtonStyle.NAVIGATION, () -> {
                 dialog.dismiss();
                 new ControlSettings(this).show(this);
             });
-            Button scale = new Button(this);
-            scale.setAllCaps(false);
+            alignStart(controls);
+            addRow(fields, controls, 4);
+            Button scale = launcherButton(R.string.interface_scale, ButtonStyle.NAVIGATION);
             scale.setText(interfaceScaleLabel(interfaceScale()));
             scale.setOnClickListener(view -> chooseInterfaceScale(scale));
-            fields.addView(scale);
+            alignStart(scale);
+            addRow(fields, scale, 8);
         }
         for (int i = 0; i + 4 < rows.length; i += 5) {
             final String key = rows[i];
+            LinearLayout option = column();
+            option.setBackground(gradient(0xFF234842, 0xFF1B3838, 0xFF496D65, 12, 1));
+            option.setPadding(dp(12), 0, dp(12), 0);
             Switch toggle = new Switch(this);
             toggle.setText(showMods ? rows[i + 1] : settingLabel(key));
+            toggle.setTextColor(new ColorStateList(new int[][] {{-android.R.attr.state_enabled}, {}},
+                new int[] {MUTED, PAPER}));
+            toggle.setTextSize(16);
             toggle.setChecked(rows[i + 2].equals("1"));
             toggle.setEnabled(rows[i + 3].equals("1"));
-            toggle.setMinHeight(margin * 2);
+            toggle.setMinHeight(dp(48));
+            toggle.setPadding(0, dp(8), 0, dp(8));
+            toggle.setSwitchPadding(dp(12));
             toggle.setOnClickListener(view -> {
                 if (nativeOptions(root, showMods, key, toggle.isChecked()) != null) return;
                 toggle.setChecked(!toggle.isChecked());
                 android.widget.Toast.makeText(this, R.string.option_save_failed, android.widget.Toast.LENGTH_SHORT).show();
             });
-            fields.addView(toggle);
+            addRow(option, toggle, 0);
             if (!rows[i + 4].isEmpty()) {
-                TextView detail = new TextView(this);
                 String note = rows[i + 4];
-                detail.setText(toggle.isEnabled() ? note : getString(note.equals("ps1") ? R.string.mod_need_ps1 : R.string.mod_need_tpi));
-                fields.addView(detail);
+                String detail = toggle.isEnabled() ? note : getString(note.equals("ps1") ? R.string.mod_need_ps1 : R.string.mod_need_tpi);
+                TextView description = label(detail, 14, MUTED);
+                description.setPadding(0, 0, 0, dp(9));
+                addRow(option, description, 0);
             }
+            addRow(fields, option, 8);
         }
         dialog.show();
     }
@@ -315,15 +380,6 @@ public final class SetupActivity extends Activity {
             case "ride_badges": return getString(R.string.ride_badges);
             default: return key;
         }
-    }
-
-    private Button button(LinearLayout body, int title, Runnable action) {
-        Button button = new Button(this);
-        button.setText(title);
-        button.setAllCaps(false);
-        button.setOnClickListener(view -> action.run());
-        body.addView(button);
-        return button;
     }
 
     private void launchPicker(boolean tree) {
