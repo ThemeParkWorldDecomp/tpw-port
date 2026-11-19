@@ -55,6 +55,10 @@ void SetInterfaceScale(int percent) {
     gPreferredScale = percent == 115 || percent == 125 ? static_cast<float>(percent) / 100.0f : 1.0f;
 }
 
+void FitInterfaceForMenu() {
+    if (gPreferredScale > 1.0f) ApplyScale(1.0f);
+}
+
 void PrepareInterfaceForBuild(const InterfaceWindow* parent, const int16_t* script) {
     if (gPreferredScale <= 1.0f || gGameWindow == nullptr) return;
     // Full-screen screens such as the map and Options cache geometry during construction.
