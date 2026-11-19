@@ -337,6 +337,11 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
     } else if (!report.themeParkInc.empty()) {
         r.headline = report.themeParkIncConverted ? "SimCoaster AKA Theme Park Inc worlds ready" : "SimCoaster AKA Theme Park Inc disc recognised";
         r.good = report.themeParkIncConverted;
+    } else if (!report.themeParkIncAddOn.empty()) {
+        r.headline = report.themeParkIncAddOnAdded     ? "SimCoaster Bonus Disk rides added"
+                     : report.themeParkIncAddOnAlready ? "Nothing new: the SimCoaster Bonus Disk is already added"
+                                                       : "SimCoaster Bonus Disk recognised";
+        r.good = report.themeParkIncAddOnAdded || report.themeParkIncAddOnAlready;
     } else if (!report.playStation2.empty()) {
         r.headline = report.playStation2Converted ? "PS2 Guest Models ready" : "PlayStation 2 disc recognised";
         r.good = report.playStation2Converted;
@@ -387,6 +392,7 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
     }
     for (const std::string& line : report.playStation) r.lines.push_back(line);
     for (const std::string& line : report.themeParkInc) r.lines.push_back(line);
+    for (const std::string& line : report.themeParkIncAddOn) r.lines.push_back(line);
     for (const std::string& line : report.playStation2) r.lines.push_back(line);
     if (report.written) r.lines.push_back(Files(report.written) + " put in place");
     if (report.alreadyThere) r.lines.push_back(Files(report.alreadyThere) + " already in place");

@@ -1565,6 +1565,21 @@ std::vector<Shot> Shots() {
                          ui.OfferPaths({"/media/Theme Park Roller Coaster (USA).cue"});
                      },
                      Screen::Result, {}});
+    // The result screen after a SimCoaster Bonus Disk drop on an imported SimCoaster: what it added and what it kept.
+    shots.push_back({"81-result-tpi-bonus-disk", metric::kStartWidth, metric::kStartHeight, everything,
+                     [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>&) {
+                         FakeBackend::Script s;
+                         s.finish = [](FakeBackend&, ImportReport& r) {
+                             r.themeParkIncAddOnAdded = true;
+                             r.themeParkIncAddOn.push_back(
+                                 "SimCoaster Bonus Disk: added Depth Charge (Polar Zone) and Wilbur's Wind Rush (Land "
+                                 "of Invention); its 35 ready-made coasters are kept but cannot be built (Theme Park "
+                                 "World has no ready-made coasters).");
+                         };
+                         b.Queue(s);
+                         ui.OfferPaths({"/media/SimCoaster - Bonus Disk (USA).iso"});
+                     },
+                     Screen::Result, {}});
     shots.push_back({"64-home-header-smallest-update", metric::kMinWidth, metric::kMinHeight, nullptr, nullptr,
                      Screen::Home, "found"});
     // A wide window: the same three buttons in the header, on both homes.
@@ -1752,6 +1767,35 @@ void CheckTexts() {
         ps1.playStationConverted = false;
         result = DescribeResult(ps1, before);
         Check(!result.good && result.headline == "PlayStation disc recognised", "PS1 without PC donors stays honest");
+    }
+    {
+        ImportReport bonus;
+        EditionStatus before[6] = {};
+        bonus.themeParkIncAddOn.push_back("SimCoaster Bonus Disk: added Depth Charge (Polar Zone).");
+        bonus.themeParkIncAddOnAdded = true;
+        ResultText result = DescribeResult(bonus, before);
+        CheckEq(result.headline, "SimCoaster Bonus Disk rides added", "Bonus Disk headline");
+        Check(result.good && result.lines.size() == 1 && result.lines.front() == bonus.themeParkIncAddOn.front(),
+              "Bonus Disk reports its own line without changing edition counts");
+        Check(!bonus.ChangedNothing(), "a Bonus Disk that added rides changed something");
+        bonus.themeParkIncAddOnAdded = false;
+        bonus.themeParkIncAddOnAlready = true;
+        result = DescribeResult(bonus, before);
+        Check(result.good && result.headline == "Nothing new: the SimCoaster Bonus Disk is already added",
+              "Bonus Disk added again: nothing new");
+        bonus.themeParkIncAddOnAlready = false;
+        bonus.themeParkIncAddOn.front() = "SimCoaster Bonus Disk recognised; import SimCoaster AKA Theme Park Inc first.";
+        result = DescribeResult(bonus, before);
+        Check(!result.good && result.headline == "SimCoaster Bonus Disk recognised" &&
+                  result.lines.front() == bonus.themeParkIncAddOn.front(),
+              "Bonus Disk without SimCoaster: refused, and the line says why");
+        // With the game in the same drop: the copy's headline, then both lines.
+        bonus.themeParkInc.push_back("SimCoaster AKA Theme Park Inc: 3 worlds converted from the US copy.");
+        bonus.themeParkIncConverted = true;
+        result = DescribeResult(bonus, before);
+        Check(result.headline == "SimCoaster AKA Theme Park Inc worlds ready" && result.lines.size() == 2 &&
+                  result.lines.back() == bonus.themeParkIncAddOn.front(),
+              "Bonus Disk with the game: the game's headline, then both lines");
     }
     {
         CheckEq(ContentModLockedText("ps2"), "Drop your own PlayStation 2 disc on the launcher to unlock.",

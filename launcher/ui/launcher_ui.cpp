@@ -72,6 +72,9 @@ void Merge(ImportReport& into, const ImportReport& r) {
     into.playStationConverted = into.playStationConverted || r.playStationConverted;
     into.themeParkInc.insert(into.themeParkInc.end(), r.themeParkInc.begin(), r.themeParkInc.end());
     into.themeParkIncConverted = into.themeParkIncConverted || r.themeParkIncConverted;
+    into.themeParkIncAddOn.insert(into.themeParkIncAddOn.end(), r.themeParkIncAddOn.begin(), r.themeParkIncAddOn.end());
+    into.themeParkIncAddOnAdded = into.themeParkIncAddOnAdded || r.themeParkIncAddOnAdded;
+    into.themeParkIncAddOnAlready = into.themeParkIncAddOnAlready || r.themeParkIncAddOnAlready;
     into.playStation2.insert(into.playStation2.end(), r.playStation2.begin(), r.playStation2.end());
     into.playStation2Converted = into.playStation2Converted || r.playStation2Converted;
 }

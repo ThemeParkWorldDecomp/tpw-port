@@ -1610,6 +1610,7 @@ int ImportFromOptions(const std::string& dataDir, const std::vector<std::string>
     for (const std::string& error : report.errors) tpw::Log("import: error: %s", error.c_str());
     for (const std::string& line : report.playStation) tpw::Log("import: %s", line.c_str());
     for (const std::string& line : report.themeParkInc) tpw::Log("import: %s", line.c_str());
+    for (const std::string& line : report.themeParkIncAddOn) tpw::Log("import: %s", line.c_str());
     for (const std::string& line : report.playStation2) tpw::Log("import: %s", line.c_str());
     for (const std::string& dest : report.differentVersions) tpw::Log("import: a different version (not used): %s", dest.c_str());
     if (report.cancelled || report.aborted) tpw::Log("import: stopped before the end%s", report.aborted ? " by a write error" : "");
