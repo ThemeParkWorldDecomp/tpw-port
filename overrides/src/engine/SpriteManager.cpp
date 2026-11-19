@@ -20,10 +20,12 @@
 #include "tb_texturecache.h"
 #include "tb_textureentry.h"
 #include "Wavelet.h"
+#include "PortSpriteFringe.h"
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <new>
+#include <vector>
 
 // tb_sprite.cpp, the engine's sprite files (engine library of SimTheme Park 2.04b3; the file
 // name is the one in its assertions; functions at 0x1002da98..0x1002f398 and 0x1003108c..
@@ -338,6 +340,23 @@ int32_t CSpriteManager::RenderSprites() {
 
     // Draw one primitive per kind, in the order the kinds were made.
     gei_DrawPrimitive->mCurrent = nullptr;
+    // TPW_PORT_FIX spritefringe CSpriteManager::RenderSprites | Mac: each texture page draws its whole alpha mask once | Port: the pages draw their opaque cores, then all soft fringes are added back to front across pages without depth writes | Why: see PortSpriteFringe.h
+    for (int pass = 0; pass < (tpw::spritefringe::enabled ? 2 : 1); ++pass) {
+        tpw::spritefringe::Scope spritePass(!tpw::spritefringe::enabled ? tpw::spritefringe::Pass::Original :
+            pass == 0 ? tpw::spritefringe::Pass::Core : tpw::spritefringe::Pass::Fringe);
+        if (tpw::spritefringe::pass == tpw::spritefringe::Pass::Fringe) {
+            std::vector<SSpriteGameData*> sorted(mSprites, mSprites + count);
+            tpw::spritefringe::SortFringes(sorted.begin(), sorted.end(),
+                [](const SSpriteGameData* sprite) { return sprite->mDepth; });
+            // AddRegular flushes when the page or blend changes; adjacent compatible sprites still batch.
+            for (SSpriteGameData* sprite : sorted) {
+                // A kid drawn as its PS2 model (the mods hook below) has no sprite edges either.
+                if (gModPs2Characters && Ps2IsModel(sprite)) continue;
+                if (sprite->AddRegular() == 0) return 0;
+            }
+            if (gei_DrawPrimitive->ExecuteCurrentPrimitive(-1.0f) == 0) return 0;
+            continue;
+        }
     for (SSpriteGroup* group = root; group < end; ++group) {
         if (group->mFirst == nullptr) continue;
         for (SSpriteGameData* sprite = group->mFirst; sprite != nullptr; sprite = sprite->mNext) {
@@ -349,6 +368,7 @@ int32_t CSpriteManager::RenderSprites() {
             if (sprite->AddRegular() == 0) return 0;
         }
         if (gei_DrawPrimitive->ExecuteCurrentPrimitive(-1.0f) == 0) return 0;
+    }
     }
     // TPW_PORT_FIX mods CSpriteManager::RenderSprites | Mac: the shadows follow the sprites | Port: TPW_MOD_HOOK ps2_characters (gModPs2Characters, include/Ps2Characters.h): the kids' PS2 models are drawn between them | Why: tpw-mods ps2-characters
     if (gModPs2Characters && Ps2DrawModels(mSprites, count) == 0) return 0;

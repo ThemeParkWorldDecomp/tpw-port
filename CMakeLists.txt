@@ -137,6 +137,14 @@ endif()
 if(NOT TPW_INCLUDE_DIR)
   set(TPW_INCLUDE_DIR ${TPW_DECOMP_DIR}/include)
 endif()
+# Synthetic overlapping sprites through the same pass state and depth ordering as the world draw.
+if(TPW_BUILD_ASSETS_TESTS)
+  enable_testing()
+  add_executable(tpw_spritefringe_tests ${TPW_DECOMP_DIR}/tests/host_spritefringe.cpp)
+  target_include_directories(tpw_spritefringe_tests PRIVATE ${TPW_INCLUDE_DIR})
+  target_compile_definitions(tpw_spritefringe_tests PRIVATE TPW_HOST_SPRITEFRINGE_FIXED=$<BOOL:${TPW_PORT_FIX}>)
+  add_test(NAME spritefringe COMMAND tpw_spritefringe_tests)
+endif()
 # The PS2 converter reads include/Ps2Pack.h through TPW_INCLUDE_DIR, so tpw-port builds it from the same overlay copy as
 # the game (include/Ps2Characters.h), never the submodule's raw one.
 target_include_directories(tpw_assets PUBLIC ${TPW_INCLUDE_DIR})

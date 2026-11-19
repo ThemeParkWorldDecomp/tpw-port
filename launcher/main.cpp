@@ -51,6 +51,7 @@
 #include "TPSettings.h"
 #include "TPAdvisor.h"
 #include "TPCamera.h"
+#include "PortSpriteFringe.h"
 #include "AdvisorScoring.h"
 #include "TrueTypeRender.h"
 #include "analyser.h"
@@ -2149,6 +2150,8 @@ int LauncherMain(int argc, char** argv) {
     gPortNoWorldAdvisorGuard = true;
     // The key tables get a character key as the layout's plain key, the PC's virtual key, so Option and Shift cheats match (TPMain.h).
     gPortPlainKey = tpw::PlainKeyCharacter;
+    // The world sprite passes preserve opaque depth and blend soft edges (PortSpriteFringe.h).
+    tpw::spritefringe::enabled = true;
     // The fixes of samueleagle91 (tpw-port PRs #2, #5, #7, #12 and #13): the advisor's aspect (TPAdvisor.h), the Options
     // panel as a 4:3 panel (UI_Base.h), the signs' text (TrueTypeRender.h) and the spawns from the script code (analyser.h).
     gPortAdvisorAspect = true;

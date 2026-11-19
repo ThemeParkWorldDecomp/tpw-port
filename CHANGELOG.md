@@ -9,6 +9,7 @@
 
 ### Bug Fixes
 
+- Fixed square holes cut into visitors, staff and entertainers where the faint outer edge of someone standing in front of them overlapped them (a bug of the original game, worst in busy crowds and queues): their edges still blend softly, and they are still hidden behind scenery and rides as before. Display only
 - Fixed the park music in the SimCoaster/TPI - New Worlds, Rides and Sprites mod's Arabian Nights (and in a very busy Polar Zone) turning into one short burst of noise repeated many times a second when the park got busy: SimCoaster AKA Theme Park Inc's own music files for those two worlds are missing some pieces in every copy of the game, and a missing piece is now never played and another piece of the same level plays instead
 - Fixed the SimCoaster/TPI - New Worlds, Rides and Sprites mod's islands playing the sound effects of the world they borrow from on the island screen (the Lost Kingdom's jungle beasts on Arabian Nights, Halloween World's bats and bells on Polar Zone, the Space Zone's spaceships on Land of Invention): the three worlds now play only their own sounds and music
 
