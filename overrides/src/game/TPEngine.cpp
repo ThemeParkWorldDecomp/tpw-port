@@ -622,7 +622,8 @@ struct TpiShutObstacle {
 // level's copy (gHeightfieldCopy, bit 1 of the first word: hidden), which a park loaded later starts from
 // (RestoreLevelHeightfield) and its repair reads (RepairTpiHiddenCells). Once it is gone each still hidden quad is shown, drawn from the copy
 // (SetHeightfieldTexture's copy tile 0x37), and its cell, if it holds the hidden quad's mode or plain land, is reset as
-// a new park resets it (CMapCell::Reset, its tile drawn), keeping its flag 0x40; while it stands each shown quad is
+// a new park resets it (CMapCell::Reset, its tile drawn), keeping its flag 0x40, else, if something is built there, has
+// its own tile drawn again over the copy's (a loaded park's paths and queues); while it stands each shown quad is
 // hidden again and its cell, if plain land, reset (the hidden quad's mode); anything built there is kept. Track cells
 // that belong to nothing follow. Each changed cell gets a new time stamp, as the cell system's own changes do.
 void TpiOpenShutCells(const tpw::TpiShut& shut, bool gone) {
@@ -647,14 +648,13 @@ void TpiOpenShutCells(const tpw::TpiShut& shut, bool gone) {
             CMapCell* cell = &gGameWorld->mMapCells[index];
             CTrackCell* track = &gGameWorld->mTrackCells[index];
             const int32_t mode = static_cast<int32_t>(cell->mType);
-            const bool reset = change > 0 ? tpw::TpiStaleHiddenMapCell(mode, cell->mStatusFlags, cell->mParentID,
-                                                                       cell->mFlags, true) ||
-                                                tpw::TpiShutCellToClose(mode, cell->mParentID, cell->mFlags)
-                                          : tpw::TpiShutCellToClose(mode, cell->mParentID, cell->mFlags);
+            const bool reset = tpw::TpiShutResetsCell(change, mode, cell->mStatusFlags, cell->mParentID, cell->mFlags);
             if (reset) {
                 const uint16_t saved = cell->mFlags;
                 cell->Reset(true);
                 cell->mFlags = tpw::TpiRepairedFlags(saved, cell->mFlags);
+            } else if (tpw::TpiShutRedrawsCell(change, reset, mode)) {
+                cell->SetHFieldTile();   // a path or queue a loaded park drew before this tick: drawn over the copy's tile
             }
             const bool shown = HFieldCellStatus(x, y) != 0;
             if (change > 0 ? tpw::TpiStaleHiddenTrackCell(static_cast<int32_t>(track->mType), track->mParentID, shown)
