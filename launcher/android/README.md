@@ -2,6 +2,8 @@
 
 The APK targets Android 13 or newer, ARM64 and Vulkan. The Android launcher checks imported editions and languages before starting the game. Intro films are disabled.
 
+W launcherze wybierz **Ustawienia → Rozmiar interfejsu gry** i ustaw **100%**, **115%** lub **125%**. Wybór jest zapamiętywany i działa od kolejnego uruchomienia gry. Większy rozmiar powiększa panele, tekst i obszary dotyku w parku. Duże panele dopasowują się do miejsca, a ekrany pełnoekranowe, takie jak mapa i opcje gry, korzystają z rozmiaru 100%. Przy 115% i 125% panel kamery i skróty dotykowe chowają się na czas otwarcia menu lub panelu gry.
+
 ## Sterowanie
 
 | AYN Thor | Działanie |

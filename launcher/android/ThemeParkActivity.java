@@ -66,8 +66,9 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     protected String[] getArguments() {
         String edition = getIntent().getStringExtra(SetupActivity.EDITION);
         String language = getIntent().getStringExtra(SetupActivity.LANGUAGE);
+        int scale = getIntent().getIntExtra(SetupActivity.INTERFACE_SCALE, 100);
         return new String[] { edition == null ? "eur-pc" : edition, language == null ? "" : language,
-            getString(R.string.storage_unavailable), getString(R.string.game_start_failed) };
+            getString(R.string.storage_unavailable), getString(R.string.game_start_failed), Integer.toString(scale) };
     }
 
     @Override

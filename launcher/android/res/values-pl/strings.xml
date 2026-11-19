@@ -54,6 +54,8 @@
     <string name="touch_mode_hint">Dotyk – celuj palcem, stuknij, aby kliknąć</string>
     <string name="touchpad_mode_hint">Touchpad – przesuwaj kursor względem jego położenia</string>
     <string name="touch_drag_hint">Przeciągnij suwak za uchwyt. W trybie Touchpad ustaw kursor na suwaku i przesuń palec ponownie.</string>
+    <string name="interface_scale">Rozmiar interfejsu gry</string>
+    <string name="interface_scale_value">Rozmiar interfejsu gry · %1$d%%</string>
     <string name="resume_park">Wznów grę</string>
     <string name="move_controls">Przesuń kontrolki</string>
     <string name="finish_move_controls">Zakończ przesuwanie kontrolek</string>

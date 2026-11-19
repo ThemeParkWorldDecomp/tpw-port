@@ -38,6 +38,8 @@ import java.util.stream.Stream;
 public final class SetupActivity extends Activity {
     static final String EDITION = "edition";
     static final String LANGUAGE = "language";
+    static final String INTERFACE_SCALE = "interface_scale";
+    private static final int[] INTERFACE_SCALES = {100, 115, 125};
     private static final int PICK_FILES = 1;
     private static final int PICK_FOLDER = 2;
     private static final int INK = 0xFF2B203C;
@@ -93,7 +95,8 @@ public final class SetupActivity extends Activity {
         edition = launcherButton(R.string.edition, CREAM, () -> choose(false));
         language = launcherButton(R.string.language, CREAM, () -> choose(true));
         play = launcherButton(R.string.play, LIME, () -> startActivity(new Intent(this, ThemeParkActivity.class)
-            .putExtra(EDITION, chosenEdition).putExtra(LANGUAGE, chosenLanguage)));
+            .putExtra(EDITION, chosenEdition).putExtra(LANGUAGE, chosenLanguage)
+            .putExtra(INTERFACE_SCALE, interfaceScale())));
         play.setTextSize(20);
         play.setMinHeight(dp(54));
         addRow(gamePanel, edition, 18);
@@ -244,10 +247,17 @@ public final class SetupActivity extends Activity {
         scroll.addView(fields);
         AlertDialog dialog = new AlertDialog.Builder(this).setTitle(showMods ? R.string.mods : R.string.settings)
             .setView(scroll).setPositiveButton(R.string.done, null).create();
-        if (!showMods) button(fields, R.string.controls, () -> {
-            dialog.dismiss();
-            new ControlSettings(this).show(this);
-        });
+        if (!showMods) {
+            button(fields, R.string.controls, () -> {
+                dialog.dismiss();
+                new ControlSettings(this).show(this);
+            });
+            Button scale = new Button(this);
+            scale.setAllCaps(false);
+            scale.setText(interfaceScaleLabel(interfaceScale()));
+            scale.setOnClickListener(view -> chooseInterfaceScale(scale));
+            fields.addView(scale);
+        }
         for (int i = 0; i + 4 < rows.length; i += 5) {
             final String key = rows[i];
             Switch toggle = new Switch(this);
@@ -269,6 +279,31 @@ public final class SetupActivity extends Activity {
             }
         }
         dialog.show();
+    }
+
+    private int interfaceScale() {
+        return getPreferences(MODE_PRIVATE).getInt(INTERFACE_SCALE, INTERFACE_SCALES[0]);
+    }
+
+    private String interfaceScaleLabel(int percent) {
+        return getString(R.string.interface_scale_value, percent);
+    }
+
+    private void chooseInterfaceScale(Button button) {
+        String[] choices = new String[INTERFACE_SCALES.length];
+        int selection = 0;
+        int current = interfaceScale();
+        for (int i = 0; i < choices.length; ++i) {
+            choices[i] = getString(R.string.interface_scale_percent, INTERFACE_SCALES[i]);
+            if (current == INTERFACE_SCALES[i]) selection = i;
+        }
+        new AlertDialog.Builder(this).setTitle(R.string.interface_scale)
+            .setSingleChoiceItems(choices, selection, (dialog, index) -> {
+                int percent = INTERFACE_SCALES[index];
+                getPreferences(MODE_PRIVATE).edit().putInt(INTERFACE_SCALE, percent).apply();
+                button.setText(interfaceScaleLabel(percent));
+                dialog.dismiss();
+            }).setNegativeButton(R.string.cancel, null).show();
     }
 
     private String settingLabel(String key) {

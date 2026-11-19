@@ -10,6 +10,7 @@
 #include "InterfaceScrollBar.h"
 #include "InterfaceWindow.h"
 #include "UI_Base.h"
+#include "interface_scale.h"
 #include "keytable_actions.h"
 #include "port_wasd.h"
 #include "ui_controls.h"
@@ -155,7 +156,8 @@ void UpdateControls() {
     const bool park = window != nullptr && gGameWindow != nullptr && gUIKeyboardWindow == gGameWindow;
     static bool cameraShown = false;
     const bool havePark = gGameWindow != nullptr;
-    if (havePark != cameraShown && NotifyActivity("cameraAvailable", havePark)) cameraShown = havePark;
+    const bool showCamera = havePark && !InterfaceNeedsControlSpace();
+    if (showCamera != cameraShown && NotifyActivity("cameraAvailable", showCamera)) cameraShown = showCamera;
 
     if (!havePark || gGame.mF1C == 0 || gGame.mF3C != 1) gParkPausedByFocus = false;
     const bool resumeRequested = gResumeParkRequested.exchange(false, std::memory_order_relaxed);

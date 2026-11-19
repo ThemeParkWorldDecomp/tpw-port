@@ -266,7 +266,7 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX OR ANDROID) AND Python3_FOU
               launcher/static_init.cpp launcher/startup.cpp)
   if(ANDROID)
     target_sources(tpw_launcher_objects PRIVATE launcher/android/android_main.cpp launcher/android/android_import.cpp
-                   platform/android/mobile_controls.cpp)
+                   platform/android/interface_scale.cpp platform/android/mobile_controls.cpp)
   endif()
   target_include_directories(tpw_launcher_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
   if(APPLE)
