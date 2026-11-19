@@ -54,6 +54,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     private static native void nativeKeyboard();
     private static native void nativeRotate(int direction);
     private static native void nativeControlDialog(boolean opening);
+    private static native void nativeResumePark();
 
     @Override
     protected String[] getLibraries() {
@@ -512,6 +513,14 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
             if (controls != null && !isFinishing()) controls.setParkActive(active);
         });
     }
+
+    void parkResumeAvailable(boolean available) {
+        runOnUiThread(() -> {
+            if (controls != null && !isFinishing()) controls.setCanResumePark(available);
+        });
+    }
+
+    void resumePark() { nativeResumePark(); }
 
     void controlSettingsReset() { releaseInputs(); controls.updateVisibility(); }
 

@@ -20,6 +20,8 @@ The APK targets Android 13 or newer, ARM64 and Vulkan. The Android launcher chec
 
 W **⚙ → Przesuń kontrolki** przeciągnij wybrane przyciski lub drążek i naciśnij **Gotowe**. Położenia, czułości obu analogów, tryb myszy i mapowanie gry są zapisywane. W **⚙** można też otworzyć skróty budowy obejmujące obrót projektu, zakup atrakcji, mapę oraz Ctrl i Shift. Ctrl przy stawianiu zostawia projekt do ponownego użycia, a Ctrl i LPM pobierają projekt istniejącego obiektu.
 
+Jeśli przejście w tło zatrzymało park, po powrocie pojawi się przycisk **Wznów grę**.
+
 ## Pierwsze uruchomienie
 
 Uruchom **Theme Park World** z listy aplikacji. Ikona przedstawia kolejkę górską, a ekran startowy używa kolorystyki launchera PC. Na szerokim ekranie wybór gry i import danych są obok siebie. Na wąskim ekranie można je przewijać w jednej kolumnie.

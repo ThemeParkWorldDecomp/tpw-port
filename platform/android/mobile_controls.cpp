@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cstdint>
 
+#include "Game.h"
 #include "InterfaceWindow.h"
 #include "UI_Base.h"
 #include "keytable_actions.h"
@@ -18,11 +19,27 @@ namespace {
 std::atomic<uint32_t> gStick{0};
 std::atomic<bool> gKeyboardRequested{false};
 std::atomic<bool> gControlDialogOpen{false};
+std::atomic<bool> gResumeParkRequested{false};
 std::atomic<int> gTurns{0};
 float gCameraX = 0, gCameraY = 0;
+bool gParkPausedByFocus = false;
 
 bool Editing() {
     return gUIKeyboardWindow != nullptr && gUIKeyboardWindow->WhatAmI() == kUIKindEditBox;
+}
+
+bool NotifyActivity(const char* method, bool value) {
+    auto* env = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
+    if (env == nullptr) return false;
+    auto activity = static_cast<jobject>(SDL_GetAndroidActivity());
+    if (activity == nullptr) return false;
+    jclass type = env->GetObjectClass(activity);
+    jmethodID notify = env->GetMethodID(type, method, "(Z)V");
+    if (notify != nullptr) env->CallVoidMethod(activity, notify, static_cast<jboolean>(value));
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    env->DeleteLocalRef(type);
+    env->DeleteLocalRef(activity);
+    return true;
 }
 }
 
@@ -43,6 +60,10 @@ extern "C" JNIEXPORT void JNICALL Java_org_tpwport_android_ThemeParkActivity_nat
     gControlDialogOpen.store(opening, std::memory_order_relaxed);
 }
 
+extern "C" JNIEXPORT void JNICALL Java_org_tpwport_android_ThemeParkActivity_nativeResumePark(JNIEnv*, jclass) {
+    gResumeParkRequested.store(true, std::memory_order_relaxed);
+}
+
 namespace tpw::mobile {
 
 void InstallControlFocusFilter() {
@@ -50,6 +71,11 @@ void InstallControlFocusFilter() {
         // SDL suspends during the dialog. Skip the game's extra pause on losing focus to its own controls.
         return event->type != SDL_EVENT_WINDOW_FOCUS_LOST || !gControlDialogOpen.load(std::memory_order_relaxed);
     }, nullptr);
+}
+
+void ParkFocusWillBeLost() {
+    // Called before the game pauses on focus loss. A park already paused keeps its own state.
+    if (gGameWindow != nullptr && gGame.mF3C == 1 && gGame.mF1C == 0) gParkPausedByFocus = true;
 }
 
 void CameraAxes(float& x, float& y) {
@@ -62,18 +88,18 @@ void UpdateControls() {
     const bool park = window != nullptr && gGameWindow != nullptr && gUIKeyboardWindow == gGameWindow;
     static bool cameraShown = false;
     const bool havePark = gGameWindow != nullptr;
-    if (havePark != cameraShown) {
-        auto* env = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
-        if (auto activity = static_cast<jobject>(SDL_GetAndroidActivity()); env != nullptr && activity != nullptr) {
-            jclass type = env->GetObjectClass(activity);
-            jmethodID notify = env->GetMethodID(type, "cameraAvailable", "(Z)V");
-            if (notify != nullptr) env->CallVoidMethod(activity, notify, static_cast<jboolean>(havePark));
-            if (env->ExceptionCheck()) env->ExceptionClear();
-            env->DeleteLocalRef(type);
-            env->DeleteLocalRef(activity);
-            cameraShown = havePark;
-        }
+    if (havePark != cameraShown && NotifyActivity("cameraAvailable", havePark)) cameraShown = havePark;
+
+    if (!havePark || gGame.mF1C == 0 || gGame.mF3C != 1) gParkPausedByFocus = false;
+    const bool resumeRequested = gResumeParkRequested.exchange(false, std::memory_order_relaxed);
+    if (resumeRequested && window != nullptr && gParkPausedByFocus) {
+        gGame.Unpause();
+        gParkPausedByFocus = false;
     }
+    static bool resumeShown = false;
+    const bool canResume = window != nullptr && gParkPausedByFocus;
+    if (canResume != resumeShown && NotifyActivity("parkResumeAvailable", canResume)) resumeShown = canResume;
+
     const uint32_t encoded = park ? gStick.load(std::memory_order_relaxed) : 0;
     const float x = static_cast<int16_t>(encoded) / 4096.0f;
     const float y = static_cast<int16_t>(encoded >> 16) / 4096.0f;

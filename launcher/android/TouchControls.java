@@ -21,9 +21,9 @@ final class TouchControls extends FrameLayout {
     private final ControlSettings settings;
     private final List<View> toolbar = new ArrayList<>(), editingShortcuts = new ArrayList<>(), building = new ArrayList<>();
     private final Button ctrl, shift;
-    private final Button gear, resetLayout;
+    private final Button gear, resetLayout, resumePark;
     private final CameraStick stick;
-    private boolean editing, parkActive;
+    private boolean editing, parkActive, canResumePark;
     private int modifiers;
     private View dragging;
     private int dragFinger = -1;
@@ -58,6 +58,8 @@ final class TouchControls extends FrameLayout {
             settings.resetPositions();
             requestLayout();
         });
+        String resumeLabel = game.getString(R.string.resume_park);
+        resumePark = button(null, null, resumeLabel, resumeLabel, game::resumePark);
         updateVisibility();
     }
 
@@ -119,6 +121,10 @@ final class TouchControls extends FrameLayout {
         else if (sideBar >= gearWidth + 2 * margin) gearX = (sideBar - gearWidth) / 2;
         place(gear, gearX, dp(10), gearWidth);
         if (editing) place(resetLayout, dp(12), dp(10), resetLayout.getMeasuredWidth());
+        if (resumePark.getVisibility() == VISIBLE) {
+            int buttonWidth = resumePark.getMeasuredWidth();
+            place(resumePark, (width - buttonWidth) / 2, height * 2 / 3, buttonWidth);
+        }
     }
 
     private void layoutRow(List<View> row, int width, int center, int y) {
@@ -155,6 +161,7 @@ final class TouchControls extends FrameLayout {
         for (View view : building) view.setVisibility(editing || (camera && settings.buildingVisible()) ? VISIBLE : GONE);
         stick.setVisibility(camera ? VISIBLE : GONE);
         resetLayout.setVisibility(editing ? VISIBLE : GONE);
+        resumePark.setVisibility(canResumePark && !editing ? VISIBLE : GONE);
         requestLayout();
     }
 
@@ -165,6 +172,11 @@ final class TouchControls extends FrameLayout {
             cancelStick();
             clearModifiers();
         }
+        updateVisibility();
+    }
+
+    void setCanResumePark(boolean available) {
+        canResumePark = available;
         updateVisibility();
     }
 

@@ -614,6 +614,9 @@ void UGamework::Run() {
 #endif
                 break;
             case SDL_EVENT_WINDOW_FOCUS_LOST:
+#ifdef __ANDROID__
+                tpw::mobile::ParkFocusWillBeLost();
+#endif
 #ifdef TPW_PORT_FIX
                 EndFreeDrag();   // freecam
                 if (tpw::gPortPadGone != nullptr) tpw::gPortPadGone();   // gamepad
