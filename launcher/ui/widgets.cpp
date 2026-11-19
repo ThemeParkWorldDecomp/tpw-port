@@ -358,6 +358,21 @@ bool Ui::Toggle(const std::string& id, const Rect& r, bool& on, bool enabled) {
     return flipped;
 }
 
+bool Ui::Disclosure(const std::string& id, const Rect& r, float cx, float cy, float size, bool open, bool enabled) {
+    bool clicked = Clicked(id, r, enabled);
+    float hover = Clamp01(Spring(id + "#hover", interactive_ && enabled && Hovered(r) ? 1.0f : 0.0f));
+    if (hover > 0.01f) canvas_.FillRound(r, 10, colour::kYellow.WithAlpha(static_cast<uint8_t>(70 * hover)));
+    Rgba line = enabled ? colour::kInk : colour::kInkSoft;
+    // The chevron pointing right, turned a quarter towards pointing down as it opens.
+    float turn = Spring(id + "#open", open ? 1.0f : 0.0f) * 1.5707963f;
+    float c = std::cos(turn), s = std::sin(turn), half = size * 0.5f, depth = size * 0.28f;
+    std::vector<Point> chevron;
+    for (Point p : {Point{-depth, -half}, Point{depth, 0}, Point{-depth, half}})
+        chevron.push_back({cx + p.x * c - p.y * s, cy + p.x * s + p.y * c});
+    canvas_.Polyline(chevron, 3, line);
+    return clicked;
+}
+
 bool Ui::TextField(const std::string& id, const Rect& r, std::string& value, size_t maxLength, std::string_view hint,
                    bool& editing, bool enabled) {
     const bool hot = interactive_ && enabled && Hovered(r);

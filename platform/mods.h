@@ -51,6 +51,10 @@ struct Mod {
     std::string content;   // its content's folder in the data folder's assets (mod.json's "content", optional): ps1, tpi.
                            // The launcher lays it over the game folder (platform/content_overlay.h) with the mod on,
                            // and keeps the mod locked until the folder holds it
+    std::string category;  // the Mods box's group it is in (mod.json's "category", Gameplay without one): Bonus Content,
+                           // Gameplay (mods.cmake's TPW_MOD_CATEGORIES)
+    std::string summary;   // one short line for its row (mod.json's "summary", optional; empty: the box uses the text's
+                           // first sentence)
 };
 
 // The mods of this build, in their folders' order (mods.cmake's TPW_MODS); empty when the build found no mods folder.

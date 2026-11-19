@@ -542,6 +542,7 @@ void LauncherUi::ShowSettings(bool open) {
 }
 
 void LauncherUi::ShowMods(bool open) {
+    if (open && !modsOpen_) modsExpanded_.clear();   // the box opens with every row closed
     modsOpen_ = open && modsShown_;
 }
 
@@ -616,6 +617,33 @@ bool LauncherUi::ModAllowed(size_t index, std::string& why) const {
         }
     }
     return true;
+}
+
+const std::vector<std::string>& LauncherUi::ModCategories() {
+    static const std::vector<std::string> categories = {"Bonus Content", "Gameplay"};
+    return categories;
+}
+
+std::string LauncherUi::ModCategory(size_t index) const {
+    const std::vector<std::string>& categories = ModCategories();
+    if (index < mods_.size() &&
+        std::find(categories.begin(), categories.end(), mods_[index].category) != categories.end())
+        return mods_[index].category;
+    return "Gameplay";
+}
+
+std::string LauncherUi::ModSummary(size_t index) const {
+    if (index >= mods_.size()) return "";
+    const ModRow& mod = mods_[index];
+    if (!mod.summary.empty()) return mod.summary;
+    // A mod.json without a summary: its text's first sentence.
+    const size_t end = mod.text.find(". ");
+    return end == std::string::npos ? mod.text : mod.text.substr(0, end + 1);
+}
+
+bool LauncherUi::ModExpanded(size_t index) const {
+    return index < mods_.size() &&
+           std::find(modsExpanded_.begin(), modsExpanded_.end(), mods_[index].id) != modsExpanded_.end();
 }
 
 void LauncherUi::SetGold(int index, bool on) {
@@ -739,13 +767,13 @@ float LauncherUi::DrawHeader(const Rect& w, bool buttons) {
                         modsDiamondRect_ = {slot.x, std::round(slot.CentreY() - kDiamondH * 0.5f), kDiamondW, kDiamondH};
                         Diamond(canvas_, modsDiamondRect_);
                     }))
-                    modsOpen_ = true;
+                    ShowMods(true);
             } else {
                 const std::string label = std::to_string(on) + (on == 1 ? " mod on" : " mods on");
                 float mw = std::floor(ui_.ButtonWidth(label));
                 x -= mw + 10;
                 modsButtonRect_ = modsOnRect_ = {x, y, mw, h};
-                if (ui_.Button("mods", modsButtonRect_, label, ButtonKind::Plain)) modsOpen_ = true;
+                if (ui_.Button("mods", modsButtonRect_, label, ButtonKind::Plain)) ShowMods(true);
             }
         }
         headerButtonsRect_ = {x, y, w.Right() - metric::kMargin - x, h};
@@ -1971,19 +1999,36 @@ void LauncherUi::DrawMods(const Rect& w) {
     canvas_.FillRound(w, 0, colour::kDim);
     float pw = std::min(w.w - 2 * metric::kMargin, 640.0f);
     float titleH = text_.LineHeight(style::kHeadline) + 12;
-    // Each mod's row: its name and version (the version under the name where the name leaves no room), the player's
-    // text, the editions, saved games, conflicts and why its switch is off, beside the switch. The text, the conflicts
-    // and the why wrap onto as many lines as they need, never cut (the maintainer, 2026-11-16).
-    const float textW = pw - 40 - 12 - 56 - 36;
+    // The mods in their groups (ModCategories), each group under its heading. A row shows the mod's name and one short
+    // line beside its switch, and why the switch is off when it is; a click on it opens the rest (the maintainer, 2026-11-18):
+    // the whole text, the version and author, the editions, saved games and conflicts, wrapped onto as many lines as
+    // they need, never cut (the maintainer, 2026-11-16).
+    const float inW = pw - 40, indent = 36, switchW = 56;
+    const float lineW = inW - indent - 12 - switchW - 12, detailW = inW - indent - 16;
     const float small = text_.LineHeight(style::kSmall), smallBold = text_.LineHeight(style::kSmallBold);
-    std::vector<std::vector<std::string>> texts, conflicts, whys;
-    std::vector<bool> versionBelow;
-    std::vector<float> rowHs;
+    const float headH = 10 + text_.LineHeight(style::kBodyBold) + small + 10;
+    const float headingH = text_.LineHeight(style::kHeading) + 8, groupGap = 10;
+    std::vector<size_t> order;
+    std::vector<bool> firstOfGroup;
+    for (const std::string& category : ModCategories())
+        for (size_t i = 0; i < mods_.size(); ++i)
+            if (ModCategory(i) == category) {
+                firstOfGroup.push_back(order.empty() || ModCategory(order.back()) != category);
+                order.push_back(i);
+            }
+    std::vector<std::vector<std::string>> texts(mods_.size()), whys(mods_.size());
+    std::vector<std::vector<std::pair<std::string, bool>>> facts(mods_.size());   // a line, and whether it is in red
+    std::vector<float> rowHs(mods_.size()), openHs(mods_.size());
     for (size_t i = 0; i < mods_.size(); ++i) {
         const ModRow& mod = mods_[i];
-        texts.push_back(text_.Wrap(style::kSmall, mod.text, textW));
-        versionBelow.push_back(text_.Width(style::kBodyBold, mod.name) + 10 +
-                                   text_.Width(style::kSmall, mod.version + ", by " + mod.author) > textW);
+        std::string why;
+        if (modOn_[i] || ModAllowed(i, why)) why.clear();
+        if (!why.empty()) whys[i] = text_.Wrap(style::kSmallBold, why, lineW);
+        openHs[i] = headH + (whys[i].empty() ? 0.0f : 2 + static_cast<float>(whys[i].size()) * smallBold);
+        rowHs[i] = openHs[i];
+        if (!ModExpanded(i)) continue;
+        // Open: the text, then the facts in the softer ink (saved games in red where a mod changes them).
+        texts[i] = text_.Wrap(style::kSmall, mod.text, detailW);
         std::string conflict = "Conflicts: none";
         if (!mod.conflicts.empty()) {
             conflict = "Cannot be on with ";
@@ -1994,17 +2039,20 @@ void LauncherUi::DrawMods(const Rect& w) {
                 conflict += (c == 0 ? "" : ", ") + name;
             }
         }
-        conflicts.push_back(text_.Wrap(style::kSmall, conflict, textW));
-        std::string why;
-        if (modOn_[i] || ModAllowed(i, why)) why.clear();
-        whys.push_back(why.empty() ? std::vector<std::string>{} : text_.Wrap(style::kSmallBold, why, textW));
-        rowHs.push_back(24 + text_.LineHeight(style::kBodyBold) + (versionBelow.back() ? small : 0.0f) + 4 +
-                        static_cast<float>(texts.back().size()) * small + 4 + 2 * small +
-                        static_cast<float>(conflicts.back().size()) * small +
-                        static_cast<float>(whys.back().size()) * smallBold);
+        const std::pair<std::string, bool> lines[] = {
+            {"Version " + mod.version + ", by " + mod.author, false},
+            {ModEditionsLine(mod), false},
+            {mod.changesSaves ? "Saved games: a park saved with it on differs from the original's" : "Saved games: unchanged",
+             mod.changesSaves},
+            {conflict, false}};
+        for (const auto& [fact, red] : lines)
+            for (const std::string& line : text_.Wrap(red ? style::kSmallBold : style::kSmall, fact, detailW))
+                facts[i].push_back({line, red});
+        rowHs[i] += static_cast<float>(texts[i].size() + facts[i].size()) * small + 6 + 10;
     }
     float bodyH = 0;
-    for (float h : rowHs) bodyH += h + 6;
+    for (size_t k = 0; k < order.size(); ++k)
+        bodyH += (firstOfGroup[k] ? (k == 0 ? 0.0f : groupGap) + headingH : 0.0f) + rowHs[order[k]] + 6;
     if (mods_.empty()) bodyH += 50;
     bodyH += 4 + small + (modsMessage_.empty() ? 0.0f : 4 + smallBold);
     float ph = std::min(w.h - 2 * metric::kMargin, titleH + bodyH + 40);
@@ -2034,6 +2082,10 @@ void LauncherUi::DrawMods(const Rect& w) {
     const bool busy = backend_.Running();
 
     modSwitchRects_.assign(mods_.size(), Rect{});
+    modRowRects_.assign(mods_.size(), Rect{});
+    modOpenRects_.assign(mods_.size(), Rect{});
+    modHeadings_.clear();
+    modHeadingRects_.clear();
     if (mods_.empty()) {
         Rect row{in.x, y, in.w, 44};
         canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
@@ -2041,52 +2093,54 @@ void LauncherUi::DrawMods(const Rect& w) {
                    "This build has no mods.", colour::kInk);
         y += 50;
     }
-    for (size_t i = 0; i < mods_.size(); ++i) {
+    std::string toggled;   // the id of a row opened or closed this frame
+    size_t shade = 0;
+    for (size_t k = 0; k < order.size(); ++k) {
+        const size_t i = order[k];
         const ModRow& mod = mods_[i];
+        if (firstOfGroup[k]) {
+            if (k > 0) y += groupGap;
+            modHeadings_.push_back(ModCategory(i));
+            modHeadingRects_.push_back({in.x, y, text_.Width(style::kHeading, ModCategory(i)),
+                                        text_.LineHeight(style::kHeading)});
+            text_.Draw(style::kHeading, in.x, y, ModCategory(i), colour::kInk);
+            y += headingH;
+            shade = 0;
+        }
         Rect row{in.x, y, in.w, rowHs[i]};
-        canvas_.FillRound(row, 10, i % 2 ? colour::kCream : colour::kYellowSoft.WithAlpha(120));
-        float ty = row.y + 12;
-        const float nameW = text_.Draw(style::kBodyBold, row.x + 12, ty,
-                                       text_.Fit(style::kBodyBold, mod.name, textW, false), colour::kInk);
-        const std::string version = mod.version + ", by " + mod.author;
-        if (versionBelow[i]) {
-            ty += text_.LineHeight(style::kBodyBold);
-            text_.Draw(style::kSmall, row.x + 12, ty, text_.Fit(style::kSmall, version, textW, false),
-                       colour::kInkSoft);
-            ty += small + 4;
-        } else {
-            text_.Draw(style::kSmall, row.x + 12 + nameW + 10,
-                       ty + text_.Ascent(style::kBodyBold) - text_.Ascent(style::kSmall), version, colour::kInkSoft);
-            ty += text_.LineHeight(style::kBodyBold) + 4;
-        }
-        for (const std::string& line : texts[i]) {
-            text_.Draw(style::kSmall, row.x + 12, ty, line, colour::kInk);
-            ty += small;
-        }
-        ty += 4;
-        text_.Draw(style::kSmall, row.x + 12, ty, text_.Fit(style::kSmall, ModEditionsLine(mod), textW, false),
+        modRowRects_[i] = row;
+        canvas_.FillRound(row, 10, shade++ % 2 ? colour::kCream : colour::kYellowSoft.WithAlpha(120));
+        const bool expanded = ModExpanded(i);
+        modOpenRects_[i] = {row.x, row.y, row.w - 12 - switchW - 6, openHs[i]};
+        if (ui_.Disclosure("mod-open-" + mod.id, modOpenRects_[i], row.x + indent * 0.5f + 2, row.y + headH * 0.5f, 10,
+                           expanded))
+            toggled = mod.id;
+        float ty = row.y + 10;
+        text_.Draw(style::kBodyBold, row.x + indent, ty, text_.Fit(style::kBodyBold, mod.name, lineW, false),
+                   colour::kInk);
+        ty += text_.LineHeight(style::kBodyBold);
+        text_.Draw(style::kSmall, row.x + indent, ty, text_.Fit(style::kSmall, ModSummary(i), lineW, false),
                    colour::kInkSoft);
-        ty += small;
-        if (mod.changesSaves)
-            text_.Draw(style::kSmallBold, row.x + 12, ty,
-                       text_.Fit(style::kSmallBold, "Saved games: a park saved with it on differs from the original's",
-                                 textW, false),
-                       colour::kRed);
-        else
-            text_.Draw(style::kSmall, row.x + 12, ty, "Saved games: unchanged", colour::kInkSoft);
-        ty += small;
-        for (const std::string& line : conflicts[i]) {
-            text_.Draw(style::kSmall, row.x + 12, ty, line, colour::kInkSoft);
+        ty += small + (whys[i].empty() ? 0.0f : 2);
+        for (const std::string& line : whys[i]) {
+            text_.Draw(style::kSmallBold, row.x + indent, ty, line, colour::kRed);
+            ty += smallBold;
+        }
+        ty += 10;
+        for (const std::string& line : texts[i]) {
+            text_.Draw(style::kSmall, row.x + indent, ty, line, colour::kInk);
             ty += small;
         }
-        for (const std::string& line : whys[i]) {
-            text_.Draw(style::kSmallBold, row.x + 12, ty, line, colour::kRed);
-            ty += smallBold;
+        if (expanded) ty += 6;
+        for (const auto& [line, red] : facts[i]) {
+            text_.Draw(red ? style::kSmallBold : style::kSmall, row.x + indent, ty, line,
+                       red ? colour::kRed : colour::kInkSoft);
+            ty += small;
         }
 
         // A mod that is on can always be switched off; one that is off, only where it can be on.
         bool on = modOn_[i];
-        modSwitchRects_[i] = {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32};
+        modSwitchRects_[i] = {row.Right() - 12 - switchW, row.y + headH * 0.5f - 16, switchW, 32};
         if (ui_.Toggle("mod-" + mod.id, modSwitchRects_[i], on, !busy && (on || whys[i].empty()))) {
             std::string err;
             if (backend_.SaveSetting(ModKey(mod.id), on ? "1" : "0", err)) {
@@ -2097,6 +2151,13 @@ void LauncherUi::DrawMods(const Rect& w) {
             }
         }
         y += rowHs[i] + 6;
+    }
+    if (!toggled.empty()) {
+        auto at = std::find(modsExpanded_.begin(), modsExpanded_.end(), toggled);
+        if (at == modsExpanded_.end())
+            modsExpanded_.push_back(toggled);
+        else
+            modsExpanded_.erase(at);
     }
     y += 4;
     text_.Draw(style::kSmall, in.x, y,

@@ -548,6 +548,16 @@ SDL_Event WheelEvent(float lines) {
     return e;
 }
 
+// A click at the middle of `r`: the pointer moved there, the button down and up, a frame each.
+void ClickAt(LauncherUi& ui, const Rect& r, const std::function<void(int)>& frames) {
+    ui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+    frames(1);
+    ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+    frames(1);
+    ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+    frames(1);
+}
+
 void FillEverything(FakeBackend& b) {
     b.FillAll(assets::kEditionUs);
     b.FillAll(assets::kEditionEur);
@@ -705,12 +715,15 @@ void Render(const std::string& dir, const Shot& shot, int scale) {
 // ---- the states
 
 // The Mods box's rows (SetMods): tpw-mods' Enable strikes and Patrolling staff can cross bridges as their mod.json files
-// have them, and a made-up mod that conflicts with Enable strikes, for the European edition only, and changes saved games.
+// have them, and a made-up mod that conflicts with Enable strikes, for the European edition only, and changes saved games
+// (with no category or summary, as an outside mod.json may leave them out: in Gameplay, its text's first sentence).
 ModRow EnableStrikes() {
     ModRow row;
     row.id = "enable-strikes";
     row.name = "Enable strikes";
-    row.version = "1.0.0";
+    row.category = "Gameplay";
+    row.summary = "Unhappy staff can go on strike in an open park.";
+    row.version = "1.1.1";
     row.author = "TPW Decomp";
     row.text = "Staff can go on strike in an open park, as Bullfrog's code was written to do before the release blocked "
                "it. Strikes still need a park older than 24 months and staff with a real grievance. The advisor also gives the two "
@@ -722,7 +735,9 @@ ModRow StaffCrossBridges() {
     ModRow row;
     row.id = "staff-cross-bridges";
     row.name = "Patrolling staff can cross bridges";
-    row.version = "1.0.0";
+    row.category = "Gameplay";
+    row.summary = "Staff on patrol walk over footbridges too.";
+    row.version = "1.0.1";
     row.author = "TPW Decomp";
     row.text = "Staff walking their rounds can cross a footbridge, like the bridge over the stream in the Lost Kingdom. In "
                "the original they only crossed one when sent to a job on the other side. A bridge outside a worker's patrol "
@@ -735,6 +750,8 @@ ModRow Ps1Rides() {
     ModRow row;
     row.id = "ps1-rides";
     row.name = "PlayStation rides";
+    row.category = "Bonus Content";
+    row.summary = "The PlayStation edition's seven rides, from your own disc.";
     row.version = "0.1.0";
     row.author = "TPW Decomp";
     row.text = "Adds the rides only the PlayStation edition had, converted from your own PlayStation disc.";
@@ -758,6 +775,8 @@ ModRow TpiWorlds() {
     ModRow row;
     row.id = "tpi-worlds";
     row.name = kTpiModName;
+    row.category = "Bonus Content";
+    row.summary = "Three SimCoaster worlds, from your own copy of that game.";
     row.version = "0.1.0";
     row.author = "TPW Decomp";
     row.text = "Adds SimCoaster AKA Theme Park Inc's three worlds and their rides, converted from your own SimCoaster AKA Theme Park Inc disc.";
@@ -779,6 +798,47 @@ ModRow TpiWorldsStale() {
     ModRow row = TpiWorldsConverted();
     row.stale = true;
     return row;
+}
+// tpw-mods' Entertainers' second acts, and its PS2 Guest Models (3D) locked until the player's own PlayStation 2 disc is
+// converted, as their mod.json files have them.
+ModRow SecondActs() {
+    ModRow row;
+    row.id = "entertainer-second-acts";
+    row.name = "Entertainers' second acts";
+    row.category = "Bonus Content";
+    row.summary = "Eight entertainer costumes perform their unused second act.";
+    row.version = "1.0.1";
+    row.author = "TPW Decomp";
+    row.text = "Eight entertainer costumes have a finished second act in the game's files that never plays: the vampire, "
+               "Frankenstein's monster and the hunchback (Halloween World), the dinosaur, the explorer and the tribal dancer "
+               "(Lost Kingdom), and the orange alien and the purple monster (Space Zone). With the mod on, each act is the "
+               "first or the second at random. Both last as long and cheer visitors alike.";
+    row.editions[0] = row.editions[1] = row.editions[2] = true;
+    return row;
+}
+ModRow Ps2Characters() {
+    ModRow row;
+    row.id = "ps2-characters";
+    row.name = "PS2 Guest Models (3D)";
+    row.category = "Bonus Content";
+    row.summary = "Children, staff and entertainers as the PS2's 3D models.";
+    row.version = "0.1.1";
+    row.author = "TPW Decomp";
+    row.text = "Draws the park's children, staff and entertainers as the PlayStation 2 edition's 3D models, converted from "
+               "your own PlayStation 2 disc: walking and animated where the sprites were, with the visitors' heads on rides "
+               "and in the first-person views too. The PC's two mechanics share the PS2's one, and the four entertainers it "
+               "has no model for wear one from their own world (the ladybird the flower, the hunchback Frankenstein's "
+               "monster, the native the hunter, the tentacle monster the alien). Every staff and entertainer type can still "
+               "be hired. Locked until that disc's models are in the data folder: drop the disc on the launcher. Display "
+               "only: parks play and save exactly as before.";
+    row.editions[0] = row.editions[1] = row.editions[2] = true;
+    row.locked = ContentModLockedText("ps2");
+    row.content = "ps2";
+    return row;
+}
+// Every mod of tpw-mods, in its mods.cmake's order, the content ones before the player's discs are converted.
+std::vector<ModRow> AllMods() {
+    return {EnableStrikes(), StaffCrossBridges(), Ps1Rides(), TpiWorlds(), SecondActs(), Ps2Characters()};
 }
 ModRow NoStrikes() {
     ModRow row;
@@ -1457,6 +1517,35 @@ std::vector<Shot> Shots() {
                          ui.ShowMods(true);
                      },
                      Screen::Home, {}});
+
+    // Every mod of tpw-mods in its group (the maintainer, 2026-11-18): Bonus Content, then Gameplay, each row its name and one line,
+    // with Enable strikes on and the content mods locked; then with one row opened (its whole text and details), with the
+    // locked PS2 row opened, in the smallest window, and with an outside mod that names no category (in Gameplay).
+    const auto allModsOn = [](FakeBackend& b) {
+        FillEverything(b);
+        b.settings[ModKey("enable-strikes")] = "1";
+    };
+    const auto openRows = [](std::vector<ModRow> mods, std::vector<size_t> open) {
+        return [mods, open](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+            ui.SetMods(mods);
+            ui.ShowMods(true);
+            frames(1);
+            for (size_t index : open) ClickAt(ui, ui.ModOpenRect(index), frames);
+            ui.HandleEvent(MotionEvent(4, 4));   // the pointer off the rows
+        };
+    };
+    shots.push_back({"45-mods-groups", metric::kStartWidth, metric::kStartHeight, allModsOn, openRows(AllMods(), {}),
+                     Screen::Home, {}});
+    shots.push_back({"45-mods-one-open", metric::kStartWidth, metric::kStartHeight, allModsOn, openRows(AllMods(), {4}),
+                     Screen::Home, {}});
+    shots.push_back({"45-mods-ps2-locked-open", metric::kStartWidth, metric::kStartHeight, allModsOn,
+                     openRows({Ps1RidesConverted(), Ps2Characters(), EnableStrikes()}, {1}), Screen::Home, {}});
+    shots.push_back({"45-mods-groups-smallest", metric::kMinWidth, metric::kMinHeight, allModsOn, openRows(AllMods(), {}),
+                     Screen::Home, {}});
+    shots.push_back({"45-mods-one-open-smallest", metric::kMinWidth, metric::kMinHeight, allModsOn,
+                     openRows(AllMods(), {2}), Screen::Home, {}});
+    shots.push_back({"45-mods-no-category", metric::kStartWidth, metric::kStartHeight, allModsOn,
+                     openRows({EnableStrikes(), NoStrikes(), SecondActs()}, {}), Screen::Home, {}});
 
     // The update banner under the title (updater.h), in the smallest window: on the home with the drop field (whose
     // icon makes room for it) and on the all-confirmed one.
@@ -3693,6 +3782,145 @@ void CheckMods(SDL_Renderer* renderer) {
         frames(3);
         Check(ui.ModOn(2), "mods: a completed Theme Park Inc drop unlocks the worlds without restarting the launcher");
         Check(ui.ModsOn() == 1, "mods: the unlocked TPI mod counts as on");
+    }
+    // The groups (the maintainer, 2026-11-18): each mod in its mod.json's category, Bonus Content above Gameplay, each row its name
+    // and one short line, its text and details only when the player opens it.
+    for (int size = 0; size < 2; ++size) {
+        const float w = size == 0 ? metric::kStartWidth : metric::kMinWidth;
+        const float h = size == 0 ? metric::kStartHeight : metric::kMinHeight;
+        const std::string what = "mod groups at " + std::to_string(static_cast<int>(w)) + "x" + std::to_string(static_cast<int>(h));
+        FakeBackend b;
+        FillEverything(b);
+        LauncherUi ui(renderer, b);
+        auto frames = [&](int n) {
+            for (int i = 0; i < n; ++i) ui.Frame(kDt, w, h, 1);
+        };
+        // tpw-mods' order (its mods.cmake): the two Gameplay mods first, so the groups are the launcher's, not the list's.
+        const std::vector<ModRow> all = AllMods();
+        ui.SetMods(all);
+        ui.ShowMods(true);
+        frames(1);
+        const std::vector<std::string> headings = ui.ModHeadings();
+        Check(headings == std::vector<std::string>({"Bonus Content", "Gameplay"}),
+              what + ": two headed groups, Bonus Content first");
+        Check(ui.ModHeadingRect(0).Bottom() <= ui.ModHeadingRect(1).y, what + ": Bonus Content's heading is above Gameplay's");
+        for (size_t i = 0; i < all.size(); ++i) {
+            const std::string name = what + ": " + all[i].id;
+            CheckEq(ui.ModCategory(i), all[i].category, name + " is in its mod.json's group");
+            const size_t group = all[i].category == "Bonus Content" ? 0 : 1;
+            const Rect row = ui.ModRowRect(i);
+            Check(row.y >= ui.ModHeadingRect(group).Bottom() &&
+                      (group == 1 || row.Bottom() <= ui.ModHeadingRect(1).y),
+                  name + "'s row is under its group's heading");
+            CheckEq(ui.ModSummary(i), all[i].summary, name + "'s row shows its summary");
+            Check(ui.ModSummary(i).size() <= 80, name + "'s summary is one short line");
+            Check(!ui.ModExpanded(i), name + " is closed by default");
+            const Rect open = ui.ModOpenRect(i), sw = ui.ModSwitchRect(i);
+            Check(open.w > 0 && !Overlaps(open, sw), name + ": its row opens apart from its switch");
+        }
+        Check(ui.ModRowRect(2).y < ui.ModRowRect(0).y && ui.ModRowRect(5).y < ui.ModRowRect(0).y,
+              what + ": the content mods are drawn above the Gameplay mods, whatever their order in the list");
+        Check(ui.ModRowRect(0).Bottom() <= ui.ModRowRect(1).y, what + ": each group keeps the list's order");
+        // A closed row is about two lines: its name and its summary. A locked one keeps how to unlock it in view.
+        const float closed = ui.ModRowRect(0).h;
+        Check(closed < 70, what + ": a closed row is its name and one line (" + std::to_string(closed) + ")");
+        Check(ui.ModRowRect(5).h > closed, what + ": the locked PS2 row keeps how to unlock it in view while closed");
+        // Open Entertainers' second acts (the row, not the switch): its text shows, and the switch did not move.
+        if (ui.ModsScrolls()) {   // the row may be under the view: scroll to it
+            ui.HandleEvent(MotionEvent(w * 0.5f, h * 0.5f));
+            ui.HandleEvent(WheelEvent(-10));
+            frames(2);
+        }
+        const float before = ui.ModRowRect(4).h;
+        press(ui, ui.ModOpenRect(4), frames);
+        frames(1);
+        Check(ui.ModExpanded(4), what + ": a click on a row opens it");
+        Check(ui.ModRowRect(4).h > before + 40, what + ": the opened row shows its text");
+        for (size_t i = 0; i < all.size(); ++i)
+            if (i != 4) Check(!ui.ModExpanded(i), what + ": opening one row leaves the others closed (" + all[i].id + ")");
+        CheckEq(b.Setting(ModKey("entertainer-second-acts")), "", what + ": opening a row does not turn its mod on");
+        Check(ui.ModsScrolls() || ui.ModsBoxRect().Bottom() <= h, what + ": the opened row fits or the box scrolls");
+        if (ui.ModsScrolls()) {
+            ui.HandleEvent(MotionEvent(w * 0.5f, h * 0.5f));
+            ui.HandleEvent(WheelEvent(10));
+            frames(2);
+            ui.HandleEvent(WheelEvent(-3));
+            frames(2);
+        }
+        const Rect sw = ui.ModSwitchRect(4);
+        Check(sw.y >= ui.ModsBoxRect().y && sw.Bottom() <= ui.ModsBoxRect().Bottom(), what + ": the opened row's switch is in view");
+        press(ui, sw, frames);
+        CheckEq(b.Setting(ModKey("entertainer-second-acts")), "1", what + ": an opened row's switch turns its mod on");
+        Check(ui.ModExpanded(4), what + ": the switch leaves the row open");
+        press(ui, ui.ModOpenRect(4), frames);
+        frames(1);
+        Check(!ui.ModExpanded(4), what + ": a second click closes it");
+        Check(ui.ModRowRect(4).h < before + 1, what + ": closed again, the row is its two lines");
+        CheckEq(b.Setting(ModKey("entertainer-second-acts")), "1", what + ": closing the row leaves the mod on");
+        // A locked row opens like any other, and its switch still cannot be turned on.
+        press(ui, ui.ModOpenRect(5), frames);
+        frames(1);
+        Check(ui.ModExpanded(5), what + ": the locked PS2 row opens");
+        press(ui, ui.ModSwitchRect(5), frames);
+        Check(!ui.ModOn(5) && b.Setting(ModKey("ps2-characters")).empty(), what + ": the locked PS2 row's switch stays off");
+        // The box opens again with every row closed (which were open is not kept, the maintainer, 2026-11-18).
+        ui.ShowMods(false);
+        frames(1);
+        ui.ShowMods(true);
+        frames(1);
+        Check(ui.ModsBoxRect().w > 0 && !ui.ModExpanded(5), what + ": the box opens again with its rows closed");
+    }
+    {   // an outside mod.json with no category or summary: in Gameplay, its row's line its text's first sentence
+        FakeBackend b;
+        FillEverything(b);
+        LauncherUi ui(renderer, b);
+        ModRow odd = StaffCrossBridges();
+        odd.id = "made-up-category";
+        odd.category = "Cheats";   // not one of the launcher's: in Gameplay too
+        odd.summary.clear();
+        ui.SetMods({NoStrikes(), SecondActs(), odd});
+        ui.ShowMods(true);
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        CheckEq(LauncherUi::ModCategories().front(), "Bonus Content", "mod groups: Bonus Content is the first group");
+        CheckEq(ui.ModCategory(0), "Gameplay", "mod groups: a mod with no category is in Gameplay");
+        CheckEq(ui.ModCategory(2), "Gameplay", "mod groups: a category the launcher does not know is Gameplay");
+        CheckEq(ui.ModSummary(0), "Staff never strike.", "mod groups: with no summary and a one-sentence text, the row shows it");
+        CheckEq(ui.ModSummary(2), "Staff walking their rounds can cross a footbridge, like the bridge over the stream in the Lost Kingdom.",
+                "mod groups: with no summary the row shows the text's first sentence");
+        Check(ui.ModHeadings() == std::vector<std::string>({"Bonus Content", "Gameplay"}),
+              "mod groups: the mods without a category make the Gameplay group");
+        ui.SetMods({NoStrikes()});
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(ui.ModHeadings() == std::vector<std::string>({"Gameplay"}), "mod groups: an empty group has no heading");
+    }
+    {   // the PS2 Guest Models: locked until a drop of the PlayStation 2 disc converts them, then on as launcher.ini says
+        FakeBackend b;
+        FillEverything(b);
+        b.settings[ModKey("ps2-characters")] = "1";
+        LauncherUi ui(renderer, b);
+        auto frames = [&](int n) {
+            for (int i = 0; i < n; ++i) ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        };
+        ui.SetMods(AllMods());
+        ui.ShowMods(true);
+        frames(1);
+        Check(!ui.ModOn(5), "mods: the locked PS2 mod shows off, though launcher.ini has it on");
+        bool contentReady = false;
+        ui.SetModsReader([&] {
+            std::vector<ModRow> mods = AllMods();
+            if (contentReady) mods[5].locked.clear();
+            return mods;
+        });
+        FakeBackend::Script conversion;
+        conversion.finish = [&](FakeBackend&, ImportReport& report) {
+            contentReady = true;
+            report.playStation2Converted = true;
+            report.playStation2.push_back("PS2 Guest Models: 24 characters converted.");
+        };
+        b.Queue(std::move(conversion));
+        ui.OfferPaths({"ps2.iso"});
+        frames(3);
+        Check(ui.ModOn(5), "mods: a completed PlayStation 2 drop unlocks the PS2 Guest Models without restarting");
     }
     {   // a build with no mods folder: the box says so
         FakeBackend b;

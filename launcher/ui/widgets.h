@@ -95,6 +95,10 @@ public:
     void LogList(const std::string& id, const Rect& r, const std::vector<LogEntry>& entries);
     // A switch `r` (about 52 x 30); returns true when it was flipped.
     bool Toggle(const std::string& id, const Rect& r, bool& on, bool enabled = true);
+    // A part of a list's row that opens and closes the rest of it (a mod's whole text): pressed anywhere in `r`. Its
+    // chevron, `size` wide and centred on (cx, cy), points right while closed and turns to point down while `open`; `r`
+    // is tinted while the pointer is over it. Returns true when it was clicked.
+    bool Disclosure(const std::string& id, const Rect& r, float cx, float cy, float size, bool open, bool enabled = true);
     // Side by side choices; returns true when the selection changed.
     bool Segmented(const std::string& id, const Rect& r, const std::vector<std::string>& options,
                    const std::vector<bool>& enabled, int& selected);

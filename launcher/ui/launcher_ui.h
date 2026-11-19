@@ -226,7 +226,9 @@ struct ModRow {
     std::string name;
     std::string version;
     std::string author;
-    std::string text;              // what it does, for the player
+    std::string text;              // what it does, for the player, shown when its row is opened
+    std::string category;          // its group in the box (ModCategories), Gameplay when empty or not one of them
+    std::string summary;           // one short line under its name; empty: the text's first sentence
     bool editions[3] = {};         // the editions it supports: 0 US, 1 European, 2 Gold (the Gold bonus rides)
     bool changesSaves = false;     // a game saved with it on differs from the original's
     std::vector<std::string> conflicts;   // the ids of mods it cannot be on with
@@ -483,6 +485,26 @@ public:
         return modsOpen_ && index < modSwitchRects_.size() ? modSwitchRects_[index] : Rect{};
     }
     bool ModsScrolls() const { return modsOpen_ && modsScrolls_; }
+    // The Mods box's groups, in the order it shows them: Bonus Content, then Gameplay (platform/mods.cmake's
+    // TPW_MOD_CATEGORIES). Row `index`'s group: its category, or Gameplay when it has none or another.
+    static const std::vector<std::string>& ModCategories();
+    std::string ModCategory(size_t index) const;
+    // The groups' headings the last frame drew, top to bottom, and where (empty when the box is closed).
+    std::vector<std::string> ModHeadings() const { return modsOpen_ ? modHeadings_ : std::vector<std::string>{}; }
+    Rect ModHeadingRect(size_t index) const {
+        return modsOpen_ && index < modHeadingRects_.size() ? modHeadingRects_[index] : Rect{};
+    }
+    // Row `index` and the part of it a click opens or closes (all of it but its switch), where the last frame drew them;
+    // its one line as shown; and whether it is open, showing the mod's whole text and details (closed until the player
+    // opens it, and not kept from one start to the next).
+    Rect ModRowRect(size_t index) const {
+        return modsOpen_ && index < modRowRects_.size() ? modRowRects_[index] : Rect{};
+    }
+    Rect ModOpenRect(size_t index) const {
+        return modsOpen_ && index < modOpenRects_.size() ? modOpenRects_[index] : Rect{};
+    }
+    std::string ModSummary(size_t index) const;
+    bool ModExpanded(size_t index) const;
     // How many mods are on (launcher.ini's mod.<id> keys), and whether the switch of row `index` is.
     int ModsOn() const;
     bool ModOn(size_t index) const { return index < modOn_.size() && modOn_[index]; }
@@ -695,6 +717,10 @@ private:
     std::string modsMessage_;
     Rect modsButtonRect_, modsOnRect_, modsBoxRect_, modsDiamondRect_;
     std::vector<Rect> modSwitchRects_;
+    std::vector<Rect> modRowRects_, modOpenRects_;
+    std::vector<std::string> modHeadings_;
+    std::vector<Rect> modHeadingRects_;
+    std::vector<std::string> modsExpanded_;   // the ids of the rows the player opened
     bool modsScrolls_ = false;
 
     // The About / Game Data box: to open again once a drop made while it was open is done (back on the home), and the

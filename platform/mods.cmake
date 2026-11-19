@@ -6,6 +6,9 @@
 set(TPW_MODS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../tpw-mods CACHE PATH "The tpw-mods folder whose mods the launcher is built with")
 # The hooks a mod.json may name (its "hooks"), each a TPW_MOD_HOOK comment in the game's code and a field of mods.h's Hooks.
 set(TPW_MOD_HOOKS strike_gate strike_messages staff_bridge_wander ps1_badge ps1_ground ps1_save_repair ps1_pick_rotation tpi_worlds tpi_islands entertainer_second_acts ps2_characters)
+# The categories a mod.json may name (its "category"), in the order the launcher's Mods box shows their groups. A mod
+# without one is in Gameplay. The launcher spells them too (launcher/ui/launcher_ui.cpp, LauncherUi::ModCategories).
+set(TPW_MOD_CATEGORIES "Bonus Content" "Gameplay")
 set_property(GLOBAL PROPERTY TPW_MOD_IDS)
 
 # A string of mod.json as a C++ string literal.
@@ -127,6 +130,27 @@ function(tpw_add_mod folder)
       message(FATAL_ERROR "${file}: a mod with \"content\" changes saved games (a park keeps the rides it uses)")
     endif()
   endif()
+  # "category" (optional): the group of the Mods box it is shown in, one of TPW_MOD_CATEGORIES; Gameplay without one.
+  set(category "Gameplay")
+  string(JSON got ERROR_VARIABLE err TYPE "${json}" category)
+  if(NOT err)
+    _tpw_mod_member("${json}" ${file} category STRING category)
+    if(NOT category IN_LIST TPW_MOD_CATEGORIES)
+      list(JOIN TPW_MOD_CATEGORIES ", " names)
+      message(FATAL_ERROR "${file}: \"category\" ${category} is not one of: ${names}")
+    endif()
+  endif()
+  # "summary" (optional): one short line under its name in the Mods box, the whole "text" shown on demand. Without one
+  # the box shows the text's first sentence, cut to the line.
+  set(summary "")
+  string(JSON got ERROR_VARIABLE err TYPE "${json}" summary)
+  if(NOT err)
+    _tpw_mod_member("${json}" ${file} summary STRING summary)
+    string(LENGTH "${summary}" length)
+    if(length GREATER 80)
+      message(FATAL_ERROR "${file}: \"summary\" is ${length} characters, more than 80 (one short line; \"text\" says the rest)")
+    endif()
+  endif()
   get_property(ids GLOBAL PROPERTY TPW_MOD_IDS)
   if(id IN_LIST ids)
     message(FATAL_ERROR "${file}: mods.cmake adds ${id} twice")
@@ -153,7 +177,11 @@ function(tpw_add_mod folder)
     string(APPEND entry "\"${hook}\", ")
   endforeach()
   _tpw_mod_literal("${content}" literal)
-  string(APPEND entry "}, &SwitchOn_${symbol}, ${literal}},\n")
+  string(APPEND entry "}, &SwitchOn_${symbol}, ${literal}, ")
+  _tpw_mod_literal("${category}" literal)
+  string(APPEND entry "${literal}, ")
+  _tpw_mod_literal("${summary}" literal)
+  string(APPEND entry "${literal}},\n")
   set_property(GLOBAL APPEND_STRING PROPERTY TPW_MOD_ENTRIES "${entry}")
   set_property(GLOBAL APPEND_STRING PROPERTY TPW_MOD_DECLARATIONS "void SwitchOn_${symbol}(Hooks& hooks);\n")
 

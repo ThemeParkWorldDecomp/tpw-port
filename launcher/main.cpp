@@ -1098,6 +1098,8 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
                 row.version = mod.version;
                 row.author = mod.author;
                 row.text = mod.text;
+                row.category = mod.category;
+                row.summary = mod.summary;
                 row.editions[0] = (mod.editions & tpw::mods::kUs) != 0;
                 row.editions[1] = (mod.editions & tpw::mods::kEuropean) != 0;
                 row.editions[2] = (mod.editions & tpw::mods::kGold) != 0;

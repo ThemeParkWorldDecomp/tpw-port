@@ -22,6 +22,7 @@
 
 ### Changes
 
+- The launcher's Mods box now shows the mods in two groups, Bonus Content first, then Gameplay, each mod with its name and a short line saying what it does. Click a mod's row (or its arrow) to read its full description, its version and which editions it works with, and click again to hide it. A mod chooses its own group in its mod.json ("category"); one that names none is in Gameplay
 - On a Mac, the Delete key (fn+Delete on a laptop) now clears land, as Delete does on Windows and Linux; F7 still clears land too, and the big delete key above Return still deletes track, queues and path as before
 
 ## 0.5.6 (2026-11-17)
