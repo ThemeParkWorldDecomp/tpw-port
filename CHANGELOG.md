@@ -16,6 +16,7 @@
 - Fixed the park music in the SimCoaster/TPI - New Worlds, Rides and Sprites mod's Arabian Nights (and in a very busy Polar Zone) turning into one short burst of noise repeated many times a second when the park got busy: SimCoaster AKA Theme Park Inc's own music files for those two worlds are missing some pieces in every copy of the game, and a missing piece is now never played and another piece of the same level plays instead
 - Fixed the SimCoaster/TPI - New Worlds, Rides and Sprites mod's islands playing the sound effects of the world they borrow from on the island screen (the Lost Kingdom's jungle beasts on Arabian Nights, Halloween World's bats and bells on Polar Zone, the Space Zone's spaceships on Land of Invention): the three worlds now play only their own sounds and music
 - Fixed the SimCoaster/TPI - New Worlds, Rides and Sprites mod's water rides getting stuck at a 4-way junction (Wheel Deal in Land of Invention, Eskimotion in Polar Zone, Cruise The Nile in Arabian Nights): since 0.5.6 the tubes and boats could not enter the junction and piled up at its edge; they go straight through it again, and the Great Lake's boats sail on the lake as before
+- Fixed the flying rides (Jurassic Tours, the blimp, bird and spaceship tours, and the SimCoaster/TPI - New Worlds, Rides and Sprites mod's High Flyer) flying far off past the edge of the map about half the time as they came in or left: a bug in the original game picked a point up to a whole park's width beyond the park's corner, and they now come in and leave along the park's edge
 
 ### Changes
 

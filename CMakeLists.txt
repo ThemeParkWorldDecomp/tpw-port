@@ -749,6 +749,14 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_cell_id_lookup PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME cell_id_lookup COMMAND tpw_host_cell_id_lookup)
   endif()
+  # Where a flying ride's car starts and where a leaving car goes (include/FlyZone.h): always on an edge of the fly zone,
+  # for every random word, and the Mac's own point whenever labs(rand) * 100 does not wrap, without game data. The
+  # original needs no such helper, so it is made only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_fly_zone ${TPW_DECOMP_DIR}/tests/host_fly_zone.cpp)
+    target_include_directories(tpw_host_fly_zone PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME fly_zone COMMAND tpw_host_fly_zone)
+  endif()
   # The TPI Worlds and Rides mod's repair of parks saved before a converter showed more ground (TPW_MOD_HOOK tpi_worlds,
   # include/TpiSaveRepair.h): which saved map and track cells are reset as land on loading, without game data. The
   # original has no such mod, so it is made only with the port's fixes.
