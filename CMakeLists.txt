@@ -1116,6 +1116,25 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   else()
     add_test(NAME proc_cap COMMAND tpw_host_proc_cap)
   endif()
+  # The texture cache's pages when a frame asks for more than they hold (the port's fix cachegrow): the real
+  # CTextureCache::GenerateTexturePages and PortCacheGrow, the packing and the making of pages being the test's stand-ins.
+  # Made in both builds; without the port's fixes it checks only the original's settings, which never grow the cache.
+  add_executable(tpw_host_cache_grow ${TPW_DECOMP_DIR}/tests/host_cache_grow.cpp ${TPW_DECOMP_DIR}/src/engine/TextureCache.cpp)
+  target_include_directories(tpw_host_cache_grow PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+  # the test's own switch for the fixed path, as proc_cap's
+  if(TPW_PORT_FIX)
+    target_compile_definitions(tpw_host_cache_grow PRIVATE TPW_TEST_PORT_FIX)
+  endif()
+  tpw_slice(TARGET tpw_host_cache_grow NAME cache_grow KEEP
+    __ZN13CTextureCache20GenerateTexturePagesEv   # CTextureCache::GenerateTexturePages()
+    __Z13PortCacheGrowR13CTextureCacheP13CTextureEntry   # PortCacheGrow(CTextureCache&, CTextureEntry*) (only in the port's builds)
+    _gPortCachePagesAdded   # the port's fix cachegrow (only in the port's builds)
+    _gPortCachePagesOpened)   # the same
+  if(tpw_platform_tests_skipped)
+    set_target_properties(tpw_host_cache_grow PROPERTIES EXCLUDE_FROM_ALL ON)
+  else()
+    add_test(NAME cache_grow COMMAND tpw_host_cache_grow)
+  endif()
   # The ground the free camera sees toward the horizon (the port's fix freecam): the real CHField::DivideAndConquer and
   # TestConQuad and the clipper's outside codes on Land of Invention's map, the math unit being the test's stand-in. Made
   # in both builds; without the port's fixes it checks only the normal camera, the original's cells and far plane.
