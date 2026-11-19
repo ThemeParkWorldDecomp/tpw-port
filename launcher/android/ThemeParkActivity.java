@@ -1,7 +1,11 @@
 package org.tpwport.android;
 
+import android.app.ActivityManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.hardware.input.InputManager;
 import android.os.Bundle;
+import android.util.Log;
 import android.util.SparseBooleanArray;
 import android.view.InputDevice;
 import android.view.KeyEvent;
@@ -12,6 +16,7 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 
 import org.libsdl.app.SDLActivity;
+import java.io.File;
 import java.util.EnumSet;
 
 public final class ThemeParkActivity extends SDLActivity implements InputManager.InputDeviceListener {
@@ -75,6 +80,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         if (mLayout == null) return;
+        describeGameTask();
         settings = new ControlSettings(this);
         controls = new TouchControls(this, settings, getIntent().getIntExtra(SetupActivity.INTERFACE_SCALE, 100) > 100);
         mLayout.setMotionEventSplittingEnabled(true);
@@ -82,6 +88,21 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
         touchSlop = ViewConfiguration.get(this).getScaledTouchSlop();
         mLayout.post(this::immersive);
         getSystemService(InputManager.class).registerInputDeviceListener(this, null);
+    }
+
+    @SuppressWarnings("deprecation") // The Bitmap constructor also works on API 33–36.
+    private void describeGameTask() {
+        String edition = getIntent().getStringExtra(SetupActivity.EDITION);
+        String title = getString(edition != null && edition.startsWith("us")
+            ? R.string.game_name_us : R.string.game_name_europe);
+        // The shared importer keeps the icon from the player's discs next to launcher.ini.
+        Bitmap importedIcon = BitmapFactory.decodeFile(new File(getFilesDir(), "icon.png").getPath());
+        ActivityManager.TaskDescription description = importedIcon == null
+            ? new ActivityManager.TaskDescription.Builder().setLabel(title).setIcon(R.mipmap.tpw_game_icon).build()
+            : new ActivityManager.TaskDescription(title, importedIcon);
+        setTitle(title);
+        setTaskDescription(description);
+        Log.i("TPWLauncher", "game app: " + title + " (" + (importedIcon == null ? "stand-in" : "imported icon") + ")");
     }
 
     @Override

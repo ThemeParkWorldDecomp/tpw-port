@@ -1,4 +1,7 @@
 <resources>
+    <string name="launcher_name" translatable="false">STP/TPW Launcher</string>
+    <string name="game_name_us" translatable="false">Sim Theme Park</string>
+    <string name="game_name_europe" translatable="false">Theme Park World</string>
     <string name="settings">Settings</string>
     <string name="mods">Mods</string>
     <string name="done">Done</string>

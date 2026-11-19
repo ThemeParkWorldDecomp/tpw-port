@@ -1,5 +1,6 @@
 <resources>
     <color name="tpw_icon_background">#26243E</color>
+    <color name="tpw_game_icon_background">#345943</color>
     <color name="launcher_navy">#0C2032</color>
     <color name="launcher_paper">#F3F9E9</color>
     <color name="launcher_muted">#B7D4CD</color>

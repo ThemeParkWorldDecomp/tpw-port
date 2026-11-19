@@ -26,7 +26,9 @@ Jeśli przejście w tło zatrzymało park, po powrocie pojawi się przycisk **Wz
 
 ## Pierwsze uruchomienie
 
-Uruchom **Theme Park World** z listy aplikacji. Ikona przedstawia kolejkę górską. W granatowo-zielonym launcherze żółty przycisk **Graj** znajduje się pod wyborem wydania i języka. Na szerokim ekranie wybór gry i import danych są obok siebie. Na wąskim ekranie wybór gry jest nad importem.
+Uruchom **STP/TPW Launcher** z listy aplikacji. Ikona przedstawia kolejkę górską. W granatowo-zielonym launcherze żółty przycisk **Graj** znajduje się pod wyborem wydania i języka. Na szerokim ekranie wybór gry i import danych są obok siebie. Na wąskim ekranie wybór gry jest nad importem.
+
+W widoku **Ostatnie aplikacje** launcher i gra mają osobne karty. Karta gry ma nazwę uruchomionego wydania. Aplikacja przekazuje systemowi ikonę z zaimportowanych plików. Ikona biletu służy jako zapasowa, również na urządzeniach, które wyświetlają tylko ikonę z pakietu. **Graj** wraca do otwartej gry. Aby rozpocząć z innym wydaniem lub zmienionymi ustawieniami startowymi, najpierw zakończ bieżącą grę z jej menu.
 
 W programie startowym wybierz **Importuj pliki** i wskaż obrazy płyt lub archiwa własnej kopii gry. Do danych z rozpakowanego folderu służy **Importuj folder**. Ekran startowy udostępnia wybór wydania, język, ustawienia i mody. Dane dodatkowego języka można zaimportować później. Mody korzystające z płyt PlayStation albo SimCoaster odblokowują się po rozpoznaniu odpowiednich danych.
 

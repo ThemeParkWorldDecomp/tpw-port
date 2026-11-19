@@ -1,6 +1,7 @@
 package org.tpwport.android;
 
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.Intent;
@@ -16,6 +17,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -83,6 +85,8 @@ public final class SetupActivity extends Activity {
     @Override
     protected void onCreate(Bundle previous) {
         super.onCreate(previous);
+        setTaskDescription(new ActivityManager.TaskDescription.Builder()
+            .setLabel(getString(R.string.launcher_name)).setIcon(R.mipmap.tpw_icon).build());
         migrateLanguagePreference();
         createScreen();
         runImport(new ArrayList<>(), false);
@@ -116,9 +120,7 @@ public final class SetupActivity extends Activity {
         language = launcherButton(R.string.language, ButtonStyle.CHOICE, () -> choose(true));
         alignStart(edition);
         alignStart(language);
-        play = launcherButton(R.string.play, ButtonStyle.PLAY, () -> startActivity(new Intent(this, ThemeParkActivity.class)
-            .putExtra(EDITION, chosenEdition).putExtra(LANGUAGE, chosenLanguage)
-            .putExtra(INTERFACE_SCALE, interfaceScale())));
+        play = launcherButton(R.string.play, ButtonStyle.PLAY, this::play);
         play.setTextSize(22);
         play.setTypeface(Typeface.create("sans-serif-black", Typeface.NORMAL));
         play.setMinHeight(dp(56));
@@ -159,7 +161,7 @@ public final class SetupActivity extends Activity {
         LinearLayout.LayoutParams image = new LinearLayout.LayoutParams(dp(48), dp(48));
         image.setMarginEnd(dp(11));
         title.addView(icon, image);
-        TextView name = heading("STP/TPW Launcher", 27);
+        TextView name = heading(getString(R.string.launcher_name), 27);
         title.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
         return title;
     }
@@ -168,6 +170,16 @@ public final class SetupActivity extends Activity {
     public void onConfigurationChanged(Configuration configuration) {
         super.onConfigurationChanged(configuration);
         arrangeScreen(configuration);
+    }
+
+    private void play() {
+        Intent game = new Intent(this, ThemeParkActivity.class);
+        // Some Recents screens use the component's manifest label in the card menu.
+        if (usEdition()) game.setClassName(getPackageName(), "org.tpwport.android.SimThemePark");
+        startActivity(game.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .putExtra(EDITION, chosenEdition).putExtra(LANGUAGE, chosenLanguage)
+            .putExtra(INTERFACE_SCALE, interfaceScale()));
+        Log.i("TPWLauncher", "play: handed to game task (" + chosenEdition + ")");
     }
 
     private void arrangeScreen(Configuration configuration) {
