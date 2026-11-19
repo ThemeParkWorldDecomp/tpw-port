@@ -626,6 +626,7 @@ GrafPort* FrontWindow() {
 // Lets the system run: the engine calls it inside its waits (the splash screen), where no
 // events are being processed, so the window would otherwise stop responding.
 void SystemTask() {
+    tpw::FixedClockYield();
     if (gVideoStarted) SDL_PumpEvents();
 }
 

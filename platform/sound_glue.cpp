@@ -19,6 +19,7 @@
 // reads LbTime_GetClock, which here counts from the program's first call, 0 that early in every launch. The steady
 // clock counts from start-up on Windows and macOS, as the Mac's did.
 extern "C" int32_t MslSeedGlue1002eaac() {
+    if (tpw::FixedClock()) return static_cast<int32_t>(SamsUtilities::UTimer::GetAbsolute() / 1000);
     const auto now = std::chrono::steady_clock::now().time_since_epoch();
     return static_cast<int32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
 }

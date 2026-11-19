@@ -373,6 +373,9 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   tpw_slice(TARGET tpw_platform_tests NAME platform_tests KEEP ${TPW_PLATFORM_TESTS_KEEP})
   target_link_libraries(tpw_platform_tests PRIVATE tpw_platform)
   add_test(NAME platform COMMAND tpw_platform_tests)
+  # The test runs' fixed clock (TPW_FIXED_CLOCK, platform/sams_core.cpp), which is read once a run: a run of its own.
+  add_test(NAME fixed_clock COMMAND tpw_platform_tests --fixed-clock)
+  set_tests_properties(fixed_clock PROPERTIES ENVIRONMENT "TPW_FIXED_CLOCK=1000")
   if(WIN32)
     # Its src files are cut by tpw-decomp's slicer, which runs on libclang, and llvm-mingw ships none: on Windows the
     # tests are made when TPW_LIBCLANG names one (an LLVM release's bin/libclang.dll), and the slicer runs through

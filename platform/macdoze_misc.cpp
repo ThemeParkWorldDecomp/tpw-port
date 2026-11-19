@@ -259,7 +259,7 @@ int32_t FileTimeToSystemTime(const tagFILETIME* fileTime, _SYSTEMTIME* time) {
 // original copies its year, month, day of week, day, hour, minute and second, and the milliseconds are always 0. The day of the week is
 // the Mac's (1 Sunday to 7 Saturday), as in FileTimeToSystemTime. The host's local clock replaces GetDateTime.
 void GetLocalTime(_SYSTEMTIME* time) {
-    const std::time_t now = std::time(nullptr);
+    const std::time_t now = static_cast<std::time_t>(SamsUtilities::UTimer::GetWallSeconds());
     std::tm local;
     localtime_r(&now, &local);
     time->wYear = static_cast<uint16_t>(local.tm_year + 1900);

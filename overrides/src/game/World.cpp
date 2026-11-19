@@ -411,7 +411,8 @@ bool CWorld::SetupNewLevel(char* levelFolder) {
         }
     }
     mTurn = 0;
-    mStartTime = static_cast<uint32_t>(std::time(nullptr));
+    // TPW_PORT_FIX fixedclock CWorld::SetupNewLevel | Mac: the seed is time(NULL) | Port: the platform's wall clock, time(NULL) unless a test run's fixed clock is on (TPW_FIXED_CLOCK, never set for a player) | Why: a test run repeats exactly, for the mods' save comparisons | Off: time(NULL), as the original
+    mStartTime = static_cast<uint32_t>(SamsUtilities::UTimer::GetWallSeconds());
     GetMap()->Init();
     reinterpret_cast<CMacroAI*>(this)->Init();
     mPersonCount = 0;

@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -4443,7 +4444,40 @@ static void TestStartupFraction() {
     CHECK(std::fabs(tpw::StartupFraction(8924140, 17848280, false) - 0.5f) < 1e-6f);
 }
 
-int main() {
+// A test run's fixed clock (TPW_FIXED_CLOCK, platform/sams_core.cpp), in a run of its own (ctest fixed_clock, which sets
+// TPW_FIXED_CLOCK=1000): 1000 microseconds a pass, a millisecond for each wait's yield, the cycles in nanoseconds, and the
+// wall clock from 1 January 2001, so two runs of one script read the same times.
+static void TestFixedClock() {
+    using SamsUtilities::UTimer;
+    CHECK(tpw::FixedClock());
+    const uint64_t pass = static_cast<uint64_t>(tpw::CurrentPass());
+    CHECK(UTimer::GetAbsolute() == pass * 1000);
+    CHECK(UTimer::GetAbsolute() == pass * 1000);   // still within the pass
+    tpw::FixedClockYield();
+    tpw::FixedClockYield();
+    CHECK(UTimer::GetAbsolute() == pass * 1000 + 2000);
+    CHECK(UTimer::GetAbsoluteCycles() == (pass * 1000 + 2000) * 1000);
+    CHECK(UTimer::GetWallSeconds() == 978307200);
+}
+
+// Without TPW_FIXED_CLOCK (a player's run) the clocks are the machine's: the wall clock is time(), a yield changes nothing.
+static void TestMachineClock() {
+    using SamsUtilities::UTimer;
+    CHECK(!tpw::FixedClock());
+    const int64_t before = static_cast<int64_t>(std::time(nullptr));
+    const int64_t wall = UTimer::GetWallSeconds();
+    CHECK(before <= wall && wall <= static_cast<int64_t>(std::time(nullptr)));
+    const uint64_t now = UTimer::GetAbsolute();
+    tpw::FixedClockYield();
+    CHECK(UTimer::GetAbsolute() >= now);
+}
+
+int main(int argc, char** argv) {
+    if (argc > 1 && std::strcmp(argv[1], "--fixed-clock") == 0) {
+        TestFixedClock();
+        std::printf("platform tests (fixed clock): %d checks passed\n", gChecks);
+        return 0;
+    }
     // One folder per process, emptied first: a run that failed leaves its folder behind.
     const fs::path scratch = fs::temp_directory_path() / ("tpw_platform_tests_" + std::to_string(getpid()));
     std::error_code stale;
@@ -4494,6 +4528,7 @@ int main() {
 #endif
     TestSound(scratch);
     TestStartupFraction();
+    TestMachineClock();
 #if defined(__linux__) && defined(__x86_64__)
     TestLinuxDivision();
 #endif
