@@ -1063,7 +1063,7 @@ CKeyTableEntry gKeyEntriesGame[15] = {
     {1, 44, 0, 0, {}, reinterpret_cast<void*>(turn_object_clockwise), nullptr, nullptr},
     {2, 46, 0, 0, {}, reinterpret_cast<void*>(turn_object_counterclockwise), nullptr, nullptr},
 #if defined(TPW_PORT_FIX) && !defined(__APPLE__)
-    // TPW_PORT_FIX pc-keys gKeyEntriesGame | Mac: F7 (118) clears land | Port: on Windows and Linux, Delete (0x2e00, the extended VK_DELETE HandleTyping makes of it; the period is 46) clears land and F7 does nothing in the game table, as in the PC original's table and its Key Command Card ("Clear Land: Delete"); the Mac build keeps F7 | Why: each system keeps its own original's controls (the maintainer); the Windows and Linux builds had the Mac's F7, where a PC player presses Delete
+    // TPW_PORT_FIX pc-keys gKeyEntriesGame | Mac: F7 (118) clears land | Port: on Windows and Linux, Delete (0x2e00, the extended VK_DELETE HandleTyping makes of it; the period is 46) clears land and F7 does nothing in the game table, as in the PC original's table and its Key Command Card ("Clear Land: Delete"); the Mac build's table keeps F7 and the Mac original's 15 rows, and its plain Delete clears land too, asked as F7 (PortParkKey, keyboard.h) | Why: each system keeps its own original's controls (the maintainer); the Windows and Linux builds had the Mac's F7, where a PC player presses Delete; and Delete clears land on the Mac too (the maintainer, 2026-11-17)
     {3, 0x2e00, 0, 0, {}, reinterpret_cast<void*>(enter_area_delete_mode), nullptr, nullptr},
 #else
     {3, 118, 0, 0, {}, reinterpret_cast<void*>(enter_area_delete_mode), nullptr, nullptr},

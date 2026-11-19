@@ -2,6 +2,10 @@
 
 ## 0.6.0 (not released yet)
 
+### Changes
+
+- On a Mac, the Delete key (fn+Delete on a laptop) now clears land, as Delete does on Windows and Linux; F7 still clears land too, and the big delete key above Return still deletes track, queues and path as before
+
 ## 0.5.6 (2026-11-17)
 
 ### New Features
