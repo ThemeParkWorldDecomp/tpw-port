@@ -4,6 +4,7 @@
 
 ### New Features
 
+- A new mod, PS2 Guest Models (3D): the park's children, staff and entertainers are drawn as the PlayStation 2 edition's 3D models, walking and animated where the sprites were, with the visitors' heads on rides and in the first-person views too. The four entertainers the PlayStation 2 has no model for are drawn as one of their own world's, and both mechanics as its one mechanic. Drop your own PlayStation 2 disc (the disc, a .bin and .cue, an .iso or a copy of its folder) on the launcher to convert the models and unlock it in the Mods box. Display only: parks play and save exactly as before
 - A new mod, Entertainers' second acts: eight entertainer costumes perform the second act their sprite files hold but the game never plays, chosen at random with their first: the vampire, Frankenstein's monster and the hunchback in Halloween World, the dinosaur, the explorer and the tribal dancer in the Lost Kingdom, and the orange alien and the purple monster in the Space Zone. Saved games are unchanged
 
 ### Bug Fixes

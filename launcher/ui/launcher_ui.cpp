@@ -72,6 +72,8 @@ void Merge(ImportReport& into, const ImportReport& r) {
     into.playStationConverted = into.playStationConverted || r.playStationConverted;
     into.themeParkInc.insert(into.themeParkInc.end(), r.themeParkInc.begin(), r.themeParkInc.end());
     into.themeParkIncConverted = into.themeParkIncConverted || r.themeParkIncConverted;
+    into.playStation2.insert(into.playStation2.end(), r.playStation2.begin(), r.playStation2.end());
+    into.playStation2Converted = into.playStation2Converted || r.playStation2Converted;
 }
 
 // What Play hands the game for an edition's Language (LaunchChoice::language): the kept one while the data folder still

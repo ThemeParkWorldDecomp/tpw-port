@@ -4,6 +4,7 @@
 #include "EntertainerSecondActs.h"
 #include "Ps1PickRotation.h"
 #include "Ps1SaveRepair.h"
+#include "Ps2Characters.h"
 #include "RideBadges.h"
 #include "ThingReceivers.h"
 #include "TpiWorlds.h"
@@ -21,6 +22,7 @@ void Apply(const Hooks& hooks) {
     gModTpiWorlds = hooks.tpiWorlds;
     gModTpiIslands = hooks.tpiIslands;
     gModEntertainerSecondActs = hooks.entertainerSecondActs;
+    gModPs2Characters = hooks.ps2Characters;
 }
 
 }  // namespace tpw::mods

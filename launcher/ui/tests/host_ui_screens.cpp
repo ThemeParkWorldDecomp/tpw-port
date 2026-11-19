@@ -1551,6 +1551,20 @@ std::vector<Shot> Shots() {
                          ui.OfferPaths({"/media/Theme Park Inc"});
                      },
                      Screen::Result, {}});
+    // The result screen after a PS2 disc drop (the PS2 Guest Models mod): the converter's line, and nothing about the
+    // editions.
+    shots.push_back({"80-result-ps2-ready", metric::kStartWidth, metric::kStartHeight, everything,
+                     [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>&) {
+                         FakeBackend::Script s;
+                         s.finish = [](FakeBackend&, ImportReport& r) {
+                             r.playStation2Converted = true;
+                             r.playStation2.push_back("PS2 Guest Models: 24 characters converted from the US PlayStation 2 "
+                                                      "disc (SLUS_200.99).");
+                         };
+                         b.Queue(s);
+                         ui.OfferPaths({"/media/Theme Park Roller Coaster (USA).cue"});
+                     },
+                     Screen::Result, {}});
     shots.push_back({"64-home-header-smallest-update", metric::kMinWidth, metric::kMinHeight, nullptr, nullptr,
                      Screen::Home, "found"});
     // A wide window: the same three buttons in the header, on both homes.
@@ -1738,6 +1752,38 @@ void CheckTexts() {
         ps1.playStationConverted = false;
         result = DescribeResult(ps1, before);
         Check(!result.good && result.headline == "PlayStation disc recognised", "PS1 without PC donors stays honest");
+    }
+    {
+        CheckEq(ContentModLockedText("ps2"), "Drop your own PlayStation 2 disc on the launcher to unlock.",
+                "content mod: how to unlock the PS2 Guest Models");
+        ImportReport ps2;
+        EditionStatus before[6] = {};
+        ps2.playStation2.push_back("PS2 Guest Models: 24 characters converted from the US PlayStation 2 disc (SLUS_200.99).");
+        ps2.playStation2Converted = true;
+        ResultText result = DescribeResult(ps2, before);
+        CheckEq(result.headline, "PS2 Guest Models ready", "PS2 conversion headline");
+        Check(result.good && result.lines.size() == 1 && result.lines.front() == ps2.playStation2.front(),
+              "PS2 conversion reports its own content without changing edition counts");
+        ps2.playStation2Converted = false;
+        result = DescribeResult(ps2, before);
+        Check(!result.good && result.headline == "PlayStation 2 disc recognised", "PS2 recognised but not converted stays honest");
+        // A refused PS2 disc is an error line under the damaged-drop headline.
+        ImportReport refused;
+        refused.errors.push_back("TPRC.bin: PlayStation 2 disc refused: DATA/DATA.WAD is missing");
+        result = DescribeResult(refused, before);
+        Check(!result.good && result.headline == "A file could not be read" && !result.lines.empty() &&
+                  result.lines.front() == refused.errors.front(),
+              "a refused PS2 disc names the file and the reason");
+        // Merged rounds keep the PS2 lines (launcher_ui.cpp's merge).
+        ImportReport both;
+        both.playStation.push_back("PlayStation rides: 7 rides and the Tower converted.");
+        both.playStationConverted = true;
+        both.playStation2 = ps2.playStation2;
+        both.playStation2Converted = true;
+        result = DescribeResult(both, before);
+        Check(result.headline == "PlayStation rides ready" && result.lines.size() == 2 &&
+                  result.lines.back() == ps2.playStation2.front(),
+              "PS1 and PS2 discs: the PlayStation headline, then both converters' lines");
     }
     CheckEq(FileUrl("/Users/a b/Library/Application Support/STP-TPW Launcher/logs"),
             "file:///Users/a%20b/Library/Application%20Support/STP-TPW%20Launcher/logs", "FileUrl: spaces");

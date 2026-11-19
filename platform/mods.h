@@ -32,6 +32,7 @@ struct Hooks {
     bool tpiWorlds = false;           // tpi_worlds: the game's worlds are the original four and the three made from the player's Theme Park Inc copy (include/TpiWorlds.h)
     bool tpiIslands = false;          // tpi_islands: the island screen has a second group of islands for those worlds, and a switch between the groups (include/TpiWorlds.h)
     bool entertainerSecondActs = false;   // entertainer_second_acts: the eight costumes with an unused second act play it at random as well as their first (include/EntertainerSecondActs.h)
+    bool ps2Characters = false;       // ps2_characters: the children, staff and entertainers with a converted PS2 model are drawn as that 3D model instead of their sprite, draw only (include/Ps2Characters.h)
 };
 
 // A compiled-in mod, as its mod.json describes it.

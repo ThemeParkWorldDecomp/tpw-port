@@ -12,6 +12,7 @@ using assets::ImportReport;
 
 std::string ContentModLockedText(const std::string& content) {
     if (content == "tpi") return "Drop your SimCoaster AKA Theme Park Inc disc or its folder on the launcher to unlock.";
+    if (content == "ps2") return "Drop your own PlayStation 2 disc on the launcher to unlock.";
     return "Drop your own " + std::string(content == "ps1" ? "PlayStation disc" : "disc") +
            " on the launcher to unlock.";
 }
@@ -336,6 +337,9 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
     } else if (!report.themeParkInc.empty()) {
         r.headline = report.themeParkIncConverted ? "SimCoaster AKA Theme Park Inc worlds ready" : "SimCoaster AKA Theme Park Inc disc recognised";
         r.good = report.themeParkIncConverted;
+    } else if (!report.playStation2.empty()) {
+        r.headline = report.playStation2Converted ? "PS2 Guest Models ready" : "PlayStation 2 disc recognised";
+        r.good = report.playStation2Converted;
     } else if (report.written == 0 && !report.errors.empty()) {
         // A damaged or unreadable drop must not read as "nothing new": name the file and the reason first.
         r.headline = report.errors.size() == 1 ? "A file could not be read" : "Some files could not be read";
@@ -383,6 +387,7 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
     }
     for (const std::string& line : report.playStation) r.lines.push_back(line);
     for (const std::string& line : report.themeParkInc) r.lines.push_back(line);
+    for (const std::string& line : report.playStation2) r.lines.push_back(line);
     if (report.written) r.lines.push_back(Files(report.written) + " put in place");
     if (report.alreadyThere) r.lines.push_back(Files(report.alreadyThere) + " already in place");
     if (!report.differentVersions.empty() && !LooksLikeOlderPressing(report) && !LooksLikeFirstRelease(report))

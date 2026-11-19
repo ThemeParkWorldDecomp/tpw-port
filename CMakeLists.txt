@@ -137,6 +137,9 @@ endif()
 if(NOT TPW_INCLUDE_DIR)
   set(TPW_INCLUDE_DIR ${TPW_DECOMP_DIR}/include)
 endif()
+# The PS2 converter reads include/Ps2Pack.h through TPW_INCLUDE_DIR, so tpw-port builds it from the same overlay copy as
+# the game (include/Ps2Characters.h), never the submodule's raw one.
+target_include_directories(tpw_assets PUBLIC ${TPW_INCLUDE_DIR})
 # The sea test checks the sea against the second ring's places (include/tpi_island_ring.h, port fixes only). The test names
 # its own macro: only the translation's sources may name the fixes' one (devtools/split/export_split.py).
 if(TPW_BUILD_ASSETS_TESTS AND TPW_PORT_FIX)
@@ -607,6 +610,15 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     add_executable(tpw_host_ps1_pick_rotation ${TPW_DECOMP_DIR}/tests/host_ps1_pick_rotation.cpp)
     target_include_directories(tpw_host_ps1_pick_rotation PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME ps1_pick_rotation COMMAND tpw_host_ps1_pick_rotation)
+  endif()
+  # The PS2 Guest Models mod's pure helpers (TPW_MOD_HOOK ps2_characters, include/Ps2Characters.h): the sprite sets'
+  # models, the actions' clips, the render side's hash, a model's anchor and facing, the sprite's edges lifted onto the
+  # view's up axis and the TGA reader, on synthetic packs. The original has no such mod, so it is made only with the
+  # port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_ps2_characters ${TPW_DECOMP_DIR}/tests/host_ps2_characters.cpp)
+    target_include_directories(tpw_host_ps2_characters PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME ps2_characters COMMAND tpw_host_ps2_characters)
   endif()
   # The TPI Worlds and Rides mod's hook helpers (TPW_MOD_HOOK tpi_worlds, include/TpiWorlds.h): the world table and its
   # lookups, each title's gate words, the settings file's theme numbers, and the wide-text helpers the hooks answer with,

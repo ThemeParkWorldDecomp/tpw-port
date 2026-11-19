@@ -97,13 +97,14 @@ void LauncherBundle() {
 
 void Arguments() {
     const char* argv[] = {"/x/build/STP:TPW Launcher.app/Contents/MacOS/tpw_launcher", "--user", "B/user-a", "--mute",
-                          "--window-click", "205,373@60", "--display", "builtin"};
+                          "--window-click", "205,373@60", "--window-drop", "/discs/TPRC.cue@40", "--display", "builtin"};
     const int argc = static_cast<int>(sizeof argv / sizeof argv[0]);
     char** args = const_cast<char**>(argv);
     const std::vector<std::string> game = GameArguments(argc, args, "eur", "/x");
     const std::vector<std::string> want = {"--user", "B/user-a", "--mute", "--display", "builtin",
                                            "--play", "eur", "--from-launcher", "/x"};
-    Check(game == want, "the game's arguments: the launcher's without its scripted click, then --play eur --from-launcher DIR");
+    Check(game == want,
+          "the game's arguments: the launcher's without its scripted click and drop, then --play eur --from-launcher DIR");
     Check(GameArguments(argc, args, "us", "/y").back() == "/y" && GameArguments(argc, args, "us", "/y")[6] == "us",
           "the game's arguments: --play us, the folder given");
     // each edition the window's Play can choose goes to the game by its own name: a Windows disc's is not its game's Mac

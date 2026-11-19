@@ -73,6 +73,7 @@
 #include "ps1_convert.h"
 #include "ps1_disc.h"
 #include "ps1_refresh.h"
+#include "ps2_convert.h"
 #include "tpi_content.h"
 #include "tpi_convert.h"
 #include "tpi_refresh.h"
@@ -80,6 +81,7 @@
 #include "ride_badges.h"
 #include "Ps1PickRotation.h"
 #include "Ps1SaveRepair.h"
+#include "Ps2Characters.h"
 #include "RideBadges.h"
 #endif
 #ifdef _WIN32
@@ -424,6 +426,8 @@ void Usage(const char* program) {
                  "                 opens 925 x 685 points), pressed before its drawn frame F and released before F + 1\n"
                  "  --window-wheel X,Y,N@F  a scripted turn of the wheel by N notches (below 0: down) in the launcher's\n"
                  "                 window, the pointer at point (X, Y) of it, before its drawn frame F\n"
+                 "  --window-drop PATH@F  a scripted drop of the file or folder PATH on the launcher's window, as from\n"
+                 "                 the Finder or Explorer: dragged over it before its drawn frame F, let go before F + 15\n"
                  "  --window-size WxH  the launcher's window opens W x H points (at least 880 x 520) instead of\n"
                  "                 925 x 685, for a test run of a window of another size\n"
                  "  --data DIR     the folder launcher.ini is in (default: the per-user folder SDL names for the\n"
@@ -526,7 +530,7 @@ void Usage(const char* program) {
 
 // The options that take a value (main's loop), so the early look below skips their values.
 bool TakesValue(const std::string& arg) {
-    static const char* const kWithValue[] = {"--game",  "--data",        "--play",       "--import",     "--program",    "--window-click", "--window-wheel",
+    static const char* const kWithValue[] = {"--game",  "--data",        "--play",       "--import",     "--program",    "--window-click", "--window-wheel", "--window-drop",
                                              "--window-size", "--user",  "--edition",     "--resolution", "--aspect",     "--frames",
                                              "--click", "--drag",        "--wheel",      "--cam-drag",   "--pad",   "--type",       "--type-env",   "--dump-frames", "--dump-every",
                                              "--dump-limit", "--display", "--write-icon", "--language", "--language-root",
@@ -749,16 +753,20 @@ std::filesystem::path ModContentFolder(const tpw::ui::ImporterBackend& backend, 
 
 // Whether a mod can be on: one without content always, a content mod once its folder holds its content (the Mods box
 // shows it locked until then): a ride for the PlayStation rides (platform/content_overlay.h), the stamp and all three
-// worlds for the Theme Park Inc worlds (platform/tpi_content.h).
+// worlds for the Theme Park Inc worlds (platform/tpi_content.h), the converter's stamp for the PS2's models
+// (assets/ps2_convert.h).
 bool ModContentReady(const tpw::ui::ImporterBackend& backend, const tpw::mods::Mod& mod) {
     if (mod.content.empty()) return true;
     if (mod.content == "tpi") return tpw::TpiContentReady(ModContentFolder(backend, mod));
+    if (mod.content == "ps2")
+        return tpw::assets::ReadPs2ConverterStamp(backend.DataFolder()) == tpw::assets::kPs2ConverterVersion;
     return !tpw::FindContentRides(ModContentFolder(backend, mod)).empty();
 }
 
 // A content mod's content as the Game data box names it: the PlayStation rides' titles, or the Theme Park Inc worlds'.
 std::vector<std::string> ModContentNames(const tpw::ui::ImporterBackend& backend, const tpw::mods::Mod& mod) {
     if (mod.content == "tpi") return tpw::FindTpiWorlds(ModContentFolder(backend, mod));
+    if (mod.content == "ps2") return {};
     std::vector<std::string> names;
     for (const tpw::ContentRide& ride : tpw::FindContentRides(ModContentFolder(backend, mod)))
         names.push_back(!ride.title.empty() ? ride.title : ride.folder.substr(ride.folder.find_last_of('/') + 1));
@@ -1039,6 +1047,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
         placement.dumpLimit = config.dumpLimit;
         placement.clicks = tpw::launcher::gWindowClicks;   // --window-click
         placement.wheels = tpw::launcher::gWindowWheels;   // --window-wheel
+        placement.drops = tpw::launcher::gWindowDrops;     // --window-drop
         placement.width = tpw::launcher::gWindowWidth;     // --window-size
         placement.height = tpw::launcher::gWindowHeight;
         // The window's report lines and its screens go to the log file too; its About box shows the logs folder.
@@ -1419,11 +1428,12 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
         std::vector<std::filesystem::path> ps1Content;   // the content of the mod that switched ps1_badge on
         std::vector<std::filesystem::path> repairContent;   // the content of the mod that switched ps1_save_repair on
         std::vector<std::filesystem::path> pickContent;   // the content of the mod that switched ps1_pick_rotation on
+        std::filesystem::path ps2Content;   // the PS2's models, with their mod on
         std::string line;
         // Every content mod, on or off, for the message of a park that needs its rides (include/platform/missing_rides.h).
         std::vector<tpw::ContentMod> known;
         for (const tpw::mods::Mod& mod : tpw::mods::Catalog())
-            if (!mod.content.empty()) known.push_back({mod.name, ModContentFolder(backend, mod)});
+            if (!mod.content.empty() && mod.content != "ps2") known.push_back({mod.name, ModContentFolder(backend, mod)});
         tpw::KnowContentMods(known);
         for (const tpw::mods::Mod& mod : tpw::mods::Catalog()) {
             if (backend.Setting(tpw::mods::Key(mod)) != "1") continue;
@@ -1458,11 +1468,16 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
                 pickContent.push_back(ModContentFolder(backend, mod));
             on.push_back(&mod);
             if (mod.content == "tpi") tpiContent = ModContentFolder(backend, mod);
+            else if (mod.content == "ps2") ps2Content = ModContentFolder(backend, mod);
             else if (!mod.content.empty()) content.push_back(ModContentFolder(backend, mod));
             tpw::Log("mods: %s %s on", mod.id.c_str(), mod.version.c_str());
             line += (line.empty() ? "" : ", ") + mod.id + " " + mod.version;
         }
         tpw::mods::Apply(hooks);
+        // The PS2's models (include/Ps2Characters.h), read from the data folder with their mod on.
+        Ps2InstallRuntime();
+        gPs2CharactersRoot = gModPs2Characters ? ps2Content.u8string() : std::string();
+        if (gModPs2Characters) tpw::Log("mods: ps2_characters on, models in %s", gPs2CharactersRoot.c_str());
         // The content mods' rides, laid over the game folder (platform/content_overlay.h).
         if (!content.empty()) {
             std::vector<std::string> refused;
@@ -1594,6 +1609,7 @@ int ImportFromOptions(const std::string& dataDir, const std::vector<std::string>
     for (const std::string& error : report.errors) tpw::Log("import: error: %s", error.c_str());
     for (const std::string& line : report.playStation) tpw::Log("import: %s", line.c_str());
     for (const std::string& line : report.themeParkInc) tpw::Log("import: %s", line.c_str());
+    for (const std::string& line : report.playStation2) tpw::Log("import: %s", line.c_str());
     for (const std::string& dest : report.differentVersions) tpw::Log("import: a different version (not used): %s", dest.c_str());
     if (report.cancelled || report.aborted) tpw::Log("import: stopped before the end%s", report.aborted ? " by a write error" : "");
     tpw::launcher::RefreshInstalledIcon(backend.DataFolder());   // the import may have written the game's icon
@@ -1787,6 +1803,19 @@ int LauncherMain(int argc, char** argv) {
                 return 2;
             }
             tpw::launcher::gWindowWheels.push_back(wheel);
+        }
+        else if (arg == "--window-drop") {
+            const std::string spec = value();
+            const size_t at = spec.rfind('@');
+            tpw::ui::WindowPlacement::Drop drop;
+            drop.frame = at == std::string::npos ? 0 : std::atoi(spec.c_str() + at + 1);
+            if (at == std::string::npos || at == 0 || drop.frame < 1) {
+                tpw::LogRawF("launcher: --window-drop wants PATH@F (a file or folder and a drawn frame from 1): %s\n",
+                             spec.c_str());
+                return 2;
+            }
+            drop.path = spec.substr(0, at);
+            tpw::launcher::gWindowDrops.push_back(drop);
         }
         else if (arg == "--window-size") {
             const char* spec = value();

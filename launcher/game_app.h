@@ -85,9 +85,9 @@ std::string IconKey(const tpw::assets::IconImage& icon);
 // --from-launcher `workingFolder`.
 std::vector<std::string> GameArguments(int argc, char** argv, const std::string& edition, const std::string& workingFolder);
 // The launcher's arguments again from a game process's: the --play and --from-launcher pairs taken out, and the
-// --window-click ones (a scripted click in the launcher's window was for the run that pressed Play; the launcher opened
-// again after the game would press it again, and the game has no use for it), and --game-app-test's (the launcher opened
-// again after the test's game opens its window, and does not start the test over).
+// --window-click and --window-drop ones (a scripted click or drop in the launcher's window was for the run that pressed
+// Play; the launcher opened again after the game would press it again, and the game has no use for it), and
+// --game-app-test's (the launcher opened again after the test's game opens its window, and does not start the test over).
 std::vector<std::string> LauncherArguments(int argc, char** argv);
 // The --from-launcher value in these arguments, or empty when the run is not the launcher window's Play.
 std::string FromLauncherFolder(int argc, char** argv);

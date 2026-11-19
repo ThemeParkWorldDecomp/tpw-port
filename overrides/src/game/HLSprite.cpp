@@ -33,6 +33,7 @@
 #include "platform/arena.h"
 #include "platform/samsutils.h"
 #include "ppc_math.h"
+#include "Ps2Characters.h"
 #include "RideDB.h"
 #include "rsse.h"
 #include "sprite_engine.h"
@@ -1087,6 +1088,8 @@ void ESP_AddHLSpriteFromScript(tagSCRIPT* script) {
         listed->mFrameBase = static_cast<uint16_t>(first);
     }
     std::memcpy(listed->mLightFrames, b + 0x10c, 4);
+    // TPW_PORT_FIX mods ESP_AddHLSpriteFromScript | Mac: the listed sprite is all the frame keeps of the script's sprite | Port: TPW_MOD_HOOK ps2_characters (gModPs2Characters, include/Ps2Characters.h): the person's sprite set, script, action, frame and view are kept for its PS2 model, read only | Why: tpw-mods ps2-characters draws the people as the PS2's 3D models
+    if (gModPs2Characters) Ps2CaptureSprite(listed, script, sprite, actionNumber, frameBase, viewOffset);
     if ((flags & 0x40000) != 0) {
         gESPGlobalInstances[gESPGlobalCount] = listed;
         gESPGlobalCount = gESPGlobalCount + 1;

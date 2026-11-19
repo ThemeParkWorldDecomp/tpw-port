@@ -5,7 +5,7 @@
 # folder as mods_catalog.cpp. Without the folder the build has no mods, and the launcher's Mods box says so.
 set(TPW_MODS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../tpw-mods CACHE PATH "The tpw-mods folder whose mods the launcher is built with")
 # The hooks a mod.json may name (its "hooks"), each a TPW_MOD_HOOK comment in the game's code and a field of mods.h's Hooks.
-set(TPW_MOD_HOOKS strike_gate strike_messages staff_bridge_wander ps1_badge ps1_ground ps1_save_repair ps1_pick_rotation tpi_worlds tpi_islands entertainer_second_acts)
+set(TPW_MOD_HOOKS strike_gate strike_messages staff_bridge_wander ps1_badge ps1_ground ps1_save_repair ps1_pick_rotation tpi_worlds tpi_islands entertainer_second_acts ps2_characters)
 set_property(GLOBAL PROPERTY TPW_MOD_IDS)
 
 # A string of mod.json as a C++ string literal.
@@ -122,7 +122,8 @@ function(tpw_add_mod folder)
     if(content MATCHES "^(us|eur|gold|lang|us-pc|eur-pc|packs)$")
       message(FATAL_ERROR "${file}: \"content\" ${content} is a folder the launcher's importer keeps")
     endif()
-    if(NOT changes_saves)
+    # The PS2's models (ps2) are only drawn; any other content is rides, which a park keeps.
+    if(NOT changes_saves AND NOT content STREQUAL "ps2")
       message(FATAL_ERROR "${file}: a mod with \"content\" changes saved games (a park keeps the rides it uses)")
     endif()
   endif()

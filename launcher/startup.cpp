@@ -13,6 +13,7 @@ namespace tpw::launcher {
 bool gNoPreload = false;
 std::vector<ui::WindowPlacement::Click> gWindowClicks;
 std::vector<ui::WindowPlacement::Wheel> gWindowWheels;
+std::vector<ui::WindowPlacement::Drop> gWindowDrops;
 int gWindowWidth = 0, gWindowHeight = 0;
 
 namespace {
