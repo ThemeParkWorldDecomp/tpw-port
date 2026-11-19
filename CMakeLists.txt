@@ -735,7 +735,8 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_tpi_ride_camera PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_ride_camera COMMAND tpw_host_tpi_ride_camera)
     # Its Great Lake (include/TpiGreatLake.h): placed only with its back on the lake's water, its boats' circles over water
-    # and the plot, and a long run of boats never over land, off the circles or stuck, on a made-up lake.
+    # and the plot, a long run of boats never over land, off the circles or stuck, on a made-up lake, and a water track's
+    # crossroad centre still entered by its own bumps.
     add_executable(tpw_host_tpi_great_lake ${TPW_DECOMP_DIR}/tests/host_tpi_great_lake.cpp)
     target_include_directories(tpw_host_tpi_great_lake PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_great_lake COMMAND tpw_host_tpi_great_lake)

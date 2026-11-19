@@ -1480,9 +1480,9 @@ int32_t TpiLakeIndex(const tpw::TpiLakeRide& r, const tabCOLOBJECT* col) {
 
 // A collision object a bump of `ride` may be kept in: any but another ride's lake circle.
 bool TpiLakeColFor(const void* ride, const tabCOLOBJECT* col) {
-    if ((col->flags & tpw::kTpiLakeColFlag) == 0) return true;
+    if (!tpw::TpiLakeCol(col->flags)) return true;
     const tpw::TpiLakeRide* r = TpiLakeRideOf(ride);
-    return r != nullptr && TpiLakeIndex(*r, col) >= 0;
+    return tpw::TpiLakeColEnterable(col->flags, r != nullptr && TpiLakeIndex(*r, col) >= 0);
 }
 
 // The Great Lake just built (or rebuilt from a save): its plot's circle joined to the lake's circles, its ring's buoys
@@ -1515,7 +1515,7 @@ void TpiLakeJoin(uint32_t* ride) {
             At<uint32_t>(head, 0x14) = At<uint32_t>(last, 0x14);
             return;
         }
-        o->flags |= tpw::kTpiLakeColFlag;
+        o->flags |= tpw::kTpiLakeColFlags;
         At<uint32_t>(o, 0x14) = At<uint32_t>(last, 0x14);
         At<Ptr32<tabCOLOBJECT>>(last, 0x14) = o;
         last = o;
@@ -1579,7 +1579,7 @@ int32_t BMP_CreateRide(int32_t kind, int32_t x, int32_t y, int32_t rot, int32_t 
         ride[0x10 / 4] = static_cast<uint32_t>(f10);
         uint32_t idx = ride[0] + 14;
         if (idx <= 13) Dispatch(kTop[idx], ride, x, y);
-        // TPW_PORT_FIX mods BMP_CreateRide | Mac: a ride of kind -11 (boats) has one circle on its plot and a ring of 8 buoys in it | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGreatLake.h): in the mod's worlds the Great Lake's circle is joined by a chain of circles over the water to Theme Park Inc's circles on the lake (tpw::TpiLakeBuild, its objects marked 0x80 on the ride's list, so BMP_DestroyRide frees them), and its buoys move to Theme Park Inc's buoys; off, an original world, any other ride, or no water behind it, the Mac's | Why: tpw-mods tpi-worlds; the Great Lake's boats sail on the lake, as in Theme Park Inc
+        // TPW_PORT_FIX mods BMP_CreateRide | Mac: a ride of kind -11 (boats) has one circle on its plot and a ring of 8 buoys in it | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGreatLake.h): in the mod's worlds the Great Lake's circle is joined by a chain of circles over the water to Theme Park Inc's circles on the lake (tpw::TpiLakeBuild, its objects marked tpw::kTpiLakeColFlag and the Mac's 0x80 (no bump to bump collision) on the ride's list, so BMP_DestroyRide frees them), and its buoys move to Theme Park Inc's buoys; off, an original world, any other ride, or no water behind it, the Mac's | Why: tpw-mods tpi-worlds; the Great Lake's boats sail on the lake, as in Theme Park Inc
         if (tpw::TpiWorldInPlay()) TpiLakeJoin(ride);
     }
     return IdOf_2(ride);
@@ -2929,8 +2929,8 @@ void BMP_InsideArea(tagBUMP* b) {
             uint32_t f = p->flags;
             if ((f & 1) != 0) {
                 n--;
-                // TPW_PORT_FIX mods BMP_InsideArea | Mac: a bump out of its circle moves into any circle it is in | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGreatLake.h): in the mod's worlds not into a Great Lake circle (flag 0x80) of another ride's chain; off or an original world, the Mac's | Why: tpw-mods tpi-worlds; another ride's bumps stay on their own ride
-                if ((f & tpw::kTpiLakeColFlag) != 0 && tpw::TpiWorldInPlay() && !TpiLakeColFor(b->owner.get(), p)) {
+                // TPW_PORT_FIX mods BMP_InsideArea | Mac: a bump out of its circle moves into any circle it is in | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGreatLake.h): in the mod's worlds not into a Great Lake circle (flag tpw::kTpiLakeColFlag, not the Mac's 0x80, which a water track's crossroad centre has too) of another ride's chain; off or an original world, the Mac's | Why: tpw-mods tpi-worlds; another ride's bumps stay on their own ride, and a water track's bumps still go through its crossroads
+                if (tpw::TpiLakeCol(f) && tpw::TpiWorldInPlay() && !TpiLakeColFor(b->owner.get(), p)) {
                     p++;
                     continue;
                 }
