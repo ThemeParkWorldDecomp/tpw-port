@@ -7,7 +7,8 @@ usage: python -I tpi_world_check.py <data>/assets/tpi [--world NAME ...] [--quie
 The content folder is what the launcher's converter writes (platform/tpi_content.h): converter.txt (the stamp) and
 data/levels/<world>/ for arabian, water and science, each a level folder in Theme Park World's form. The game fills what
 a world lacks from its donor world, except the item folders (rides, shops, sideshow, features, upgrades, facilities,
-obstacles), which never fall back; so this checker reports what the engine cannot get from anywhere:
+obstacles) and the sound and music folders (Sound, Music), which never fall back; so this checker reports what the
+engine cannot get from anywhere:
 
   stamp       converter.txt missing, or its first line not a version number
   world       a world folder missing; a file that must be the world's own missing (global.sam, Standard.sam,
@@ -24,6 +25,9 @@ obstacles), which never fall back; so this checker reports what the engine canno
   folder      an item folder with items but without its defaults file (rides/Rides.sam, shops/Shops.sam,
               sideshow/SideShow.sam, features/Features.sam, upgrades/Upgrades.sam); a Theme Park Inc-only key in it
   limit       more than 330 items in a world
+  sound       a sound category's map (Sound/ or Music/ cat_<name>BANK.map) without its cat_<name>SFX.map, or naming a
+              bank (Sound\\X, Music\\X) whose XHD.sdt the world lacks: those sounds play nothing, never the donor's;
+              an XHD.sdt that is not a sample bank (a count and that many offsets)
   wad         a .wad (an item's, terrain.wad, sharetex.wad or another level wad) the game cannot read: a header
               version over 2, a version-2 name block outside the file, an entry's name outside the file or its name
               hash not the game's hash of the member's path (the game then finds none of the members, without a
@@ -31,7 +35,10 @@ obstacles), which never fall back; so this checker reports what the engine canno
 
 Warnings (reported, do not fail): no data/lobby/<world>.txt (the island screen's), an Easymode park in the world (the
 recipe says write none), a texture over 512 pixels on a side, no Info.Name, an empty item folder, a sky texture or
-other donor-fallback file left to the donor.
+other donor-fallback file left to the donor, a Sound or Music folder missing (that world then plays no park sounds or
+no music), a sample bank's offset that does not point at a sample (a 0x28-byte header whose data ends within the
+file: Theme Park Inc's own Arabian Nights and Polar Zone music banks have 40 and 15, the retail files end early; the mod
+plays another sample of the same event in their place).
 
 Exit code 0 when no error was found, 1 otherwise, 2 for a usage error. No game data is in this file: the names of the
 required files, the keys and the id range come from the recipe and
@@ -46,6 +53,7 @@ import tempfile
 
 WORLDS = ("arabian", "water", "science")
 ITEM_FOLDERS = ("rides", "shops", "sideshow", "features", "upgrades", "facilities", "obstacles")
+SOUND_FOLDERS = ("Sound", "Music")
 FOLDER_DEFAULTS = {"rides": "Rides.sam", "shops": "Shops.sam", "sideshow": "SideShow.sam",
                    "features": "Features.sam", "upgrades": "Upgrades.sam"}
 MAX_ITEMS = 330
@@ -388,6 +396,82 @@ def check_item(where, name, members, report, ids, world_ids):
     return item_id
 
 
+def bank_map_names(data):
+    """The bank names of a sound category's BANK map: a u32 count at 24, count 11-byte records, then count names, each a
+    u32 length (with the NUL) and the text ("Sound\\Ride"). None when the file is not that."""
+    if len(data) < 28:
+        return None
+    count = struct.unpack_from("<I", data, 24)[0]
+    p = 28 + 11 * count
+    names = []
+    for _ in range(count):
+        if p + 4 > len(data):
+            return None
+        size = struct.unpack_from("<I", data, p)[0]
+        p += 4
+        if size == 0 or p + size > len(data):
+            return None
+        names.append(data[p:p + size].split(b"\0")[0].decode("latin-1"))
+        p += size
+    return names
+
+
+def sdt_missing_samples(path):
+    """(count, the one-based numbers of the samples that are not in the file) of a .sdt sample bank: a u32 count, the
+    count u32 offsets, and at each a 0x28-byte header (its first word 0x28, its size at +4) and the data. A sample is
+    in the file when its header is one and its data ends within the file (the game's TbMMFileBank::RegisterBank test in
+    the mod's worlds, tpw::TpiSdtSampleIsSound). None when the file is not a bank. Reads only the headers."""
+    size = os.path.getsize(path)
+    with open(path, "rb") as fh:
+        head = fh.read(4)
+        if len(head) < 4:
+            return None
+        count = struct.unpack("<I", head)[0]
+        if 4 + 4 * count > size:
+            return None
+        offsets = struct.unpack("<%dI" % count, fh.read(4 * count))
+        missing = []
+        for number, offset in enumerate(offsets, 1):
+            fh.seek(offset)
+            raw = fh.read(8)
+            ok = len(raw) == 8
+            if ok:
+                word, length = struct.unpack("<II", raw)
+                ok = word == 0x28 and length != 0 and offset + 0x28 + length <= size
+            if not ok:
+                missing.append(number)
+    return count, missing
+
+
+def check_sound_folder(where, level, folder, report):
+    """Every category map in a world's Sound or Music folder: its SFX map there, and every bank it names in the world."""
+    for entry in sorted(os.listdir(folder), key=str.lower):
+        if not entry.lower().endswith("bank.map"):
+            continue
+        category = entry[:-len("BANK.map")]
+        if find_ci(folder, category + "SFX.map") is None:
+            report.error(where, "%s without %sSFX.map (the category plays nothing)" % (entry, category))
+        with open(os.path.join(folder, entry), "rb") as fh:
+            names = bank_map_names(fh.read())
+        if names is None:
+            report.error(where, "%s is not a bank map (count and names)" % entry)
+            continue
+        for name in names:
+            sdt = find_ci(level, name.replace("\\", "/") + "HD.sdt")
+            if sdt is None:
+                report.error(where, "%s names %s, whose %sHD.sdt the world lacks (those sounds play nothing, never the "
+                                    "donor's)" % (entry, name, name.rsplit("\\", 1)[-1]))
+                continue
+            found = sdt_missing_samples(sdt)
+            bank = name.rsplit("\\", 1)[-1] + "HD.sdt"
+            if found is None:
+                report.error(where, "%s is not a sample bank (a count and that many offsets)" % bank)
+            elif found[1]:
+                missing = found[1]
+                report.warn(where, "%s: %d of its %d samples are not in the file (%d to %d; the mod plays another sample "
+                                   "of the same event in their place)" % (bank, len(missing), found[0], missing[0], missing[-1]))
+
+
 def check_world(root, world, report, lobby_root):
     level = find_ci(root, "data/levels/" + world)
     if level is None:
@@ -401,9 +485,15 @@ def check_world(root, world, report, lobby_root):
         if find_ci(level, name) is None:
             report.warn(where, "%s missing (the donor's sky is used)" % name)
     for name in ("ssharete.wad", "scape.omp", "dynamic.wad", "queue.wad", "miscmesh.wad", "hoarding.wad",
-                 "Hoardings.sam", "EndHoardings.sam", "Music", "Sound"):
+                 "Hoardings.sam", "EndHoardings.sam"):
         if find_ci(level, name) is None:
             report.warn(where, "%s missing (the donor's is used)" % name)
+    for name in SOUND_FOLDERS:
+        folder = find_ci(level, name)
+        if folder is None or not os.path.isdir(folder):
+            report.warn(where, "%s missing (its sounds play nothing; the donor's are never used)" % name)
+        else:
+            check_sound_folder(where + "/" + name, level, folder, report)
     for entry in os.listdir(level):
         if entry.lower().startswith("easymode"):
             report.warn(where, "%s present: an easy-mode park must be a park of this world (the recipe says write none)" % entry)
@@ -556,6 +646,30 @@ def _item(name, item_id, extra=""):
     }
 
 
+def _bank_map(names):
+    """A synthetic BANK map in the game's layout (bank_map_names), its records zero."""
+    out = bytearray(24) + struct.pack("<I", len(names)) + bytes(11 * len(names))
+    for name in names:
+        text = name.encode("latin-1") + b"\0"
+        out += struct.pack("<I", len(text)) + text
+    return bytes(out)
+
+
+def _sdt(sizes, past=0):
+    """A synthetic .sdt sample bank in the game's layout (sdt_missing_samples): a sample of each size, zero data, then
+    `past` offsets more that point at the last sample's data (no header there)."""
+    count = len(sizes) + past
+    out = bytearray(struct.pack("<I", count) + bytes(4 * count))
+    offsets = []
+    for size in sizes:
+        offsets.append(len(out))
+        out += struct.pack("<II", 0x28, size) + bytes(0x20) + bytes(size)
+    for i in range(past):
+        offsets.append(len(out) - 1 - i)
+    struct.pack_into("<%dI" % count, out, 4, *offsets)
+    return bytes(out)
+
+
 def _write(path, data):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as fh:
@@ -581,6 +695,9 @@ def _world(root, world, gate_id, base):
     gate = _item("gate", gate_id)
     for path, data in gate.items():
         _write(os.path.join(level, "features", "gate", path), data)
+    _write(os.path.join(level, "Sound", "cat_ridesBANK.map"), _bank_map(["Sound\\Ride"]))
+    _write(os.path.join(level, "Sound", "cat_ridesSFX.map"), b"synthetic")
+    _write(os.path.join(level, "Sound", "RideHD.sdt"), _sdt([16, 32, 8]))
     _write(os.path.join(root, "data", "lobby", world + ".txt"), b"synthetic\n")
     return level
 
@@ -599,8 +716,20 @@ def self_test():
             _world(root, world, base + 500, base)
         clean = check_content(root)
         expect(not clean.errors, "a clean folder has errors: %r" % clean.errors)
-        expect(not clean.warnings or all("missing (the donor's is used)" in w[1] for w in clean.warnings),
+        expect(not clean.warnings or all("missing (the donor's is used)" in w[1] or
+                                         "Music missing (its sounds play nothing" in w[1] for w in clean.warnings),
                "unexpected warnings on a clean folder: %r" % clean.warnings)
+        expect(bank_map_names(_bank_map(["Sound\\Ambient", "Sound\\Ride"])) == ["Sound\\Ambient", "Sound\\Ride"],
+               "bank_map_names does not read its own layout back")
+        probe = os.path.join(tmp, "probe.sdt")
+        _write(probe, _sdt([16, 32, 8], past=2))
+        expect(sdt_missing_samples(probe) == (5, [4, 5]), "sdt_missing_samples on two offsets past the samples: %r"
+               % (sdt_missing_samples(probe),))
+        whole = _sdt([16, 32])
+        _write(probe, whole[:-1])
+        expect(sdt_missing_samples(probe) == (2, [2]), "sdt_missing_samples on a file one byte short")
+        _write(probe, struct.pack("<I", 99) + bytes(8))
+        expect(sdt_missing_samples(probe) is None, "sdt_missing_samples on a count past the file")
 
         # Break it in every way the checker names, one at a time, and look for each finding.
         level = os.path.join(root, "data", "levels", "arabian")
@@ -625,6 +754,12 @@ def self_test():
         _write(os.path.join(level, "Standard.sam"), b"Weather.YearsBeforeFirstFreakWeather 2\n")
         _write(os.path.join(level, "terrain.wad"), _wad({"Terrain/jungle.tct": b"y"}))
         os.remove(os.path.join(level, "2dmap.tga"))
+        _write(os.path.join(level, "Sound", "cat_locallobbysfxBANK.map"), _bank_map(["Sound\\LobbySfx"]))  # no SFX, no bank
+        _write(os.path.join(level, "Sound", "cat_ambientBANK.map"), b"short")                              # not a map
+        _write(os.path.join(level, "Sound", "cat_kidsBANK.map"), _bank_map(["Sound\\Kids", "Sound\\Staff"]))
+        _write(os.path.join(level, "Sound", "cat_kidsSFX.map"), b"synthetic")
+        _write(os.path.join(level, "Sound", "KidsHD.sdt"), _sdt([16, 16, 16], past=3))                  # 4 to 6 not there
+        _write(os.path.join(level, "Sound", "StaffHD.sdt"), b"\xff\xff")                                # not a bank
         os.remove(os.path.join(root, "data", "lobby", "arabian.txt"))
         _write(os.path.join(root, "converter.txt"), b"draft\n")
         import shutil
@@ -663,6 +798,12 @@ def self_test():
         has("terrain.wad holds no arabian.tct")
         has("2dmap.tga missing")
         has("no data/lobby/arabian.txt", warns)
+        has("cat_locallobbysfxBANK.map without cat_locallobbysfxSFX.map")
+        has("names Sound\\LobbySfx, whose LobbySfxHD.sdt the world lacks")
+        has("cat_ambientBANK.map is not a bank map")
+        has("KidsHD.sdt: 3 of its 6 samples are not in the file (4 to 6", warns)
+        has("StaffHD.sdt is not a sample bank")
+        has("arabian: Music missing (its sounds play nothing", warns)
         expect(not any("science" in t for t in texts), "science (untouched) has errors: %r" % [t for t in texts if "science" in t])
 
         # Over the limit.

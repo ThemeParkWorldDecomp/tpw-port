@@ -250,8 +250,9 @@ static fs::path FindHostPathOf(const std::vector<std::string>& parts) {
     }
     found = FindUnder(config().gameDir, parts);
     if (!found.empty()) return found;
-    // The TPI Worlds mod's content (tpi_content.h): a file the game folder does not have, and for a file of one of its
-    // worlds that nothing holds, the donor world's.
+    // The TPI Worlds mod's content (tpi_content.h; laid over only with the mod on, TPW_MOD_HOOK tpi_worlds): a file the
+    // game folder does not have, and for a file of one of its worlds that nothing holds, the donor world's, except in the
+    // folders that never fall back (the build lists' and the sound and music banks', kTpiOwnFolders).
     const fs::path& tpi = TpiContentRoot();
     if (tpi.empty()) return found;
     found = FindUnder(tpi, parts);

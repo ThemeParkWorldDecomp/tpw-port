@@ -613,6 +613,15 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_tpi_worlds PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_worlds COMMAND tpw_host_tpi_worlds)
   endif()
+  # The TPI Worlds and Rides mod's broken music samples (TPW_MOD_HOOK tpi_worlds, include/TpiSoundStandIns.h): which
+  # .sdt headers are a sample's, and the samples of an event that stand in for the ones a bank does not have (laid out as
+  # Arabian Nights' and Polar Zone's park music), without game data. The original has no such mod, so it is made only
+  # with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_tpi_sound_stand_ins ${TPW_DECOMP_DIR}/tests/host_tpi_sound_stand_ins.cpp)
+    target_include_directories(tpw_host_tpi_sound_stand_ins PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_sound_stand_ins COMMAND tpw_host_tpi_sound_stand_ins)
+  endif()
   # The TPI Worlds and Rides mod's advisor rule (include/TpiAdvisor.h, TPW_MOD_HOOK tpi_worlds in ADV_Call): in the mod's
   # worlds a line of the world's own speech is said as the game's welcome that names no world, on made-up rows, without game
   # data. The original has no such mod, so it is made only with the port's fixes.

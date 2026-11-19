@@ -578,6 +578,9 @@ static void TestTpiContent(const fs::path& scratch) {
     Touch(jungle / "Easy_Standard.sam", "jungle easy");
     Touch(jungle / "Easymode.TPWI", "jungle easy park");
     Touch(jungle / "Sound" / "AmbientHD.sdt", "jungle ambient");
+    Touch(jungle / "Sound" / "LobbySfxHD.sdt", "jungle island sounds");
+    Touch(jungle / "Sound" / "cat_locallobbysfxBANK.map", "jungle island sounds' banks");
+    Touch(jungle / "Music" / "MusicHD.sdt", "jungle music");
     Touch(jungle / "Speech" / "speechHD.SDT", "jungle speech");
     Touch(jungle / "Advisor" / "Advisor_jun.md2", "jungle advisor");
     Touch(jungle / "Advisor" / "textures" / "adv_JUN01.tga", "jungle advisor texture");
@@ -642,6 +645,13 @@ static void TestTpiContent(const fs::path& scratch) {
     CHECK(!tpw::TpiDonorParts({"data", "levels", "arabian", "sideshow", "x.wad"}, donor));
     CHECK(!tpw::TpiDonorParts({"data", "levels", "arabian", "features"}, donor));
     CHECK(!tpw::TpiDonorParts({"data", "levels", "arabian", "upgrades", "u.wad"}, donor));
+    // The sound and music banks are the world's own or none: never the donor's (the island screen's sounds).
+    CHECK(!tpw::TpiDonorParts({"data", "levels", "arabian", "Sound", "LobbySfxHD.sdt"}, donor));
+    CHECK(!tpw::TpiDonorParts({"data", "levels", "arabian", "sound", "cat_locallobbysfxSFX.map"}, donor));
+    CHECK(!tpw::TpiDonorParts({"data", "levels", "science", "SOUND"}, donor));
+    CHECK(!tpw::TpiDonorParts({"data", "levels", "water", "Music", "MusicHD.sdt"}, donor));
+    CHECK((tpw::TpiDonorParts({"data", "levels", "arabian", "Speech", "speechHD.SDT"}, donor) &&
+           donor == std::vector<std::string>{"data", "levels", "jungle", "Speech", "speechHD.SDT"}));
     CHECK(!tpw::TpiDonorParts({"data", "levels", "arabian", "EASYMODE.TPWI"}, donor));
     CHECK(!tpw::TpiDonorParts({"data", "levels", "arabian", "easymode"}, donor));
     CHECK(tpw::TpiDonorParts({"data", "levels", "arabian", "Easy_Standard.sam"}, donor));
@@ -678,11 +688,15 @@ static void TestTpiContent(const fs::path& scratch) {
     CHECK(Same(tpw::FindHostPath("data:lobby:arabian.txt"), tpi / "Data" / "lobby" / "arabian.txt"));
     CHECK(Same(tpw::FindHostPath("data:levels:jungle:global.sam"), jungle / "global.sam"));   // the game folder's
     CHECK(Same(tpw::FindHostPath("data:levels:arabian"), arabian));
-    // The donor: a file the world lacks, in any case, with the world's letters mapped; not in the ride folders, not
-    // the easy mode's park, not outside the mod's worlds.
+    // The donor: a file the world lacks, in any case, with the world's letters mapped; not in the ride folders nor the
+    // sound and music banks' (a sound the world lacks is none, never the donor's), not the easy mode's park, not outside
+    // the mod's worlds.
     CHECK(Same(tpw::FindHostPath("data:levels:arabian:Standard.sam"), jungle / "Standard.sam"));
     CHECK(Same(tpw::FindHostPath("DATA:LEVELS:ARABIAN:EASY_STANDARD.SAM"), jungle / "Easy_Standard.sam"));
-    CHECK(Same(tpw::FindHostPath("data:levels:arabian:Sound:AmbientHD.sdt"), jungle / "Sound" / "AmbientHD.sdt"));
+    CHECK(tpw::FindHostPath("data:levels:arabian:Sound:AmbientHD.sdt").empty());
+    CHECK(tpw::FindHostPath("data:levels:arabian:Sound:LobbySfxHD.sdt").empty());
+    CHECK(tpw::FindHostPath("data:levels:arabian:Sound:cat_locallobbysfxBANK.map").empty());
+    CHECK(tpw::FindHostPath("data:levels:arabian:Music:MusicHD.sdt").empty());
     CHECK(Same(tpw::FindHostPath("data:levels:arabian:Sound:RideHD.sdt"), arabian / "Sound" / "RideHD.sdt"));
     CHECK(Same(tpw::FindHostPath("data:levels:arabian:Speech:speechHD.SDT"), jungle / "Speech" / "speechHD.SDT"));
     CHECK(Same(tpw::FindHostPath("data:levels:arabian:Speech"), jungle / "Speech"));
@@ -690,7 +704,8 @@ static void TestTpiContent(const fs::path& scratch) {
     CHECK(Same(tpw::FindHostPath("data:levels:arabian:Advisor:textures:adv_ARA01.tga"),
                jungle / "Advisor" / "textures" / "adv_JUN01.tga"));
     CHECK(Same(tpw::FindHostPath("data:levels:water:Standard.sam"), config.gameDir / levels / "hallow" / "Standard.sam"));
-    CHECK(Same(tpw::FindHostPath("data:levels:science:Music:MusicHD.sdt"), config.gameDir / levels / "space" / "Music" / "MusicHD.sdt"));
+    CHECK(tpw::FindHostPath("data:levels:science:Music:MusicHD.sdt").empty());
+    CHECK(tpw::FindHostPath("data:levels:science:Music").empty());
     CHECK(Same(tpw::FindHostPath("data:levels:science:global.sam"), tpiLevels / "science" / "global.sam"));
     CHECK(tpw::FindHostPath("data:levels:arabian:rides:_snake_1.wad").empty());
     CHECK(tpw::FindHostPath("data:levels:arabian:shops:_cola_7.wad").empty());
@@ -700,21 +715,23 @@ static void TestTpiContent(const fs::path& scratch) {
     CHECK(tpw::FindHostPath("data:levels:arabian:nothing.sam").empty());
     CHECK(tpw::FindHostPath("data:levels:jungle:Advisor:Advisor_ara.md2").empty());
     CHECK(tpw::FindHostPath("data:levels:fantasy:Standard.sam").empty());
-    // Listings: the world's own entries first, then the donor's it lacks (never the ride folders' contents nor the
-    // easy mode's park), the donor's names under the world's letters, a bare world as the donor's.
+    // Listings: the world's own entries first, then the donor's it lacks (never the ride, sound and music folders' contents
+    // nor the easy mode's park), the donor's names under the world's letters, a bare world as the donor's.
     CHECK(names(tpw::ListGameFolder("data:levels:arabian")) ==
           "global.sam rides/ sky/ Sound/ Advisor/ Easy_Standard.sam Speech/ Standard.sam ");
     CHECK(names(tpw::ListGameFolder("data:levels:arabian:rides")) == "magic.wad Rides.sam ");
     CHECK(tpw::ListGameFolder("data:levels:arabian:shops").empty());
     CHECK(tpw::ListGameFolder("data:levels:water:rides").empty());
     CHECK(names(tpw::ListGameFolder("data:levels:science:features")) == "tesla.wad ");
-    CHECK(names(tpw::ListGameFolder("data:levels:arabian:Sound")) == "RideHD.sdt AmbientHD.sdt ");
+    CHECK(names(tpw::ListGameFolder("data:levels:arabian:Sound")) == "RideHD.sdt ");
+    CHECK(tpw::ListGameFolder("data:levels:science:Sound").empty() && tpw::ListGameFolder("data:levels:arabian:Music").empty());
     CHECK(names(tpw::ListGameFolder("data:levels:arabian:Advisor")) == "Advisor_ara.md2 textures/ ");
     CHECK(names(tpw::ListGameFolder("data:levels:arabian:Advisor:textures")) == "adv_ARA01.tga ");
     CHECK(names(tpw::ListGameFolder("data:levels:water")) == "global.sam Standard.sam ");
-    CHECK(names(tpw::ListGameFolder("data:levels:science")) == "features/ global.sam Music/ Standard.sam ");
+    CHECK(names(tpw::ListGameFolder("data:levels:science")) == "features/ global.sam Standard.sam ");
     CHECK(names(tpw::ListGameFolder("data:levels:jungle")) ==
-          "Advisor/ Easy_Standard.sam Easymode.TPWI global.sam rides/ shops/ Sound/ Speech/ Standard.sam ");
+          "Advisor/ Easy_Standard.sam Easymode.TPWI global.sam Music/ rides/ shops/ Sound/ Speech/ Standard.sam ");
+    CHECK(names(tpw::ListGameFolder("data:levels:jungle:Sound")) == "AmbientHD.sdt cat_locallobbysfxBANK.map LobbySfxHD.sdt ");
     CHECK(names(tpw::ListGameFolder("data:lobby")) == "arabian.txt ");
     // The user folder still comes first, for a file of a mod world too.
     Touch(config.userDir / levels / "arabian" / "global.sam", "the player's");
