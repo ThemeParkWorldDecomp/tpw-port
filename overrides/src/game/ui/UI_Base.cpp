@@ -412,7 +412,11 @@ void UI_InterfaceUnits(bool on, int16_t& realWidth, int16_t& realHeight, int16_t
 bool UI_UseInterfaceSize(bool on) {
     if ((gUIInterfaceSizeOn != 0) == on) return false;
     gUIInterfaceSizeOn = on ? 1 : 0;
+#ifdef __ANDROID__
     if (gUIScreenWidth == 0 || gUIScale == 1.0f) return false;
+#else
+    if (gUIScreenWidth == 0 || !(gUIScale < 1.0f)) return false;
+#endif
     const int16_t wide = gUIUnitWidth;
     const int16_t high = gUIUnitHeight;
     UI_SetRealScreenRez(gUIScreenWidth, gUIScreenHeight);

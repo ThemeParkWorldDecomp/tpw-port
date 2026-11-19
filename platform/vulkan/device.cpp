@@ -431,6 +431,7 @@ void DestroySwapchain() {
     r.swapExtent = {0, 0};
 }
 
+#ifdef __ANDROID__
 void DestroySurface() {
     Renderer& r = R();
     if (r.surface == VK_NULL_HANDLE) return;
@@ -438,7 +439,6 @@ void DestroySurface() {
     r.surface = VK_NULL_HANDLE;
 }
 
-#ifdef __ANDROID__
 bool RetryAndroidSwapchain(VkResult result) {
     if (result == VK_ERROR_OUT_OF_DATE_KHR) return true;
     if (result != VK_ERROR_SURFACE_LOST_KHR) return false;
@@ -473,7 +473,8 @@ bool CreateSwapchain(int wide, int high) {
 #else
     if (result == VK_ERROR_SURFACE_LOST_KHR) {
         // The surface is gone (the window system took it back): a new one on the same window, asked once more.
-        DestroySurface();
+        if (r.surface != VK_NULL_HANDLE) SDL_Vulkan_DestroySurface(r.instance, r.surface, nullptr);
+        r.surface = VK_NULL_HANDLE;
         if (!SDL_Vulkan_CreateSurface(r.window, r.instance, nullptr, &r.surface)) {
             tpw::Log("vulkan: the surface could not be made again: %s", SDL_GetError());
             r.lost = true;

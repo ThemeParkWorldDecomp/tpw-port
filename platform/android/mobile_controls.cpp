@@ -9,10 +9,11 @@
 #include "Game.h"
 #include "InterfaceScrollBar.h"
 #include "InterfaceWindow.h"
+#include "TPCamera.h"
 #include "UI_Base.h"
 #include "interface_scale.h"
+#include "keyboard.h"
 #include "keytable_actions.h"
-#include "port_wasd.h"
 #include "ui_controls.h"
 #include "ui_main.h"
 
@@ -176,9 +177,10 @@ void UpdateControls() {
     gCameraX = walking ? 0 : x;
     gCameraY = walking ? 0 : y;
     const bool directions[] = {walking && y < -0.18f, walking && x < -0.18f, walking && y > 0.18f, walking && x > 0.18f};
+    constexpr int16_t walkKeys[] = {0x2600, 0x2500, 0x2800, 0x2700};   // up, left, down, right in the game's camera table
     static int16_t held[4] = {};
     for (unsigned i = 0; i < 4; ++i) {
-        const int16_t key = directions[i] ? PortMovementCameraKey(i) : 0;
+        const int16_t key = directions[i] ? walkKeys[i] : 0;
         if (key == held[i]) continue;
         if (held[i] != 0) gKeyTableCamera->KeyUp(held[i], 0);
         if (key != 0) gKeyTableCamera->KeyDown(key, 0);

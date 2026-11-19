@@ -99,9 +99,17 @@ bool UsesPanelAnchors() {
     return gUIUnitWidth > 0x800;
 }
 
+bool UsesTallPanelAnchors() {
+#ifdef __ANDROID__
+    return gUIUnitHeight != 0x600;
+#else
+    return gUIUnitHeight > 0x600;
+#endif
+}
+
+#ifdef __ANDROID__
 AnchorShift FitPanelAnchor(AnchorShift shift, const InterfaceWindow* parent, int32_t left, int32_t top,
                            int32_t right, int32_t bottom) {
-#ifdef __ANDROID__
     // TPW_PORT_FIX androiduiscale: anchor enlarged panels to the edges of the smaller unit space.
     if (gUIUnitHeight < 0x600) {
         if (right - left < gUIUnitWidth)
@@ -126,26 +134,19 @@ AnchorShift FitPanelAnchor(AnchorShift shift, const InterfaceWindow* parent, int
                 shift.down = static_cast<int16_t>(std::min<int32_t>(shift.down, above));
         }
     }
-#else
-    (void)parent;
-    (void)left;
-    (void)top;
-    (void)right;
-    (void)bottom;
-#endif
     return shift;
 }
+#endif
 }  // namespace
 
 // (widepanel, tpw-port PRs #12 and #35 by samueleagle91: while gPortWidePanel is set, UI_Base.h, a window exactly 0x800
 // units across, the Options root's 0..2048, is not wide; the login panel's root is)
 bool UI_IsWideWindow(const InterfaceWindow* window) {
-    if (window == nullptr || !UsesPanelAnchors()) return false;
 #ifdef __ANDROID__
-    if (gUIUnitHeight < 0x600 &&
+    if (window != nullptr && gUIUnitHeight < 0x600 &&
         (window == gUIRootWindow || (gUIFullWindows != nullptr && gUIFullWindows->count(window) != 0))) return true;
 #endif
-    if (gUIUnitWidth <= 0x800) return false;
+    if (window == nullptr || gUIUnitWidth <= 0x800) return false;
     const int32_t across = window->mRect.mRight - window->mRect.mLeft;
     return across >= 0x800 && !FourThreePanel(window->mId, across);
 }
@@ -166,7 +167,7 @@ void UI_CentreDown(const InterfaceWindow* window) {
 }
 
 int16_t UI_TallShift(const InterfaceWindow* window) {
-    if (gUIUnitHeight == 0x600) return 0;
+    if (!UsesTallPanelAnchors()) return 0;
     for (const InterfaceWindow* w = window; w != nullptr && w->mParent != nullptr; w = w->mParent) {
         if (UI_IsWideWindow(w->mParent)) {
             const auto found = gWideShifts.find(w);
@@ -234,7 +235,9 @@ void FollowChildren(InterfaceWindow* window, int32_t oldWide, int32_t oldHigh) {
                 if (bottom - top < gUIUnitHeight - 1)
                     now.down = gCentredDown.count(window) != 0 ? static_cast<int16_t>((gUIUnitHeight - 0x600) / 2)
                                                                : UI_TallAnchor(top, bottom, gUIUnitHeight);
+#ifdef __ANDROID__
                 now = FitPanelAnchor(now, window, left, top, right, bottom);
+#endif
             }
             const int16_t dx = static_cast<int16_t>(now.across - old.across);
             const int16_t dy = static_cast<int16_t>(now.down - old.down);
@@ -306,10 +309,12 @@ InterfaceWindow::InterfaceWindow(InterfaceWindow* parent, int32_t attributes, in
             if (bottom - top < gUIUnitHeight - 1)
                 drop = gCentredDown.count(parent) != 0 ? static_cast<int16_t>((gUIUnitHeight - 0x600) / 2)
                                                        : UI_TallAnchor(top, bottom, gUIUnitHeight);
+#ifdef __ANDROID__
             const AnchorShift anchor = FitPanelAnchor({shift, drop}, parent, left, top, right, bottom);
             shift = anchor.across;
             drop = anchor.down;
-            gWideShifts[this] = anchor;
+#endif
+            gWideShifts[this] = AnchorShift{shift, drop};
         } else {
             shift = UI_WideShiftFor(this, (attributes & 0x400) == 0x400);
             drop = UI_TallShiftFor(this, (attributes & 0x400) == 0x400);
@@ -990,12 +995,12 @@ InterfaceWindow* ProcessLevel(InterfaceWindow* window, int16_t* script) {
                 ScriptRect rect = NextRect(script);
                 if (UsesPanelAnchors()) ShiftAcross(rect, UI_WideShift(window));
                 // TPW_PORT_FIX uiscale ProcessLevel | Mac: (none) | Port: a list's rectangle moves down with its tall anchor too | Why: a smaller interface shows more of the park on a large screen, with the panels still at its edges; contributed by samueleagle91 (tpw-port PR #24)
-                if (gUIUnitHeight != 0x600) ShiftDown(rect, UI_TallShift(window));
+                if (UsesTallPanelAnchors()) ShiftDown(rect, UI_TallShift(window));
                 static_cast<InterfaceListBox*>(window)->SetListRect(rect.left, rect.top, rect.right, rect.bottom);
             } else if (window->WhatAmI() == kListControl) {
                 ScriptRect rect = NextRect(script);
                 if (UsesPanelAnchors()) ShiftAcross(rect, UI_WideShift(window));
-                if (gUIUnitHeight != 0x600) ShiftDown(rect, UI_TallShift(window));
+                if (UsesTallPanelAnchors()) ShiftDown(rect, UI_TallShift(window));
                 static_cast<InterfaceListControl2*>(window)->SetListRect(rect.left, rect.top, rect.right, rect.bottom);
             }
             break;
@@ -1007,7 +1012,7 @@ InterfaceWindow* ProcessLevel(InterfaceWindow* window, int16_t* script) {
             list->SetColumns(count);
             for (int32_t column = 0; static_cast<int16_t>(column) < count; ++column) {
                 // TPW_PORT_FIX v5L26 ProcessLevel | Mac: a list's columns are where the 2048-unit layout puts them | Port: on a wide screen they move with the list's anchor, as the list did | Why: a widescreen port; the rows of a list sat where a 4:3 screen has the list, not where its panel went
-                const int16_t shift = UI_WideShift(window);
+                const int16_t shift = UsesPanelAnchors() ? UI_WideShift(window) : static_cast<int16_t>(0);
                 const int16_t left = static_cast<int16_t>(NextWord(script) + shift);
                 const int16_t right = static_cast<int16_t>(NextWord(script) + shift);
                 list->SetColumnPos(static_cast<int16_t>(column), left, right);
