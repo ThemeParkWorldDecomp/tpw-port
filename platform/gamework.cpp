@@ -13,6 +13,9 @@
 #include "fit.h"
 #include "platform.h"
 #include "platform/online_boss.h"
+#ifdef __ANDROID__
+#include "android/mobile_controls.h"
+#endif
 
 namespace SamsUtilities {
 
@@ -362,6 +365,9 @@ void UGamework::HandleCommand(int32_t command, uint32_t) {
 
 void UGamework::Run() {
     if (!Initialise()) return;
+#ifdef __ANDROID__
+    tpw::mobile::InstallControlEvents();
+#endif
     // 0x100056a0, and the start of 0x100054c4: the remembered key comes up with the modifiers it went down with.
     auto releaseKey = [this]() {
         HandleTyping(gKey.character, gKey.keyCode, gKey.modifiers, false);
@@ -424,6 +430,9 @@ void UGamework::Run() {
 #endif
         SDL_Event sdl;
         while (mRunning && SDL_PollEvent(&sdl)) {
+#ifdef __ANDROID__
+            if (tpw::mobile::HandleSliderDrag(sdl)) continue;
+#endif
             switch (sdl.type) {
             case SDL_EVENT_QUIT:
             case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
@@ -453,6 +462,9 @@ void UGamework::Run() {
             case SDL_EVENT_MOUSE_BUTTON_UP: {
                 MouseButton button;
                 if (!MouseButtonFromSDL(sdl.button.button, button)) break;
+#ifdef __ANDROID__
+                if (button == kMouseButton0 && tpw::mobile::ShareSliderButton(sdl.button.down)) break;
+#endif
                 const tpw::Event event = MakeEvent(sdl.button.x, sdl.button.y);
 #ifdef TPW_PORT_FIX
                 // freecam: a button the camera takes, and its key-up
@@ -532,6 +544,9 @@ void UGamework::Run() {
                 break;
 #endif
             case SDL_EVENT_KEY_DOWN: {
+#ifdef __ANDROID__
+                if (tpw::mobile::GeneratedTextKey(sdl.key)) break;
+#endif
                 // Alt+Enter on Windows and Linux toggles full screen (fit::FullScreenToggleKey; never on a Mac). It is
                 // the host's key: the game is not told of the press, no key is remembered for it, and its release is
                 // the ordinary one (whichever key came up releases the remembered key, below).
@@ -571,6 +586,9 @@ void UGamework::Run() {
                 break;
             }
             case SDL_EVENT_KEY_UP:
+#ifdef __ANDROID__
+                if (tpw::mobile::GeneratedTextKey(sdl.key)) break;
+#endif
                 // 0x100056a0: releases the remembered key, whichever key came up. The Event Manager repeated the key
                 // that went down last until that key came up.
                 if (IsModifierKey(sdl.key.scancode)) break;
@@ -586,6 +604,14 @@ void UGamework::Run() {
 #endif
                 if (gKey.character != 0 || gKey.keyCode != 0) releaseKey();
                 break;
+#ifdef __ANDROID__
+            case SDL_EVENT_TEXT_INPUT:
+                tpw::mobile::CommitText(sdl.text.text);
+                break;
+            case SDL_EVENT_SCREEN_KEYBOARD_HIDDEN:
+                tpw::mobile::KeyboardHidden();
+                break;
+#endif
             case SDL_EVENT_WINDOW_FOCUS_GAINED:
                 HandleActivateWindow(tpw::MainWindow(), true);
 #ifdef TPW_PORT_FIX
@@ -594,6 +620,9 @@ void UGamework::Run() {
 #endif
                 break;
             case SDL_EVENT_WINDOW_FOCUS_LOST:
+#ifdef __ANDROID__
+                tpw::mobile::ParkFocusWillBeLost();
+#endif
 #ifdef TPW_PORT_FIX
                 EndFreeDrag();   // freecam
                 if (tpw::gPortPadGone != nullptr) tpw::gPortPadGone();   // gamepad
@@ -854,6 +883,9 @@ void UGamework::Run() {
 #ifdef TPW_PORT_FIX
         // TPW_PORT_FIX online-server UGamework::Run | Mac: the online library's comms thread called the game's online callbacks itself, at any moment | Port: the online server client's answers are given here, on the game's thread, once a pass before Process (none unless the launcher names a server) | Why: a callback that ran on another thread raced the game's online objects, which the callbacks change and may delete
         tpw::online::boss::Pump();
+#endif
+#ifdef __ANDROID__
+        tpw::mobile::UpdateControls();
 #endif
         if (!Process()) mRunning = false;
         if (tpw::config().probe) {

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.tpwport.android"
+    android:versionCode="19"
+    android:versionName="0.5.6-prototype.19">
+    <uses-sdk android:minSdkVersion="33" android:targetSdkVersion="34" />
+    <uses-feature android:name="android.hardware.vulkan.version" android:version="0x00400000" android:required="true" />
+    <application android:label="@string/launcher_name" android:icon="@mipmap/tpw_icon"
+        android:roundIcon="@mipmap/tpw_icon" android:localeConfig="@xml/locales"
+        android:extractNativeLibs="false"
+        android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen">
+        <activity android:name="org.tpwport.android.ThemeParkActivity" android:exported="false" android:process=":game"
+            android:label="@string/game_name_europe" android:icon="@mipmap/tpw_game_icon"
+            android:taskAffinity=":game" android:launchMode="singleTask" android:autoRemoveFromRecents="true"
+            android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="adjustNothing"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode|locale|layoutDirection|navigation|density|fontScale|colorMode|touchscreen" />
+        <activity-alias android:name="org.tpwport.android.SimThemePark" android:targetActivity="org.tpwport.android.ThemeParkActivity"
+            android:exported="false" android:label="@string/game_name_us" android:icon="@mipmap/tpw_game_icon" />
+        <activity android:name="org.tpwport.android.SetupActivity" android:exported="true" android:configChanges="orientation|screenSize|keyboardHidden"
+            android:theme="@style/TpwLauncherTheme">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

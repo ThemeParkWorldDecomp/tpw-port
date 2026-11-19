@@ -1,0 +1,25 @@
+<resources>
+    <color name="tpw_icon_background">#26243E</color>
+    <color name="tpw_game_icon_background">#345943</color>
+    <color name="launcher_navy">#0C2032</color>
+    <color name="launcher_paper">#F3F9E9</color>
+    <color name="launcher_muted">#B7D4CD</color>
+    <color name="launcher_gold">#FFD570</color>
+    <style name="TpwLauncherTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:alertDialogTheme">@style/TpwLauncherDialog</item>
+        <item name="android:colorAccent">@color/launcher_gold</item>
+        <item name="android:textColorPrimary">@color/launcher_paper</item>
+        <item name="android:textColorSecondary">@color/launcher_muted</item>
+        <item name="android:windowBackground">@color/launcher_navy</item>
+        <item name="android:statusBarColor">@color/launcher_navy</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:navigationBarColor">@color/launcher_navy</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+    <style name="TpwLauncherDialog" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:colorAccent">@color/launcher_gold</item>
+        <item name="android:textColorPrimary">@color/launcher_paper</item>
+        <item name="android:textColorSecondary">@color/launcher_muted</item>
+        <item name="android:windowBackground">@drawable/launcher_dialog</item>
+    </style>
+</resources>

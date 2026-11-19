@@ -11,6 +11,9 @@
 #include "Game.h"
 #include "GameSys.h"
 #include "InterfaceWindow.h"
+#ifdef __ANDROID__
+#include "interface_scale.h"
+#endif
 #include "keyboard.h"
 #include "LbDrawPrimitives.h"
 #include "LbSCBack.h"
@@ -466,6 +469,9 @@ void CreateMainMenu(int32_t a) {
         InitialiseLobbyMenu();
         gMainMenuPauseFlag = 1;
     } else {
+#ifdef __ANDROID__
+        tpw::mobile::FitInterfaceForMenu();
+#endif
         InitialiseMainMenu();
         RemoveSlideoutPanel(1);
         if (gGame.mF3C == 1) {

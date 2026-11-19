@@ -21,6 +21,9 @@
 #include "InterfaceFont.h"
 #include "InterfaceFontWrapper.h"
 #include "InterfaceWindow.h"
+#ifdef __ANDROID__
+#include "interface_scale.h"
+#endif
 #include "intrface.h"
 #include "keyboard.h"
 #include "LbDraw.h"
@@ -2076,6 +2079,9 @@ void ProcessUI() {
     if (UI_PostcardPending()) UI_ActuallyDoPostcard();
     UI_DispatchMessages(0x400);
     UI_DispatchDeferredMessages();
+#ifdef __ANDROID__
+    tpw::mobile::UpdateInterfaceScale();
+#endif
     UI_PostMessage(gUIRootWindow, 2, 0, 0);
     UI_SendOnFrameMessages();
     UI_DispatchDrawMessages(0x1000);
