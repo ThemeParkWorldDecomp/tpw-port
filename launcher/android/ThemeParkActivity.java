@@ -55,7 +55,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     private static native void nativeRotate(int direction);
     private static native void nativeControlDialog(boolean opening);
     private static native void nativeResumePark();
-    private static native void nativeSliderDrag(boolean start);
+    private static native void nativeSliderDrag(boolean start, boolean touchpad);
 
     @Override
     protected String[] getLibraries() {
@@ -303,7 +303,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
             if (motion && !twoFingerTap && (mouseButtons & LEFT) == 0) {
                 // Look for a slider before the first move takes the cursor away in either mode.
                 sliderDragRequested = true;
-                nativeSliderDrag(true);
+                nativeSliderDrag(true, touchpad);
             }
         }
         if (twoFingerTap) return;
@@ -356,7 +356,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     private void finishSliderDrag() {
         if (!sliderDragRequested) return;
         sliderDragRequested = false;
-        nativeSliderDrag(false);
+        nativeSliderDrag(false, false);
     }
 
     private void setTouchButton(int button) {

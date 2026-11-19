@@ -16,6 +16,8 @@
 #include "ui_main.h"
 
 namespace {
+enum class SliderDrag : Sint32 { Finish, StartOnThumb, StartOnTrack };
+
 // Written by Android's UI thread and read by the SDL game thread.
 std::atomic<uint32_t> gStick{0};
 std::atomic<bool> gKeyboardRequested{false};
@@ -30,6 +32,23 @@ bool gSliderMouseHeld = false;
 
 bool Editing() {
     return gUIKeyboardWindow != nullptr && gUIKeyboardWindow->WhatAmI() == kUIKindEditBox;
+}
+
+InterfaceWindow* SliderThumb(bool allowTrack) {
+    InterfaceWindow* hit = gUIPointerIn;
+    if (hit == nullptr || hit->mCallback == UI_DefaultThumbtrackCallback) return hit;
+    if (!allowTrack) return nullptr;
+
+    InterfaceWindow* bar = hit->WhatAmI() == kUIKindScrollBar ? hit : hit->GetParent();
+    if (bar == nullptr || bar->WhatAmI() != kUIKindScrollBar) return nullptr;
+    CoolRect track;
+    bar->GetClientRect(&track);
+    if (!track.PointIn(gUIPointerX, gUIPointerY)) return nullptr;
+
+    constexpr int kThumbId = 3;   // InterfaceScrollBar::AddThumbTrack
+    InterfaceWindow* thumb = bar->GetWindow(kThumbId);
+    if (thumb == nullptr || thumb->mCallback != UI_DefaultThumbtrackCallback || (thumb->GetAttr() & 3) != 1) return nullptr;
+    return thumb;
 }
 
 bool NotifyActivity(const char* method, bool value) {
@@ -68,11 +87,14 @@ extern "C" JNIEXPORT void JNICALL Java_org_tpwport_android_ThemeParkActivity_nat
     gResumeParkRequested.store(true, std::memory_order_relaxed);
 }
 
-extern "C" JNIEXPORT void JNICALL Java_org_tpwport_android_ThemeParkActivity_nativeSliderDrag(JNIEnv*, jclass, jboolean start) {
+extern "C" JNIEXPORT void JNICALL Java_org_tpwport_android_ThemeParkActivity_nativeSliderDrag(JNIEnv*, jclass, jboolean start,
+                                                                                            jboolean touchpad) {
     SDL_Event event{};
     event.type = gSliderDragEvent.load(std::memory_order_relaxed);
     if (event.type == 0) return;
-    event.user.code = start;
+    SliderDrag action = SliderDrag::Finish;
+    if (start) action = touchpad ? SliderDrag::StartOnTrack : SliderDrag::StartOnThumb;
+    event.user.code = static_cast<Sint32>(action);
     SDL_PushEvent(&event);
 }
 
@@ -88,15 +110,20 @@ void InstallControlEvents() {
 
 bool HandleSliderDrag(const SDL_Event& event) {
     if (event.type != gSliderDragEvent.load(std::memory_order_relaxed)) return false;
-    if (event.user.code) {
+    const auto action = static_cast<SliderDrag>(event.user.code);
+    if (action != SliderDrag::Finish) {
         // The cursor is still where the gesture began, even in relative touchpad mode.
-        if (gUIActive && gUICaptureDevice == nullptr && (gUIButtonFlags & 1) == 0 &&
-            gUIPointerIn != nullptr && gUIPointerIn->mCallback == UI_DefaultThumbtrackCallback) {
-            gTouchSliderThumb = gUIPointerIn;
-            UI_DeviceButtonDown(0, gUIPointerX, gUIPointerY);
-            // Route moves to the thumb even before the queued button-down runs.
-            gTouchSliderThumb->CaptureDevice();
-        }
+        if (!gUIActive || gUICaptureDevice != nullptr || (gUIButtonFlags & 1) != 0) return true;
+        gTouchSliderThumb = SliderThumb(action == SliderDrag::StartOnTrack);
+        if (gTouchSliderThumb == nullptr) return true;
+
+        // Send the usual left-button event to the thumb, even when the pointer is over the track.
+        InterfaceWindow* pointerWindow = gUIPointerIn;
+        gUIPointerIn = gTouchSliderThumb;
+        UI_DeviceButtonDown(0, gUIPointerX, gUIPointerY);
+        gUIPointerIn = pointerWindow;
+        // Route moves to the thumb even before the queued button-down runs.
+        gTouchSliderThumb->CaptureDevice();
     } else {
         if (!gSliderMouseHeld && gTouchSliderThumb != nullptr && gUIButtonWindow[0] == gTouchSliderThumb) {
             UI_DeviceButtonUp(0, gUIPointerX, gUIPointerY);
