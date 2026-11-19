@@ -18,6 +18,7 @@ extern "C" SDL_DECLSPEC int SDLCALL SDL_main(int argc, char** argv) {
     }
 
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");   // the activity routes direct and cursor-mode touches
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
     std::vector<std::string> args = {"Theme Park World", "--data", storage, "--play", edition, "--no-movies", "--no-preload"};
     if (*language != '\0') {
         args.emplace_back("--language");
