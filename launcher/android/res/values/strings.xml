@@ -53,6 +53,7 @@
     <string name="mouse_mode_touchpad">Mouse mode · Touchpad</string>
     <string name="touch_mode_hint">Touch · Aim with your finger, tap to click</string>
     <string name="touchpad_mode_hint">Touchpad · Move the cursor from its current position</string>
+    <string name="touch_drag_hint">To move a game slider, hold your finger still, then drag.</string>
     <string name="move_controls">Move controls</string>
     <string name="finish_move_controls">Finish moving controls</string>
     <string name="toggle_build">Show or hide building shortcuts</string>
@@ -78,6 +79,8 @@
     <string name="binding_none">None</string>
     <string name="left_mouse">Left mouse button</string>
     <string name="right_mouse">Right mouse button</string>
+    <string name="right_mouse_short">RMB</string>
+    <string name="backspace">Backspace</string>
     <string name="arrow_up">Up arrow</string>
     <string name="arrow_down">Down arrow</string>
     <string name="arrow_left">Left arrow</string>

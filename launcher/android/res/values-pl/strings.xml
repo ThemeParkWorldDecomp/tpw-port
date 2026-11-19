@@ -53,6 +53,7 @@
     <string name="mouse_mode_touchpad">Tryb myszy · Touchpad</string>
     <string name="touch_mode_hint">Dotyk – celuj palcem, stuknij, aby kliknąć</string>
     <string name="touchpad_mode_hint">Touchpad – przesuwaj kursor względem jego położenia</string>
+    <string name="touch_drag_hint">Aby przesunąć suwak w grze, przytrzymaj palec w miejscu, a potem przeciągnij.</string>
     <string name="move_controls">Przesuń kontrolki</string>
     <string name="finish_move_controls">Zakończ przesuwanie kontrolek</string>
     <string name="toggle_build">Pokaż lub ukryj skróty budowy</string>
@@ -78,6 +79,7 @@
     <string name="binding_none">Brak</string>
     <string name="left_mouse">Lewy przycisk myszy</string>
     <string name="right_mouse">Prawy przycisk myszy</string>
+    <string name="right_mouse_short">PPM</string>
     <string name="arrow_up">Strzałka w górę</string>
     <string name="arrow_down">Strzałka w dół</string>
     <string name="arrow_left">Strzałka w lewo</string>

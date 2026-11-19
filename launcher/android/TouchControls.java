@@ -16,9 +16,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 final class TouchControls extends FrameLayout {
+    private static final int BUTTON_SIZE = 48;
     private final ThemeParkActivity game;
     private final ControlSettings settings;
-    private final List<View> toolbar = new ArrayList<>(), building = new ArrayList<>();
+    private final List<View> toolbar = new ArrayList<>(), editingShortcuts = new ArrayList<>(), building = new ArrayList<>();
     private final Button ctrl, shift;
     private final Button gear, resetLayout;
     private final CameraStick stick;
@@ -43,6 +44,8 @@ final class TouchControls extends FrameLayout {
 
         button(toolbar, "zoom_out", "−", game.getString(R.string.zoom_out), () -> game.zoom(-1));
         button(toolbar, "zoom_in", "+", game.getString(R.string.zoom_in), () -> game.zoom(1));
+        button(editingShortcuts, "right_click", game.getString(R.string.right_mouse_short), game.getString(R.string.right_mouse), game::rightClick);
+        button(editingShortcuts, "backspace", "⌫", game.getString(R.string.backspace), game::backspace);
 
         stick = new CameraStick();
         stick.setTag("stick");
@@ -79,8 +82,8 @@ final class TouchControls extends FrameLayout {
         button.setSingleLine(true);
         button.setEllipsize(TextUtils.TruncateAt.END);
         button.setPadding(dp(7), 0, dp(7), 0);
-        button.setMinimumWidth(dp(48));
-        button.setMinWidth(dp(48));
+        button.setMinimumWidth(dp(BUTTON_SIZE));
+        button.setMinWidth(dp(BUTTON_SIZE));
         button.setFocusable(false);
         button.setSoundEffectsEnabled(false);
         StateListDrawable background = new StateListDrawable();
@@ -91,7 +94,7 @@ final class TouchControls extends FrameLayout {
         button.setOnClickListener(view -> action.run());
         button.setTag(id);
         if (row != null) row.add(button);
-        addView(button, new LayoutParams(LayoutParams.WRAP_CONTENT, dp(48)));
+        addView(button, new LayoutParams(LayoutParams.WRAP_CONTENT, dp(BUTTON_SIZE)));
         return button;
     }
 
@@ -101,10 +104,20 @@ final class TouchControls extends FrameLayout {
         int stickWidth = stick.getMeasuredWidth();
         int stickX = width - stickWidth - dp(20);
         int stickY = height / 5;
-        layoutRow(toolbar, width, stickX + stickWidth / 2, stickY + stick.getMeasuredHeight() + dp(4));
+        int zoomY = stickY + stick.getMeasuredHeight() + dp(4);
+        int panelCenter = stickX + stickWidth / 2;
+        layoutRow(toolbar, width, panelCenter, zoomY);
+        layoutRow(editingShortcuts, width, panelCenter, zoomY + dp(BUTTON_SIZE + 6));
         layoutRow(building, width, width / 2, height - dp(76));
         if (stick.getVisibility() == VISIBLE) place(stick, stickX, stickY, stickWidth);
-        place(gear, width / 4, dp(10), gear.getMeasuredWidth());
+        int gearWidth = gear.getMeasuredWidth();
+        int margin = dp(12);
+        // The widest game view is 16:9. Use the left black bar when it can fit the whole button.
+        int sideBar = Math.max(0, (width - Math.round(height * 16f / 9)) / 2);
+        int gearX = width * 3 / 8 - gearWidth / 2;
+        if (editing) gearX = width - gearWidth - margin;
+        else if (sideBar >= gearWidth + 2 * margin) gearX = (sideBar - gearWidth) / 2;
+        place(gear, gearX, dp(10), gearWidth);
         if (editing) place(resetLayout, dp(12), dp(10), resetLayout.getMeasuredWidth());
     }
 
@@ -138,6 +151,7 @@ final class TouchControls extends FrameLayout {
     void updateVisibility() {
         boolean camera = editing || (settings.cameraVisible() && parkActive);
         for (View view : toolbar) view.setVisibility(camera ? VISIBLE : GONE);
+        for (View view : editingShortcuts) view.setVisibility(camera ? VISIBLE : GONE);
         for (View view : building) view.setVisibility(editing || (camera && settings.buildingVisible()) ? VISIBLE : GONE);
         stick.setVisibility(camera ? VISIBLE : GONE);
         resetLayout.setVisibility(editing ? VISIBLE : GONE);

@@ -365,6 +365,9 @@ void UGamework::HandleCommand(int32_t command, uint32_t) {
 
 void UGamework::Run() {
     if (!Initialise()) return;
+#ifdef __ANDROID__
+    tpw::mobile::InstallControlFocusFilter();
+#endif
     // 0x100056a0, and the start of 0x100054c4: the remembered key comes up with the modifiers it went down with.
     auto releaseKey = [this]() {
         HandleTyping(gKey.character, gKey.keyCode, gKey.modifiers, false);

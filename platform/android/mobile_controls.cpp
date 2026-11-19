@@ -17,6 +17,7 @@ namespace {
 // Written by Android's UI thread and read by the SDL game thread.
 std::atomic<uint32_t> gStick{0};
 std::atomic<bool> gKeyboardRequested{false};
+std::atomic<bool> gControlDialogOpen{false};
 std::atomic<int> gTurns{0};
 float gCameraX = 0, gCameraY = 0;
 
@@ -38,7 +39,18 @@ extern "C" JNIEXPORT void JNICALL Java_org_tpwport_android_ThemeParkActivity_nat
     if (direction == -1 || direction == 1) gTurns.fetch_add(direction, std::memory_order_relaxed);
 }
 
+extern "C" JNIEXPORT void JNICALL Java_org_tpwport_android_ThemeParkActivity_nativeControlDialog(JNIEnv*, jclass, jboolean opening) {
+    gControlDialogOpen.store(opening, std::memory_order_relaxed);
+}
+
 namespace tpw::mobile {
+
+void InstallControlFocusFilter() {
+    SDL_SetEventFilter([](void*, SDL_Event* event) {
+        // SDL suspends during the dialog. Skip the game's extra pause on losing focus to its own controls.
+        return event->type != SDL_EVENT_WINDOW_FOCUS_LOST || !gControlDialogOpen.load(std::memory_order_relaxed);
+    }, nullptr);
+}
 
 void CameraAxes(float& x, float& y) {
     x = gCameraX;

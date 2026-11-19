@@ -26,7 +26,8 @@ final class ControlSettings {
         ZOOM_IN(R.string.zoom_in), ZOOM_OUT(R.string.zoom_out), ROTATE_LEFT(R.string.rotate_left), ROTATE_RIGHT(R.string.rotate_right),
         CTRL(R.string.binding_ctrl), SHIFT(R.string.binding_shift), MENU(R.string.game_menu), ENTER(R.string.enter),
         KEYBOARD(R.string.show_keyboard), OVERLAY(R.string.toggle_overlay),
-        SETTINGS(R.string.control_settings), BUY(R.string.buy_rides), MAP(R.string.map), PAUSE(R.string.pause), HOME(R.string.entrance_view);
+        SETTINGS(R.string.control_settings), BUY(R.string.buy_rides), MAP(R.string.map), PAUSE(R.string.pause), HOME(R.string.entrance_view),
+        BACKSPACE(R.string.backspace);
 
         final int label;
         Action(int label) { this.label = label; }
@@ -40,7 +41,7 @@ final class ControlSettings {
     };
     private static final String[] NAMES = {"A", "B", "X", "Y", "L1", "R1", "L2", "R2", "L3", "R3", "Start", "Select", "↑", "←", "↓", "→"};
     private static final Action[] DEFAULTS = {
-        Action.LEFT, Action.RIGHT, Action.KEYBOARD, Action.ENTER,
+        Action.LEFT, Action.RIGHT, Action.BACKSPACE, Action.ENTER,
         Action.ZOOM_OUT, Action.ZOOM_IN, Action.ROTATE_LEFT, Action.ROTATE_RIGHT,
         Action.CTRL, Action.SHIFT, Action.MENU, Action.OVERLAY,
         Action.UP, Action.ARROW_LEFT, Action.DOWN, Action.ARROW_RIGHT
@@ -150,6 +151,9 @@ final class ControlSettings {
                 show(owner);
             }).setNegativeButton(R.string.cancel, null).show();
         });
+        TextView dragHint = new TextView(owner);
+        dragHint.setText(R.string.touch_drag_hint);
+        fields.addView(dragHint);
         button(owner, fields, R.string.button_mapping, () -> showBindings(owner));
         if (game != null) {
             button(owner, fields, R.string.move_controls, () -> {

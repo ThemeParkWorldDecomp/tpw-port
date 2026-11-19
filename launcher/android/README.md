@@ -13,10 +13,10 @@ The APK targets Android 13 or newer, ARM64 and Vulkan. The Android launcher chec
 | L1 / R1 | Oddala / przybliża widok. |
 | L2 / R2 | Obraca budowany obiekt w lewo / prawo. |
 | Wciśnięcie lewego / prawego analogu | Przytrzymuje Ctrl / Shift. |
-| X / Y | Klawiatura w aktywnym polu / Enter. |
+| X / Y | Backspace / Enter. |
 | Start / Select | Menu gry / pokaż lub ukryj panel kamery. |
 
-**⚙ → Tryb myszy** przełącza między bezpośrednim celowaniem (**Dotyk**) a przesunięciem kursora względem jego aktualnej pozycji (**Touchpad**). Przesunięcie palca celuje, a osobne stuknięcie klika. Stuknięcie dwoma palcami działa jak PPM. Nakładka w obu trybach obsługuje kamerę oraz zoom.
+**⚙ → Tryb myszy** przełącza między bezpośrednim celowaniem (**Dotyk**) a przesunięciem kursora względem jego aktualnej pozycji (**Touchpad**). Przesunięcie palca celuje, a osobne stuknięcie klika. Aby chwycić suwak, ustaw kursor na uchwycie, przytrzymaj palec w miejscu, a następnie przeciągnij. Stuknięcie dwoma palcami działa jak PPM. Pod przyciskami zoomu są **PPM**, który anuluje aktywne narzędzie budowy, oraz **⌫**, który wysyła Backspace. Akcję otwierania klawiatury można przypisać w mapowaniu pada.
 
 W **⚙ → Przesuń kontrolki** przeciągnij wybrane przyciski lub drążek i naciśnij **Gotowe**. Położenia, czułości obu analogów, tryb myszy i mapowanie gry są zapisywane. W **⚙** można też otworzyć skróty budowy obejmujące obrót projektu, zakup atrakcji, mapę oraz Ctrl i Shift. Ctrl przy stawianiu zostawia projekt do ponownego użycia, a Ctrl i LPM pobierają projekt istniejącego obiektu.
 

@@ -37,7 +37,13 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     private float downX, downY, lastX, lastY, secondX, secondY;
     private long touchStart;
     private int touchSlop;
-    private boolean menuDown, enterDown;
+    private final Runnable beginTouchDrag = () -> {
+        if (gamePointer < 0 || moved || twoFingerTap) return;
+        setTouchButton(LEFT);
+    };
+    private boolean menuDown, enterDown, menuWhenFocused;
+    private boolean showingControls;
+    private final Runnable clearControlFocus = () -> showingControls = false;
     private float pointerX = 0.5f, pointerY = 0.5f;
     private float padX, padY;
     private float stickX, stickY;
@@ -47,6 +53,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     private static native void nativeCamera(float x, float y);
     private static native void nativeKeyboard();
     private static native void nativeRotate(int direction);
+    private static native void nativeControlDialog(boolean opening);
 
     @Override
     protected String[] getLibraries() {
@@ -76,8 +83,29 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
 
     @Override
     public void onWindowFocusChanged(boolean focused) {
-        super.onWindowFocusChanged(focused);
-        if (focused && controls != null) immersive();
+        if (controls == null) {
+            super.onWindowFocusChanged(focused);
+            return;
+        }
+        mLayout.removeCallbacks(clearControlFocus);
+        boolean ownDialog = !focused && showingControls;
+        if (ownDialog) nativeControlDialog(true);
+        try {
+            super.onWindowFocusChanged(focused);
+        } finally {
+            if (ownDialog) nativeControlDialog(false);
+        }
+        if (focused) {
+            // Replacing a settings dialog can briefly return focus to the Activity.
+            if (showingControls) mLayout.postDelayed(clearControlFocus, 150);
+            immersive();
+            if (menuWhenFocused) {
+                menuWhenFocused = false;
+                menu();
+            }
+        } else {
+            cancelTouchPointer();
+        }
     }
 
     private void immersive() {
@@ -90,7 +118,12 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
 
     @Override
     protected void onPause() {
-        if (controls != null) releaseInputs();
+        if (controls != null) {
+            mLayout.removeCallbacks(clearControlFocus);
+            showingControls = false;
+            menuWhenFocused = false;
+            releaseInputs();
+        }
         super.onPause();
     }
 
@@ -111,9 +144,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
 
     void releaseInputs() {
         releaseController();
-        gamePointerButton = 0;
-        gamePointer = secondPointer = -1;
-        applyMouseButtons();
+        cancelTouchPointer();
         controls.clearModifiers();
         controls.cancelStick();
     }
@@ -173,6 +204,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
             case MAP: press(KeyEvent.KEYCODE_SPACE); break;
             case PAUSE: press(KeyEvent.KEYCODE_P); break;
             case HOME: press(KeyEvent.KEYCODE_MOVE_HOME); break;
+            case BACKSPACE: backspace(); break;
             default: break;
         }
     }
@@ -244,7 +276,8 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
                 touchStart = event.getEventTime();
                 moved = twoFingerTap = false;
                 if (!settings.touchpadMode()) aimAtTouch(event, index);
-            } else if (gamePointer >= 0 && secondPointer < 0 && !twoFingerTap) {
+                mLayout.postDelayed(beginTouchDrag, ViewConfiguration.getLongPressTimeout());
+            } else if (gamePointer >= 0 && secondPointer < 0 && !twoFingerTap && gamePointerButton == 0) {
                 secondPointer = event.getPointerId(index);
                 secondX = event.getRawX(index);
                 secondY = event.getRawY(index);
@@ -253,7 +286,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
         }
         if (action == MotionEvent.ACTION_MOVE) moveTouchPointer(event);
         if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP) finishTouch(event, index);
-        if (action == MotionEvent.ACTION_CANCEL) gamePointer = secondPointer = -1;
+        if (action == MotionEvent.ACTION_CANCEL) cancelTouchPointer();
         return super.dispatchTouchEvent(event);
     }
 
@@ -266,7 +299,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
         if (twoFingerTap) return;
         if (!settings.touchpadMode()) {
             aimAtTouch(event, primary);
-        } else if (moved && mSurface != null && mSurface.getWidth() > 1 && mSurface.getHeight() > 1) {
+        } else if ((moved || gamePointerButton != 0) && mSurface != null && mSurface.getWidth() > 1 && mSurface.getHeight() > 1) {
             float x = event.getRawX(primary), y = event.getRawY(primary);
             float scale = settings.cursorScale() * 1.2f;
             pointerX = clamp(pointerX + (x - lastX) * scale / mSurface.getWidth());
@@ -292,12 +325,36 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
         moveTouchPointer(event);
         if (id == gamePointer) gamePointer = -1;
         else secondPointer = -1;
-        if (gamePointer >= 0 || secondPointer >= 0 || moved || event.getEventTime() - touchStart > 450) return;
-        gamePointerButton = twoFingerTap ? RIGHT : LEFT;
-        applyMouseButtons();
-        gamePointerButton = 0;
+        if (gamePointer >= 0 || secondPointer >= 0) return;
+        mLayout.removeCallbacks(beginTouchDrag);
+        if (gamePointerButton != 0) {
+            setTouchButton(0);
+            return;
+        }
+        if (moved || event.getEventTime() - touchStart > ViewConfiguration.getLongPressTimeout()) return;
+        clickPointer(twoFingerTap ? RIGHT : LEFT);
+    }
+
+    private void cancelTouchPointer() {
+        mLayout.removeCallbacks(beginTouchDrag);
+        gamePointer = secondPointer = -1;
+        setTouchButton(0);
+    }
+
+    private void setTouchButton(int button) {
+        gamePointerButton = button;
         applyMouseButtons();
     }
+
+    private void clickPointer(int button) {
+        int held = gamePointerButton;
+        setTouchButton(held | button);
+        setTouchButton(held);
+    }
+
+    void rightClick() { clickPointer(RIGHT); }
+
+    void backspace() { press(KeyEvent.KEYCODE_DEL); }
 
     private static int directions(float x, float y) {
         return (y < -0.30f ? 1 : 0) | (x < -0.30f ? 2 : 0) | (y > 0.30f ? 4 : 0) | (x > 0.30f ? 8 : 0);
@@ -336,7 +393,9 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     }
 
     void menu() {
-        if (!menuDown) press(KeyEvent.KEYCODE_ESCAPE);
+        if (menuDown) return;
+        if (hasWindowFocus()) press(KeyEvent.KEYCODE_ESCAPE);
+        else menuWhenFocused = true;
     }
 
     void press(int code) {
@@ -437,6 +496,8 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
 
     void showControlSettings() {
         releaseInputs();
+        showingControls = true;
+        mLayout.removeCallbacks(clearControlFocus);
         settings.show(this);
     }
 
