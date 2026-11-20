@@ -6,6 +6,10 @@
 
 - Fixed source builds failing their tests when the optional platform-test tools are unavailable
 
+### Changes
+
+- Windows release builds now run the same platform checks as the regular builds
+
 ## 0.6.0 (2026-11-19)
 
 ### New Features
