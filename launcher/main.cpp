@@ -59,6 +59,7 @@
 #include "app_bundle.h"
 #include "app_icon.h"
 #include "asset_packs.h"
+#include "sam_originals.h"
 #include "game_app.h"
 #include "gold_rides.h"
 #include "language_pack.h"
@@ -925,6 +926,7 @@ void RegisterSamTables() {
     add({"rides.sam", "shops.sam", "sideshow.sam", "features.sam", "upgrades.sam", "online_rides.sam"},
         gRideBalanceDescriptions, std::size(gRideBalanceDescriptions));
     add({"advisor.sam"}, gAdvisorBalanceDescriptions, std::size(gAdvisorBalanceDescriptions));
+    tpw::launcher::RegisterSamOriginals();   // the originals a damaged .sam is repaired from (sam_originals.h)
 }
 
 // The .sam files kept as the player's edit (assets/importer.h EditedFiles), one line each.
@@ -2033,6 +2035,7 @@ int LauncherMain(int argc, char** argv) {
             return arg == "--help" || arg == "-h" ? 0 : 2;
         }
     }
+    RegisterSamTables();   // --import and --verify check and repair .sam files too
     if (!imports.empty()) {
         if (verify) {
             tpw::LogRawF("launcher: --import and --verify are separate runs\n");

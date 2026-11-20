@@ -250,7 +250,7 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
 
   add_library(tpw_launcher_objects OBJECT launcher/main.cpp launcher/app_bundle.cpp launcher/app_icon.cpp launcher/app_icon_standin.cpp launcher/asset_packs.cpp
               launcher/game_app.cpp launcher/game_app_mac.cpp launcher/game_app_win.cpp launcher/installed_icon.cpp launcher/pending_manual.cpp launcher/ps1_refresh.cpp launcher/tpi_refresh.cpp
-              launcher/static_init.cpp launcher/startup.cpp)
+              launcher/static_init.cpp launcher/startup.cpp launcher/sam_originals.cpp)
   target_include_directories(tpw_launcher_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
   if(APPLE)
     # The game's own application (launcher/game_app.h) is opened through NSWorkspace, whose completion handler is a block.
@@ -1460,6 +1460,27 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   target_include_directories(tpw_tpi_refresh_tests PRIVATE launcher)
   target_link_libraries(tpw_tpi_refresh_tests PRIVATE tpw_platform tpw_assets)
   add_test(NAME tpi_refresh COMMAND tpw_tpi_refresh_tests)
+  # The built-in original .sam files (launcher/sam_originals.h) and the import's repair of a damaged .sam from them.
+  add_executable(tpw_sam_originals_tests launcher/tests/sam_originals_tests.cpp launcher/sam_originals.cpp)
+  target_include_directories(tpw_sam_originals_tests PRIVATE launcher)
+  target_link_libraries(tpw_sam_originals_tests PRIVATE tpw_assets)
+  add_test(NAME sam_originals COMMAND tpw_sam_originals_tests)
+  add_executable(tpw_sam_import_tests launcher/tests/sam_import_tests.cpp launcher/sam_originals.cpp)
+  target_include_directories(tpw_sam_import_tests PRIVATE launcher)
+  target_link_libraries(tpw_sam_import_tests PRIVATE tpw_assets)
+  add_test(NAME sam_import COMMAND tpw_sam_import_tests ${CMAKE_CURRENT_BINARY_DIR})
+  # launcher/sam_originals_data.inc is devtools/gen_sam_defaults.py's own output (KNOWN_OUTPUT_SHA256); when the original
+  # discs are at TPW_PC_ORIGINAL (default ~/tpw-local/pc-original) with the US Mac CD's zip at TPW_MAC_CD, it is written
+  # again and must be the same bytes.
+  if(NOT TPW_PC_ORIGINAL)
+    set(TPW_PC_ORIGINAL "$ENV{HOME}/tpw-local/pc-original")
+  endif()
+  if(NOT TPW_MAC_CD)
+    set(TPW_MAC_CD "${CMAKE_CURRENT_SOURCE_DIR}/../Theme_Park_World.toast_.zip")
+  endif()
+  add_test(NAME sam_originals_discs
+           COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/devtools/gen_sam_defaults.py --check --if-present
+                   --discs ${TPW_PC_ORIGINAL} --mac-disc ${TPW_MAC_CD})
   # Which icon.png the launcher shows: the run's data folder's, the per-user folder's, or the stand-in (launcher/app_icon.h).
   add_test(NAME launcher_icon COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/launcher/tests/icon_choice_test.py $<TARGET_FILE:tpw_launcher>)
   # No function of the game or the launcher is looked up by its symbol at run time (a Linux launcher exports none of its
