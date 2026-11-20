@@ -904,6 +904,34 @@ static void TestLanguagePack(const fs::path& scratch) {
     CHECK(Same(tpw::FindHostPath("data:global:speech:speechHD.SDT"), pack / speech / "speechHD.SDT"));
     CHECK(names(tpw::ListGameFolder("data:global:speech")) == "speechHD.SDT cat_speechBANK.map extra.map ");
     CHECK(names(tpw::ListGameFolder("data:Init:640")) == "Welcome_French.tga legal.tga ");
+#ifdef TPW_PORT_FIX
+    const fs::path supplied = root / "lang" / "Russian";
+    Touch(supplied / ".unofficial", "1\nRussian\n");
+    for (const char* own : {"English", "American"}) {
+        Touch(supplied / "data" / "Language" / own / "uitext.str", "synthetic translation");
+        Touch(config.gameDir / "data" / "Language" / own / "ResIdx.dat", "base index");
+    }
+    Touch(supplied / "data" / "ui.wad", "synthetic panels");
+    Touch(supplied / speech / "lips.wad", "synthetic lips");
+    CHECK(tpw::LanguageName("russian") == "Russian");
+    for (const char* own : {"English", "American"}) {
+        CHECK(tpw::UseLanguagePack(root, "Russian", own));
+        CHECK(tpw::LanguagePackName() == own);
+        const std::string path = std::string("data:Language:") + own + ":";
+        CHECK(Same(tpw::FindHostPath(path + "uitext.str"), supplied / "data/Language" / own / "uitext.str"));
+        CHECK(Same(tpw::FindHostPath(path + "ResIdx.dat"), config.gameDir / "data/Language" / own / "ResIdx.dat"));
+        CHECK(Same(tpw::FindHostPath("data:ui.wad"), supplied / "data/ui.wad"));
+        CHECK(Same(tpw::FindHostPath("data:global:speech:lips.wad"), supplied / speech / "lips.wad"));
+        {
+            tpw::WithoutPacks base;
+            CHECK(Same(tpw::FindHostPath(path + "ResIdx.dat"), config.gameDir / "data/Language" / own / "ResIdx.dat"));
+            if (std::string(own) == "English")
+                CHECK(Same(tpw::FindHostPath(path + "uitext.str"), config.gameDir / "data/Language" / own / "uitext.str"));
+        }
+    }
+    CHECK(!tpw::UseLanguagePack(root, "Russian", "French"));
+    CHECK(!tpw::UseLanguagePack(root, ""));
+#endif
     config.gameDir = gameDir;
     config.userDir = userDir;
     tpw::PackDirs() = packDirs;

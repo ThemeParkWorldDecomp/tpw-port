@@ -18,12 +18,13 @@
 namespace tpw {
 
 // `name` as the original spells it, one of its 16 language names (FS_Registry.cpp's, English to American), matched
-// ignoring case; empty if it is none of them.
+// ignoring case; the port also accepts the IDs of validated unofficial translations. Empty for an unknown name.
 std::string LanguageName(const std::string& name);
 
 // Lay the language `name` (any case) over the game folder from `root`/lang/<Name>; an empty `name` takes the overlay
-// away. False, with the overlay away, when `name` is not one of the 16 or the folder is not there.
-bool UseLanguagePack(const std::filesystem::path& root, const std::string& name);
+// away. Unofficial replacements use `own` as the game's language, with the edition's own missing resources. False,
+// with the overlay away, when the name is not supported or the folder/translation marker is not there.
+bool UseLanguagePack(const std::filesystem::path& root, const std::string& name, const std::string& own = "English");
 
 // The overlaid language as the original spells it (empty when off), and its folder (lang/<Name> in the root).
 const std::string& LanguagePackName();

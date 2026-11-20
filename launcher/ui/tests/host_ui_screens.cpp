@@ -269,11 +269,16 @@ public:
         auto it = settings.find(key);
         return it == settings.end() ? std::string() : it->second;
     }
-    bool SaveSetting(const std::string& key, const std::string& value, std::string&) override {
+    bool SaveSetting(const std::string& key, const std::string& value, std::string& err) override {
+        if (key == saveFailureKey) {
+            err = "synthetic write failure";
+            return false;
+        }
         settings[key] = value;
         return true;
     }
     std::map<std::string, std::string> settings;   // launcher.ini's settings, as SaveSetting kept them
+    std::string saveFailureKey;
     std::vector<assets::LanguageStatus> Languages() const override {
         ++languageReads;
         return languages;
@@ -1382,6 +1387,31 @@ std::vector<Shot> Shots() {
                              }
                          },
                          Screen::Home, {}});
+    }
+
+    for (const bool unofficial : {false, true}) {
+        shots.push_back({unofficial ? "81-language-unofficial-unlocked" : "80-language-official-unlocked",
+                         metric::kMinWidth, metric::kMinHeight, FillEverything,
+                         [unofficial](LauncherUi& ui, FakeBackend& backend, const std::function<void(int)>& frames) {
+                             FakeBackend::Script script;
+                             script.finish = [unofficial](FakeBackend& b, ImportReport& report) {
+                                 auto language = Language(unofficial ? "Russian" : "French");
+                                 language.unofficial = unofficial;
+                                 language.description = unofficial ? "Russian (unofficial translation, 2000)" : "";
+                                 language.changes = "text, fonts, speech";
+                                 b.languages = {language};
+                                 report.languages = b.languages;
+                                 // as the importer says it: the translation's line (unofficial_language.h), or a
+                                 // language disc's files
+                                 report.written = unofficial ? 350 : 64;
+                                 if (unofficial)
+                                     report.translations = {
+                                         "Russian (unofficial translation, 2000) added: text, fonts, speech"};
+                             };
+                             backend.Queue(std::move(script));
+                             ui.OfferPaths({"synthetic-language.zip"});
+                             frames(2);
+                         }, Screen::Result, {}});
     }
 
     // The Language section (launcher_ui.h LanguageKey) with the European edition's list open, on the five-language disc's
@@ -2767,6 +2797,8 @@ void CheckLanguages(SDL_Renderer* renderer) {
         Check(b.languageReads == reads + 1, "language: opening Settings reads the languages again");
         Check(ui.LanguageRect(0).w > 0 && ui.LanguageRect(1).w > 0, "language: a Language row an edition");
         Check(ui.LanguageRect(0).Bottom() < ui.LanguageRect(1).y, "language: the US row above the European one");
+        Check(ui.LanguageRect(1).Bottom() < ui.InterfaceSizeRect().y,
+              "language: both language fields precede the display settings");
         Check(ui.LanguageListRow(0).w == 0, "language: no list before a click");
 
         click(ui, ui.LanguageRect(1));
@@ -2839,6 +2871,163 @@ void CheckLanguages(SDL_Renderer* renderer) {
         Check(ui.TakePlay(choice) && choice.language.empty(), "language: a kept language now gone falls back to the own");
         CheckEq(b.Setting("language_us"), "Korean", "language: the gone language's key is kept");
     }
+}
+
+void CheckLanguageUnlocks(SDL_Renderer* renderer) {
+    const float width = metric::kStartWidth, height = metric::kStartHeight;
+    {
+        // A translation's drop (unofficial_language.h) is said as such, never as a game's missing files.
+        FakeBackend b;
+        FillEverything(b);
+        EditionStatus before[6];
+        b.AllStatuses(before);
+        ImportReport report;
+        b.AllStatuses(report.status);
+        report.written = 350;
+        report.translations = {"Russian (unofficial translation, 2000) added: text, fonts, speech"};
+        ResultText r = DescribeResult(report, before);
+        Check(r.good && r.headline == "Language added" &&
+                  std::find(r.lines.begin(), r.lines.end(), report.translations.front()) != r.lines.end(),
+              "language result: an added translation is the headline and its line");
+        report.written = 0;
+        report.alreadyThere = 350;
+        report.translations = {"Russian (unofficial translation, 2000) was already added"};
+        CheckEq(DescribeResult(report, before).headline, "Nothing new: this language is already added",
+                "language result: a second drop");
+        report.alreadyThere = 0;
+        report.translations.clear();
+        report.errors = {std::string("ru.zip: ") + kLanguagePackRefused + "missing glyph fonts: MENUMED.bf4"};
+        r = DescribeResult(report, before);
+        Check(!r.good && r.headline == "Language not added" && !r.lines.empty() && r.lines.front() == report.errors.front(),
+              "language result: a refused translation says why");
+    }
+    auto frames = [&](LauncherUi& ui, int n = 2) {
+        for (int i = 0; i < n; ++i) ui.Frame(kDt, width, height, 1);
+    };
+    auto click = [&](LauncherUi& ui, const Rect& r) {
+        Check(r.w > 0, "language unlock: a visible action");
+        ui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+        frames(ui, 1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+        frames(ui, 1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+        frames(ui, 1);
+    };
+    for (const bool unofficial : {false, true}) {
+        FakeBackend b;
+        FillEverything(b);
+        assets::LanguageStatus language = Language(unofficial ? "Russian" : "French");
+        language.unofficial = unofficial;
+        language.description = unofficial ? "Russian (unofficial translation, 2000)" : "";
+        language.changes = "text, fonts, speech";
+        auto queue = [&] {
+            FakeBackend::Script script;
+            script.finish = [language](FakeBackend& backend, ImportReport& report) {
+                backend.languages = {language};
+                report.languages = backend.languages;
+            };
+            b.Queue(std::move(script));
+        };
+        LauncherUi ui(renderer, b);
+        frames(ui);
+        Check(!ui.LanguageOfferOpen(), "language unlock: no offer on startup");
+        queue();
+        ui.OfferPaths({"synthetic-language.zip"});
+        frames(ui);
+        Check(ui.LanguageOfferOpen(), "language unlock: a newly usable language offers a switch");
+        Check(ui.LanguageSwitchRect().Bottom() < height && ui.LanguageNotNowRect().x >= 0,
+              "language unlock: both actions fit in the starting window");
+        const auto choices = ui.LanguageChoicesFor(1);
+        Check((choices.back().shown.find(kUnofficialSuffix) != std::string::npos) == unofficial,
+              "language unlock: unofficial label only on unofficial language");
+        click(ui, ui.LanguageNotNowRect());
+        Check(!ui.LanguageOfferOpen() && b.Setting(kLanguageUsKey).empty() && b.Setting(kLanguageEurKey).empty(),
+              "language unlock: Not now preserves both choices");
+        queue();
+        ui.OfferPaths({"synthetic-language.zip"});
+        frames(ui);
+        Check(!ui.LanguageOfferOpen(), "language unlock: a repeated drop does not offer the same unlock");
+        b.languages.clear();
+        queue();
+        ui.OfferPaths({"synthetic-language.zip"});
+        frames(ui);
+        SDL_Event escape{};
+        escape.type = SDL_EVENT_KEY_DOWN;
+        escape.key.key = SDLK_ESCAPE;
+        ui.HandleEvent(escape);
+        frames(ui);
+        Check(!ui.LanguageOfferOpen() && ui.CurrentScreen() == LauncherUi::Screen::Result && b.Setting(kLanguageEurKey).empty(),
+              "language unlock: Escape dismisses the offer and leaves the result usable");
+        b.languages.clear();
+        queue();
+        ui.OfferPaths({"synthetic-language.zip"});
+        frames(ui);
+        b.saveFailureKey = kLanguageEurKey;
+        click(ui, ui.LanguageSwitchRect());
+        Check(ui.LanguageOfferOpen() && b.Setting(kLanguageUsKey) == language.name && b.Setting(kLanguageEurKey).empty(),
+              "language unlock: failed save keeps the offer open and preserves the unsaved edition");
+        b.saveFailureKey.clear();
+        click(ui, ui.LanguageSwitchRect());
+        Check(!ui.LanguageOfferOpen() && b.Setting(kLanguageUsKey) == language.name &&
+                  b.Setting(kLanguageEurKey) == language.name,
+              "language unlock: Switch now keeps the choice for both editions");
+        CheckEq(LanguageUnlockedText(language),
+                unofficial ? "You unlocked Russian (Unofficial)! Switch now?" : "You unlocked French! Switch now?",
+                "language unlock: prompt wording");
+        assets::LanguageStatus french;
+        french.name = "French";
+        CheckEq(LanguageUnlockedText(french), "You unlocked French! Switch now?",
+                "language unlock: an official language by its English name");
+        assets::LanguageStatus american;
+        american.name = "Unofficial-American";
+        american.unofficial = true;
+        CheckEq(LanguageUnlockedText(american), "You unlocked American English (Unofficial)! Switch now?",
+                "language unlock: an unofficial edition language");
+        Check(LanguageChangesText(language).find("text, fonts and speech") != std::string::npos &&
+                  LanguageChangesText(language).find("game files are unchanged") != std::string::npos,
+              "language unlock: warning explains the actual changes and game files");
+    }
+    for (const bool aborted : {false, true}) {
+        FakeBackend b;
+        LauncherUi ui(renderer, b);
+        FakeBackend::Script script;
+        script.holdOpen = !aborted;
+        script.finish = [aborted](FakeBackend& backend, ImportReport& report) {
+            backend.languages = {Language("French")};
+            report.aborted = aborted;
+        };
+        b.Queue(std::move(script));
+        ui.OfferPaths({"synthetic-language.zip"});
+        ui.OfferPaths({"queued-language.zip"});
+        if (!aborted) b.Cancel();
+        frames(ui);
+        Check(!ui.LanguageOfferOpen() && b.Started().size() == 1 && ui.CurrentScreen() == LauncherUi::Screen::Result,
+              "language unlock: cancellation or abort drops queued imports and offers no switch");
+    }
+    {
+        FakeBackend b;
+        LauncherUi ui(renderer, b);
+        FakeBackend::Script first;
+        first.holdOpen = true;
+        first.finish = [](FakeBackend& backend, ImportReport&) { backend.languages = {Language("French")}; };
+        FakeBackend::Script second;
+        second.finish = [](FakeBackend& backend, ImportReport&) { backend.languages.push_back(Language("German")); };
+        b.Queue(std::move(first));
+        b.Queue(std::move(second));
+        ui.OfferPaths({"first-language.zip"});
+        ui.OfferPaths({"second-language.zip"});
+        frames(ui);
+        Check(!ui.LanguageOfferOpen(), "language unlock: no prompt while a queued round is running");
+        b.Release();
+        frames(ui, 3);
+        Check(ui.LanguageOfferOpen() && b.Started().size() == 2, "language unlock: queued round offers its first language");
+        click(ui, ui.LanguageNotNowRect());
+        Check(ui.LanguageOfferOpen(), "language unlock: the second language gets its own offer");
+        click(ui, ui.LanguageSwitchRect());
+        Check(!ui.LanguageOfferOpen() && b.Setting(kLanguageEurKey) == "German",
+              "language unlock: the queued second offer selects the second language");
+    }
+    CheckEq(LanguageShownName("Unofficial-English"), "English", "language unlock: generic pack shows its language name");
 }
 
 // The Settings box's Stereo panning switch (tpw-port PR #19): off when launcher.ini has no key (the original's centred sounds),
@@ -4796,7 +4985,16 @@ void CheckKeepSettings(const std::string& screens) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    std::string dir = argc > 1 ? argv[1] : "";
+    bool languageOnly = false;
+    std::string dir;
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--language-only") languageOnly = true;
+        else if (dir.empty()) dir = argv[i];
+        else {
+            std::fprintf(stderr, "usage: %s [--language-only] [screens-directory]\n", argv[0]);
+            return 1;
+        }
+    }
     if (dir.empty()) {
         const char* env = std::getenv("TPW_UI_SCREENS_DIR");
         dir = env && *env ? env : TPW_UI_SCREENS_DEFAULT;
@@ -4806,41 +5004,46 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    CheckTexts();
-    CheckNoProgram(dir);
-    CheckKeepSettings(dir);
+    if (!languageOnly) {
+        CheckTexts();
+        CheckNoProgram(dir);
+        CheckKeepSettings(dir);
+    }
 
     SDL_Surface* scratch = SDL_CreateSurface(320, 240, SDL_PIXELFORMAT_XRGB8888);
     SDL_Renderer* renderer = scratch ? SDL_CreateSoftwareRenderer(scratch) : nullptr;
     Check(renderer != nullptr, std::string("software renderer: ") + SDL_GetError());
     if (renderer) {
-        CheckButton(renderer);
-        CheckDrops(renderer);
-        CheckReady(renderer);
-        CheckDropOverlay(renderer);
-        CheckWindowsReady(renderer);
-        CheckTilePlay(renderer);
-        CheckScroll(renderer);
-        CheckSettingsScroll(renderer);
         CheckLanguages(renderer);
-        CheckVisitorLooks(renderer);
-        CheckDrawDistance(renderer);
-        CheckSoundPanSwitch(renderer);
-        CheckRideBadgesSwitch(renderer);
-        CheckGameOptions(renderer);
-        CheckSeveralKeysSwitch(renderer);
-        CheckWasdCameraSwitch(renderer);
-        CheckFreeCameraSwitch(renderer);
-        CheckOnlineServerField(renderer);
-        CheckFrameRateSlider(renderer);
-        CheckRendererRow(renderer);
-        CheckMods(renderer);
-        CheckGameData(renderer);
-        CheckVersionAndLogs(renderer);
-        CheckTitleVersion(renderer);
-        CheckHeaderAndSizes(renderer);
-        CheckUpdateBanner(renderer);
-        CheckEdited(renderer);
+        CheckLanguageUnlocks(renderer);
+        if (!languageOnly) {
+            CheckButton(renderer);
+            CheckDrops(renderer);
+            CheckReady(renderer);
+            CheckDropOverlay(renderer);
+            CheckWindowsReady(renderer);
+            CheckTilePlay(renderer);
+            CheckScroll(renderer);
+            CheckSettingsScroll(renderer);
+            CheckVisitorLooks(renderer);
+            CheckDrawDistance(renderer);
+            CheckSoundPanSwitch(renderer);
+            CheckRideBadgesSwitch(renderer);
+            CheckGameOptions(renderer);
+            CheckSeveralKeysSwitch(renderer);
+            CheckWasdCameraSwitch(renderer);
+            CheckFreeCameraSwitch(renderer);
+            CheckOnlineServerField(renderer);
+            CheckFrameRateSlider(renderer);
+            CheckRendererRow(renderer);
+            CheckMods(renderer);
+            CheckGameData(renderer);
+            CheckVersionAndLogs(renderer);
+            CheckTitleVersion(renderer);
+            CheckHeaderAndSizes(renderer);
+            CheckUpdateBanner(renderer);
+            CheckEdited(renderer);
+        }
         SDL_DestroyRenderer(renderer);
     }
     SDL_DestroySurface(scratch);
@@ -4849,6 +5052,7 @@ int main(int argc, char** argv) {
     // working on a screen; the ctest draws them all).
     const char* only = std::getenv("TPW_UI_SHOTS");
     const auto wanted = [&](const std::string& name) {
+        if (languageOnly) return name == "80-language-official-unlocked" || name == "81-language-unofficial-unlocked";
         if (only == nullptr || *only == 0) return true;
         std::string parts = only;
         for (size_t at = 0; at <= parts.size();) {

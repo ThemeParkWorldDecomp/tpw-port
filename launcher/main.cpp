@@ -2120,7 +2120,7 @@ int LauncherMain(int argc, char** argv) {
     // The edition's own (English in the European game folder, American in the US one) needs no folder.
     if (!language.empty()) {
         const std::string own = config.edition == "stp" ? "American" : "English";
-        if (tpw::UseLanguagePack(languageRoot, language))
+        if (tpw::UseLanguagePack(languageRoot, language, own))
             tpw::Log("language: %s, from %s", language.c_str(), tpw::PathText(tpw::LanguagePackFolder()).c_str());
         else if (language == own)
             tpw::Log("language: %s, the edition's own", language.c_str());

@@ -1351,6 +1351,14 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   endif()
   target_compile_definitions(tpw_launcher_ui_tests PRIVATE TPW_UI_SCREENS_DEFAULT="${CMAKE_CURRENT_BINARY_DIR}/ui-screens")
   add_test(NAME launcher_ui COMMAND tpw_launcher_ui_tests)
+  add_test(NAME launcher_language_ui COMMAND tpw_launcher_ui_tests --language-only
+           "${CMAKE_BINARY_DIR}/language-ui-screens")
+  if(TPW_PORT_FIX)
+    add_executable(tpw_unofficial_language_tests launcher/ui/tests/host_unofficial_language.cpp)
+    target_link_libraries(tpw_unofficial_language_tests PRIVATE tpw_launcher_ui)
+    add_test(NAME unofficial_language COMMAND tpw_unofficial_language_tests
+             "${CMAKE_BINARY_DIR}/unofficial-language-test")
+  endif()
   # The launcher's reads and writes of the game's settings files (launcher/ui/game_settings.h).
   add_executable(tpw_game_settings_tests launcher/ui/tests/game_settings_tests.cpp)
   target_link_libraries(tpw_game_settings_tests PRIVATE tpw_launcher_ui)

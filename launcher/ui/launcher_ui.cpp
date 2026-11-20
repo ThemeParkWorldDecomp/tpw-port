@@ -333,7 +333,8 @@ void LauncherUi::HandleEvent(const SDL_Event& e) {
                 break;
             }
             if (e.key.key == SDLK_ESCAPE) {
-                if (languageOpen_ >= 0) languageOpen_ = -1;
+                if (!languageOffers_.empty()) languageOffers_.erase(languageOffers_.begin());
+                else if (languageOpen_ >= 0) languageOpen_ = -1;
                 else if (gamePlayerOpen_) gamePlayerOpen_ = false;
                 else if (editedOpen_ >= 0) editedOpen_ = -1;
                 else if (armedRemove_ >= 0) armedRemove_ = -1;
@@ -394,6 +395,13 @@ void LauncherUi::OfferPaths(const std::vector<std::string>& paths) {
 bool LauncherUi::StartImport(const std::vector<std::string>& paths) {
     if (!roundStarted_) {
         for (int i = 0; i < 6; ++i) before_[i] = all_[i];
+        RefreshLanguages();
+        languagesBefore_.clear();
+        for (Edition edition : {assets::kEditionUs, assets::kEditionEur}) {
+            const auto choices = LanguageChoices(edition, languages_);
+            for (size_t i = 1; i < choices.size(); ++i) languagesBefore_.push_back(choices[i].name);
+        }
+        languageOffers_.clear();
         round_ = ImportReport();
         log_.clear();
     }
@@ -445,6 +453,17 @@ void LauncherUi::FinishImport(const ImportReport& report) {
     queued_.clear();
     RefreshStatus();
     RefreshLanguages();
+    for (const assets::LanguageStatus& language : languages_) {
+        if (round_.cancelled || round_.aborted) break;
+        if (std::find(languagesBefore_.begin(), languagesBefore_.end(), language.name) != languagesBefore_.end()) continue;
+        bool usable = false;
+        for (Edition edition : {assets::kEditionUs, assets::kEditionEur}) {
+            const auto choices = LanguageChoices(edition, languages_);
+            usable = usable || std::any_of(choices.begin() + 1, choices.end(),
+                                           [&](const LanguageChoice& c) { return c.name == language.name; });
+        }
+        if (usable) languageOffers_.push_back(language);
+    }
     for (int i = 0; i < 6; ++i) round_.status[i] = all_[i];
     result_ = DescribeResult(round_, before_);
     roundStarted_ = false;
@@ -1063,6 +1082,68 @@ void LauncherUi::DrawChecking(const Rect& w) {
     }
 }
 
+void LauncherUi::DrawWarningBadge(float x, float y, float radius) {
+    canvas_.FillCircle(x, y, radius, colour::kInk);
+    canvas_.FillCircle(x, y, radius - 2.5f, colour::kOrange);
+    canvas_.Polyline({{x, y - radius * 0.45f}, {x, y + radius * 0.1f}}, 5, colour::kPaper);
+    canvas_.FillCircle(x, y + radius * 0.42f, 3, colour::kPaper);
+}
+
+void LauncherUi::DrawLanguageOffer(const Rect& w) {
+    const assets::LanguageStatus language = languageOffers_.front();
+    const std::string title = LanguageUnlockedText(language);
+    // An unofficial pack in the result screen's amber style: the "!" badge, the notice, and what it is and changes as
+    // the result's dotted lines.
+    std::vector<std::string> lines;
+    if (language.unofficial) {
+        if (!language.description.empty() && language.description != kUnofficialWarning) lines.push_back(language.description);
+        lines.push_back(LanguageChangesText(language));
+    }
+    const float badgeR = 24, pw = std::min(w.w - 2 * metric::kMargin, 640.0f), tw = pw - 40 - 2 * badgeR - 16;
+    const float lh = text_.LineHeight(style::kBody);
+    float textH = 2 + text_.LineHeight(style::kHeadline) * text_.Wrap(style::kHeadline, title, tw).size() + 6;
+    if (language.unofficial)
+        textH += text_.LineHeight(style::kHeading) * text_.Wrap(style::kHeading, kUnofficialWarning, tw).size() + 4;
+    for (const std::string& line : lines) textH += lh * text_.Wrap(style::kBody, line, tw - 18).size() + 2;
+    const float ph = 40 + std::max(textH, 2 * badgeR) + 18 + 38;
+    const Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
+    canvas_.FillRound(w, 0, colour::kDim);
+    ui_.Panel(panel, colour::kYellowSoft, colour::kYellow);
+    const Rect in = panel.Inset(20);
+    if (language.unofficial)
+        DrawWarningBadge(in.x + badgeR, in.y + badgeR, badgeR);
+    else
+        ui_.DrawBadge(Badge::Check, in.x + badgeR, in.y + badgeR, badgeR, 1);
+    const float tx = in.x + 2 * badgeR + 16;
+    float y = in.y + 2;
+    y += text_.DrawWrapped(style::kHeadline, tx, y, tw, title, colour::kInk) + 6;
+    if (language.unofficial) y += text_.DrawWrapped(style::kHeading, tx, y, tw, kUnofficialWarning, colour::kInk) + 4;
+    for (const std::string& line : lines) {
+        canvas_.FillCircle(tx + 5, y + lh * 0.5f, 3.5f, colour::kOrangeDeep);
+        y += text_.DrawWrapped(style::kBody, tx + 18, y, tw - 18, line, colour::kInk) + 2;
+    }
+    y = std::max(y, in.y + 2 * badgeR) + 18;
+    const float yesW = ui_.ButtonWidth(kLanguageSwitchNow), noW = ui_.ButtonWidth(kLanguageNotNow);
+    languageSwitchRect_ = {in.Right() - yesW, y, yesW, 38};
+    languageNotNowRect_ = {languageSwitchRect_.x - 12 - noW, y, noW, 38};
+    if (ui_.Button("language-not-now", languageNotNowRect_, kLanguageNotNow, ButtonKind::Quiet)) {
+        languageOffers_.erase(languageOffers_.begin());
+    } else if (ui_.Button("language-switch-now", languageSwitchRect_, kLanguageSwitchNow, ButtonKind::Go)) {
+        bool saved = true;
+        for (int i = 0; i < 2; ++i) {
+            const auto choices = LanguageChoicesFor(i);
+            if (std::none_of(choices.begin(), choices.end(), [&](const LanguageChoice& c) { return c.name == language.name; })) continue;
+            std::string err;
+            if (backend_.SaveSetting(LanguageKey(kEditions[i]), language.name, err)) language_[i] = language.name;
+            else {
+                saved = false;
+                ShowNotice(std::string(kLanguageSwitchError) + err, true);
+            }
+        }
+        if (saved) languageOffers_.erase(languageOffers_.begin());
+    }
+}
+
 void LauncherUi::DrawResult(const Rect& w) {
     float top = DrawHeader(w, true);
     const float m = metric::kMargin, pad = 20;
@@ -1076,10 +1157,7 @@ void LauncherUi::DrawResult(const Rect& w) {
     if (result_.good) {
         ui_.DrawBadge(Badge::Check, bx, by, badgeR, 1);
     } else {
-        canvas_.FillCircle(bx, by, badgeR, colour::kInk);
-        canvas_.FillCircle(bx, by, badgeR - 2.5f, colour::kOrange);
-        canvas_.Polyline({{bx, by - badgeR * 0.45f}, {bx, by + badgeR * 0.1f}}, 5, colour::kPaper);
-        canvas_.FillCircle(bx, by + badgeR * 0.42f, 3, colour::kPaper);
+        DrawWarningBadge(bx, by, badgeR);
     }
     float tx = in.x + 2 * badgeR + 16, tw = in.Right() - tx;
     float y = in.y + 2;
@@ -1227,6 +1305,7 @@ int FrameRateSetting(const std::string& value) {
 }
 
 std::string LanguageShownName(const std::string& name) {
+    if (name.compare(0, 11, "Unofficial-") == 0) return LanguageShownName(name.substr(11));
     static const std::pair<const char*, const char*> kShown[] = {
         {"English", "English"}, {"American", "American English"}, {"French", "Fran\xC3\xA7" "ais"},
         {"German", "Deutsch"}, {"Danish", "Dansk"}, {"Swedish", "Svenska"}, {"Spanish", "Espa\xC3\xB1" "ol"},
@@ -1252,6 +1331,7 @@ std::vector<LanguageChoice> LanguageChoices(Edition edition, const std::vector<a
                       (!l.baseDateFonts || l.baseDateFontsPresent);
         if (!usable) continue;
         std::string shown = LanguageShownName(l.name);
+        if (l.unofficial) shown += kUnofficialSuffix;
         if (l.speechPresent == 0 && l.speech > 0) shown += " (speech in English)";
         else if (l.speechPresent < l.speech) shown += " (some speech in English)";
         out.push_back({l.name, shown});
@@ -1348,15 +1428,20 @@ std::vector<GameDataRow> GameDataRows(const EditionStatus all[6], const std::vec
     // for either edition (LanguageChoices).
     GameDataRow lang{"Languages", "chosen in Settings", false, 0, {}};
     std::vector<std::string> usable, partial;
+    const auto label = [&](const std::string& name) {
+        const auto found = std::find_if(languages.begin(), languages.end(),
+                                        [&](const assets::LanguageStatus& l) { return l.name == name; });
+        return LanguageShownName(name) + (found != languages.end() && found->unofficial ? kUnofficialSuffix : "");
+    };
     for (Edition e : {assets::kEditionUs, assets::kEditionEur})
         for (const LanguageChoice& c : LanguageChoices(e, languages))
             if (c.name != "English" && c.name != "American" &&
-                std::find(usable.begin(), usable.end(), LanguageShownName(c.name)) == usable.end())
-                usable.push_back(LanguageShownName(c.name));
+                std::find(usable.begin(), usable.end(), label(c.name)) == usable.end())
+                usable.push_back(label(c.name));
     for (const assets::LanguageStatus& l : languages)
         if (l.name != "English" && l.name != "American" && l.state != assets::LanguageStatus::State::Absent &&
-            std::find(usable.begin(), usable.end(), LanguageShownName(l.name)) == usable.end())
-            partial.push_back(LanguageShownName(l.name));
+            std::find(usable.begin(), usable.end(), label(l.name)) == usable.end())
+            partial.push_back(label(l.name));
     if (!usable.empty()) {
         lang.unlocked = true;
         lang.fraction = 1;
@@ -1421,6 +1506,32 @@ void LauncherUi::DrawSettings(const Rect& w) {
         y -= offset;
     }
     bool busy = verify_.valid() || backend_.Running();
+
+    // The game's language for each edition (LanguageKey): its own, or one of the data folder's (LanguageChoices).
+    text_.Draw(style::kBodyBold, in.x, y, kLanguageHeading, colour::kInk);
+    y += text_.LineHeight(style::kBodyBold) + 4;
+    for (int i = 0; i < 2; ++i) {
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, i % 2 ? colour::kCream : colour::kYellowSoft.WithAlpha(120));
+        const std::vector<LanguageChoice> choices = LanguageChoicesFor(i);
+        int choice = LanguageChoiceIndex(choices, language_[i]);
+        const float fieldW = 260;
+        std::string line = i == 0 ? "The US edition's text and the advisor's voice"
+                                  : "The European edition's text and the advisor's voice";
+        if (choice == 0 && !language_[i].empty() && language_[i] != choices[0].name)
+            line = LanguageShownName(language_[i]) + " is gone from the data folder";
+        else if (choices.size() == 1)
+            line = "Drag in a disc in another language to choose it here";
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, i == 0 ? "Sim Theme Park" : "Theme Park World", colour::kInk);
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, line, row.w - 12 - fieldW - 24, false), colour::kInkSoft);
+        languageRects_[i] = {row.Right() - 12 - fieldW, row.CentreY() - 18, fieldW, 36};
+        if (ui_.Dropdown(std::string("language-") + assets::EditionName(kEditions[i]), languageRects_[i],
+                         choices[static_cast<size_t>(choice)].shown, listOpen == i))
+            languageOpen_ = i;
+        y += rowH;
+    }
 
     text_.Draw(style::kBodyBold, in.x, y, "Data folder", colour::kInk);
     y += text_.LineHeight(style::kBodyBold) + 4;
@@ -1776,32 +1887,6 @@ void LauncherUi::DrawSettings(const Rect& w) {
             if (!backend_.SaveSetting(kInterfaceSizeKey, kValues[interfaceSize_], err))
                 settingsMessage_ = "Cannot keep the setting: " + err;
         }
-        y += rowH;
-    }
-
-    // The game's language for each edition (LanguageKey): its own, or one of the data folder's (LanguageChoices).
-    text_.Draw(style::kBodyBold, in.x, y, "Language", colour::kInk);
-    y += text_.LineHeight(style::kBodyBold) + 4;
-    for (int i = 0; i < 2; ++i) {
-        Rect row{in.x, y, in.w, rowH - 6};
-        canvas_.FillRound(row, 10, i % 2 ? colour::kCream : colour::kYellowSoft.WithAlpha(120));
-        const std::vector<LanguageChoice> choices = LanguageChoicesFor(i);
-        int choice = LanguageChoiceIndex(choices, language_[i]);
-        const float fieldW = 260;
-        std::string line = i == 0 ? "The US edition's text and the advisor's voice"
-                                  : "The European edition's text and the advisor's voice";
-        if (choice == 0 && !language_[i].empty() && language_[i] != choices[0].name)
-            line = LanguageShownName(language_[i]) + " is gone from the data folder";
-        else if (choices.size() == 1)
-            line = "Drag in a disc in another language to choose it here";
-        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
-        text_.Draw(style::kBodyBold, row.x + 12, ty, i == 0 ? "Sim Theme Park" : "Theme Park World", colour::kInk);
-        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
-                   text_.Fit(style::kSmall, line, row.w - 12 - fieldW - 24, false), colour::kInkSoft);
-        languageRects_[i] = {row.Right() - 12 - fieldW, row.CentreY() - 18, fieldW, 36};
-        if (ui_.Dropdown(std::string("language-") + assets::EditionName(kEditions[i]), languageRects_[i],
-                         choices[static_cast<size_t>(choice)].shown, listOpen == i))
-            languageOpen_ = i;
         y += rowH;
     }
 
@@ -2506,7 +2591,8 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
     } else if (gameDataReturn_ && (screen_ == Screen::Play || screen_ == Screen::Starting)) {
         gameDataReturn_ = false;
     }
-    bool overlay = aboutOpen_ || settingsOpen_ || modsOpen_ || editedOpen_ >= 0;
+    const bool languageOffer = !languageOffers_.empty();
+    bool overlay = aboutOpen_ || settingsOpen_ || modsOpen_ || editedOpen_ >= 0 || languageOffer;
     if (!settingsOpen_) languageOpen_ = -1;
     if (!settingsOpen_) gamePlayerOpen_ = false;
     if (settingsOpen_ && !settingsWereOpen_) {   // opened: the edition chosen to play and its last player, as they are now
@@ -2540,7 +2626,7 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
         case Screen::Play: DrawPlay(screen); break;
         case Screen::Starting: DrawStarting(screen); break;
     }
-    if (overlay) {
+    if (overlay && !languageOffer) {
         tilesShown_ = false;   // under the box
         readyShown_ = false;
         ui_.SetInteractive(!dragging_);
@@ -2553,6 +2639,11 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
         }
         if (licensesOpen_) DrawLicenses(window);
         if (editedOpen_ >= 0) DrawEdited(window);
+    }
+    languageSwitchRect_ = languageNotNowRect_ = Rect{};
+    if (languageOffer) {
+        ui_.SetInteractive(!dragging_);
+        DrawLanguageOffer(window);
     }
     dropOverlay_ = DrawDropOverlay(window);
     if (!settingsOpen_) onlineServerEditing_ = false;

@@ -6,6 +6,26 @@
 
 namespace tpw::ui {
 
+std::string LanguageUnlockedText(const assets::LanguageStatus& language) {
+    std::string name = language.name.compare(0, 11, "Unofficial-") == 0 ? language.name.substr(11) : language.name;
+    static const std::pair<const char*, const char*> kEnglish[] = {
+        {"American", "American English"},
+        {"TraditionalChinese", "Traditional Chinese"},
+        {"SimplifiedChinese", "Simplified Chinese"},
+    };
+    for (const auto& english : kEnglish)
+        if (name == english.first) name = english.second;
+    return "You unlocked " + name + (language.unofficial ? kUnofficialSuffix : "") + "! Switch now?";
+}
+
+std::string LanguageChangesText(const assets::LanguageStatus& language) {
+    // "text, fonts, speech" as the pack's inventory lists them, said "text, fonts and speech"
+    std::string changes = language.changes.empty() ? std::string("text and fonts") : language.changes;
+    const size_t last = changes.rfind(", ");
+    if (last != std::string::npos) changes.replace(last, 2, " and ");
+    return "This pack changes " + changes + ". Your game files are unchanged. Switching back in Settings is one click.";
+}
+
 using assets::EditionStatus;
 using assets::ImportProgress;
 using assets::ImportReport;
@@ -345,9 +365,17 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
     } else if (!report.playStation2.empty()) {
         r.headline = report.playStation2Converted ? "PS2 Guest Models ready" : "PlayStation 2 disc recognised";
         r.good = report.playStation2Converted;
+    } else if (!report.translations.empty()) {
+        // A translation (unofficial_language.h): its own line says which and what it changes.
+        r.headline = report.written ? "Language added" : "Nothing new: this language is already added";
+        r.good = true;
     } else if (report.written == 0 && !report.errors.empty()) {
-        // A damaged or unreadable drop must not read as "nothing new": name the file and the reason first.
-        r.headline = report.errors.size() == 1 ? "A file could not be read" : "Some files could not be read";
+        // A damaged or unreadable drop must not read as "nothing new": name the file and the reason first. A refused
+        // translation is said as such, its reason the line below.
+        const bool refused = report.errors.front().find(kLanguagePackRefused) != std::string::npos;
+        r.headline = refused                       ? "Language not added"
+                     : report.errors.size() == 1 ? "A file could not be read"
+                                                 : "Some files could not be read";
         r.lines.push_back(report.errors.front());
         errorShown = true;
     } else if (report.written == 0 && report.alreadyThere > 0) {
@@ -394,6 +422,7 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
     for (const std::string& line : report.themeParkInc) r.lines.push_back(line);
     for (const std::string& line : report.themeParkIncAddOn) r.lines.push_back(line);
     for (const std::string& line : report.playStation2) r.lines.push_back(line);
+    for (const std::string& line : report.translations) r.lines.push_back(line);
     if (report.written) r.lines.push_back(Files(report.written) + " put in place");
     if (report.alreadyThere) r.lines.push_back(Files(report.alreadyThere) + " already in place");
     if (!report.differentVersions.empty() && !LooksLikeOlderPressing(report) && !LooksLikeFirstRelease(report))

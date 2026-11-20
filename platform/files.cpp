@@ -252,7 +252,7 @@ static fs::path FindHostPathOf(const std::vector<std::string>& parts) {
     fs::path found = FindUnder(config().userDir, parts);
     if (!found.empty()) return found;
     // The chosen language (language_pack.h): its text, speech and pictures, at their places in the game folder.
-    if (LanguagePackCovers(parts)) {
+    if (!gWithoutPacks && LanguagePackCovers(parts)) {
         found = FindUnder(LanguagePackFolder(), parts);
         if (!found.empty()) return found;
     }
@@ -366,7 +366,7 @@ std::vector<DirEntry> ListGameFolder(const std::string& gamePath) {
     // content (tpi_content.h) is listed after the game folder, and under one of its worlds the donor's entries follow.
     enum class Root { kUser, kLanguage, kPack, kContent, kGame, kTpi };
     std::vector<std::pair<fs::path, Root>> roots{{config().userDir, Root::kUser}};
-    if (LanguagePackCovers(parts) || LanguagePackLists(parts, LanguagePackName()))
+    if (!gWithoutPacks && (LanguagePackCovers(parts) || LanguagePackLists(parts, LanguagePackName())))
         roots.emplace_back(LanguagePackFolder(), Root::kLanguage);
     if (!gWithoutPacks)
         for (const fs::path& pack : PackDirs()) roots.emplace_back(pack, Root::kPack);

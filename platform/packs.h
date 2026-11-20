@@ -14,7 +14,7 @@ namespace tpw {
 // The unpacked packs, searched first to last.
 std::vector<std::filesystem::path>& PackDirs();
 
-// While one is alive, the game's lookups on this thread pass over the packs: the game folder's own file, not a pack's,
+// While one is alive, the game's lookups on this thread pass over the packs and the chosen language: the game's own file,
 // for a reader that needs the edition's original (old_text_tables.cpp's base language, beside a pack's translation).
 class WithoutPacks {
 public:

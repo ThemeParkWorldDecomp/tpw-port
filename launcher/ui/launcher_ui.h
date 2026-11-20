@@ -421,6 +421,9 @@ public:
     // is closed), and the list's choices for it.
     Rect LanguageRect(int index) const { return settingsOpen_ ? languageRects_[index] : Rect{}; }
     std::vector<LanguageChoice> LanguageChoicesFor(int index) const;
+    bool LanguageOfferOpen() const { return !languageOffers_.empty(); }
+    Rect LanguageSwitchRect() const { return languageSwitchRect_; }
+    Rect LanguageNotNowRect() const { return languageNotNowRect_; }
     // Opens an edition's Language list (0 US, 1 European; -1 closes it), as if its field was clicked.
     void ShowLanguageList(int index);
     // A row of the open Language list in the last frame, in points (empty when no list is shown or no such row).
@@ -550,6 +553,11 @@ private:
     // Reads the data folder's languages again (ImportBackend::Languages() reads the folder; not every frame): at the
     // start, after an import, a check or a remove, and when Settings opens.
     void RefreshLanguages();
+    // The offer to switch to a language a drop made usable (languageOffers_' first), over the screen; an unofficial one
+    // carries the result screen's amber notice (DrawWarningBadge, kUnofficialWarning) and what it changes.
+    void DrawLanguageOffer(const Rect& window);
+    // The result screen's orange "!" badge, centred at (x, y).
+    void DrawWarningBadge(float x, float y, float radius);
 
     void DrawBackdrop(const Rect& window);
     float DrawHeader(const Rect& window, bool buttons);
@@ -634,6 +642,9 @@ private:
     std::vector<assets::LanguageStatus> languages_;   // the data folder's languages (RefreshLanguages)
     int languageOpen_ = -1;         // the edition whose Language list is open (0 US, 1 European), -1 none
     std::string language_[2];       // the Language an edition (0 US, 1 European), as launcher.ini keeps it (LanguageKey)
+    std::vector<std::string> languagesBefore_;  // usable names before this round of drops
+    std::vector<assets::LanguageStatus> languageOffers_;
+    Rect languageSwitchRect_, languageNotNowRect_;
     Updater* updater_ = nullptr;
 
     // A drag over the window. It goes to the window as a whole: the importer sorts each file by its content, so no tile

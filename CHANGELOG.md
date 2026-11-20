@@ -5,6 +5,7 @@
 ### New Features
 
 - A new mod, Better land buying: buy across rivers and rocks, strips one square wide and land around unbought patches, paying only for the usable land bought (Thanks @zackpollard, tpw-port #134 and tpw-mods #1)
+- Drop a language disc or your own unofficial translation on the launcher and it offers to switch to it; Language is now at the top of Settings, an unofficial translation is marked as one and kept apart from the game files, and one with damaged text or missing letters is refused
 - An asset pack can now hold a translation's text, fonts, speech and interface pictures, including the text of older editions (Thanks @Nitablade)
 
 ### Bug Fixes

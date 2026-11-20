@@ -17,6 +17,19 @@ inline constexpr const char* kDropKinds = "game discs, images, zips, 7z, rar or 
 // kDropKinds, with a capital letter when `sentence` (it starts a line).
 std::string DropKinds(bool sentence);
 
+inline constexpr const char* kLanguageHeading = "Language";
+inline constexpr const char* kUnofficialSuffix = " (Unofficial)";
+inline constexpr const char* kUnofficialWarning = "Not a known official release";
+inline constexpr const char* kLanguageSwitchNow = "Switch now";
+inline constexpr const char* kLanguageNotNow = "Not now";
+inline constexpr const char* kLanguageSwitchError = "Cannot keep the language setting: ";
+// Starts the reason a dropped translation was not added (unofficial_language.h); the result screen's headline keys on it.
+inline constexpr const char* kLanguagePackRefused = "Language pack refused: ";
+// Text for the language unlocked by a drop, by its English name ("You unlocked French! Switch now?"), an unofficial one
+// with kUnofficialSuffix. Changes are the kinds of files its inventory lists.
+std::string LanguageUnlockedText(const assets::LanguageStatus& language);
+std::string LanguageChangesText(const assets::LanguageStatus& language);
+
 // "1,683"
 std::string FormatCount(uint64_t n);
 // "812 KB", "1.4 GB"

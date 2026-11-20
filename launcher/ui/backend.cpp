@@ -5,6 +5,7 @@
 
 #include "launcher_ui.h"
 #include "updater.h"
+#include "unofficial_language.h"
 
 namespace tpw::ui {
 
@@ -22,6 +23,9 @@ bool ImporterBackend::Open(std::string& err) {
     assets::ImporterConfig config;
     config.dataRoot = assets::ResolveDataRoot(prefPath_);
     config.iniPath = IniPath();
+#ifdef TPW_PORT_FIX
+    assets::ConfigureUnofficialLanguages(config);
+#endif
     auto importer = std::make_unique<assets::Importer>(config);
     if (!importer->Open(err)) return false;
     importer_ = std::move(importer);
