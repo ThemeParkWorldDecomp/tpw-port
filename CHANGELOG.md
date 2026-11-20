@@ -12,6 +12,7 @@
 
 - Paths now join both ends of the SimCoaster/TPI mod's tunnels, and visitors wander through them
 - Visitors in the SimCoaster/TPI mod's tunnels now stay on the tunnel's two-tile walkway, and no longer wander onto the sand beside it at the tunnel mouths
+- The boulders on top of Arabian Nights' tunnel in the SimCoaster/TPI mod now clear away with the tunnel's rubble once its land is bought, so the land over the tunnel can be built on (the launcher converts the Theme Park Inc worlds again once)
 - Fixed source builds failing their tests when the optional platform-test tools are unavailable
 - Fixed building from source inside a folder named src
 
