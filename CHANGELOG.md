@@ -10,6 +10,7 @@
 ### Changes
 
 - Windows release builds now run the same platform checks as the regular builds
+- Linux build checks now retry temporary package download failures
 
 ## 0.6.0 (2026-11-19)
 

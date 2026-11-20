@@ -524,8 +524,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: desktop-file-validate, for the menu entry
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends desktop-file-utils
+          sh .github/apt-get.sh update
+          sh .github/apt-get.sh install -y --no-install-recommends desktop-file-utils
       - name: The build log keeps no user name, home folder or computer name
         run: sh devtools/test_install_log_scrub.sh
       # Once with bash (most distributions' shell) and once with sh (dash on Ubuntu) as the player's shell, each with an
