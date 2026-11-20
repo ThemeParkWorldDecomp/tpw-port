@@ -5,7 +5,7 @@
 # folder as mods_catalog.cpp. Without the folder the build has no mods, and the launcher's Mods box says so.
 set(TPW_MODS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../tpw-mods CACHE PATH "The tpw-mods folder whose mods the launcher is built with")
 # The hooks a mod.json may name (its "hooks"), each a TPW_MOD_HOOK comment in the game's code and a field of mods.h's Hooks.
-set(TPW_MOD_HOOKS strike_gate strike_messages staff_bridge_wander ps1_badge ps1_ground ps1_save_repair ps1_pick_rotation tpi_worlds tpi_islands entertainer_second_acts ps2_characters)
+set(TPW_MOD_HOOKS strike_gate strike_messages staff_bridge_wander land_rough_edges land_fair_price land_thin_strips land_unbought ps1_badge ps1_ground ps1_save_repair ps1_pick_rotation tpi_worlds tpi_islands entertainer_second_acts ps2_characters)
 # The categories a mod.json may name (its "category"), in the order the launcher's Mods box shows their groups. A mod
 # without one is in Gameplay. The launcher spells them too (launcher/ui/launcher_ui.cpp, LauncherUi::ModCategories).
 set(TPW_MOD_CATEGORIES "Bonus Content" "Gameplay")

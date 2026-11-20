@@ -12,6 +12,8 @@
 #pragma once
 
 
+// The same guards apply independently while land_rough_edges or land_unbought is on: those hooks can remove the
+// original worlds' freeform protection too. With all those hooks off and outside a TPI world, the Mac's checks remain.
 // TPW_PORT_FIX mods TpiLandBuy | Mac: no such header (TpiEditMeetsGate, TpiFillCellLeavesLevel); an edit is refused when a side passes exactly through a gate post, and the fill's scans have no bound of their own | Port: in the mod's worlds (TPW_MOD_HOOK tpi_worlds, LLCC_IsHoardingEditLegal and the fill's scans) an edit that meets the gate is refused and a scan stops at the level's edge | Why: tpw-mods tpi-worlds; a Buy Land rectangle round the gate crashed the game
 
 #include <cstdint>
