@@ -797,7 +797,8 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     add_test(NAME tpi_land_buy COMMAND tpw_host_tpi_land_buy)
   endif()
   # The TPI Worlds and Rides mod's soft edge of the park's land (TPW_MOD_HOOK tpi_worlds, include/TpiParkEdge.h): which
-  # corners of a height field cell are darkened, each from the cell under its grid point, on made-up ownership maps,
+  # corners of a height field cell are darkened, each from the cell under its grid point, and which cell a mesh vertex a hair
+  # before a grid line takes, on made-up ownership maps,
   # without game data. The original has no such mod, so it is made only with the port's fixes.
   if(TPW_PORT_FIX)
     add_executable(tpw_host_tpi_park_edge ${TPW_DECOMP_DIR}/tests/host_tpi_park_edge.cpp)
