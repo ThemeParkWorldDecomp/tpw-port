@@ -5,6 +5,7 @@
 ### Bug Fixes
 
 - Fixed source builds failing their tests when the optional platform-test tools are unavailable
+- Fixed building from source inside a folder named src
 
 ### Changes
 
