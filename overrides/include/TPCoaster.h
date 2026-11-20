@@ -1014,6 +1014,8 @@ struct sCoasterType;
 void DoImmediatePhysicsFeedback(tag_sCoasterInstance* instance);                     // 0x1004d2ec (4 bytes, untranslated)
 void SetupBraceAnimFrameData(sCoasterType* type, tag_sTrackBrace* brace);            // 0x1003bb44 (652 bytes, untranslated)
 void UpdatePylonStackMeshes(sPylonControl* control, tag_sPylon* pylon, int32_t a, int32_t b);   // 0x1003d958 (1,416 bytes, untranslated)
+// TPW_PORT_FIX pylonview PortDrawCoasterPylon | Mac: ground-cell registration | Port: support mesh visibility | Why: supports can extend into view above ground outside it
+void PortDrawCoasterPylon(tag_sRideAnimSet* set);
 int32_t ToggleLoftPylonState();                                                      // 0x10052ac4 (876 bytes): always answers 1
 extern float gCoasterVerticalFloor;   // 0x1029ce80  (name invented; zero) the lowest the loft drag may go, defined in src/game/rides/CoasterEdit.cpp, src/game/rides/CoasterTrack.cpp
 

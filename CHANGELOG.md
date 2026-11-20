@@ -21,6 +21,7 @@
 - A damaged intro film is now named as damaged, with advice to drop a good copy of either Windows CD, instead of calling the disc the first release (Thanks Merk7_18 on Reddit)
 - Fixed source builds failing their tests when the optional platform-test tools are unavailable
 - Fixed building from source inside a folder named src
+- Fixed coaster supports disappearing while riding up a hill (Thanks Piro on Discord)
 
 ### Changes
 

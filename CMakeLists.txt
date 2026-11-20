@@ -1188,6 +1188,35 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   else()
     add_test(NAME cache_grow COMMAND tpw_host_cache_grow)
   endif()
+  # Tall coaster supports whose ground footprint is outside the ride camera's view.
+  add_executable(tpw_host_pylon_visibility ${TPW_DECOMP_DIR}/tests/host_pylon_visibility.cpp
+    ${TPW_DECOMP_DIR}/src/game/TPMesh.cpp ${TPW_DECOMP_DIR}/src/engine/MapWho.cpp
+    ${TPW_DECOMP_DIR}/src/engine/tb_hfield.cpp ${TPW_DECOMP_DIR}/src/engine/Clipping.cpp ${TPW_DECOMP_DIR}/platform/arena.cpp)
+  target_include_directories(tpw_host_pylon_visibility PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+  if(TPW_PORT_FIX)
+    target_compile_definitions(tpw_host_pylon_visibility PRIVATE TPW_TEST_PORT_FIX)
+  endif()
+  tpw_slice(TARGET tpw_host_pylon_visibility NAME pylon_visibility KEEP
+    __Z20PortDrawCoasterPylonP16tag_sRideAnimSet
+    __Z14EnableMeshDrawP9tag_sMesh8HFieldXZS1_
+    __Z14EnableMeshDrawP9tag_sMesh
+    __Z15DisableMeshDrawP9tag_sMesh8HFieldXZS1_
+    __Z15DisableMeshDrawP9tag_sMesh
+    __ZN7CMapWho8Link_AddEPP12SMapLinkTypeP12CMapLinkBase
+    __ZN7CMapWho4LinkEP12CMapLinkBasei
+    __ZN7CMapWho4LinkEiiiiP12CMapLinkBasei
+    __ZN7CMapWho6UnlinkEP12CMapLinkBasei
+    __ZN7CMapWho6UnlinkEiiiiP12CMapLinkBase
+    __ZN7CMapWho17PrepareWorldspaceEv
+    __ZN12SMapLinkType13PrepareLightsEv
+    __ZN7CHField16DivideAndConquerEv
+    __ZN7CHField11TestConQuadEiiii
+    __ZN9CClipping12CPP_TestDataEPhPvS0_PKviij)
+  if(tpw_platform_tests_skipped)
+    set_target_properties(tpw_host_pylon_visibility PROPERTIES EXCLUDE_FROM_ALL ON)
+  else()
+    add_test(NAME pylon_visibility COMMAND tpw_host_pylon_visibility)
+  endif()
   # The ground the free camera sees toward the horizon (the port's fix freecam): the real CHField::DivideAndConquer and
   # TestConQuad and the clipper's outside codes on Land of Invention's map, the math unit being the test's stand-in. Made
   # in both builds; without the port's fixes it checks only the normal camera, the original's cells and far plane.
