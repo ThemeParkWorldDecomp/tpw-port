@@ -1068,6 +1068,27 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
       set_tests_properties(no_sound_${mode} PROPERTIES TIMEOUT 120)
     endforeach()
   endif()
+  # Building beside the park gate over the TPI mod's hidden hoarding, and the gate ground a park owns (include/TpiGateBuild.h),
+  # using the real map and track cells, with no game data or window. Linked as the launcher is, so this also runs on
+  # Windows and checks the original refusal with the fixes OFF.
+  if(TARGET tpw_launcher)
+    add_library(tpw_host_tpi_gate_build_objects OBJECT ${TPW_DECOMP_DIR}/tests/host_tpi_gate_build.cpp launcher/pending_manual.cpp)
+    target_include_directories(tpw_host_tpi_gate_build_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
+    target_link_libraries(tpw_host_tpi_gate_build_objects PRIVATE SDL3::SDL3)
+    target_compile_definitions(tpw_host_tpi_gate_build_objects PRIVATE TPW_HOST_TPI_GATE_BUILD_FIXED=$<BOOL:${TPW_PORT_FIX}>)
+    set(TPW_TPI_GATE_BUILD_STUBS ${CMAKE_CURRENT_BINARY_DIR}/stubs_tpi_gate_build.cpp)
+    tpw_gen_stubs(${TPW_TPI_GATE_BUILD_STUBS} tpw_host_tpi_gate_build_objects "Generating stand-ins for the TPI gate building test")
+    add_executable(tpw_host_tpi_gate_build $<TARGET_OBJECTS:tpw_host_tpi_gate_build_objects> ${TPW_TPI_GATE_BUILD_STUBS})
+    target_include_directories(tpw_host_tpi_gate_build PRIVATE ${TPW_INCLUDE_DIR} launcher)
+    target_link_libraries(tpw_host_tpi_gate_build PRIVATE tpw tpw_platform tpw_launcher_ui)
+    if(TPW_LINUX)
+      target_link_libraries(tpw_host_tpi_gate_build PRIVATE $<TARGET_FILE:tpw>)
+    endif()
+    if(WIN32)
+      target_link_options(tpw_host_tpi_gate_build PRIVATE -Wl,--export-all-symbols)
+    endif()
+    add_test(NAME tpi_gate_build COMMAND tpw_host_tpi_gate_build)
+  endif()
   # The keys each build gets (tests/host_pc_keys.cpp, the port's fix pc-keys): the seven real key tables and the keys SDL
   # gives them. Windows and Linux with the port's fixes have the PC original's Key Command Card, the Mac and a build without
   # them the Mac original's. Linked as tpw_launcher is, with its own stand-ins, so Windows CI runs it.

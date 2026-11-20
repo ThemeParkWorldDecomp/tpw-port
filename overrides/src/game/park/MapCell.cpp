@@ -37,6 +37,7 @@
 #include <cstdint>
 #include <cstdlib>
 
+#include "TpiGateBuild.h"
 // TPW_PORT_FIX v5L51 LLCC_SystemGetPointedPeepThing | Mac: no UI header | Port: UI_Base.h for gUIUnitWidth and UI_UnitToViewX | Why: the widescreen hot point below
 #include "UI_Base.h"
 
@@ -656,6 +657,11 @@ int32_t CMapCell::ConnectionType(CELL_MODES modeIn, int32_t flag) {
         track = reinterpret_cast<CTrackCell*>(reinterpret_cast<char*>(gGameWorld) + 0x2d8 +
                                               (static_cast<int32_t>(track->mParentID) - 1) * 0x28 + 0x110000);
     }
+    // TPW_PORT_FIX mods CMapCell::ConnectionType | Mac: a hoarding post and its three block cells refuse every ground placement | Port: TPW_MOD_HOOK tpi_worlds (tpw::TpiBuildOverGateHoarding, include/TpiGateBuild.h): in one of the mod's worlds a path, queue or building may stand over the hidden hoarding on the gate ground Theme Park Inc owns beside its gate, after the usual ownership and occupied ground checks; track still refuses it, and the posts and their blocks stay as they are for land buying | Why: the hidden Theme Park World fence blocked the strips beside Theme Park Inc's gate and along the road up to it (Piro, Discord, 0.6.0); off, or an original world, the Mac's
+    const int32_t cellIndex = static_cast<int32_t>(mCellId) - 1;
+    const bool hiddenHoarding = tpw::TpiBuildOverGateHoarding(static_cast<int32_t>(track->mType), mode, mStatusFlags,
+                                                              cellIndex & 0x7f, cellIndex >> 7, gHoardingLeft,
+                                                              gHoardingRight, gHoardingBottom);
     if (mode == 0xb && track->IsTrack() != 0 && gLLCCE0DC == 0) {
         gLLCCC214 = 1;
         return 1;
@@ -666,7 +672,7 @@ int32_t CMapCell::ConnectionType(CELL_MODES modeIn, int32_t flag) {
     }
     if (gLLCCC210 != 0) gLLCCC214 = 1;
     if (flag == 0 && gLLCCC214 != 0) return 1;
-    if (static_cast<int32_t>(track->mType) == 0x19) {
+    if (static_cast<int32_t>(track->mType) == 0x19 && !hiddenHoarding) {
         gLLCCC214 = 1;
         return 1;
     }
@@ -723,8 +729,8 @@ int32_t CMapCell::ConnectionType(CELL_MODES modeIn, int32_t flag) {
         gLLCCC210 = 1;
         return 1;
     }
-    if (mode == 4 && track->IsTrack() != 0) return gLLCCE0DC == 0 ? 1 : 0;
-    if (track->IsCorner() != 0 || track->IsCrossRoad() != 0) {
+    if (mode == 4 && !hiddenHoarding && track->IsTrack() != 0) return gLLCCE0DC == 0 ? 1 : 0;
+    if (!hiddenHoarding && (track->IsCorner() != 0 || track->IsCrossRoad() != 0)) {
         gLLCCC210 = 1;
         return 1;
     }

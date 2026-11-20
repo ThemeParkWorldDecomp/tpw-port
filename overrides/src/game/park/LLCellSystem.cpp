@@ -28,6 +28,7 @@
 #include "TbDynamicStringTemplate.h"
 #include "TbError.h"
 #include "ThingReceivers.h"
+#include "TpiGateBuild.h"
 #include "TpiGateFlow.h"
 #include "TpiLandBuy.h"
 #include "TPConfig.h"
@@ -1566,6 +1567,8 @@ void LLCC_DrawInitialHoarding() {
         cell->UnSetFlag(0x40);
         cell->SetHFieldTile();
     }
+    // TPW_PORT_FIX mods LLCC_DrawInitialHoarding | Mac: a new park owns the two entrance rows between the gate posts and what its hoarding encloses | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds it also owns the gate ground Theme Park Inc's hoardings.map gives every new park (tpw::TpiOwnGateGround, include/TpiGateBuild.h): both entrance rows from left - 2 to right + 3 and three columns each side of the road on the four rows before them | Why: Theme Park Inc lets a park build right beside its gate and along the road up to it, and the hidden Theme Park World fence left part of that ground unowned (Piro, Discord, 0.6.0); off, or an original world, the Mac's
+    tpw::TpiOwnGateGround(gGameWorld->mMapCells, gHoardingLeft, gHoardingRight, gHoardingBottom);
     gLLCC4818 = 0;
     RecalculateParkDarkening();
 }
@@ -1760,6 +1763,8 @@ void LLCC_ReviseHoarding(int32_t x1, int32_t y1, int32_t x2, int32_t y2) {
     LLCC_FillInsideOfPark();
     LLCC_LockHoarding(false);
     tpw::land::UnboughtAfter();
+    // TPW_PORT_FIX mods LLCC_ReviseHoarding | Mac: a new fence post marks the outside half of its block unowned | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds the gate ground stays the park's after a purchase (tpw::TpiOwnGateGround, include/TpiGateBuild.h) | Why: see LLCC_DrawInitialHoarding; a fence a purchase draws over it must not take it back; off, or an original world, the Mac's
+    tpw::TpiOwnGateGround(gGameWorld->mMapCells, gHoardingLeft, gHoardingRight, gHoardingBottom);
     RecalculateParkDarkening();
     gLLCC4818 = 0;
 }

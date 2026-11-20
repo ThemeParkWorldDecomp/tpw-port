@@ -22,6 +22,7 @@
 - Fixed source builds failing their tests when the optional platform-test tools are unavailable
 - Fixed building from source inside a folder named src
 - Fixed coaster supports disappearing while riding up a hill (Thanks Piro on Discord)
+- Fixed being unable to build paths, queues and rides right beside the park gate and along the road up to it in the SimCoaster/TPI - New Worlds, Rides and Sprites mod's worlds: that land is now the park's from the start, as in SimCoaster, in parks saved before this fix too (Thanks Piro on Discord)
 
 ### Changes
 

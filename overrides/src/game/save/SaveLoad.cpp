@@ -55,6 +55,7 @@
 #include "TPSettings.h"
 #include "TPSound.h"
 #include "TpiBumperKind.h"
+#include "TpiGateBuild.h"
 #include "TpiGateFlow.h"
 #include "TpiObstacleShut.h"
 #include "TpiOutside.h"
@@ -1307,6 +1308,8 @@ void CSaveLoad::PostLoadOperations() {
     RepairTpiOutsideFeatures();
     // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a ride keeps the remaining life it saved) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, each placed ride that no longer wears (its record's WearRate 0 at its level) and is not condemned gets its remaining life back to 100 (RepairTpiSpecialRides, include/TpiSaveRepair.h) | Why: the mod's converter 28 gives Theme Park Inc's special rides (Info.IsSpecial, which Theme Park Inc never wears out, as they cannot be rebuilt) WearRate 0, but a park keeps each ride's worn life, and one saved with no life left would still be condemned at its next breakdown (Addable13, Discord, 0.5.6); off, or an original world, a park loads as it was saved
     RepairTpiSpecialRides();
+    // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park keeps the land it saved) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, the gate ground a new park now owns (tpw::TpiOwnGateGround, include/TpiGateBuild.h) is the park's: only flag 0x40 is cleared, only on those cells, so a second load changes nothing | Why: a park saved before this fix kept that ground unowned beside Theme Park Inc's gate (Piro, Discord, 0.6.0); off, or an original world, a park loads as it was saved
+    tpw::TpiOwnGateGround(gGameWorld->mMapCells, gHoardingLeft, gHoardingRight, gHoardingBottom);
     RecalculateParkDarkening();
     gRestartParkClocks = 1;
     gClock.PostLoad();
