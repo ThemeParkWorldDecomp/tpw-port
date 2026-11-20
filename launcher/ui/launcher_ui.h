@@ -352,6 +352,15 @@ public:
     Rect LicensesBoxRect() const { return licensesOpen_ ? licensesBoxRect_ : Rect{}; }
     const std::vector<std::string>& LicensesLines() const { return licenseLines_; }
     void ShowSettings(bool open);
+    void ShowMissing(int index) { missingOpen_ = index >= 0 && index < 3 ? index : -1; }
+    int MissingOpen() const { return missingOpen_; }
+    Rect MissingButtonRect(int index) const { return index >= 0 && index < 3 ? missingButtons_[index] : Rect{}; }
+    // An orange card's state line: the pointer over it shows a short list of the gaps (GapHintRect, the card's index in
+    // GapHintShown, -1 none), and a click on it opens the What's missing box. Empty on a green or red card.
+    Rect StateLineRect(int index) const { return index >= 0 && index < 3 ? stateLines_[index] : Rect{}; }
+    int GapHintShown() const { return gapHint_; }
+    Rect GapHintRect() const { return gapHint_ >= 0 ? gapHintRect_ : Rect{}; }
+    bool IntroUnavailable() const;
     // Opens the Customized settings box of an edition (0 US, 1 European, 2 Gold; -1 closes it), as its badge does.
     void ShowEdited(int index);
     // The edition whose Customized settings box is open (0 US, 1 European, 2 Gold), -1 none.
@@ -546,8 +555,9 @@ private:
     // Flips an edition's Gold Edition switch (0 US, 1 European) and keeps it in launcher.ini (GoldKey).
     void SetGold(int index, bool on);
     TileView TileFor(int index) const;
-    // The small tiles' height: taller while one of them shows the Customized settings badge, which sits at its bottom.
-    float TileHeight() const;
+    // The small tiles' height in a row `width` wide: taller while one of them shows the Customized settings badge,
+    // which sits at its bottom, or its state on two lines.
+    float TileHeight(float width) const;
     // The Customized settings badge of an edition (status_ index) in `r`, when it has edited .sam files; opens its box.
     void EditedBadge(int index, const Rect& r);
     // Reads the data folder's languages again (ImportBackend::Languages() reads the folder; not every frame): at the
@@ -577,6 +587,11 @@ private:
     void DrawGameData(const Rect& panel, const Rect& in, float top, float footerTop);
     void DrawLicenses(const Rect& window);
     void DrawEdited(const Rect& window);
+    void DrawMissing(const Rect& window);
+    void MissingButton(int index, const Rect& rect);
+    void StateLine(int index);   // after an edition's Ui::Tile: its state line's hover and click (StateLineRect)
+    void DrawGapHint(const Rect& window);
+    int TileButtonRows(int index) const;   // the buttons under a tile's text: What's missing, Customized settings
     void DrawMods(const Rect& window);
     // The Game options section of the Settings box (settings_game.cpp): its height, and drawing it at `y` in `in`.
     float GameOptionsHeight(float rowH);
@@ -606,6 +621,11 @@ private:
     std::vector<bool> licenseHeads_;          // which of them are a library's heading
     float licenseWidth_ = 0;
     int editedOpen_ = -1;      // the edition whose Customized settings box is open (status_ index), -1 none
+    int missingOpen_ = -1;
+    Rect missingButtons_[3];
+    Rect stateLines_[3];   // last frame's (StateLineRect)
+    int gapHint_ = -1;     // the card whose state line the pointer is over (GapHintShown)
+    Rect gapHintRect_;     // where the last frame drew its list (GapHintRect)
     std::vector<assets::EditedFile> editedFiles_;   // its edited .sam files, read when it opens and after a restore
     Rect editedBadge_[3];      // last frame's (EditedBadgeRect)
     std::vector<Rect> restoreRects_;   // last frame's (RestoreRect)

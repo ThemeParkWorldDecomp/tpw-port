@@ -203,6 +203,13 @@ void Ui::DrawBadge(Badge badge, float cx, float cy, float radius, float fraction
     canvas_.FillCircle(cx, cy, radius, colour::kInk);
     float inner = radius - 2.5f;
     switch (badge) {
+        case Badge::Warning:
+        case Badge::Missing:
+            canvas_.FillCircle(cx, cy, inner, badge == Badge::Warning ? colour::kOrange : colour::kRed);
+            canvas_.FillRound({cx - radius * 0.12f, cy - radius * 0.6f, radius * 0.24f, radius * 0.75f},
+                              radius * 0.08f, colour::kPaper);
+            canvas_.FillCircle(cx, cy + radius * 0.48f, radius * 0.14f, colour::kPaper);
+            break;
         case Badge::Check:
             canvas_.FillCircle(cx, cy, inner, colour::kLime);
             canvas_.CheckMark(cx, cy + radius * 0.04f, radius * 1.15f, radius * 0.26f, colour::kPaper);
@@ -240,6 +247,22 @@ void Ui::DrawBadge(Badge badge, float cx, float cy, float radius, float fraction
     }
 }
 
+// A narrow tile sets the state a size smaller, then on two lines ("Ready to play" and its bracket), before it shortens
+// it.
+std::vector<std::string> Ui::TileState(const TileView& v, float width, Style& state) const {
+    state = text_.Width(style::kBodyBold, v.state) <= width ? style::kBodyBold : style::kSmallBold;
+    const size_t bracket = v.state.find(" (");
+    if (text_.Width(state, v.state) <= width || bracket == std::string::npos) return {v.state};
+    return {v.state.substr(0, bracket), v.state.substr(bracket + 1)};
+}
+
+float Ui::TileStateExtra(float width, const TileView& v) const {
+    const float pad = 14, inner = width - 2 * metric::kOutline;
+    Style state;
+    const size_t lines = TileState(v, inner - 2 * pad - (v.badge == Badge::None ? 0 : 2 * 15 + 10), state).size();
+    return std::max(0.0f, lines * text_.LineHeight(state) - text_.LineHeight(style::kBodyBold));
+}
+
 Rect Ui::Tile(const std::string& id, const Rect& r, const TileView& v) {
     // No tile is a drop target: a drag over the window sets the widgets still (SetInteractive), so the tile rests.
     float hover = Spring(id + "#hover", interactive_ && Hovered(r) ? 1.0f : 0.0f);
@@ -269,12 +292,20 @@ Rect Ui::Tile(const std::string& id, const Rect& r, const TileView& v) {
     const float badgeR = 15;
     DrawBadge(v.badge, x + badgeR, y + badgeR, badgeR, v.fraction);
     float tx = x + (v.badge == Badge::None ? 0 : 2 * badgeR + 10), tw = inner.Right() - pad - tx;
-    // A narrow tile sets the state a size smaller before it shortens it.
-    Style state = text_.Width(style::kBodyBold, v.state) <= tw ? style::kBodyBold : style::kSmallBold;
-    text_.Draw(state, tx, y + (text_.LineHeight(style::kBodyBold) - text_.LineHeight(state)) * 0.5f,
-               text_.Fit(state, v.state, tw, false), colour::kInk);
-    y += text_.LineHeight(style::kBodyBold) + 1;
+    Style state;
+    const std::vector<std::string> stateLines = TileState(v, tw, state);
+    const float stateH = text_.LineHeight(state);
+    float sy = y + (text_.LineHeight(style::kBodyBold) - stateH) * 0.5f, stateW = 0;
+    for (const std::string& line : stateLines) {
+        const std::string fitted = text_.Fit(state, line, tw, false);
+        text_.Draw(state, tx, sy, fitted, colour::kInk);
+        stateW = std::max(stateW, text_.Width(state, fitted));
+        sy += stateH;
+    }
+    tileState_ = {tx, y, stateW, std::max(text_.LineHeight(style::kBodyBold), sy - y)};
+    y += std::max(text_.LineHeight(style::kBodyBold), sy - y) + 1;
     y += text_.DrawWrapped(style::kSmall, tx, y, tw, v.detail, colour::kInkSoft);
+    tileTextBottom_ = y;
 
     // The bar repeats the badge's ring, so it gives way when the words need its room.
     Rect bar{x, inner.Bottom() - pad - 8 - v.footer, w, 8};

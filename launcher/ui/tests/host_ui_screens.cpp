@@ -212,38 +212,7 @@ public:
                                                 assets::kEditionUsPc,       assets::kEditionEurPc};
     // As Importer::StatusLocked (assets/importer.cpp).
     EditionStatus Status(Edition edition) const override {
-        EditionStatus s;
-        s.edition = edition;
-        const ManifestRecord* records = assets::ManifestRecords();
-        for (size_t i = 0; i < assets::ManifestRecordCount(); ++i) {
-            const ManifestRecord& r = records[i];
-            if (!(r.editions & edition)) continue;
-            bool have = (present_[i] & edition) != 0;
-            bool required = (r.flags & assets::kFlagRequired) != 0;
-            bool file = !SideFile(r);
-            bool satisfied = have;
-            if (const ManifestRecord* other = required ? assets::FilmCounterpart(r, edition) : nullptr) {
-                if (other->flags & assets::kFlagRequired) {
-                    size_t j = static_cast<size_t>(other - records);
-                    const std::string dest = r.dest;
-                    if (dest.compare(dest.size() - 4, 4, ".tgq") == 0) required = false;
-                    else satisfied = have || (present_[j] & edition) != 0;
-                }
-            }
-            ++s.records;
-            s.required += required;
-            s.requiredPresent += required && satisfied;
-            s.files += file;
-            if (have) {
-                ++s.present;
-                s.filesPresent += file;
-                s.bytesPresent += assets::RecordHash(r, 0).size;
-            } else if (required && !satisfied && r.source < 3) {
-                ++s.missing[r.source];
-                if (file) ++s.missingFiles[r.source];
-            }
-        }
-        s.unlocked = s.required > 0 && s.requiredPresent == s.required;
+        EditionStatus s = assets::DescribeEdition(edition, present_);
         auto it = edited.find(edition);
         s.edited = it == edited.end() ? 0 : it->second.size();
         return s;
@@ -359,6 +328,7 @@ void DropOlderPressing(FakeBackend& b, ImportReport& report) {
 
 // The US Windows CD's first release (1.0) as it leaves the US Windows folder: every 25th of its files has other content.
 void DropFirstRelease(FakeBackend& b, ImportReport& report) {
+    report.firstRelease = true; // the importer supplies exact-disc fingerprint evidence, tested by host_pressing
     std::vector<size_t> pc = FileRecords(assets::kEditionUsPc, assets::kSourcePcCd);
     std::vector<bool> miss(assets::ManifestRecordCount(), false);
     for (size_t k = 0; k < pc.size(); ++k) {
@@ -371,6 +341,37 @@ void DropFirstRelease(FakeBackend& b, ImportReport& report) {
     report.written = b.CountFiles(assets::kEditionUsPc) - before;
     report.entries = report.hashed = report.matched = pc.size();
     report.unknownFiles = 40;
+}
+
+// A US Windows CD whose copy has one damaged film (Reddit, 2026-11-15): every file but data/Movies/jug.tgq is in place,
+// and that one has other content.
+void DropDamagedFilm(FakeBackend& b, ImportReport& report) {
+    const std::string film = "data/Movies/jug.tgq";
+    size_t before = b.CountFiles(assets::kEditionUsPc);
+    b.Fill(assets::kEditionUsPc, [&](size_t, const ManifestRecord& r) { return film != r.dest; });
+    report.differentVersions.push_back(film);
+    report.written = b.CountFiles(assets::kEditionUsPc) - before;
+    report.entries = report.hashed = report.matched = FileRecords(assets::kEditionUsPc, assets::kSourcePcCd).size();
+}
+
+// An older pressing of the European PC CD after it: its films are good (the damaged one is filled for both Windows
+// editions), and every sixth of its other files has other content.
+void DropOlderPressingAfterDamagedFilm(FakeBackend& b, ImportReport& report) {
+    std::vector<size_t> pc = FileRecords(assets::kEditionEurPc, assets::kSourcePcCd);
+    std::vector<bool> miss(assets::ManifestRecordCount(), false);
+    const ManifestRecord* records = assets::ManifestRecords();
+    size_t k = 0;
+    for (size_t i : pc) {
+        if (std::string(records[i].dest).compare(0, 12, "data/Movies/") == 0 || !OlderPressingMiss(k++)) continue;
+        miss[i] = true;
+        report.differentVersions.push_back(records[i].dest);
+    }
+    size_t before = b.CountFiles(assets::kEditionEurPc);
+    for (Edition e : {assets::kEditionEur, assets::kEditionEurPc})
+        b.Fill(e, [&](size_t i, const ManifestRecord& r) { return r.source == assets::kSourcePcCd && !miss[i]; });
+    b.Fill(assets::kEditionUsPc, [](size_t, const ManifestRecord& r) { return std::string(r.dest) == "data/Movies/jug.tgq"; });
+    report.written = b.CountFiles(assets::kEditionEurPc) - before + 1;
+    report.entries = report.hashed = report.matched = pc.size();
 }
 
 void FillWindows(FakeBackend& b) {
@@ -1190,6 +1191,126 @@ std::vector<Shot> Shots() {
                      },
                      Screen::Result, {}});
 
+    // Gaps that do not block Play: the US Windows edition without one intro film is ready, orange, with a What's
+    // missing button that lists the film and what it costs; a partial edition is red and lists its essential files.
+    // Every record but the film `gone` (empty: but every film).
+    const auto allBut = [](const std::string& gone) {
+        return [gone](size_t, const ManifestRecord& r) {
+            const std::string dest = r.dest;
+            return dest.compare(0, 12, "data/Movies/") != 0 || (!gone.empty() && dest != gone);
+        };
+    };
+    const auto oneFilmGone = [allBut](FakeBackend& b) {
+        b.Fill(assets::kEditionUsPc, allBut("data/Movies/jug.tgq"));
+        b.FillAll(assets::kEditionEurPc);
+    };
+    shots.push_back({"47-home-ready-film-gap", metric::kStartWidth, metric::kStartHeight, oneFilmGone,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         frames(1);
+                         Check(ui.MissingButtonRect(0).w > 0 && ui.MissingButtonRect(1).w == 0,
+                               "ready home: What's missing on the orange tile only");
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"47-ready-home-film-gap", metric::kStartWidth, metric::kStartHeight,
+                     [oneFilmGone](FakeBackend& b) {
+                         oneFilmGone(b);
+                         b.FillAll(assets::kEditionGold);
+                     },
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         frames(1);
+                         Check(ui.MissingButtonRect(0).w > 0 && ui.MissingButtonRect(1).w == 0,
+                               "all-confirmed home: What's missing on the orange tile only");
+                     },
+                     Screen::Home, {}});
+    // An orange card's state line (the maintainer, 2026-11-19): the pointer over it lists the gaps in short, a click on it opens
+    // the What's missing box; a green card's has neither.
+    const auto hoverState = [](LauncherUi& ui, const std::function<void(int)>& frames, const char* where) {
+        const Rect r = ui.StateLineRect(0);
+        Check(r.w > 0 && ui.StateLineRect(1).w == 0, std::string(where) + ": a state line to point at on the orange card only");
+        ui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+        frames(30);
+        Check(ui.GapHintShown() == 0 && ui.GapHintRect().w > 0 && ui.MissingOpen() < 0,
+              std::string(where) + ": the pointer over the orange state line shows its gaps");
+    };
+    shots.push_back({"47-home-film-gap-hover", metric::kStartWidth, metric::kStartHeight, oneFilmGone,
+                     [hoverState](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         frames(1);
+                         hoverState(ui, frames, "drop-field home");
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"47-home-film-gap-hover-smallest", metric::kMinWidth, metric::kMinHeight, oneFilmGone,
+                     [hoverState](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         frames(1);
+                         hoverState(ui, frames, "drop-field home, smallest");
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"47-ready-home-film-gap-hover", metric::kStartWidth, metric::kStartHeight,
+                     [oneFilmGone](FakeBackend& b) {
+                         oneFilmGone(b);
+                         b.FillAll(assets::kEditionGold);
+                     },
+                     [hoverState](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         frames(1);
+                         hoverState(ui, frames, "all-confirmed home");
+                         ui.HandleEvent(MotionEvent(10, 10));
+                         frames(2);
+                         Check(ui.GapHintShown() < 0, "all-confirmed home: the pointer gone, so are the gaps");
+                         hoverState(ui, frames, "all-confirmed home, again");
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"47-ready-home-green", metric::kStartWidth, metric::kStartHeight, FillEverything,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         frames(1);
+                         Check(ui.StateLineRect(0).w == 0 && ui.StateLineRect(1).w == 0 && ui.MissingButtonRect(0).w == 0,
+                               "green home: no state line to point at, no What's missing");
+                         ui.HandleEvent(MotionEvent(metric::kStartWidth * 0.25f, metric::kStartHeight * 0.3f));
+                         frames(30);
+                         Check(ui.GapHintShown() < 0, "green home: nothing listed under the pointer");
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"47-state-line-click", metric::kStartWidth, metric::kStartHeight, oneFilmGone,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         frames(1);
+                         ClickAt(ui, ui.StateLineRect(0), frames);
+                         Check(ui.MissingOpen() == 0 && ui.GapHintShown() < 0,
+                               "a click on the orange state line opens What's missing, over the short list");
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"47-whats-missing-film", metric::kStartWidth, metric::kStartHeight, oneFilmGone,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         frames(1);
+                         ui.ShowMissing(0);
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"47-whats-missing-essential-smallest", metric::kMinWidth, metric::kMinHeight,
+                     [](FakeBackend& b) {
+                         b.Fill(assets::kEditionUsPc, [](size_t i, const ManifestRecord&) { return i % 7 != 0; });
+                     },
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         frames(1);
+                         Check(ui.MissingButtonRect(0).w > 0 && ui.MissingButtonRect(1).w == 0,
+                               "drop-field home: What's missing on the partial tile only");
+                         ui.ShowMissing(0);
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"47-result-damaged-film", metric::kStartWidth, metric::kStartHeight, nullptr,
+                     [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>&) {
+                         FakeBackend::Script s;
+                         s.finish = [](FakeBackend& fb, ImportReport& r) { DropDamagedFilm(fb, r); };
+                         b.Queue(s);
+                         ui.OfferPaths({"/media/US Windows CD"});
+                     },
+                     Screen::Result, {}});
+    // No intro film at all: Skip the intro films is on and locked, and says why.
+    shots.push_back({"47-settings-no-intro-films", metric::kStartWidth, metric::kStartHeight,
+                     [allBut](FakeBackend& b) { b.Fill(assets::kEditionUsPc, allBut("")); },
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         frames(1);
+                         Check(ui.IntroUnavailable(), "no intro films: Skip intro is forced on");
+                         ui.ShowSettings(true);
+                     },
+                     Screen::Home, {}});
+
     shots.push_back({"18-play-wide", 1100, 760, PartialUsEur,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
                          ui.ShowScreen(LauncherUi::Screen::Play);
@@ -1792,13 +1913,14 @@ void CheckWindowsTexts() {
     const EditionStatus& us = SlotStatus(all, 0);
     Check(us.edition == assets::kEditionUsPc && us.unlocked, "SlotStatus: the US Windows edition shows when ready");
     Check(SlotStatus(all, 1).edition == assets::kEditionEurPc, "SlotStatus: the European Windows edition shows when ready");
-    CheckEq(DescribeSlot(all, 0).state, "Ready to play", "US Windows tile state");
+    CheckEq(DescribeSlot(all, 0).state, "Ready to play (all files matched)", "US Windows tile state");
     CheckEq(DescribeSlot(all, 0).detail, Files(us.filesPresent) + " confirmed; no Mac bonus rides", "US Windows tile detail");
     ResultText r = DescribeResult(report, before);
-    CheckEq(r.headline, "All assets confirmed for the US edition (Windows disc) and the European edition (Windows disc)",
+    CheckEq(r.headline, "Ready to play (all files matched): the US edition (Windows disc) and the European edition (Windows disc)",
             "Windows discs headline");
-    Check(r.good && r.lines.size() >= 2 && r.lines[0] == "US edition (Windows disc): ready to play" &&
-              r.lines[1] == "European edition (Windows disc): ready to play",
+    Check(r.lines.back() == "Drop more discs any time.", "a result ends with: drop more discs any time");
+    Check(r.good && r.lines.size() >= 2 && r.lines[0] == "US edition (Windows disc): ready to play (all files matched)" &&
+              r.lines[1] == "European edition (Windows disc): ready to play (all files matched)",
           "Windows discs: a line a tile");
 
     // the Mac CD then: the Mac editions show again, and the European one is named alone
@@ -1809,11 +1931,11 @@ void CheckWindowsTexts() {
     b.AllStatuses(all);
     Check(SlotStatus(all, 0).edition == assets::kEditionUs && SlotStatus(all, 1).edition == assets::kEditionEur,
           "SlotStatus: a ready Mac edition goes first");
-    CheckEq(DescribeResult(report, before).headline, "All assets confirmed for the US edition and the European edition",
+    CheckEq(DescribeResult(report, before).headline, "Ready to play (all files matched): the US edition and the European edition",
             "Mac CD after the Windows discs");
     // both editions dropped together: the Windows one is not named beside the Mac one of its tile
     for (int i = 0; i < 6; ++i) before[i] = EditionStatus();
-    CheckEq(DescribeResult(report, before).headline, "All assets confirmed for the US edition and the European edition",
+    CheckEq(DescribeResult(report, before).headline, "Ready to play (all files matched): the US edition and the European edition",
             "Mac and Windows discs together");
 
     // partial: the one with more files shows, and its missing files name its own disc
@@ -1844,6 +1966,80 @@ void CheckWindowsTexts() {
     for (const std::string& line : fr.lines)
         Check(line.find("of a different version") == std::string::npos, "first release: the versions are said once");
     std::printf("first release (scripted): %s\n", fr.headline.c_str());
+
+    // a US Windows CD with one damaged film (Reddit, 2026-11-15): not the first release; an intro film is not needed to
+    // play, so the edition is ready with a gap (orange), and the film is named, with the discs that have it
+    FakeBackend d;
+    d.AllStatuses(before);
+    ImportReport film;
+    DropDamagedFilm(d, film);
+    d.AllStatuses(film.status);
+    const EditionStatus& usFilm = film.status[StatusIndex(assets::kEditionUsPc)];
+    Check(usFilm.unlocked && usFilm.filesPresent + 1 == usFilm.files, "a damaged film: the US Windows folder lacks one file");
+    Check(EditionCardState(usFilm) == CardState::Orange && usFilm.introFilmsPresent + 1 == usFilm.introFilms &&
+              usFilm.gaps.size() == 1 && usFilm.gaps[0].dest == "data/Movies/jug.tgq",
+          "a damaged film: the card is orange, and its gap is the film");
+    CheckEq(DescribeTile(usFilm).state, "Ready to play (files missing, minimal effect)", "a damaged film: the tile state");
+    {
+        // the same edition with only a repaired settings file for a gap, nothing missing (the maintainer, 2026-11-19)
+        EditionStatus repaired = usFilm;
+        repaired.gaps = {{"data/Data/Global.sam", "Damaged settings, repaired from the original game's", false}};
+        repaired.repaired = 1;
+        Check(EditionCardState(repaired) == CardState::Orange, "a repaired settings file: the card is orange");
+        CheckEq(DescribeTile(repaired).state, "Ready to play (files repaired, minimal effect)",
+                "a repaired settings file: the tile state");
+        repaired.gaps.push_back(usFilm.gaps[0]);
+        CheckEq(DescribeTile(repaired).state, "Ready to play (files missing, minimal effect)",
+                "a repaired settings file and a missing film: the tile state");
+    }
+    CheckEq(DescribeTile(usFilm).detail, Files(usFilm.filesPresent) + " confirmed; 1 intro film missing, skipped; "
+                                         "no Mac bonus rides. Drop more discs any time.", "a damaged film: the tile detail");
+    Check(DamagedFilms(film) == std::vector<std::string>{"data/Movies/jug.tgq"}, "a damaged film is found");
+    Check(!LooksLikeFirstRelease(film), "a damaged film is not the first release");
+    Check(!LooksLikeOlderPressing(film), "a damaged film is not an older pressing");
+    ResultText dr = DescribeResult(film, before);
+    CheckEq(dr.headline, "Ready to play (files missing, minimal effect): the US edition (Windows disc)", "damaged film headline");
+    const std::string filmLine = "1 intro film is damaged: jug.tgq. Play skips it. The others still play. To fix it: "
+                                 "drop a good copy of either Windows CD, US or European.";
+    Check(dr.good && !dr.lines.empty() && dr.lines[0] == filmLine, "damaged film: the file and the discs that have it");
+    for (const std::string& line : dr.lines)
+        Check(line.find("of a different version") == std::string::npos && line.find("1.0") == std::string::npos,
+              "damaged film: said once, and no patch advice");
+    std::printf("damaged film (scripted): %s\n", dr.headline.c_str());
+
+    // the Gold CD in the same drop: Gold is confirmed, and the film is still named
+    FakeBackend g;
+    g.AllStatuses(before);
+    ImportReport gold;
+    DropDamagedFilm(g, gold);
+    g.FillAll(assets::kEditionGold);
+    g.AllStatuses(gold.status);
+    ResultText gr = DescribeResult(gold, before);
+    bool named = false;
+    for (const std::string& line : gr.lines) named = named || line == filmLine;
+    Check(gr.good && named, "damaged film with Gold: Gold is confirmed and the film is named");
+
+    // then an older pressing of the European PC CD: its film completes the US edition, and the headline counts are the
+    // European tile's
+    d.AllStatuses(before);
+    ImportReport older;
+    DropOlderPressingAfterDamagedFilm(d, older);
+    d.AllStatuses(older.status);
+    Check(older.status[StatusIndex(assets::kEditionUsPc)].unlocked, "the European disc's film completes the US edition");
+    const EditionStatus& eurTile = SlotStatus(older.status, 1);
+    Check(eurTile.edition == assets::kEditionEurPc && !eurTile.unlocked, "the European tile shows its Windows edition");
+    Check(LooksLikeOlderPressing(older), "the older pressing after a damaged film is recognised");
+    ResultText orr = DescribeResult(older, before);
+    CheckEq(orr.headline, "Older pressing, " + FormatCount(eurTile.filesPresent) + " of " + FormatCount(eurTile.files) +
+                              " confirmed", "older pressing headline: the European tile's counts");
+    bool tile = false, newer = false;
+    for (const std::string& line : orr.lines) {
+        tile = tile || line == "US edition (Windows disc): ready to play (all files matched)";
+        newer = newer || line == "A European PC CD from 2000 or later has every file in the version used.";
+        Check(line != filmLine, "older pressing: the film is in place, so not named");
+    }
+    Check(tile && newer, "older pressing: the US tile is ready, and a 2000 European PC CD is named");
+    std::printf("older pressing after a damaged film (scripted): %s\n", orr.headline.c_str());
 }
 
 void CheckTexts() {
@@ -1860,7 +2056,7 @@ void CheckTexts() {
         tpi.themeParkIncConverted = true;
         ResultText result = DescribeResult(tpi, before);
         CheckEq(result.headline, "SimCoaster AKA Theme Park Inc worlds ready", "TPI conversion headline");
-        Check(result.good && result.lines.size() == 1 && result.lines.front() == tpi.themeParkInc.front(),
+        Check(result.good && result.lines.size() == 2 && result.lines.front() == tpi.themeParkInc.front(),
               "TPI conversion reports its own content without changing edition counts");
         tpi.themeParkIncConverted = false;
         result = DescribeResult(tpi, before);
@@ -1870,8 +2066,8 @@ void CheckTexts() {
         tpi.playStation.push_back("PlayStation rides: 7 rides and the Tower converted.");
         tpi.playStationConverted = true;
         result = DescribeResult(tpi, before);
-        Check(result.headline == "PlayStation rides ready" && result.lines.size() == 2 &&
-                  result.lines.back() == tpi.themeParkInc.front(),
+        Check(result.headline == "PlayStation rides ready" && result.lines.size() == 3 &&
+                  result.lines[1] == tpi.themeParkInc.front(),
               "both discs: the PlayStation headline, then both converters' lines");
     }
     {
@@ -1881,7 +2077,7 @@ void CheckTexts() {
         ps1.playStationConverted = true;
         ResultText result = DescribeResult(ps1, before);
         CheckEq(result.headline, "PlayStation rides ready", "PS1 conversion headline");
-        Check(result.good && result.lines.size() == 1 && result.lines.front() == ps1.playStation.front(),
+        Check(result.good && result.lines.size() == 2 && result.lines.front() == ps1.playStation.front(),
               "PS1 conversion reports its own content without changing edition counts");
         ps1.playStationConverted = false;
         result = DescribeResult(ps1, before);
@@ -1894,7 +2090,7 @@ void CheckTexts() {
         bonus.themeParkIncAddOnAdded = true;
         ResultText result = DescribeResult(bonus, before);
         CheckEq(result.headline, "SimCoaster Bonus Disk rides added", "Bonus Disk headline");
-        Check(result.good && result.lines.size() == 1 && result.lines.front() == bonus.themeParkIncAddOn.front(),
+        Check(result.good && result.lines.size() == 2 && result.lines.front() == bonus.themeParkIncAddOn.front(),
               "Bonus Disk reports its own line without changing edition counts");
         Check(!bonus.ChangedNothing(), "a Bonus Disk that added rides changed something");
         bonus.themeParkIncAddOnAdded = false;
@@ -1912,8 +2108,8 @@ void CheckTexts() {
         bonus.themeParkInc.push_back("SimCoaster AKA Theme Park Inc: 3 worlds converted from the US copy.");
         bonus.themeParkIncConverted = true;
         result = DescribeResult(bonus, before);
-        Check(result.headline == "SimCoaster AKA Theme Park Inc worlds ready" && result.lines.size() == 2 &&
-                  result.lines.back() == bonus.themeParkIncAddOn.front(),
+        Check(result.headline == "SimCoaster AKA Theme Park Inc worlds ready" && result.lines.size() == 3 &&
+                  result.lines[1] == bonus.themeParkIncAddOn.front(),
               "Bonus Disk with the game: the game's headline, then both lines");
     }
     {
@@ -1925,7 +2121,7 @@ void CheckTexts() {
         ps2.playStation2Converted = true;
         ResultText result = DescribeResult(ps2, before);
         CheckEq(result.headline, "PS2 Guest Models ready", "PS2 conversion headline");
-        Check(result.good && result.lines.size() == 1 && result.lines.front() == ps2.playStation2.front(),
+        Check(result.good && result.lines.size() == 2 && result.lines.front() == ps2.playStation2.front(),
               "PS2 conversion reports its own content without changing edition counts");
         ps2.playStation2Converted = false;
         result = DescribeResult(ps2, before);
@@ -1944,8 +2140,8 @@ void CheckTexts() {
         both.playStation2 = ps2.playStation2;
         both.playStation2Converted = true;
         result = DescribeResult(both, before);
-        Check(result.headline == "PlayStation rides ready" && result.lines.size() == 2 &&
-                  result.lines.back() == ps2.playStation2.front(),
+        Check(result.headline == "PlayStation rides ready" && result.lines.size() == 3 &&
+                  result.lines[1] == ps2.playStation2.front(),
               "PS1 and PS2 discs: the PlayStation headline, then both converters' lines");
     }
     CheckEq(FileUrl("/Users/a b/Library/Application Support/STP-TPW Launcher/logs"),
@@ -2009,7 +2205,7 @@ void CheckTexts() {
     b.FillAll(assets::kEditionEur);
     EditionStatus full = b.Status(assets::kEditionEur);
     Check(full.unlocked, "a full European folder unlocks");
-    CheckEq(DescribeTile(full).state, "Ready to play", "unlocked tile state");
+    CheckEq(DescribeTile(full).state, "Ready to play (all files matched)", "unlocked tile state");
     CheckEq(DescribeTile(full).detail, Files(full.filesPresent) + " confirmed", "unlocked tile detail");
 
     // a damaged container: the result names the file and the reason, and is not "nothing new"

@@ -82,17 +82,35 @@ std::string MissingText(const assets::EditionStatus& status);
 std::string WindowsEditionNote(assets::Edition edition);
 
 struct TileText {
-    std::string state;   // "Ready to play", "715 of 845 confirmed", "Locked"
+    std::string state;   // ReadyLabel, "715 of 845 confirmed", "Locked"
     std::string detail;  // "1,683 files confirmed", "Drag in the US Mac CD to unlock", ...
 };
 TileText DescribeTile(const assets::EditionStatus& status);
+// GREEN every file in place (edited settings the game reads included), ORANGE ready with a gap that does not block
+// Play (an intro film, a repaired settings file), RED a file the game needs is missing.
+enum class CardState { Green, Orange, Red };
+CardState EditionCardState(const assets::EditionStatus& status);
+// A ready edition's state (the maintainer, 2026-11-19): "Ready to play (all files matched)" when green; orange, "Ready to play
+// (files repaired, minimal effect)" when its only gaps are repaired settings files, else "Ready to play (files missing,
+// minimal effect)". `inLine`: with a small r, inside a line ("US edition: ready to play (all files matched)").
+std::string ReadyLabel(const assets::EditionStatus& status, bool inLine = false);
+// A ready edition's gaps and kept edits, for its tile: "; 1 intro film missing, skipped; your edited settings kept".
+std::string GapsText(const assets::EditionStatus& status);
+// The last words of every result and of a tile with a gap.
+extern const char* const kDropMore;
 // Tile `slot` (all six statuses, StatusIndex order): DescribeTile of what it shows, but a tile with nothing yet names
 // both its discs ("Drag in the US Mac CD or the US Windows CD to unlock").
 TileText DescribeSlot(const assets::EditionStatus all[6], int slot);
 
+// The films (data/Movies/*.tgq) of a drop with other content. Every Windows CD, US or European, of every pressing, has
+// the same films, so one of another content is a damaged copy of the disc, never another pressing: the result names
+// it and says a good copy of either Windows CD fills it. The two checks below do not count these.
+std::vector<std::string> DamagedFilms(const assets::ImportReport& report);
+
 // A European folder that a drop left partial, with files of another content where the manifest expects its own: the
-// older pressing of the PC CD. Reported as "Older pressing, <n> of <files> confirmed" with the Status counts.
-// Not the US Windows CD's first release (LooksLikeFirstRelease), which leaves the European folders partial too.
+// older pressing of the PC CD. Reported as "Older pressing, <n> of <files> confirmed" with the Status counts of the
+// edition the European tile shows (SlotStatus). Not the US Windows CD's first release (LooksLikeFirstRelease), which
+// leaves the European folders partial too.
 bool LooksLikeOlderPressing(const assets::ImportReport& report);
 // The US Windows CD's first release (1.0): the US Windows folder is left partial, with files of another version, and
 // more of its files were found than of the European Windows folder's. The game is played from the 2.0 files: the

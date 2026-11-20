@@ -38,9 +38,6 @@ constexpr const char* kAboutLabel = "About / Game Data";   // the header's third
 constexpr float kDiamondW = 22, kDiamondH = 18;              // the Mods button's diamond (Diamond)
 constexpr float kAboutWidth = 700;     // the About / Game Data and Licenses boxes' widest
 
-// The tiles' header bands.
-constexpr Rgba kAccents[3] = {colour::kSkyChip, colour::kOrange, colour::kYellow};
-
 Rgba ToneColour(LogRow::Tone tone) {
     switch (tone) {
         case LogRow::Good: return colour::kLimeDeep;
@@ -383,6 +380,7 @@ void LauncherUi::OfferPaths(const std::vector<std::string>& paths) {
     gameDataReturn_ = gameDataReturn_ || aboutOpen_;   // the drop is checked as anywhere, then the box comes back
     aboutOpen_ = settingsOpen_ = modsOpen_ = licensesOpen_ = false;
     editedOpen_ = -1;
+    missingOpen_ = -1;
     armedRemove_ = -1;
     if (backend_.Running()) {
         queued_.push_back(paths);
@@ -503,7 +501,7 @@ void LauncherUi::StartPlay(int index, bool gold) {
     playIndex_ = index;
     choice_.edition = status_[index].edition;   // the tile's Mac edition, or its Windows one
     choice_.gold = gold;
-    choice_.skipIntro = skipIntro_;
+    choice_.skipIntro = skipIntro_ || (status_[index].introFilms > 0 && status_[index].introFilmsPresent == 0);
     choice_.backToLauncher = backToLauncher_;
     choice_.language = PlayLanguage(kEditions[index], languages_, language_[index]);
     playChosen_ = true;
@@ -704,8 +702,10 @@ TileView LauncherUi::TileFor(int i) const {
     v.game = EditionGame(s.edition);
     v.state = t.state;
     v.detail = t.detail;
-    v.accent = kAccents[i];
-    v.badge = s.unlocked ? Badge::Check : s.present ? Badge::Partial : Badge::Lock;
+    v.badge = EditionCardState(s) == CardState::Green ? Badge::Check
+              : EditionCardState(s) == CardState::Orange ? Badge::Warning : Badge::Missing;
+    if (i == 2 && s.unlocked && !AnyPlayable()) v.badge = Badge::Warning;
+    v.accent = v.badge == Badge::Check ? colour::kLime : v.badge == Badge::Warning ? colour::kOrange : colour::kRed;
     v.fraction = s.files ? static_cast<float>(s.filesPresent) / static_cast<float>(s.files) : 0.0f;
     return v;
 }
@@ -875,10 +875,20 @@ float LauncherUi::DrawUpdateBanner(const Rect& w, float top) {
     return r.Bottom() + metric::kGap;
 }
 
-float LauncherUi::TileHeight() const {
-    for (const EditionStatus& s : status_)
-        if (s.edited > 0) return kTileHeight + kEditedBadgeH + 8;
-    return kTileHeight;
+// A row under the text for each button a tile shows (What's missing, Customized settings); the tiles share the tallest.
+int LauncherUi::TileButtonRows(int i) const {
+    const EditionStatus& s = status_[i];
+    return (s.edited > 0) + (s.present > 0 && !s.gaps.empty());
+}
+
+float LauncherUi::TileHeight(float width) const {
+    int rows = 0;
+    float extra = 0;
+    for (int i = 0; i < 3; ++i) {
+        rows = std::max(rows, TileButtonRows(i));
+        extra = std::max(extra, ui_.TileStateExtra((width - 2 * metric::kGap) / 3, TileFor(i)));
+    }
+    return kTileHeight + rows * (kEditedBadgeH + 8) + extra;
 }
 
 // The edition keeps .sam settings files the player edited (tpw-port #94): a badge that says so and opens the list. It
@@ -898,9 +908,13 @@ void LauncherUi::DrawTiles(const Rect& row) {
         Rect r{row.x + i * (tw + metric::kGap), row.y, tw, row.h};
         tileRects_[i] = r;
         TileView v = TileFor(i);
-        if (status_[i].edited > 0) v.footer = kEditedBadgeH + 8;
+        const int rows = TileButtonRows(i);
+        v.footer = rows * (kEditedBadgeH + 8);
         tileDrawn_[i] = ui_.Tile(std::string("tile-") + assets::EditionName(kEditions[i]), r, v);
-        EditedBadge(i, {r.x + 16, r.Bottom() - 16 - kEditedBadgeH, std::min(bw, r.w - 32), kEditedBadgeH});
+        StateLine(i);
+        MissingButton(i, {r.x + 16, r.Bottom() - 16 - kEditedBadgeH, r.w - 32, kEditedBadgeH});
+        const float editedY = r.Bottom() - 16 - kEditedBadgeH - (rows > 1 ? kEditedBadgeH + 8 : 0);
+        EditedBadge(i, {r.x + 16, editedY, std::min(bw, r.w - 32), kEditedBadgeH});
     }
     tilesShown_ = true;
 }
@@ -926,7 +940,8 @@ void LauncherUi::DrawHome(const Rect& w) {
     const float m = metric::kMargin;
 
     // The tiles at the bottom, a margin above the window's edge.
-    Rect tiles{m, w.Bottom() - m - TileHeight(), w.w - 2 * m, TileHeight()};
+    const float tileH = TileHeight(w.w - 2 * m);
+    Rect tiles{m, w.Bottom() - m - tileH, w.w - 2 * m, tileH};
     Rect field{m, top, w.w - 2 * m, tiles.y - metric::kGap - top - 4};
     fieldRect_ = field;
 
@@ -995,14 +1010,17 @@ void LauncherUi::DrawReady(const Rect& w) {
         v.title = kGames[i];
         v.game = std::string(EditionTitle(status_[i].edition)) +
                  (assets::IsWindowsEdition(status_[i].edition) ? ", from the Windows disc" : "");
-        v.state = "Ready to play";
-        v.detail = Files(status_[i].filesPresent) + " confirmed";
+        v.state = DescribeTile(status_[i]).state;
+        v.detail = Files(status_[i].filesPresent) + " confirmed" + GapsText(status_[i]);
         const std::string note = WindowsEditionNote(status_[i].edition);
         if (!note.empty()) v.detail += ". " + note + ".";
-        v.accent = kAccents[i];
-        v.badge = Badge::Check;
+        if (!status_[i].gaps.empty()) v.detail += (note.empty() ? ". " : " ") + std::string(kDropMore);
+        v.accent = EditionCardState(status_[i]) == CardState::Green ? colour::kLime : colour::kOrange;
+        v.badge = EditionCardState(status_[i]) == CardState::Green ? Badge::Check : Badge::Warning;
         v.fraction = 1;
         tileDrawn_[i] = ui_.Tile(std::string("ready-") + assets::EditionName(kEditions[i]), r, v);
+        StateLine(i);
+        MissingButton(i, {r.x + pad, ui_.TileTextBottom() + 10, r.w - 2 * pad, 28});
 
         // Inside, at the bottom: the Gold Edition switch (this home shows only once the Gold bonus rides are confirmed
         // too; off plays the plain edition), then the Play button. The switch is the Play screen's card's: one state an
@@ -1147,7 +1165,8 @@ void LauncherUi::DrawLanguageOffer(const Rect& w) {
 void LauncherUi::DrawResult(const Rect& w) {
     float top = DrawHeader(w, true);
     const float m = metric::kMargin, pad = 20;
-    Rect tiles{m, w.Bottom() - m - TileHeight(), w.w - 2 * m, TileHeight()};
+    const float tileH = TileHeight(w.w - 2 * m);
+    Rect tiles{m, w.Bottom() - m - tileH, w.w - 2 * m, tileH};
     Rect panel{m, top, w.w - 2 * m, tiles.y - metric::kGap - 4 - top};
     ui_.Panel(panel, colour::kYellowSoft, colour::kYellow);
     Rect in = panel.Inset(pad);
@@ -1617,11 +1636,15 @@ void LauncherUi::DrawSettings(const Rect& w) {
         canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
         float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
         text_.Draw(style::kBodyBold, row.x + 12, ty, "Skip the intro films", colour::kInk);
+        const bool noFilms = IntroUnavailable();
         text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
-                   text_.Fit(style::kSmall, "Play goes straight to the lobby, without the logos and the opening film",
+                   text_.Fit(style::kSmall, noFilms ? "On: all intro films are missing or damaged. Drop a disc to add them."
+                                                  : "Play goes straight to the lobby, without the logos and the opening film",
                              row.w - 12 - 56 - 24, false),
                    colour::kInkSoft);
-        if (ui_.Toggle("skip-intro", {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32}, skipIntro_)) {
+        bool skip = noFilms || skipIntro_;
+        if (ui_.Toggle("skip-intro", {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32}, skip, !noFilms)) {
+            skipIntro_ = skip;
             std::string err;
             if (!backend_.SaveSetting(kSkipIntroKey, skipIntro_ ? "1" : "0", err))
                 settingsMessage_ = "Cannot keep the setting: " + err;
@@ -2497,7 +2520,9 @@ void LauncherUi::DrawEdited(const Rect& w) {
         std::string note = f.unreadableLine > 0
                                ? "Line " + std::to_string(f.unreadableLine) +
                                      " can't be read; the game may crash or ignore later settings."
-                               : "The game reads all of it.";
+                               : f.repaired ? "Repaired: the lines the game could not read were put back from the "
+                                              "original. The game reads all of it."
+                                            : "The game reads all of it.";
         if (!f.original) note += " No copy of the original is kept yet: drag the disc in again to make one.";
         notes.push_back(text_.Wrap(style::kSmall, note, textW));
         rowH.push_back(std::max(rowButtonH, boldH + 2 + smallH * notes.back().size()) + 12);
@@ -2592,7 +2617,7 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
         gameDataReturn_ = false;
     }
     const bool languageOffer = !languageOffers_.empty();
-    bool overlay = aboutOpen_ || settingsOpen_ || modsOpen_ || editedOpen_ >= 0 || languageOffer;
+    bool overlay = aboutOpen_ || settingsOpen_ || modsOpen_ || editedOpen_ >= 0 || missingOpen_ >= 0 || languageOffer;
     if (!settingsOpen_) languageOpen_ = -1;
     if (!settingsOpen_) gamePlayerOpen_ = false;
     if (settingsOpen_ && !settingsWereOpen_) {   // opened: the edition chosen to play and its last player, as they are now
@@ -2610,6 +2635,9 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
     aboutButtonRect_ = settingsButtonRect_ = Rect{};
     if (!aboutOpen_) licensesOpen_ = false;
     for (Rect& r : editedBadge_) r = Rect{};
+    for (Rect& r : missingButtons_) r = Rect{};
+    for (Rect& r : stateLines_) r = Rect{};
+    gapHint_ = -1;
     for (Rect& r : tilePlay_) r = Rect{};
     if (editedOpen_ < 0) restoreRects_.clear();
     if (!aboutOpen_) exported_ = LogsExport{};
@@ -2639,7 +2667,9 @@ void LauncherUi::Frame(float dt, float width, float height, float scale) {
         }
         if (licensesOpen_) DrawLicenses(window);
         if (editedOpen_ >= 0) DrawEdited(window);
+        if (missingOpen_ >= 0) DrawMissing(window);
     }
+    if (gapHint_ >= 0 && missingOpen_ < 0) DrawGapHint(window);   // over the cards, under a language offer
     languageSwitchRect_ = languageNotNowRect_ = Rect{};
     if (languageOffer) {
         ui_.SetInteractive(!dragging_);

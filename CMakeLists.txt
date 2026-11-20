@@ -1089,6 +1089,27 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     endif()
     add_test(NAME pc_keys COMMAND tpw_host_pc_keys)
   endif()
+  # The intro films' proof for the import cards: the genuine GAMESYSTEM_Tick intro states with an empty data/Movies reach the
+  # lobby, each missing film skipped and no window made (tests/host_intro_sequence.cpp). Linked as tpw_launcher is.
+  if(TARGET tpw_launcher)
+    add_library(tpw_host_intro_sequence_objects OBJECT ${TPW_DECOMP_DIR}/tests/host_intro_sequence.cpp
+                ${TPW_DECOMP_DIR}/tests/host_intro_sequence_config.cpp launcher/pending_manual.cpp)
+    target_include_directories(tpw_host_intro_sequence_objects PRIVATE ${TPW_INCLUDE_DIR}
+                               ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
+    target_link_libraries(tpw_host_intro_sequence_objects PRIVATE SDL3::SDL3)
+    set(TPW_INTRO_SEQUENCE_STUBS ${CMAKE_CURRENT_BINARY_DIR}/stubs_intro_sequence.cpp)
+    tpw_gen_stubs(${TPW_INTRO_SEQUENCE_STUBS} tpw_host_intro_sequence_objects "Generating stand-ins for the intro sequence test")
+    add_executable(tpw_host_intro_sequence $<TARGET_OBJECTS:tpw_host_intro_sequence_objects> ${TPW_INTRO_SEQUENCE_STUBS})
+    target_include_directories(tpw_host_intro_sequence PRIVATE ${TPW_INCLUDE_DIR} launcher)
+    target_link_libraries(tpw_host_intro_sequence PRIVATE tpw tpw_platform tpw_launcher_ui)
+    if(TPW_LINUX)
+      target_link_libraries(tpw_host_intro_sequence PRIVATE $<TARGET_FILE:tpw>)
+    endif()
+    if(WIN32)
+      target_link_options(tpw_host_intro_sequence PRIVATE -Wl,--export-all-symbols)
+    endif()
+    add_test(NAME intro_sequence COMMAND tpw_host_intro_sequence)
+  endif()
   add_executable(tpw_online_boss_e2e platform/tests/online_boss_e2e.cpp)
   target_include_directories(tpw_online_boss_e2e PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
   target_link_libraries(tpw_online_boss_e2e PRIVATE tpw_platform)

@@ -5,6 +5,9 @@
 ### New Features
 
 - A new mod, Better land buying: buy across rivers and rocks, strips one square wide and land around unbought patches, paying only for the usable land bought (Thanks @zackpollard, tpw-port #134 and tpw-mods #1)
+- The launcher's edition cards show how ready each game is: green when every file is there, orange when it plays with a few optional files missing or repaired, red while an essential file is missing. A What's missing button lists each missing file and what it changes in play, and you can drop more discs or files any time to fill the gaps
+- A ready card says how ready: "Ready to play (all files matched)" when green, "Ready to play (files missing, minimal effect)" or "Ready to play (files repaired, minimal effect)" when orange, and the import result says the same. Point at an orange card's state to see its missing or repaired files in short, or click it for the full What's missing list
+- A missing or damaged intro film no longer keeps an edition from playing: the game skips it and plays the others. With none left, Skip the intro films is switched on and locked in Settings, which says why
 - Drop a language disc or your own unofficial translation on the launcher and it offers to switch to it; Language is now at the top of Settings, an unofficial translation is marked as one and kept apart from the game files, and one with damaged text or missing letters is refused
 - An asset pack can now hold a translation's text, fonts, speech and interface pictures, including the text of older editions (Thanks @Nitablade)
 
@@ -14,6 +17,7 @@
 - Visitors in the SimCoaster/TPI mod's tunnels now stay on the tunnel's two-tile walkway, and no longer wander onto the sand beside it at the tunnel mouths
 - The boulders on top of Arabian Nights' tunnel in the SimCoaster/TPI mod now clear away with the tunnel's rubble once its land is bought, so the land over the tunnel can be built on (the launcher converts the Theme Park Inc worlds again once)
 - The edge between bought and unbought land in the SimCoaster/TPI mod's worlds now fades softly along the canyons' cliffs and over Arabian Nights' tunnel too, where it still showed as a stepped hard line
+- A damaged intro film is now named as damaged, with advice to drop a good copy of either Windows CD, instead of calling the disc the first release (Thanks Merk7_18 on Reddit)
 - Fixed source builds failing their tests when the optional platform-test tools are unavailable
 - Fixed building from source inside a folder named src
 

@@ -1,6 +1,8 @@
 // texts.cpp: the launcher screen's wording (texts.h).
 #include "texts.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 
@@ -257,17 +259,60 @@ std::string WindowsEditionNote(assets::Edition edition) {
            " bonus rides, sideshows and features were never on the PC (the Gold CD has them)";
 }
 
+CardState EditionCardState(const EditionStatus& s) {
+    if (!s.unlocked) return CardState::Red;
+    // an edited .sam the game reads is the player's choice, not a gap (the maintainer, 2026-11-16): green; a repaired one is a gap
+    return s.gaps.empty() ? CardState::Green : CardState::Orange;
+}
+
+namespace {
+// How ready a ready edition is: 0 every file matched, 1 its only gaps are repaired settings files, 2 a file is missing.
+int ReadyRank(const EditionStatus& s) {
+    return s.gaps.empty() ? 0 : s.gaps.size() == s.repaired ? 1 : 2;
+}
+
+const char* const kReadyWords[3] = {"Ready to play (all files matched)", "Ready to play (files repaired, minimal effect)",
+                                    "Ready to play (files missing, minimal effect)"};
+
+// "ready to play (...)", inside a line
+std::string Lowered(const char* words) {
+    std::string out = words;
+    out[0] = static_cast<char>(std::tolower(static_cast<unsigned char>(out[0])));
+    return out;
+}
+}  // namespace
+
+std::string ReadyLabel(const EditionStatus& s, bool inLine) {
+    const char* words = kReadyWords[ReadyRank(s)];
+    return inLine ? Lowered(words) : std::string(words);
+}
+
+const char* const kDropMore = "Drop more discs any time.";
+
+std::string GapsText(const EditionStatus& s) {
+    std::string out;
+    const size_t films = s.introFilms - s.introFilmsPresent;
+    if (films && films == s.introFilms) out += "; no intro films, Skip the intro films is on";
+    else if (films) out += "; " + FormatCount(films) + (films == 1 ? " intro film" : " intro films") + " missing, skipped";
+    if (s.repaired)
+        out += "; " + FormatCount(s.repaired) + " settings " + (s.repaired == 1 ? "file" : "files") + " repaired from the original";
+    if (s.edited > s.repaired) out += "; your edited settings kept";   // a repaired file is kept as an edit too
+    return out;
+}
+
 TileText DescribeTile(const EditionStatus& s) {
     TileText t;
     if (s.required == 0) {
         t.state = "Not available";
         t.detail = "This build has no files listed for it";
     } else if (s.unlocked) {
-        t.state = "Ready to play";
-        t.detail = Files(s.filesPresent) + " confirmed";
+        t.state = ReadyLabel(s);
+        t.detail = Files(s.filesPresent) + " confirmed" + GapsText(s);
         // The tile is small: WindowsEditionNote is on the Play screen and the all-confirmed home.
         if (assets::IsWindowsEdition(s.edition) && !WindowsEditionNote(s.edition).empty())
             t.detail += "; no Mac bonus rides";
+        // a gap is filled by the next drop; "Drag in" says it on a card that is not ready yet
+        if (!s.gaps.empty()) t.detail += std::string(". ") + kDropMore;
     } else if (s.present == 0) {
         t.state = Files(s.files) + " to find";
         t.detail = "Drag in " + DiscsNeeded(s) + " to unlock";
@@ -281,7 +326,13 @@ TileText DescribeTile(const EditionStatus& s) {
 TileText DescribeSlot(const EditionStatus all[6], int slot) {
     const EditionStatus& shown = SlotStatus(all, slot);
     TileText t = DescribeTile(shown);
-    if (slot > 1) return t;
+    if (slot > 1) {
+        if (shown.unlocked && !SlotStatus(all, 0).unlocked && !SlotStatus(all, 1).unlocked) {
+            t.state = "Gold rides ready";
+            t.detail = "They need a base game: drag in a US or European CD";
+        }
+        return t;
+    }
     const EditionStatus& mac = all[StatusIndex(kEditions[slot])];
     const EditionStatus& windows = all[StatusIndex(WindowsEdition(slot))];
     if (mac.present || windows.present || !mac.required || !windows.required) return t;
@@ -293,17 +344,37 @@ TileText DescribeSlot(const EditionStatus all[6], int slot) {
     return t;
 }
 
+std::vector<std::string> DamagedFilms(const ImportReport& report) {
+    std::vector<std::string> out;
+    for (const std::string& dest : report.differentVersions)
+        if (dest.size() > 16 && dest.compare(0, 12, "data/Movies/") == 0 && dest.compare(dest.size() - 4, 4, ".tgq") == 0)
+            out.push_back(dest);
+    return out;
+}
+
+namespace {
+// The different versions that another pressing explains: all but the damaged films.
+size_t PressingDifferences(const ImportReport& report) {
+    size_t count = 0;
+    for (const auto& path : report.differentVersions) {
+        const std::string extension = path.size() > 4 ? path.substr(path.size() - 4) : std::string();
+        if (extension != ".sam" && extension != ".tgq" && extension != ".mov") ++count;
+    }
+    return count;
+}
+}  // namespace
+
 bool LooksLikeFirstRelease(const ImportReport& report) {
     const EditionStatus& us = report.status[StatusIndex(assets::kEditionUsPc)];
     const EditionStatus& eur = report.status[StatusIndex(assets::kEditionEurPc)];
     return !report.cancelled && !report.aborted && !us.unlocked && us.filesPresent > eur.filesPresent &&
-           !report.differentVersions.empty() && us.missingFiles[assets::kSourcePcCd] > 0;
+           report.firstRelease && us.missingFiles[assets::kSourcePcCd] > 0;
 }
 
 bool LooksLikeOlderPressing(const ImportReport& report) {
     const EditionStatus& eur = report.status[1];
     return !report.cancelled && !report.aborted && !eur.unlocked && eur.filesPresent > 0 &&
-           !report.differentVersions.empty() && eur.missingFiles[assets::kSourcePcCd] > 0 &&
+           PressingDifferences(report) > 0 && eur.missingFiles[assets::kSourcePcCd] > 0 &&
            !report.status[StatusIndex(assets::kEditionEurPc)].unlocked && !LooksLikeFirstRelease(report);
 }
 
@@ -325,32 +396,69 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
 
     bool errorShown = false;
     std::vector<std::string> unlockedNow;
+    int readyRank = 0;   // the least ready of them, for the headline
     for (assets::Edition e : kResultEditions) {
         const int i = StatusIndex(e);
         // A Windows edition is not named when its tile's Mac edition is ready: the tile shows that one.
         if (assets::IsWindowsEdition(e) && after[StatusIndex(kEditions[EditionIndex(e)])].unlocked) continue;
-        if (!before[i].unlocked && after[i].unlocked) unlockedNow.push_back(EditionPhrase(e));
+        if (!before[i].unlocked && after[i].unlocked) {
+            unlockedNow.push_back(EditionPhrase(e));
+            readyRank = std::max(readyRank, ReadyRank(after[i]));
+        }
     }
+
+    // A damaged film: every Windows CD, US or European, of any pressing, has the same one, so a good copy of either
+    // fills it (what the tile's "Drag in the US Windows CD" cannot say). An intro film is not needed to play (Play
+    // skips a missing one), so the edition can be ready without it; once an edition has all its films, a good copy
+    // is in place and the damaged one is only another version.
+    const std::vector<std::string> damaged = DamagedFilms(report);
+    bool filmNeeded = !damaged.empty();
+    for (assets::Edition e : {assets::kEditionUs, assets::kEditionEur, assets::kEditionUsPc, assets::kEditionEurPc}) {
+        const EditionStatus& s = after[StatusIndex(e)];
+        filmNeeded = filmNeeded && !(s.introFilms && s.introFilmsPresent == s.introFilms);
+    }
+    std::vector<std::string> damagedNames;
+    for (const std::string& dest : damaged) damagedNames.push_back(dest.substr(dest.rfind('/') + 1));
+    const std::string damagedLine =
+        !filmNeeded ? std::string()
+        : damaged.size() == 1
+            ? "1 intro film is damaged: " + damagedNames[0] + ". Play skips it. The others still play. To fix it: drop "
+              "a good copy of either Windows CD, US or European."
+            : FormatCount(damaged.size()) + " intro films are damaged: " + JoinAnd(damagedNames) +
+                  ". Play skips them. The others still play. To fix them: drop a good copy of either Windows CD, US or "
+                  "European.";
+    bool damagedShown = false;
 
     if (LooksLikeFirstRelease(report)) {
         const EditionStatus& us = after[StatusIndex(assets::kEditionUsPc)];
         r.headline = "First release, " + FormatCount(us.filesPresent) + " of " + FormatCount(us.files) + " confirmed";
         r.lines.push_back("This US Windows CD is the first release of the game (1.0). " +
-                          Files(report.differentVersions.size()) + " on it are another version (not used).");
+                          Files(PressingDifferences(report)) + " on it are another version (not used).");
         r.lines.push_back("Install it on Windows, apply EA's official v2.0 patch, then drag in the installed game folder "
                           "together with the CD (the music and films stay on the CD).");
         std::string missing = MissingText(us);
         if (!missing.empty()) r.lines.push_back(missing + ".");
     } else if (LooksLikeOlderPressing(report)) {
-        const EditionStatus& eur = after[1];
+        // The counts of the tile's edition (SlotStatus), as the tile shows them.
+        const EditionStatus& eur = SlotStatus(after, 1);
         r.headline = "Older pressing, " + FormatCount(eur.filesPresent) + " of " + FormatCount(eur.files) + " confirmed";
-        r.lines.push_back("This European PC CD is an older pressing. " + Files(report.differentVersions.size()) +
+        r.lines.push_back("This European PC CD is an older pressing. " + Files(PressingDifferences(report)) +
                           " on it are a different version (not used).");
         std::string missing = MissingText(eur);
         if (!missing.empty()) r.lines.push_back(missing + ".");
+        r.lines.push_back("A European PC CD from 2000 or later has every file in the version used.");
     } else if (!unlockedNow.empty()) {
-        r.headline = "All assets confirmed for " + JoinAnd(unlockedNow);
+        r.headline = std::string(kReadyWords[filmNeeded ? 2 : readyRank]) + ": " + JoinAnd(unlockedNow);
         r.good = true;
+        if (filmNeeded) {
+            r.lines.push_back(damagedLine);
+            damagedShown = true;
+        }
+        if (!after[StatusIndex(assets::kEditionUs)].unlocked && !after[StatusIndex(assets::kEditionUsPc)].unlocked &&
+            !after[StatusIndex(assets::kEditionEur)].unlocked && !after[StatusIndex(assets::kEditionEurPc)].unlocked) {
+            r.headline = "Gold rides ready. They need a base game.";
+            r.good = false;
+        }
     } else if (!report.playStation.empty()) {
         r.headline = report.playStationConverted ? "PlayStation rides ready" : "PlayStation disc recognised";
         r.good = report.playStationConverted;
@@ -369,6 +477,10 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
         // A translation (unofficial_language.h): its own line says which and what it changes.
         r.headline = report.written ? "Language added" : "Nothing new: this language is already added";
         r.good = true;
+    } else if (filmNeeded) {
+        r.headline = damaged.size() == 1 ? "A damaged intro film on this disc" : FormatCount(damaged.size()) + " damaged intro films on this disc";
+        r.lines.push_back(damagedLine);
+        damagedShown = true;
     } else if (report.written == 0 && !report.errors.empty()) {
         // A damaged or unreadable drop must not read as "nothing new": name the file and the reason first. A refused
         // translation is said as such, its reason the line below.
@@ -413,7 +525,7 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
         }
         if (!changed && !(report.written == 0 && report.alreadyThere > 0 && shown.filesPresent > 0)) continue;
         if (shown.unlocked)
-            r.lines.push_back(EditionLabel(shown.edition) + ": ready to play");
+            r.lines.push_back(EditionLabel(shown.edition) + ": " + ReadyLabel(shown, true));
         else
             r.lines.push_back(EditionLabel(shown.edition) + ": " + FormatCount(shown.filesPresent) + " of " +
                               FormatCount(shown.files) + " files confirmed");
@@ -425,8 +537,10 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
     for (const std::string& line : report.translations) r.lines.push_back(line);
     if (report.written) r.lines.push_back(Files(report.written) + " put in place");
     if (report.alreadyThere) r.lines.push_back(Files(report.alreadyThere) + " already in place");
-    if (!report.differentVersions.empty() && !LooksLikeOlderPressing(report) && !LooksLikeFirstRelease(report))
-        r.lines.push_back(Files(report.differentVersions.size()) + " of a different version (not used)");
+    if (filmNeeded && !damagedShown) r.lines.push_back(damagedLine);
+    const size_t others = report.differentVersions.size() - (filmNeeded ? damaged.size() : 0);
+    if (others && !LooksLikeOlderPressing(report) && !LooksLikeFirstRelease(report))
+        r.lines.push_back(Files(others) + " of a different version (not used)");
     if (report.unknownFiles)
         r.lines.push_back(Files(report.unknownFiles) + " not part of either game (not used)");
     if (errorShown) {
@@ -435,6 +549,7 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
         const char* joint = report.errors.size() == 1 ? " problem: " : " problems, the first: ";
         r.lines.push_back(FormatCount(report.errors.size()) + joint + report.errors.front());
     }
+    r.lines.push_back(kDropMore);   // every result: the next drop fills what is still missing
     return r;
 }
 
