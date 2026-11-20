@@ -5,6 +5,7 @@
 ### New Features
 
 - A new mod, Better land buying: buy across rivers and rocks, strips one square wide and land around unbought patches, paying only for the usable land bought (Thanks @zackpollard, tpw-port #134 and tpw-mods #1)
+- An asset pack can now hold a translation's text, fonts, speech and interface pictures, including the text of older editions (Thanks @Nitablade)
 
 ### Bug Fixes
 

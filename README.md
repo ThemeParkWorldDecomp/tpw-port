@@ -270,6 +270,9 @@ use `build\tpw_launcher.exe 2> log.txt`.
 - A zip of replacement files at their game paths, e.g. `data/init/640/Splash_American.tga`.
 - Put it in `packs` in the data folder, or pass `--packs DIR`. Later names win.
 - Allowed: `.tga`, `.wct`, `.ani`, `.cur`, `.sf2`, `.sdt` with `.map`, `.ttf`, `.bf4`, `.mov`. No `.sam`.
+- A translation too: its language folder's `.str`, `.txt`, `.md2` and `.dat` files (`data/Language/English/` for the
+  European edition, `American` for the US one), the speech's `lips.wad` and `.lip` files, and `data/ui.wad`. Keep
+  Settings' Language on the edition's own: a language chosen there comes before a pack.
 - Ignored: zips starting with a dot, packs over 8 GB. The log says why.
 - Use the game's formats (uncompressed TGA). Replace all three logo folders (`640`, `800`, `1024`). A new
   `welcome.tga` must be at least as wide as `legal.tga`.

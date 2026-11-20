@@ -214,6 +214,25 @@ static void TestPacks(const fs::path& scratch) {
         CHECK(!tpw::PackMayHold(std::string(folder) + "bank.sdt"));
         CHECK(!tpw::PackMayHold(std::string(folder) + "bank.map"));
     }
+    // A translation (tpw-port issue #128): a language folder's own files, the speech's lip movements and the interface's
+    // wad, each only where the game keeps it.
+    for (const char* file : {"data/Language/English/UITEXT.str", "DATA/LANGUAGE/AMERICAN/THOUGHTS.STR",
+                             "data/Language/English/swears.txt", "data/Language/English/alloweds.txt",
+                             "data/Language/English/bankrupt.MD2", "data/Language/English/MBToUni.dat",
+                             "data/Language/English/residx.dat", "data/Language/German/UniToMB.dat",
+                             "data/global/Speech/lips.WAD", "data/global/speech/lips.wad",
+                             "data/levels/fantasy/speech/lips/sp_001.LIP", "data/levels/space/Speech/lips/sp_002.lip",
+                             "data/ui.wad", "DATA/UI.WAD", "data/Language/English/UITEXT.str.rsrc"})
+        CHECK(tpw::PackMayHold(file));
+    for (const char* file : {"data/Language/UITEXT.str", "data/Language/English/more/UITEXT.str", "data/UITEXT.str",
+                             "data/levels/fantasy/UITEXT.str", "data/x.dat", "data/global/x.txt", "data/x.md2",
+                             "data/Language/English/x.sam", "data/Language/English/x.wad", "data/language/.str",
+                             "data/global/Speech/other.wad", "data/global/lips.wad", "data/lobby.wad", "data/levels/ui.wad",
+                             "data/levels/fantasy/features/bfbin.wad", "data/levels/fantasy/lips/sp_001.lip",
+                             "data/levels/fantasy/speech/sp_001.lip", "data/levels/fantasy/features/lips/sp_001.lip",
+                             "data/levels/speech/lips/sp_001.lip", "data/global/Speech/lips/lips.wad",
+                             "data/levels/fantasy/speech/lips/sp_001.wad"})
+        CHECK(!tpw::PackMayHold(file));
 
     tpw::Config& config = tpw::config();
     const fs::path gameDir = config.gameDir;   // TestPaths' folders, which later tests use
@@ -233,6 +252,11 @@ static void TestPacks(const fs::path& scratch) {
     Touch(first / "data" / "extra.txt");
     Touch(first / features / "BFBIN.WAD" / "x.tga");   // put there by hand, or unpacked by older rules
     Touch(second / "DATA" / "init" / "640" / "Splash_American.tga");
+    Touch(config.gameDir / "data" / "Language" / "English" / "UITEXT.str");
+    Touch(config.gameDir / "data" / "ui.wad");
+    Touch(second / "data" / "Language" / "English" / "uitext.str");
+    Touch(second / "data" / "Language" / "English" / "extra.sam");
+    Touch(first / "data" / "ui.wad");
     tpw::PackDirs() = {first, second};
 
     CHECK(tpw::IsGameFile("data/levels/fantasy/features/bfbin.wad"));
@@ -243,11 +267,29 @@ static void TestPacks(const fs::path& scratch) {
     CHECK(Same(tpw::FindHostPath("data:init:640:Splash_American.tga"), first / "data" / "init" / "640" / "splash_american.tga"));
     CHECK(Same(tpw::FindHostPath("data:sound.sam"), config.userDir / "data" / "sound.sam"));   // the user folder still wins
     CHECK(tpw::FindHostPath("data:extra.txt").empty());   // in a pack, but not a file a pack may hold
+    CHECK(Same(tpw::FindHostPath("data:Language:English:UITEXT.str"),
+               second / "data" / "Language" / "English" / "uitext.str"));   // a translation's text
+    CHECK(Same(tpw::FindHostPath("data:ui.wad"), first / "data" / "ui.wad"));
+    CHECK(tpw::FindHostPath("data:Language:English:extra.sam").empty());
+    std::string english;
+    for (const tpw::DirEntry& entry : tpw::ListGameFolder("data:Language:English:")) english += entry.name + " ";
+    CHECK(english == "uitext.str ");
+    {
+        // The edition's own language beside a pack's translation (old_text_tables.cpp): the game folder's files only.
+        tpw::WithoutPacks gameFolder;
+        CHECK(Same(tpw::FindHostPath("data:Language:English:UITEXT.str"),
+                   config.gameDir / "data" / "Language" / "English" / "UITEXT.str"));
+        CHECK(Same(tpw::FindHostPath("data:ui.wad"), config.gameDir / "data" / "ui.wad"));
+        std::string own;
+        for (const tpw::DirEntry& entry : tpw::ListGameFolder("data:Language:English:")) own += entry.name + " ";
+        CHECK(own == "UITEXT.str ");
+    }
+    CHECK(Same(tpw::FindHostPath("data:ui.wad"), first / "data" / "ui.wad"));   // the packs again once it is gone
     CHECK(Same(tpw::FindHostPath("data:levels:fantasy:features:bfbin.wad"), config.gameDir / features / "bfbin.wad"));
     const auto data = tpw::ListGameFolder("data:");
     std::string names;
     for (const tpw::DirEntry& entry : data) names += entry.name + (entry.isDirectory ? "/ " : " ");
-    CHECK(names == "sound.sam logo.tga init/ levels/ ");
+    CHECK(names == "sound.sam logo.tga ui.wad init/ Language/ levels/ ");
     const auto listed = tpw::ListGameFolder("data:levels:fantasy:features");
     CHECK(listed.size() == 1 && listed[0].name == "bfbin.wad" && !listed[0].isDirectory);
 
