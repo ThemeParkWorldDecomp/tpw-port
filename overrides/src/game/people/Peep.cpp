@@ -28,6 +28,8 @@
 #include "TPCamera.h"
 #include "TPEngine.h"
 #include "TpiGateFlow.h"
+// TPW_PORT_FIX mods CPeep::SetRandomDestination | Mac: no mod header | Port: TPW_MOD_HOOK tpi_worlds, the footbridge joins below | Why: guests wander through the mod's tunnels
+#include "TpiFootbridge.h"
 #include "TpiGenerations.h"
 #include "TPSound.h"
 #include "TpiGuests.h"
@@ -301,7 +303,12 @@ uint32_t ModBridgeSteps(uint16_t cur, const CMapCell* cell, uint32_t nb) {
         if ((nb & kLink[i]) != 0) continue;
         if (CMap::IsXYValid(x + delta[i]->mX, y + delta[i]->mY) == 0) continue;
         const CMapCell* next = CellAt(Step(cur, *delta[i]));
-        if (IsModBridge(next) || (onBridge && next->IsPath() != 0)) steps |= 1u << i;
+        bool joins = IsModBridge(next) || (onBridge && next->IsPath() != 0);
+        // TPW_MOD_HOOK tpi_worlds: use the path tiles' runtime joins while tpw::TpiWorldInPlay(), without saved links.
+        if (tpw::TpiWorldInPlay())
+            joins = tpw::TpiFootbridgeStep({static_cast<int32_t>(cell->mType), cell->mFlags},
+                                         {static_cast<int32_t>(next->mType), next->mFlags});
+        if (joins) steps |= 1u << i;
     }
     return steps;
 }
@@ -334,8 +341,8 @@ int32_t CPeep::SetRandomDestination() {
         }
     }
 
-    // TPW_PORT_FIX mods CPeep::SetRandomDestination | Mac: a random walk steps only along path links, which no cell has toward a bridge (mode 0x1e), so staff never cross one while patrolling | Port: TPW_MOD_HOOK staff_bridge_wander (gModStaffBridgeWander, include/ThingReceivers.h), and in the tpi_worlds hook's worlds (tpw::TpiWorldInPlay, include/TpiGateFlow.h) whether or not it is on, a staff member's walk may also step onto, along and off a bridge (ModBridgeSteps), every other rule the Mac's; off in an original world, the Mac's walk | Why: tpw-mods staff-cross-bridges; tpi-worlds, whose bridges join the two banks of a park (the maintainer, 2026-11-13: in those worlds staff wander across bridges by default)
-    const bool bridges = (gModStaffBridgeWander || tpw::TpiWorldInPlay()) && staff;
+    // TPW_PORT_FIX mods CPeep::SetRandomDestination | Mac: a random walk steps only along path links, which no cell has toward a bridge (mode 0x1e) | Port: TPW_MOD_HOOK staff_bridge_wander (gModStaffBridgeWander, include/ThingReceivers.h) adds ModBridgeSteps for staff, and TPW_MOD_HOOK tpi_worlds adds them for guests and staff while tpw::TpiWorldInPlay(); every other rule the Mac's | Why: staff patrol across bridges, and guests wander through the mod's tunnels as well as take targeted routes through them | Off: the Mac's walk
+    const bool bridges = tpw::TpiFootbridgeWander(staff, gModStaffBridgeWander);
     if (here->NumberOfHVNeighbours() > 0 || (bridges && ModBridgeSteps(PeepCell(self), here, 0) != 0)) {
         while (true) {
             const int32_t old = counter;

@@ -40,6 +40,9 @@
 // TPW_PORT_FIX v5L51 LLCC_SystemGetPointedPeepThing | Mac: no UI header | Port: UI_Base.h for gUIUnitWidth and UI_UnitToViewX | Why: the widescreen hot point below
 #include "UI_Base.h"
 
+// TPW_PORT_FIX mods CMapCell::GetTile | Mac: no mod header | Port: TPW_MOD_HOOK tpi_worlds, the footbridge joins below | Why: paths meet the mod's tunnel floors
+#include "TpiFootbridge.h"
+
 // 0x1009722c, 712 bytes: takes a bridge away from the cell and turns the two bridge cells beside it (a, b) to what they become without it.
 // The two IsXYValid calls on the first block and the track end have their answers dropped (the Mac stores them in dead locals).
 // A direction other than 1, 4, 0x10, 0x40 leaves the two flags (callee-saved r26, r25) as the caller had them: here 0.
@@ -846,8 +849,16 @@ int32_t CMapCell::ModifyTypeBody(CELL_MODES mode) {
 // 0x1009bc54. The tile word (kind << 16 | index) for the cell's mode and neighbour byte; *rotation gets the table's rotation (plus 0xb4 for a mode 3
 // straight that does not run along 0x40 / 0x10). The modes 2, 7, 0x1e, 4, 9, 10 and 0x15 (by absolute value) answer 8 with rotation 0.
 uint32_t CMapCell::GetTile(int32_t* rotation) {
-    const uint8_t neighbours = GetNeighbours();
+    // TPW_PORT_FIX mods CMapCell::GetTile | Mac: draws only the stored path links, which do not join footbridges | Port: TPW_MOD_HOOK tpi_worlds, a path's tile also joins straight footbridge neighbours while tpw::TpiWorldInPlay(); the links are not stored | Why: paths at both tunnel mouths must meet the floor without building on it, including in saved parks | Off: the Mac's tile
+    uint8_t neighbours = GetNeighbours();
     const int32_t type = static_cast<int32_t>(mType);
+    if (type == 1) {
+        neighbours |= tpw::TpiFootbridgeLinks({type, mFlags}, [this](uint8_t direction) {
+            const CMapCell* cell = GetNeighbouringCell(direction);
+            return cell == nullptr ? tpw::TpiFootbridgeCell{-1, 0}
+                                   : tpw::TpiFootbridgeCell{static_cast<int32_t>(cell->mType), cell->mFlags};
+        });
+    }
     const uint8_t direction = GetDirection();
     *rotation = 0;
     int32_t extra = 0;

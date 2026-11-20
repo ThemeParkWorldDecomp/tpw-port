@@ -636,6 +636,12 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_tpi_worlds PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_worlds COMMAND tpw_host_tpi_worlds)
   endif()
+  # TPW_MOD_HOOK tpi_worlds: synthetic footbridge floors, path joins at both mouths, and guest walks without saved links.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_tpi_footbridge ${TPW_DECOMP_DIR}/tests/host_tpi_footbridge.cpp)
+    target_include_directories(tpw_host_tpi_footbridge PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_footbridge COMMAND tpw_host_tpi_footbridge)
+  endif()
   # The TPI Worlds and Rides mod's broken music samples (TPW_MOD_HOOK tpi_worlds, include/TpiSoundStandIns.h): which
   # .sdt headers are a sample's, and the samples of an event that stand in for the ones a bank does not have (laid out as
   # Arabian Nights' and Polar Zone's park music), without game data. The original has no such mod, so it is made only
