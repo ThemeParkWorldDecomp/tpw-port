@@ -23,6 +23,7 @@
 - Fixed building from source inside a folder named src
 - Fixed coaster supports disappearing while riding up a hill (Thanks Piro on Discord)
 - Fixed being unable to build paths, queues and rides right beside the park gate and along the road up to it in the SimCoaster/TPI - New Worlds, Rides and Sprites mod's worlds: that land is now the park's from the start, as in SimCoaster, in parks saved before this fix too (Thanks Piro on Discord)
+- Fixed the launcher refusing the European (Theme Park World, SLES-50032) and Japanese (Theme Park 2001, SLPS-20048) PlayStation 2 discs for the PS2 Guest Models mod: they hold the same models as the US disc (Theme Park Roller Coaster), and all three now work (Thanks Piro)
 
 ### Changes
 
