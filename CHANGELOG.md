@@ -2,6 +2,10 @@
 
 ## 0.6.1 (not released yet)
 
+### Bug Fixes
+
+- Fixed source builds failing their tests when the optional platform-test tools are unavailable
+
 ## 0.6.0 (2026-11-19)
 
 ### New Features
