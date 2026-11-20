@@ -3,7 +3,7 @@
 // where nothing is built; the original's targeted route search already walks onto it and back onto a path.
 #pragma once
 
-// TPW_PORT_FIX mods TpiFootbridge | Mac: paths draw and random walks follow only their stored links, which never join a footbridge | Port: TPW_MOD_HOOK tpi_worlds, path tiles join a neighbouring footbridge, and guests as well as staff wander onto, along and off it in the mod's worlds | Why: the tunnel floor stays a footbridge, with paths joining both mouths and visitors walking through; no saved cell or converter change | Off: the Mac's path tiles and walks
+// TPW_PORT_FIX mods TpiFootbridge | Mac: paths draw and random walks follow only their stored links, which never join a footbridge | Port: TPW_MOD_HOOK tpi_worlds, path tiles join a neighbouring footbridge, guests as well as staff wander onto, along and off it, and a footbridge's sides are walls except toward a path or another mode 0x1e cell (TpiFootbridgeWall) in the mod's worlds | Why: the tunnel floor stays a footbridge, with paths joining both mouths and visitors walking through; no saved cell or converter change | Off: the Mac's path tiles and walks
 #include <cstdint>
 #include "TpiGateFlow.h"
 
@@ -32,6 +32,16 @@ uint8_t TpiFootbridgeLinks(TpiFootbridgeCell here, GetCell getCell) {
     for (uint8_t direction : directions)
         if (TpiFootbridgeStep(here, getCell(direction))) links |= direction;
     return links;
+}
+
+// Whether MAP_wall_in_way puts a wall between `here` and `next` for a walker in nav mode `navMode`: in the mod's
+// worlds a footbridge's sides are walls, so a walker on one steps only onto a path or another mode 0x1e cell. The Mac
+// lets any walker off a non-path cell onto any open neighbour; under a TPI tunnel that is the open land beside the
+// floor, so guests left the two-cell strip at the mouths and along the hill's foot. First person (nav mode 2) keeps the
+// Mac's rule.
+inline bool TpiFootbridgeWall(TpiFootbridgeCell here, TpiFootbridgeCell next, int32_t navMode) {
+    if (!TpiWorldInPlay() || navMode == 2 || !TpiIsFootbridge(here)) return false;
+    return next.mode != 1 && next.mode != 0x1e;
 }
 
 inline bool TpiFootbridgeWander(bool staff, bool staffBridgeMod) {
