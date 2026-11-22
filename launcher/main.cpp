@@ -2163,6 +2163,8 @@ int LauncherMain(int argc, char** argv) {
     gPortAdvisorAspect = true;
     gPortWidePanel = true;
     gPortSignText = true;
+    // A translation written in Cyrillic draws its signs in code page 1251 (TrueTypeRender.h, platform/language_pack.h).
+    gPortSignCodePage = tpw::LanguagePackCodePage();
     gPortScriptCode = true;
     // The ride context read as the tag_sMesh it is (rsse.h; samueleagle91, tpw-port PR #25).
     gPortRideCtx = true;

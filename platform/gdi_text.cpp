@@ -72,9 +72,18 @@ std::string Lower(std::string text) {
     return text;
 }
 
-// The text the game passes is Mac Roman bytes (snprintf "%ls" of the sign's UTF-16).
-Ref<CFStringRef> MacRomanString(const char* text, int32_t length) {
+// The text the game passes is Mac Roman bytes (snprintf "%ls" of the sign's UTF-16), or code page 1251 ones for a font of
+// charset 204 (gdi_text.h).
+Ref<CFStringRef> TextString(const char* text, int32_t length, bool cyrillic) {
     if (text == nullptr || length < 0) length = 0;
+    if (cyrillic) {
+        std::vector<UniChar> characters(static_cast<size_t>(length));
+        for (int32_t i = 0; i < length; ++i) {
+            const auto b = static_cast<unsigned char>(text[i]);
+            characters[static_cast<size_t>(i)] = b < 0x80 ? b : kCp1251High[b - 0x80];
+        }
+        return Ref<CFStringRef>(CFStringCreateWithCharacters(nullptr, characters.data(), length));
+    }
     Ref<CFStringRef> string(CFStringCreateWithBytes(nullptr, reinterpret_cast<const UInt8*>(text ? text : ""), length,
                                                     kCFStringEncodingMacRoman, false));
     if (!string) string.reset(CFStringCreateWithCString(nullptr, "", kCFStringEncodingASCII));
@@ -82,8 +91,8 @@ Ref<CFStringRef> MacRomanString(const char* text, int32_t length) {
 }
 
 // A one-line layout of the text in the font, without kerning or ligatures.
-Ref<CTLineRef> MakeLine(CTFontRef font, const char* text, int32_t length) {
-    Ref<CFStringRef> string = MacRomanString(text, length);
+Ref<CTLineRef> MakeLine(CTFontRef font, const char* text, int32_t length, bool cyrillic = false) {
+    Ref<CFStringRef> string = TextString(text, length, cyrillic);
     const int zero = 0;
     Ref<CFNumberRef> none(CFNumberCreate(nullptr, kCFNumberIntType, &zero));
     // The glyphs take the context's fill colour (CoreText's default would be black).
@@ -253,6 +262,7 @@ int32_t AddFontFile(const std::string& hostPath) {
 struct Font::Impl {
     Ref<CTFontRef> font;
     bool underline = false;
+    bool cyrillic = false;   // charset 204
     int32_t ascent = 0;
     int32_t avgWidth = 0;
 };
@@ -295,6 +305,18 @@ std::unique_ptr<Font> Font::Create(const Style& style) {
         }
     }
     if (!base) return nullptr;
+    const bool cyrillic = style.charset == kCyrillicCharset;
+    if (cyrillic) {
+        // A face without the Cyrillic letters is drawn in Helvetica, the face an unknown name gets.
+        const UniChar letters[2] = {0x0416, 0x044F};
+        CGGlyph glyphs[2] = {0, 0};
+        if (!CTFontGetGlyphsForCharacters(base.get(), letters, glyphs, 2)) {
+            LogOnce("cyrillic:" + wanted, "\"" + style.face + "\" has no Cyrillic letters, using Helvetica");
+            Ref<CFStringRef> helvetica(CFStringCreateWithCString(nullptr, "Helvetica", kCFStringEncodingASCII));
+            base.reset(CTFontCreateWithName(helvetica.get(), size, nullptr));
+            if (!base) return nullptr;
+        }
+    }
     // Bold from lfWeight > 699 and italic from lfItalic, when the face has such a variant.
     CTFontSymbolicTraits traits = 0;
     if (style.weight > 699) traits |= kCTFontBoldTrait;
@@ -310,6 +332,7 @@ std::unique_ptr<Font> Font::Create(const Style& style) {
     std::unique_ptr<Font> font(new Font);
     font->mImpl->font = std::move(base);
     font->mImpl->underline = style.underline;
+    font->mImpl->cyrillic = cyrillic;
     font->mImpl->ascent = static_cast<int32_t>(std::ceil(CTFontGetAscent(font->mImpl->font.get())));
     Ref<CTLineRef> line = MakeLine(font->mImpl->font.get(), kReference, 92);
     if (line) font->mImpl->avgWidth = static_cast<int32_t>(LineWidth(line.get())) / 92;
@@ -326,7 +349,7 @@ std::string Font::FamilyName() const {
 
 double Font::Advance(const char* text, int32_t length) const {
     if (text == nullptr || length <= 0) return 0;
-    Ref<CTLineRef> line = MakeLine(mImpl->font.get(), text, length);
+    Ref<CTLineRef> line = MakeLine(mImpl->font.get(), text, length, mImpl->cyrillic);
     return line ? LineWidth(line.get()) : 0;
 }
 
@@ -344,7 +367,7 @@ void Font::Draw(uint8_t* ink, int32_t width, int32_t height, int32_t x, int32_t 
     CGContextSetShouldSubpixelPositionFonts(cg, false);
     CGContextSetShouldSubpixelQuantizeFonts(cg, false);
     CGContextSetGrayFillColor(cg, 1.0, 1.0);
-    Ref<CTLineRef> line = MakeLine(mImpl->font.get(), text, length);
+    Ref<CTLineRef> line = MakeLine(mImpl->font.get(), text, length, mImpl->cyrillic);
     if (!line) return;
     // CoreGraphics counts rows from the bottom; the buffer's first row is the top one.
     const CGFloat left = static_cast<CGFloat>(x);

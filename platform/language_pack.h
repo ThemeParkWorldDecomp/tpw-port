@@ -30,6 +30,12 @@ bool UseLanguagePack(const std::filesystem::path& root, const std::string& name,
 const std::string& LanguagePackName();
 const std::filesystem::path& LanguagePackFolder();
 
+// The Windows code page the overlaid translation's letters are in: 1251 for a player-supplied translation into a language
+// written in Cyrillic (Russian, Ukrainian, Belarusian, Bulgarian, Serbian, Macedonian), whose text keeps that code page's
+// bytes as the Latin-1 letters of the edition's tables and whose fonts draw Cyrillic there; 0 for an official language,
+// any other translation, or the overlay off.
+int LanguagePackCodePage();
+
 // Whether the game path split into `parts` (SplitGamePath) is one of the overlaid folders or inside one, matched ignoring
 // case: data/Language/<Name> and below, data/global/speech, data/levels/<world>/speech and data/Init. False when off.
 bool LanguagePackCovers(const std::vector<std::string>& parts);

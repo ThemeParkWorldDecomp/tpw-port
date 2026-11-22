@@ -39,3 +39,5 @@ static_assert(sizeof(TrueTypeRender) == 0x190, "TrueTypeRender is 0x190 bytes");
 // TPW_PORT_FIX sign gPortSignText | Mac: no such flag (a big-endian host) | Port: a flag the launcher sets (launcher/main.cpp); while it is set load_settings swaps the LOGFONT words with _USwapBlock32, which leaves them as they are on a little-endian host | Why: the settings files are little-endian, so the signs' text was not drawn on a little-endian host; contributed by samueleagle91 (tpw-port PR #5)
 // False unless the launcher sets it, so a program that does not (the differential tests) swaps the words as the Mac does.
 inline bool gPortSignText = false;
+// TPW_PORT_FIX signcyrillic gPortSignCodePage | Mac: no such setting | Port: the code page of the chosen translation's letters, which the launcher sets (launcher/main.cpp, platform/language_pack.h): 1251 for a translation written in Cyrillic, else 0 | Why: render_font_unicode draws such a translation's signs in that code page (RideSign.cpp)
+inline int32_t gPortSignCodePage = 0;
