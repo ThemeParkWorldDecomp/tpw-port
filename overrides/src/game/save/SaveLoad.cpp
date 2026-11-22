@@ -40,6 +40,7 @@
 #include "rsse.h"
 #include "SaveLegalText.inc"
 #include "SaveLoad.h"
+#include "SavedRideTypes.h"
 #include "Serialise.h"
 #include "SkyObjects.h"
 #include "TbError.h"
@@ -467,6 +468,7 @@ int32_t CSaveLoad::Load(const char* path, CSaveLoadHeader* header, LoadType type
                    "Cannot have a header-only load but supply no header pointer\n");
     // TPW_PORT_FIX heldpark CSaveLoad::Load | Mac: none | Port: forgets the rides a park loaded before lacked | Why: gPortMissingRides names this load's
     std::memset(gPortMissingRides, 0, sizeof gPortMissingRides);
+    gPortMissingRideType = 0;
     bfl::FileSystem::CDiscFile file;
     const bool opened = file.Open(path, 0x80000000).Succeeded();
     if (opened != (gSaveLoadOpenTestWord == 0)) {
@@ -551,6 +553,19 @@ int32_t CSaveLoad::Load(const char* path, CSaveLoadHeader* header, LoadType type
     // TPW_PORT_FIX v5L27 CSaveLoad::Load | Mac: reads every park in the current format | Port: notes a park an early port build wrote, for the readers of its modules | Why: see gPortEarlySave in SaveLoad.h
     gPortEarlySave = PortIsEarlySave(unpacked, unpackedSize);
     if (gPortEarlySave) std::fprintf(stderr, "port: %s was written by an early port build; reading it in that format\n", path);
+    // TPW_PORT_FIX heldpark CSaveLoad::Load | Mac: reads the modules of a park whose ride records need a ride type the game has not got, and faults restoring the track rides' cars | Port: such a park is refused before any module is read, as LoadHeader refuses one whose ride record needs a missing ride (kErrorMissingRides; the player is told, and a park the player is put in is held) | Why: see gPortMissingRideType in SaveLoad.h
+    if (type != kLoadOnline) {
+        const savedrides::Missing missing = PortMissingSavedRideType(unpacked, unpackedSize);
+        if (missing.type != 0) {
+            std::fprintf(stderr, "port: %s needs ride type %u (ride %u), which this game has not got; it was not loaded\n", path,
+                         missing.type, missing.slot);
+            gPortMissingRideType = missing.type;
+            gPortEarlySave = false;
+            TemporaryAllocator().Free(unpacked);
+            mError = kErrorMissingRides;
+            return 0;
+        }
+    }
 
     // In the arena: BMP_Load's chunks keep the file's address in a 32-bit field (the Mac's file object was on the stack).
     tpw::ArenaHeld<bfl::FileSystem::CMemFile> held;

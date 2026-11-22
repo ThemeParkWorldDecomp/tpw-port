@@ -619,6 +619,14 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_ps1_pick_rotation PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME ps1_pick_rotation COMMAND tpw_host_ps1_pick_rotation)
   endif()
+  # The walk over a park's ride records before its modules are read (fix heldpark, include/SavedRideTypes.h): a ride type
+  # no loaded type carries is found, alone or followed by another, past an old autosave's ride preview, on made-up modules
+  # read both ways round. The original has no such walk, so it is made only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_saved_ride_types ${TPW_DECOMP_DIR}/tests/host_saved_ride_types.cpp)
+    target_include_directories(tpw_host_saved_ride_types PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME saved_ride_types COMMAND tpw_host_saved_ride_types)
+  endif()
   # The PS2 Guest Models mod's pure helpers (TPW_MOD_HOOK ps2_characters, include/Ps2Characters.h): the sprite sets'
   # models, the actions' clips, the render side's hash, a model's anchor and facing, the sprite's edges lifted onto the
   # view's up axis and the TGA reader, on synthetic packs. The original has no such mod, so it is made only with the

@@ -232,7 +232,30 @@ static std::string Count(size_t count, const std::string& one) {
     return std::to_string(count) + " " + one + (count == 1 ? "" : "s");
 }
 
-std::string MissingRidesText(const uint8_t* missing, MissingRidesPlace place) {
+// The message for a park whose ride records need ride type `type`.
+static std::string MissingRideTypeText(uint32_t type, MissingRidesPlace place) {
+    // the Theme Park Inc converter's world blocks (assets/tpi_convert.cpp kWorlds: 5000, 6000 and 7000)
+    const bool tpi = type >= 5000 && type < 8000;
+    std::string text = std::string("This park needs ") + (tpi ? "a Theme Park Inc ride" : "a ride") + " this game hasn't got (ride number " +
+                       std::to_string(type) + ")" +
+                       (tpi ? ", most likely one of the SimCoaster Bonus Disk's: Depth Charge or Wilbur's Wind Rush. " : ". ");
+    const std::string what = tpi ? "Add the Bonus Disk in the launcher" : "Turn on or import the rides it was built with in the launcher";
+    switch (place) {
+    case MissingRidesPlace::kOwnPark:
+        text += "It has been kept as it was. " + what + ", then play it again.";
+        break;
+    case MissingRidesPlace::kOnlinePark:
+        text += what + " to visit it.";
+        break;
+    case MissingRidesPlace::kLoadedPark:
+        text += what + " to load it.";
+        break;
+    }
+    return text;
+}
+
+std::string MissingRidesText(const uint8_t* missing, MissingRidesPlace place, uint32_t missingType) {
+    if (missingType != 0) return MissingRideTypeText(missingType, place);
     size_t gold = 0, unknown = 0;
     // each known mod's titles of the rides the park needs, in the mods' order
     std::vector<std::vector<std::string>> named(KnownMods().size());

@@ -593,6 +593,17 @@ static void TestContentRides(const fs::path& scratch) {
           "launcher to visit it.");
     for (int number = 201; number <= 256; ++number) need(number);
     CHECK(tpw::MissingRidesText(missing, tpw::MissingRidesPlace::kLoadedPark).size() < 500);
+    // A park whose ride records need a ride type no loaded ride carries: Theme Park Inc's by its number, with the Bonus
+    // Disk's rides as the likely ones; another by its number alone.
+    std::memset(missing, 0, sizeof missing);
+    CHECK(tpw::MissingRidesText(missing, tpw::MissingRidesPlace::kOwnPark, 6750) ==
+          "This park needs a Theme Park Inc ride this game hasn't got (ride number 6750), most likely one of the SimCoaster "
+          "Bonus Disk's: Depth Charge or Wilbur's Wind Rush. It has been kept as it was. Add the Bonus Disk in the "
+          "launcher, then play it again.");
+    CHECK(tpw::MissingRidesText(missing, tpw::MissingRidesPlace::kLoadedPark, 4999) ==
+          "This park needs a ride this game hasn't got (ride number 4999). Turn on or import the rides it was built with "
+          "in the launcher to load it.");
+    CHECK(tpw::MissingRidesText(missing, tpw::MissingRidesPlace::kOnlinePark, 7999).size() < 500);
 
     CHECK(tpw::UseContentRides({}) == 0);
     CHECK(tpw::ContentRides().empty());

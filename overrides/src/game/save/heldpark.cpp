@@ -46,7 +46,7 @@ TbITable* MessageTable(const std::string& text) {
 
 // TPW_PORT_FIX heldpark PortTellMissingRides | Mac: (none): nothing says a park needs rides the game has not got | Port: the game's error dialog names them (MissingRidesText) and, for a park the player is put in, holds it until GAMESYSTEM_Tick has left it | Why: the player knows why the park did not load and what to turn on
 void PortTellMissingRides(int32_t place, bool hold) {
-    const std::string text = tpw::MissingRidesText(gPortMissingRides, static_cast<tpw::MissingRidesPlace>(place));
+    const std::string text = tpw::MissingRidesText(gPortMissingRides, static_cast<tpw::MissingRidesPlace>(place), gPortMissingRideType);
     std::fprintf(stderr, "port: %s%s\n", hold ? "park held: " : "park not loaded: ", text.c_str());
     if (hold) gPortHeldPark = 1;
     AddUIError(0, MessageTable(text));

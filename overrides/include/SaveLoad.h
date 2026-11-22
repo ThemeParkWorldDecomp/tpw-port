@@ -175,8 +175,17 @@ inline uint8_t gPortMissingRides[0x20] = {};
 // until the game has left it (GAMESYSTEM_Tick goes from loading the park, state 9, straight to leaving it, 11, so it is never
 // shown and nothing autosaves it; the message opens on the menu the game goes back to).
 inline int32_t gPortHeldPark = 0;
-// True when gPortMissingRides has a bit.
+// TPW_PORT_FIX heldpark gPortMissingRideType | Mac: a park whose ride records need a ride type the game has not got (a Theme Park Inc ride the imported worlds lack, such as the Bonus Disk's) is read on: the record's slot stays empty and the bumper and track rides that restore their cars from it fault (RestoreRideInstance) | Port: Load walks the ride records before any module is read (PortMissingSavedRideType) and refuses the park as LoadHeader refuses one whose ride record needs a missing ride (kErrorMissingRides): it is held and the player is told | Why: a Polar Zone park built with the Bonus Disk's Depth Charge crashed the game on loading where Theme Park Inc was imported without the Bonus Disk
+// The type number of the first ride record the last park Load refused needed and no loaded ride type carries; 0 when it
+// refused none so. Load clears it and sets it.
+inline uint32_t gPortMissingRideType = 0;
+// The first ride record of a park's unpacked modules whose type no loaded ride type carries (include/SavedRideTypes.h);
+// src/game/rides/TPRide.cpp.
+namespace savedrides { struct Missing; }
+savedrides::Missing PortMissingSavedRideType(const uint8_t* modules, uint32_t size);
+// True when gPortMissingRides has a bit, or gPortMissingRideType a type.
 inline bool PortMissingRides() {
+    if (gPortMissingRideType != 0) return true;
     for (uint8_t byte : gPortMissingRides)
         if (byte != 0) return true;
     return false;
