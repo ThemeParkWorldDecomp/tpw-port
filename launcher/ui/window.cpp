@@ -290,6 +290,7 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
         FrameDumper& dumper = *dumperOwned;
         int drawn = 0;
         bool importing = backend.Running();
+        LauncherUi::Screen shown = ui.CurrentScreen();
         std::string iconFolder = backend.DataFolder();   // the data folder whose icon the window has
         while (running) {
             PushClicks(window, placement, drawn + 1);
@@ -318,6 +319,13 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
                 placement.windowIcon(window, folderNow.c_str(), true);
             importing = nowImporting;
             iconFolder = std::move(folderNow);
+            // The result a round of drops ended on, in the log as the player read it.
+            if (ui.CurrentScreen() == LauncherUi::Screen::Result && shown != LauncherUi::Screen::Result) {
+                const ResultText& result = ui.Result();
+                Report("launcher: drop result: %s", result.headline.c_str());
+                for (const std::string& line : result.lines) Report("launcher: drop result line: %s", line.c_str());
+            }
+            shown = ui.CurrentScreen();
             dumper.NextFrame();
             dumper.Dump(renderer);
             const bool play = ui.TakePlay(choice);

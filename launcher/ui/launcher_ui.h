@@ -338,6 +338,8 @@ public:
     // For the screenshot test.
     Screen CurrentScreen() const { return screen_; }
     void ShowScreen(Screen screen);
+    // The result screen's text (DescribeResult), for the log.
+    const ResultText& Result() const { return result_; }
     // The About / Game Data box (the header's third button): open or closed, and the same with ShowGameData. Opening it
     // reads the data folder's languages again (the Game data rows name them).
     void ShowAbout(bool open);

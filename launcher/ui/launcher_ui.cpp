@@ -52,6 +52,7 @@ Rgba ToneColour(LogRow::Tone tone) {
 void Merge(ImportReport& into, const ImportReport& r) {
     into.cancelled = into.cancelled || r.cancelled;
     into.aborted = into.aborted || r.aborted;
+    into.firstRelease = into.firstRelease || r.firstRelease;
     into.entries += r.entries;
     into.containers += r.containers;
     into.hashed += r.hashed;
@@ -76,6 +77,10 @@ void Merge(ImportReport& into, const ImportReport& r) {
     into.playStation2.insert(into.playStation2.end(), r.playStation2.begin(), r.playStation2.end());
     into.playStation2Converted = into.playStation2Converted || r.playStation2Converted;
     into.translations.insert(into.translations.end(), r.translations.begin(), r.translations.end());
+    into.installers.insert(into.installers.end(), r.installers.begin(), r.installers.end());
+    into.translatedOnly.insert(into.translatedOnly.end(), r.translatedOnly.begin(), r.translatedOnly.end());
+    std::sort(into.translatedOnly.begin(), into.translatedOnly.end());
+    into.translatedOnly.erase(std::unique(into.translatedOnly.begin(), into.translatedOnly.end()), into.translatedOnly.end());
 }
 
 // What Play hands the game for an edition's Language (LaunchChoice::language): the kept one while the data folder still

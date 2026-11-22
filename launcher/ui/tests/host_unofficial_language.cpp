@@ -225,6 +225,8 @@ int main(int argc, char** argv) {
           "the result says which translation was added and what it changes");
     Check(report.unknownFiles == 2 && report.differentVersions.empty(),
           "the translation's own files are neither unknown files nor other versions");
+    Check(report.translatedOnly == std::vector<std::string>{"data/Language/English/UITEXT.str"},
+          "the game file its table stands for is in the drop only in translation");
     const std::vector<LanguageStatus> languages = importer.Languages();
     std::optional<LanguageStatus> language = Find(languages);
     Check(language && language->unofficial && language->state == LanguageStatus::State::Available,
