@@ -5,6 +5,7 @@
 ### Bug Fixes
 
 - Fixed the launcher refusing copies of the PlayStation disc that lack the small file naming the game's program: it now starts them the way a PlayStation does, and their rides convert like any other copy's
+- Fixed the launcher refusing an unofficial translation as having a "damaged compressed glyph" when its fonts end some letters early, as the game's own fonts do. A translation is now named by its language (from a known release, its own letters, or by asking you once) instead of "English (Unofficial)", a disc with the same text in two folders is listed once, a translation with a few letters its fonts do not draw is added and says which and where, one whose character tables are the other edition's than its fonts gets the right ones so the park's name no longer shows one letter off, the older US and European discs' own English text is no longer taken for a translation, and dropping a changed version replaces the one added before (Thanks @Nitablade)
 
 ### Changes
 

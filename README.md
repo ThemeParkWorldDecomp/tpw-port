@@ -291,6 +291,30 @@ use `build\tpw_launcher.exe 2> log.txt`.
   `welcome.tga` must be at least as wide as `legal.tga`.
 - A broken file can crash the game.
 
+### Your own translation
+
+- Drop its zip or folder on the launcher. It is checked, kept apart from the game files and offered in Settings'
+  Language, so you can switch back any time.
+- Inside: `data/Language/English/` (or `American`) with the text tables (`UITEXT.str` at least) and fonts (`.bf4`).
+  Also taken: speech (`data/global/speech/`, `data/levels/<world>/speech/`), `data/Init/` pictures and `data/ui.wad`.
+  A folder around `data` is fine.
+- `data/ui.wad` replaces every interface picture, the words drawn in them included. Leave it out unless yours are
+  redrawn.
+- Fonts can be redrawn or the edition's own. Letters beyond English need every text font redrawn with them; the
+  date and cash fonts can stay the edition's own.
+- The game draws each byte of the text with the font's letter of that number, and the US and European editions number
+  their letters one apart. A table taken from the other edition than the fonts, or a letter a font draws as nothing,
+  is said when the translation is added (the file, the lines, the letter). A letter past a font's last one, or so many
+  drawn as nothing that the text would not show, refuses it.
+- `MBToUni.dat` and `UniToMB.dat` from the other edition than the fonts are replaced by the fonts' edition's own, so the
+  names the game writes itself (the park's, the rides') show right. This is said when the translation is added.
+- Dropping a changed version replaces the one kept. The same one again changes nothing.
+- Its name: a known release by its files (the Russian Project's, 2000); else its language read from its own letters
+  (Russian, Ukrainian, Belarusian, Bulgarian, for a Cyrillic translation made over the Latin-1 letters); else the
+  launcher asks you once, suggesting the name of the zip or folder. It is shown as "<language> (Unofficial)".
+- English text is the game's own, from another pressing (the US 1.0 and 1.1 discs, the older European one), never a
+  translation: it is neither added nor asked about, and its files count for the edition as any disc's do.
+
 ## Where it stands
 
 - Every function is translated. Both editions play.

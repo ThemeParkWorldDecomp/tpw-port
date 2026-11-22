@@ -101,6 +101,23 @@ std::vector<assets::LanguageStatus> ImporterBackend::Languages() const {
     return importer_ ? importer_->Languages() : std::vector<assets::LanguageStatus>();
 }
 
+bool ImporterBackend::NameLanguage(const std::string& id, const std::string& language, std::string& newId,
+                                   std::string& err) {
+#ifdef TPW_PORT_FIX
+    if (Running()) {
+        err = "an import is running";
+        return false;
+    }
+    return assets::NameUnofficialLanguage(DataFolder() + "/assets", id, language, newId, err);
+#else
+    (void)id;
+    (void)language;
+    (void)newId;
+    err = "translations cannot be named here";
+    return false;
+#endif
+}
+
 long ImporterBackend::VerifyEdition(Edition edition, std::string& err) {
     if (!importer_) {
         err = "the data folder is not open";

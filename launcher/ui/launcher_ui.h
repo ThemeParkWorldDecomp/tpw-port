@@ -433,6 +433,11 @@ public:
     bool LanguageOfferOpen() const { return !languageOffers_.empty(); }
     Rect LanguageSwitchRect() const { return languageSwitchRect_; }
     Rect LanguageNotNowRect() const { return languageNotNowRect_; }
+    // The question that names a dropped translation whose language is not known (DrawLanguageAsk): whether it is shown,
+    // its language field and Name it button in the last frame, in points.
+    bool LanguageAskShown() const;
+    Rect LanguageAskField() const { return languageAskField_; }
+    Rect LanguageAskNameRect() const { return languageAskNameRect_; }
     // Opens an edition's Language list (0 US, 1 European; -1 closes it), as if its field was clicked.
     void ShowLanguageList(int index);
     // A row of the open Language list in the last frame, in points (empty when no list is shown or no such row).
@@ -566,6 +571,10 @@ private:
     // The offer to switch to a language a drop made usable (languageOffers_' first), over the screen; an unofficial one
     // carries the result screen's amber notice (DrawWarningBadge, kUnofficialWarning) and what it changes.
     void DrawLanguageOffer(const Rect& window);
+    // Before that offer, for an unofficial translation whose language is not known (kUnofficialUnknown), once: the
+    // question that names it, in the same amber style, a list of languages with the name the drop's own file or folder
+    // names chosen (unofficial_language.h SuggestedTranslationLanguage). "Not now" keeps its name.
+    void DrawLanguageAsk(const Rect& window);
     // The result screen's orange "!" badge, centred at (x, y).
     void DrawWarningBadge(float x, float y, float radius);
 
@@ -665,6 +674,13 @@ private:
     std::vector<std::string> languagesBefore_;  // usable names before this round of drops
     std::vector<assets::LanguageStatus> languageOffers_;
     Rect languageSwitchRect_, languageNotNowRect_;
+    std::vector<std::string> roundPaths_;      // this round's drops (the language question's suggested name)
+    std::vector<std::string> languageAsked_;   // the unnamed translations the question was answered "Not now" for
+    std::string languageAskFor_;               // the translation the question was last set up for
+    int languageAskChoice_ = -1;               // its chosen language (TranslationLanguages), -1 none yet
+    bool languageAskOpen_ = false;             // its list is open
+    Rect languageAskField_, languageAskNameRect_;
+    std::vector<Rect> languageAskRows_;
     Updater* updater_ = nullptr;
 
     // A drag over the window. It goes to the window as a whole: the importer sorts each file by its content, so no tile

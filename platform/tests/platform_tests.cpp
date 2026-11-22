@@ -931,6 +931,18 @@ static void TestLanguagePack(const fs::path& scratch) {
     }
     CHECK(!tpw::UseLanguagePack(root, "Russian", "French"));
     CHECK(!tpw::UseLanguagePack(root, ""));
+    // A translation named by its letters or by the player: Unofficial- and its language, its marker naming it so.
+    CHECK(tpw::LanguageName("unofficial-ukrainian") == "Unofficial-ukrainian");
+    CHECK(tpw::LanguageName("Unofficial-").empty() && tpw::LanguageName("Unofficial-Ukr ainian").empty() &&
+          tpw::LanguageName("Unofficial-../x").empty());
+    const fs::path named = root / "lang" / "Unofficial-Ukrainian";
+    Touch(named / "data" / "Language" / "English" / "uitext.str", "synthetic translation");
+    Touch(named / ".unofficial", "1\nUnofficial-Russian\n");
+    CHECK(!tpw::UseLanguagePack(root, "Unofficial-Ukrainian", "English"));
+    Touch(named / ".unofficial", "1\nUnofficial-Ukrainian\n");
+    CHECK(tpw::UseLanguagePack(root, "Unofficial-Ukrainian", "English") && tpw::LanguagePackName() == "English");
+    CHECK(Same(tpw::FindHostPath("data:Language:English:uitext.str"), named / "data/Language/English/uitext.str"));
+    CHECK(!tpw::UseLanguagePack(root, ""));
 #endif
     config.gameDir = gameDir;
     config.userDir = userDir;

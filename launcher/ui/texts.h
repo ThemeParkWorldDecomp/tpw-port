@@ -19,7 +19,17 @@ std::string DropKinds(bool sentence);
 
 inline constexpr const char* kLanguageHeading = "Language";
 inline constexpr const char* kUnofficialSuffix = " (Unofficial)";
-inline constexpr const char* kUnofficialWarning = "Not a known official release";
+// The heading over every unofficial translation's offer, whatever its line below says it is (unofficial_language.h).
+inline constexpr const char* kUnofficialWarning = "Not an official release";
+// An unofficial translation's description (LanguageStatus::description) when neither a known release's hashes nor its
+// own letters name its language, until the player names it (the launcher's question, kLanguageAskTitle).
+inline constexpr const char* kUnofficialUnknown = "Its language is not known";
+inline constexpr const char* kLanguageAskTitle = "Which language is this translation?";
+inline constexpr const char* kLanguageAskLine =
+    "Its text does not say. The name you choose is kept with it and shown in Settings.";
+inline constexpr const char* kLanguageAskChoose = "Choose a language";
+inline constexpr const char* kLanguageAskName = "Name it";
+inline constexpr const char* kLanguageNameError = "Cannot name the translation: ";
 inline constexpr const char* kLanguageSwitchNow = "Switch now";
 inline constexpr const char* kLanguageNotNow = "Not now";
 inline constexpr const char* kLanguageSwitchError = "Cannot keep the language setting: ";

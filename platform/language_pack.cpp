@@ -2,6 +2,7 @@
 #include "language_pack.h"
 #include "path_text.h"
 
+#include <algorithm>
 #include <cctype>
 #include <fstream>
 #include <system_error>
@@ -36,10 +37,13 @@ std::string LanguageName(const std::string& name) {
     for (const char* known : kNames)
         if (lower == Lower(known)) return known;
 #ifdef TPW_PORT_FIX
-    // The IDs of validated player-supplied replacements. The game's own language name is used at run time so its
-    // missing resources fall back to that edition's files; these IDs never enter the original's language registry.
-    for (const char* supplied : {"Russian", "Unofficial-English", "Unofficial-American"})
-        if (lower == Lower(supplied)) return supplied;
+    // The IDs of validated player-supplied replacements: Russian, or Unofficial- and the translation's language in letters
+    // (launcher/ui/unofficial_language.h). The game's own language name is used at run time so its missing resources fall
+    // back to that edition's files; these IDs never enter the original's language registry.
+    if (lower == "russian") return "Russian";
+    if (lower.compare(0, 11, "unofficial-") == 0 && lower.size() > 11 && lower.size() <= 40 &&
+        std::all_of(lower.begin() + 11, lower.end(), [](char c) { return c >= 'a' && c <= 'z'; }))
+        return "Unofficial-" + name.substr(11);
 #endif
     return {};
 }
@@ -67,7 +71,7 @@ bool UseLanguagePack(const fs::path& root, const std::string& name, const std::s
         std::string version, key;
         std::getline(marker, version);
         std::getline(marker, key);
-        if (version != "1" || key != spelled || (own != "English" && own != "American")) return false;
+        if (version != "1" || Lower(key) != Lower(spelled) || (own != "English" && own != "American")) return false;
         overlay = {own, folder, true};
         return true;
     }
