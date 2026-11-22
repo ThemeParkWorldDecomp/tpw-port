@@ -13,6 +13,7 @@
 - The launcher no longer calls a translation pack, a translated US Windows CD or an early US Windows CD an "older pressing" of the European disc: a pack dropped alone says whether its language was added, a US disc is named as the US Windows CD, a translated disc no longer counts its own translated files as missing (dropped on editions that are already ready it says "Language added", otherwise it names only what is really missing, on an untranslated copy of that disc), a disc that holds the game only inside an installer now says so and asks you to install it and drop the installed folder, and the result lists up to three problems one by one and counts the rest
 - The park gate and ride signs in a Russian (or other Cyrillic) unofficial translation now show Russian letters instead of accented Latin letters and question marks
 - A park in the SimCoaster/TPI mod's worlds built with a SimCoaster Bonus Disk ride no longer crashes the game when it is opened without the Bonus Disk added: the park is kept as it was and the game says which ride it needs
+- Fixed rides, shops, paths and coasters being placeable right across the wooden fences at the edge of Polar Zone and Land of Invention in the SimCoaster/TPI - New Worlds, Rides and Sprites mod's worlds once the land on both sides was bought: the fence's squares now refuse building, and anything already built there stays
 
 ### Changes
 
