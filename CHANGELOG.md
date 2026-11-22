@@ -2,6 +2,10 @@
 
 ## 0.6.2 (not released yet)
 
+### Changes
+
+- The README explains what to do when files are missing: what each card's colour means and how to fill a gap
+
 ## 0.6.1 (2026-11-20)
 
 ### New Features

@@ -263,7 +263,20 @@ use `build\tpw_launcher.exe 2> log.txt`.
 
 - `.sam` files live in `assets/us/Theme Park Data` and `assets/eur/Theme Park Data`. Edit freely: they are kept.
 - A Customized settings badge lists them. Restore original puts the disc's copy back.
-- A line the game can't read can crash it. The list warns you.
+- A line the game can't read is put back from the original. The list says Repaired.
+
+### Missing files?
+
+- Each card shows its state. Green: every file is there. Orange: Ready to play, with gaps. Red: an essential file is missing, no Play yet.
+- What's missing lists each file and what it changes. Essential stops Play. Optional doesn't.
+- Drop more discs any time. Each drop fills what it can.
+- Missing or damaged intro film: the game skips it. The others still play.
+- No intro films at all: Skip the intro films stays on.
+- Damaged film: drag in a good copy of either Windows CD.
+- Older pressing: a European PC CD from 2000 or later.
+- First release: patch to 2.0 on Windows.
+- Damaged `.sam` file: repaired line by line from the original. Your readable edits stay.
+- The original settings never replace a disc.
 
 ## Asset packs
 
