@@ -72,10 +72,19 @@ inline double TitleBarGuess(bool bordered) {
 }
 
 // Whether a key press is the game's full-screen toggle, Alt+Enter (the Windows convention; Linux too): an Enter key
-// with an Alt key held and no other modifier, a first press, not a repeat. Never on a Mac, where Cmd+Ctrl+F and the
-// green button do it and Option+Return stays the game's. The press is the host's: it never reaches the game.
+// with an Alt key held and no other modifier, a first press, not a repeat. Never on a Mac, where Cmd+Ctrl+F does it
+// (MacFullScreenToggleKey) and Option+Return stays the game's. The press is the host's: it never reaches the game.
 inline bool FullScreenToggleKey(bool apple, bool enterKey, bool altHeld, bool otherModifierHeld, bool repeat) {
     return !apple && enterKey && altHeld && !otherModifierHeld && !repeat;
+}
+
+// Whether a key press is the Mac's full-screen toggle, Cmd+Ctrl+F: the F key with Cmd and Ctrl held and no other
+// modifier, a first press, not a repeat. Only on a Mac. The system's own Cmd+Ctrl+F and green button need a full-screen
+// Space, which the launcher turns off (SDL_HINT_VIDEO_MAC_FULLSCREEN_SPACES, so full screen covers the notch's strip),
+// so the port answers the shortcut itself. The press is the host's: it never reaches the game.
+inline bool MacFullScreenToggleKey(bool apple, bool fKey, bool cmdHeld, bool ctrlHeld, bool otherModifierHeld,
+                                   bool repeat) {
+    return apple && fKey && cmdHeld && ctrlHeld && !otherModifierHeld && !repeat;
 }
 
 // Whether the toggle can act at all: only through the fit (the game draws into its offscreen framebuffer and the

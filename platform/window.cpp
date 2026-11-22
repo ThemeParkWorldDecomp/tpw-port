@@ -7,9 +7,9 @@
 // offscreen framebuffer (platform/offscreen.cpp), and every presented frame is scaled into the window, which is as large
 // as the screen allows with the game's aspect ratio and never has more pixels than the game. The game is told its
 // own size, not the window's, and the mouse is mapped back through the letterbox. The game's full-screen box (procID 2)
-// is a real full-screen window, the whole screen in a Space of its own (not with --windowed, --background or --no-fit).
-// On a Mac, Cmd+Ctrl+F and the green button take the window in and out of full screen (the system does it; the window's
-// size is read every frame). On Windows and Linux, Alt+Enter does the same through ToggleFullScreen below, and on every
+// is a real full-screen window, the whole screen (not with --windowed, --background or --no-fit). On a Mac it has no
+// Space of its own (the launcher sets SDL_HINT_VIDEO_MAC_FULLSCREEN_SPACES to 0), so it covers the strip beside a
+// camera notch; Cmd+Ctrl+F takes the window in and out of full screen through ToggleFullScreen below. On Windows and Linux, Alt+Enter does the same through ToggleFullScreen below, and on every
 // system the game's Esc menu has a button for it (src/game/ui/ui_mainmenu.cpp, through the hooks launcher/main.cpp sets).
 // Out of full screen the window is the system's standard one (fit::WindowBordered): a title bar with the game's name
 // (WindowTitle: Sim Theme Park or Theme Park World by edition), the close, minimise and zoom buttons, draggable and
@@ -50,7 +50,7 @@ struct FitState {
     int gameWide = 0;
     int gameHigh = 0;
     SDL_DisplayID display = 0;
-    bool fullScreen = false;    // a real full-screen window (fit::RealFullScreen): the whole screen, a Space of its own
+    bool fullScreen = false;    // a real full-screen window (fit::RealFullScreen): the whole screen
 } gFit;
 
 // The window's size in points, and the game's picture inside it (points from the top left).
@@ -542,9 +542,9 @@ GrafPort* NewCWindow(void*, const Rect* bounds, const unsigned char* title, bool
     if (gFit.wanted) {
         RefitWindow();
         PlaceOnChosenDisplay(gWindow.sdl, 0);
-        // The game's full-screen box is a real full-screen window (SDL's desktop full screen, a Space of its own on the
-        // chosen screen, which macOS makes when the window is shown). The fitted window above, with its frame, is what
-        // the window is outside full screen (Cmd+Ctrl+F, the green button, Alt+Enter or the Esc menu's button leave it).
+        // The game's full-screen box is a real full-screen window (SDL's desktop full screen on the chosen screen; on a
+        // Mac without a Space, see the launcher's SDL_HINT_VIDEO_MAC_FULLSCREEN_SPACES). The fitted window above, with
+        // its frame, is what the window is outside full screen (Cmd+Ctrl+F, Alt+Enter or the Esc menu's button leave it).
         if (tpw::fit::RealFullScreen(gWindow.fullScreenBox, true, tpw::config().background)) {
             gFit.fullScreen = SDL_SetWindowFullscreenMode(gWindow.sdl, nullptr) && SDL_SetWindowFullscreen(gWindow.sdl, true);
             if (!gFit.fullScreen) tpw::Log("fullscreen: not available (%s); the fitted window stays", SDL_GetError());
@@ -573,7 +573,8 @@ bool tpw::IsFullScreen() {
     return gWindowMade && (SDL_GetWindowFlags(gWindow.sdl) & SDL_WINDOW_FULLSCREEN) != 0;
 }
 
-// Alt+Enter (platform/gamework.cpp, not on a Mac) and the Esc menu's full-screen button (every system): the window goes
+// Alt+Enter (platform/gamework.cpp, not on a Mac), Cmd+Ctrl+F (the same place, a Mac only) and the Esc menu's
+// full-screen button (every system): the window goes
 // between a real full-screen window (SDL's desktop full screen, as the game's full-screen box is made) and the fitted
 // window, the one --windowed makes. Only through the fit and never with --background (fit::CanToggleFullScreen): the
 // game's picture is letterboxed into whatever the window is (the letterbox is computed from the window's size every
@@ -660,8 +661,8 @@ int32_t ShowWindow(GrafPort* window, int32_t command) {
         else SDL_RaiseWindow(gWindow.sdl);
         gWindow.visible = true;
         if (gFit.fullScreen && !wasVisible) {
-            // SDL enters the full screen asked for while the window was hidden as it is shown; macOS animates the move
-            // to the new Space, so the size is read once that is over (SDL_SyncWindow waits at most 2.5 seconds).
+            // SDL enters the full screen asked for while the window was hidden as it is shown, which can take a moment,
+            // so the size is read once that is over (SDL_SyncWindow waits at most 2.5 seconds).
             if (!SDL_SyncWindow(gWindow.sdl)) tpw::Log("fullscreen: the move to full screen had not finished in time");
             LogFullScreen();
         }

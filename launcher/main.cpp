@@ -2060,6 +2060,11 @@ int LauncherMain(int argc, char** argv) {
     // Asked for before the first SDL video start (the launcher window's or the game's), which reads the hint. A
     // --background run stays behind.
     if (!config.background) SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "0");
+    // Full screen on a Mac with a camera notch: SDL's full screen is a full-screen Space by default, and macOS puts a
+    // Space's window below the notch, so a black band stayed across the top and the top edge did not scroll the map.
+    // Without Spaces the window covers the whole panel, the strip beside the notch included; the game then has no
+    // Space of its own (Cmd-Tab still switches to it). Read at video start like the hint above, so set before it.
+    SDL_SetHint(SDL_HINT_VIDEO_MAC_FULLSCREEN_SPACES, "0");
     if (!appTest.empty()) {
         const int exitCode = GameAppTest(config, dataDir, appTest);
         SDL_Quit();
