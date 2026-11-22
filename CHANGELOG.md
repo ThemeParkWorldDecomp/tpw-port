@@ -2,6 +2,10 @@
 
 ## 0.6.2 (not released yet)
 
+### Bug Fixes
+
+- Fixed the launcher refusing copies of the PlayStation disc that lack the small file naming the game's program: it now starts them the way a PlayStation does, and their rides convert like any other copy's
+
 ### Changes
 
 - The README explains what to do when files are missing: what each card's colour means and how to fill a gap
