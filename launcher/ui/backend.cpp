@@ -198,7 +198,7 @@ bool ImporterBackend::SetLastChoice(const std::string& choice, std::string& err)
 void KeepSettings(const ImporterBackend& backend, const std::string& prefPath, const std::vector<std::string>& more) {
     std::vector<std::string> keys = {kSkipIntroKey, kBackToLauncherKey, kSmoothZoomKey, kInterfaceSizeKey, kPcSoundPicksKey,
                                      kRideBadgesKey, kSoundPanKey, kSeveralKeysKey, kWasdCameraKey, kFarZoomKey, kFullScreenKey,
-                                     kRendererKey, kFrameRateKey, kFreeCameraKey, kFreeSwipeKey, kFreeInvertKey,
+                                     kRendererKey, kFillNotchKey, kFrameRateKey, kFreeCameraKey, kFreeSwipeKey, kFreeInvertKey,
                                      kFreeSensitivityKey, kFreeFlySpeedKey, kFreeSmoothingKey, kFreeThroughGroundKey,
                                      kFreeGamepadKey, kDrawDistanceKey,
                                      kCheckUpdatesKey, kLanguageUsKey, kLanguageEurKey, kOnlineServerKey,

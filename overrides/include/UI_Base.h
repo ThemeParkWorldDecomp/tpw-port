@@ -267,6 +267,21 @@ inline int32_t UI_NearestShape(int32_t width, int32_t height) {
     }
     return nearest;
 }
+// A screen's own shape (`shapeWide`:`shapeHigh`; 0:0 for none), played in place of the one of kUISizeShapes nearest to it:
+// Fill Around Camera's full screen covers a MacBook's whole panel, 2056:1329, which is none of the three
+// (launcher/fill_notch.h). A size of that nearest shape becomes the same height at the screen's shape (1920 x 1200 is
+// 1856 x 1200); a size of another shape stays, as do all with no screen shape.
+inline void UI_AtScreenShape(int32_t shapeWide, int32_t shapeHigh, int32_t& wide, int32_t& high) {
+    if (shapeWide <= 0 || shapeHigh <= 0 || UI_NearestShape(wide, high) != UI_NearestShape(shapeWide, shapeHigh)) return;
+    wide = UI_WideScreenWidth(high, static_cast<float>(shapeWide) / static_cast<float>(shapeHigh));
+}
+// The aspect a shape of kUISizeShapes is played at, as gUIWideAspect holds it: the screen's own shape for the one nearest
+// to it (UI_AtScreenShape), else the shape's (UI_ShapeAspect).
+inline float UI_PlayedAspect(int32_t shape, int32_t shapeWide, int32_t shapeHigh) {
+    if (shapeWide > 0 && shapeHigh > 0 && shape == UI_NearestShape(shapeWide, shapeHigh))
+        return UI_SizeAspect(shapeWide, shapeHigh);
+    return UI_ShapeAspect(shape);
+}
 // What the options panel's size slider offers at each of kUISizeShapes, smallest first: the game's own heights down to 384
 // (its smallest, and the smallest it has fonts for) at that shape, then the sizes people know. 2730 x 1536 and the like are
 // still what --resolution and --aspect give; they get a stop only while they run.
@@ -281,9 +296,11 @@ inline constexpr UISizeStop kUISizeLists[kUISizeShapeCount][kUISizeListLength] =
     {{682, 384}, {854, 480}, {1066, 600}, {1280, 720}, {1366, 768}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3200, 1800}, {3840, 2160}}};
 // The stops at a shape: its list, the size the panel opened at when that is this shape, and the screen's own size when it is
 // this shape and one the UI was laid out for (5:4 to 16:9, not 21:9 or upright), each where it sorts by area. `stops` holds
-// kUISizeStopLimit; the answer is how many.
+// kUISizeStopLimit; the answer is how many. With a screen shape played (`shapeWide`:`shapeHigh`, UI_AtScreenShape), the
+// list of the shape nearest to it has the same heights at the screen's shape.
 inline constexpr int32_t kUISizeStopLimit = kUISizeListLength + 2;
-inline int32_t UI_SizeStops(int32_t shape, int32_t openWide, int32_t openHigh, int32_t screenWide, int32_t screenHigh, UISizeStop* stops) {
+inline int32_t UI_SizeStops(int32_t shape, int32_t openWide, int32_t openHigh, int32_t screenWide, int32_t screenHigh, UISizeStop* stops,
+                            int32_t shapeWide = 0, int32_t shapeHigh = 0) {
     int32_t count = 0;
     auto add = [&](int32_t width, int32_t height) {
         for (int32_t i = 0; i < count; ++i)
@@ -297,7 +314,12 @@ inline int32_t UI_SizeStops(int32_t shape, int32_t openWide, int32_t openHigh, i
         for (; at > 0 && after(stops[at - 1]); --at) stops[at] = stops[at - 1];
         stops[at] = {width, height};
     };
-    for (const UISizeStop& size : kUISizeLists[shape]) add(size.mWidth, size.mHeight);
+    for (const UISizeStop& size : kUISizeLists[shape]) {
+        int32_t width = size.mWidth;
+        int32_t height = size.mHeight;
+        UI_AtScreenShape(shapeWide, shapeHigh, width, height);
+        add(width, height);
+    }
     if (openWide > 0 && openHigh > 0 && UI_NearestShape(openWide, openHigh) == shape) add(openWide, openHigh);
     if (screenWide > 0 && screenHigh > 0 && screenWide * 4 >= screenHigh * 5 && screenWide * 900 <= screenHigh * 1616 &&
         UI_NearestShape(screenWide, screenHigh) == shape)
@@ -350,6 +372,16 @@ inline bool UI_SameShape(int32_t wide, int32_t high, int32_t otherWide, int32_t 
     const int64_t one = static_cast<int64_t>(wide) * otherHigh;
     const int64_t other = static_cast<int64_t>(otherWide) * high;
     return (one > other ? one - other : other - one) * 100 <= one;
+}
+// The size the slider saves for one it offers: a stop at a screen shape played (UI_AtScreenShape) is saved as the same
+// height at the shape nearest to it (1856 x 1200 as 1920 x 1200), so a start without it (Fill Around Camera off, or in a
+// window) opens at one of the three shapes, and a start with it at the screen's shape again; the screen's own size
+// (`screenWide` x `screenHigh` pixels) is a stop of that shape already, and stays.
+inline void UI_SavedSize(int32_t shapeWide, int32_t shapeHigh, int32_t screenWide, int32_t screenHigh, int32_t& wide, int32_t& high) {
+    if (shapeWide <= 0 || shapeHigh <= 0 || (wide == screenWide && high == screenHigh) || !UI_SameShape(wide, high, shapeWide, shapeHigh))
+        return;
+    const UISizeShape& nearest = kUISizeShapes[UI_NearestShape(shapeWide, shapeHigh)];
+    wide = UI_WideScreenWidth(high, static_cast<float>(nearest.mWide) / static_cast<float>(nearest.mHigh));
 }
 // How long the thumb has to stand on a stop before the game changes size: the drag itself never stalls on a size it is only
 // passing through, and a click on the track changes it just as soon.

@@ -221,6 +221,7 @@ LauncherUi::LauncherUi(SDL_Renderer* renderer, ImportBackend& backend)
     rideBadges_ = backend_.Setting(kRideBadgesKey) != "0";
     fullScreen_ = backend_.Setting(kFullScreenKey) != "0";
     renderer_ = backend_.Setting(kRendererKey) == "vulkan" ? 1 : 0;   // OpenGL unless Vulkan was chosen
+    fillNotch_ = backend_.Setting(kFillNotchKey) == "1";   // off by default: full screen stays below the notch
     checkUpdates_ = backend_.Setting(kCheckUpdatesKey) != "0";   // on by default (updater.h says why)
     soundPan_ = backend_.Setting(kSoundPanKey) == "1";   // tpw-port PR #19 by samueleagle91
     onlineServer_ = backend_.Setting(kOnlineServerKey);
@@ -1585,14 +1586,14 @@ void LauncherUi::DrawSettings(const Rect& w) {
     const float rowH = 50;
     float pw = std::min(w.w - 2 * metric::kMargin, 640.0f);
     float titleH = text_.LineHeight(style::kHeadline) + 12;
-    // Everything below the title, as drawn below: the Game section's 10 rows and Show Ride Badges (kRideBadgesRow), the Renderer row (counted last) when shown.
+    // Everything below the title, as drawn below: the Game section's 10 rows and Show Ride Badges (kRideBadgesRow), the Renderer and Fill Around Camera rows (counted last) when shown.
     // A row added below is counted here too; the Settings scroll test checks the sum against what is drawn.
     float bodyH = 2 * (text_.LineHeight(style::kBodyBold) + 4) + 40 + text_.LineHeight(style::kSmall) + 14 + 3 * rowH +
                   4 + 2 * text_.LineHeight(style::kSmallBold) + text_.LineHeight(style::kBodyBold) + 4 + (kRideBadgesRow ? 11 : 10) * rowH +
                   (kFreeCameraRow ? (freeCamera_ ? 8 : 1) : 0) * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH +
                   text_.LineHeight(style::kBodyBold) + 4 + static_cast<float>(SamOptions().size() + 1 + (kDrawDistanceRow ? 1 : 0)) * rowH +
-                  text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH + (rendererRow_ ? rowH : 0.0f) +
+                  text_.LineHeight(style::kBodyBold) + 4 + 2 * rowH + (rendererRow_ ? rowH : 0.0f) + (fillNotchRow_ ? rowH : 0.0f) +
                   (gameShown_ ? GameOptionsHeight(rowH) + text_.LineHeight(style::kSmall) + 6 : 0.0f);
     float ph = std::min(w.h - 2 * metric::kMargin, titleH + bodyH + 40);
     Rect panel{w.CentreX() - pw * 0.5f, w.CentreY() - ph * 0.5f, pw, ph};
@@ -1788,6 +1789,25 @@ void LauncherUi::DrawSettings(const Rect& w) {
         if (ui_.Toggle("full-screen", {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32}, fullScreen_)) {
             std::string err;
             if (!backend_.SaveSetting(kFullScreenKey, fullScreen_ ? "1" : "0", err))
+                settingsMessage_ = "Cannot keep the setting: " + err;
+        }
+        y += rowH;
+    }
+    fillNotchRect_ = {};
+    if (fillNotchRow_) {   // Mac: full screen below a MacBook's camera notch (the default) or around it too
+        Rect row{in.x, y, in.w, rowH - 6};
+        canvas_.FillRound(row, 10, colour::kYellowSoft.WithAlpha(120));
+        float ty = row.y + (row.h - text_.LineHeight(style::kBodyBold) - text_.LineHeight(style::kSmall)) * 0.5f;
+        text_.Draw(style::kBodyBold, row.x + 12, ty, "Fill Around Camera", colour::kInk);
+        const char* fillNotchLine = fillNotch_
+                                        ? "On, the game fills the whole screen; the notch hides a strip at the top centre"
+                                        : "Off, full screen stays below the notch";
+        text_.Draw(style::kSmall, row.x + 12, ty + text_.LineHeight(style::kBodyBold),
+                   text_.Fit(style::kSmall, fillNotchLine, row.w - 12 - 56 - 24, false), colour::kInkSoft);
+        fillNotchRect_ = {row.Right() - 12 - 56, row.CentreY() - 16, 56, 32};
+        if (ui_.Toggle("fill-notch", fillNotchRect_, fillNotch_)) {
+            std::string err;
+            if (!backend_.SaveSetting(kFillNotchKey, fillNotch_ ? "1" : "0", err))
                 settingsMessage_ = "Cannot keep the setting: " + err;
         }
         y += rowH;

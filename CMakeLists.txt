@@ -1498,6 +1498,12 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   target_include_directories(tpw_game_app_tests PRIVATE launcher)
   target_link_libraries(tpw_game_app_tests PRIVATE tpw_assets)
   add_test(NAME game_app COMMAND tpw_game_app_tests)
+  # The Settings switch Fill Around Camera (launcher/fill_notch.h, tpw-port issue #131): SDL's full-screen Spaces hint is
+  # set only when launcher.ini's fill_notch is 1, and a full-screen start with it takes the screen's own shape.
+  add_executable(tpw_fill_notch_tests launcher/tests/fill_notch_tests.cpp)
+  target_include_directories(tpw_fill_notch_tests PRIVATE launcher ${TPW_INCLUDE_DIR})
+  target_link_libraries(tpw_fill_notch_tests PRIVATE SDL3::SDL3)
+  add_test(NAME fill_notch COMMAND tpw_fill_notch_tests)
   # The launcher's icon where the installer put it (launcher/installed_icon.h): which application in Applications is the
   # installer's for this launcher, the Start menu shortcut's icon file, and the icon written again only when it changed.
   add_executable(tpw_installed_icon_tests launcher/tests/installed_icon_tests.cpp launcher/installed_icon.cpp launcher/game_app.cpp)

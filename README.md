@@ -93,6 +93,7 @@ Settings:
 | Skip the intro films | Off | Straight to the lobby. |
 | Back to the launcher after playing | Off | The launcher reopens when the game quits. |
 | Full screen | On | Off plays in a window. Cmd+Ctrl+F (Mac) or Alt+Enter switches. |
+| Fill Around Camera (Mac) | Off | Full screen fills a MacBook's whole screen at its own shape, the sides of the camera notch included; the notch hides a strip at the top centre. The green button then only zooms the window: Cmd+Ctrl+F or the Esc menu's button switch full screen. Off keeps full screen below the notch. |
 | Renderer (Linux) | OpenGL | Vulkan: the port's own renderer. |
 | Smooth wheel zoom | Off | The wheel eases toward the pointer. |
 | Zoom out further | Off | The camera goes further out. |

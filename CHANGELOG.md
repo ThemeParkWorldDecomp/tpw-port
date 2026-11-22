@@ -2,6 +2,10 @@
 
 ## 0.6.2 (not released yet)
 
+### New Features
+
+- A new Mac setting, Fill Around Camera: full screen fills a MacBook's whole screen, the sides of the camera notch included, instead of leaving a black band above the game (Thanks @djlongy for the report and the hint, tpw-port #131)
+
 ### Bug Fixes
 
 - Fixed the launcher refusing copies of the PlayStation disc that lack the small file naming the game's program: it now starts them the way a PlayStation does, and their rides convert like any other copy's

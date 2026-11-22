@@ -4143,6 +4143,54 @@ void CheckRendererRow(SDL_Renderer* renderer) {
     Check(again.RendererChoice() == 1, "renderer: a launcher.ini with vulkan shows Vulkan");
 }
 
+// The Settings box's Fill Around Camera row (tpw-port issue #131, djlongy): on a Mac only (kFillNotchRow; the test shows
+// it on every system), off when launcher.ini has no key (full screen below the notch, as it has always been), nothing
+// kept until the player chooses, a click keeps "1", a second "0", and a launcher.ini with "1" shows it on.
+void CheckFillNotchRow(SDL_Renderer* renderer) {
+    FakeBackend b;
+    const float width = 1100, height = 2400;   // tall enough for the whole box
+    {
+        LauncherUi plain(renderer, b);
+        plain.ShowSettings(true);
+        plain.Frame(kDt, width, height, 1);
+        Check((plain.FillNotchRect().w > 0) == kFillNotchRow, "fill notch: the row is in the Settings box on a Mac only");
+    }
+    LauncherUi ui(renderer, b);
+    ui.ShowFillNotchRow(true);
+    auto frames = [&](LauncherUi& u, int n) {
+        for (int i = 0; i < n; ++i) u.Frame(kDt, width, height, 1);
+    };
+    auto click = [&](LauncherUi& u) {
+        const Rect r = u.FillNotchRect();
+        const float x = r.CentreX(), y = r.CentreY();
+        u.HandleEvent(MotionEvent(x, y));
+        frames(u, 1);
+        u.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, x, y));
+        frames(u, 1);
+        u.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, x, y));
+        frames(u, 1);
+    };
+    ui.ShowSettings(true);
+    frames(ui, 1);
+    Check(ui.FillNotchRect().w > 0, "fill notch: the row is in the Settings box when shown");
+    Check(!ui.FillNotchOn(), "fill notch: off by default");
+    Check(ui.FillNotchRect().Bottom() <= ui.InterfaceSizeRect().y, "fill notch: the row sits above Interface size");
+    CheckEq(b.Setting(kFillNotchKey), "", "fill notch: nothing is kept until the player chooses");
+    click(ui);
+    CheckEq(b.Setting(kFillNotchKey), "1", "fill notch: a click turns it on");
+    click(ui);
+    CheckEq(b.Setting(kFillNotchKey), "0", "fill notch: a second click turns it off");
+    ui.ShowSettings(false);
+    frames(ui, 1);
+    Check(ui.FillNotchRect().w == 0, "fill notch: no switch while the box is closed");
+    b.settings[kFillNotchKey] = "1";
+    LauncherUi again(renderer, b);
+    again.ShowFillNotchRow(true);
+    again.ShowSettings(true);
+    frames(again, 1);
+    Check(again.FillNotchOn(), "fill notch: a launcher.ini with 1 shows it on");
+}
+
 // The Graphics section's Visitor looks row (tpw-port PR #31 by samueleagle91): the original's NUMKIDS, slot 24 of the
 // options table, with the files' four values shown as the looks the game loads for them. Default until changed, nothing
 // written to launcher.ini until then; in the smallest window it scrolls into the box, a click on its last choice keeps
@@ -5527,6 +5575,7 @@ int main(int argc, char** argv) {
             CheckOnlineServerField(renderer);
             CheckFrameRateSlider(renderer);
             CheckRendererRow(renderer);
+            CheckFillNotchRow(renderer);
             CheckMods(renderer);
             CheckGameData(renderer);
             CheckVersionAndLogs(renderer);

@@ -122,6 +122,17 @@ inline constexpr bool kRendererRow = true;
 #else
 inline constexpr bool kRendererRow = false;
 #endif
+// launcher.ini's key for the Settings box's "Fill Around Camera" (Mac only; "1": full screen covers the whole screen, the
+// strips beside a MacBook's camera notch included, and the notch hides a strip at the top centre; absent or "0": full
+// screen stays below the notch, with a black band above the game, as it has always been). Play reads it in the game's
+// process (launcher/fill_notch.h). Reported by djlongy, tpw-port issue #131.
+inline constexpr const char* kFillNotchKey = "fill_notch";
+// Whether the Settings box has the Fill Around Camera row: on a Mac, the one system with a notch.
+#if defined(__APPLE__)
+inline constexpr bool kFillNotchRow = true;
+#else
+inline constexpr bool kFillNotchRow = false;
+#endif
 // launcher.ini's keys for the "Gold Edition" switch, one an edition: on the play tiles of the all-confirmed home and on the
 // Play screen's card. "0": that edition plays plain although the Gold bonus rides are installed; absent or "1": with them
 // (the maintainer, 2026-10-25: players who have the Gold data must be able to play without it).
@@ -473,6 +484,12 @@ public:
     int RendererChoice() const { return renderer_; }
     // For the tests: the Renderer row shown or not, whatever the system (the launcher's own is kRendererRow).
     void ShowRendererRow(bool shown) { rendererRow_ = shown; }
+    // The Settings box's Fill Around Camera switch where the last frame drew it, in points (empty when the box is closed or
+    // has no such row, kFillNotchRow), and whether it is on.
+    Rect FillNotchRect() const { return settingsOpen_ ? fillNotchRect_ : Rect{}; }
+    bool FillNotchOn() const { return fillNotch_; }
+    // For the tests: the Fill Around Camera row shown or not, whatever the system (the launcher's own is kFillNotchRow).
+    void ShowFillNotchRow(bool shown) { fillNotchRow_ = shown; }
     // Whether the last frame scrolled the Settings box, with its clip and its bar (false when the box is closed).
     bool SettingsScrolls() const { return settingsOpen_ && settingsScrolls_; }
     // The Settings box's body (everything below its title) in the last frame, in points: the height counted before it
@@ -647,6 +664,8 @@ private:
     bool fullScreen_ = true;        // the Settings box's "Full screen", as launcher.ini keeps it (on when absent)
     bool rendererRow_ = kRendererRow;   // whether the Settings box has the Renderer row
     int renderer_ = 0;              // the Settings box's "Renderer": 0 OpenGL (also when absent), 1 Vulkan
+    bool fillNotchRow_ = kFillNotchRow;   // whether the Settings box has the Fill Around Camera row
+    bool fillNotch_ = false;        // the Settings box's "Fill Around Camera", as launcher.ini keeps it (off when absent)
     bool soundPan_ = false;         // the Settings box's "Stereo panning", as launcher.ini keeps it
     std::string onlineServer_;      // the Settings box's "Online server", as launcher.ini keeps it (empty: automatic)
     bool onlineServerEditing_ = false;   // the field has the keyboard (text input is on while it does)
@@ -755,6 +774,7 @@ private:
     Rect freeGamepadRect_;     // last frame's (FreeGamepadRect)
     Rect onlineServerRect_;    // last frame's (OnlineServerRect)
     Rect rendererRect_;        // last frame's (RendererRect)
+    Rect fillNotchRect_;       // last frame's (FillNotchRect)
     bool settingsScrolls_ = false;   // last frame's (SettingsScrolls)
     float settingsBodyCounted_ = 0, settingsBodyDrawn_ = 0;   // last frame's (SettingsBodyCounted, SettingsBodyDrawn)
 

@@ -3462,6 +3462,14 @@ static void TestFitFullScreen() {
     CHECK(!tpw::fit::FullScreenToggleKey(false, true, false, false, false));  // Enter alone is the game's
     CHECK(!tpw::fit::FullScreenToggleKey(false, true, true, true, false));    // Ctrl+Alt+Enter, Shift+Alt+Enter: not it
     CHECK(!tpw::fit::FullScreenToggleKey(false, true, true, false, true));    // a held key's repeat does not toggle again
+    // Cmd+Ctrl+F is the game's own only on a Mac with full screen Spaces off (Fill Around Camera): F with Cmd and Ctrl alone.
+    CHECK(tpw::fit::MacFullScreenKey(true, true, true, true, false, false));
+    CHECK(!tpw::fit::MacFullScreenKey(true, false, true, true, false, false));   // Spaces on: the system's menu does it
+    CHECK(!tpw::fit::MacFullScreenKey(false, true, true, true, false, false));   // Windows and Linux: Alt+Enter
+    CHECK(!tpw::fit::MacFullScreenKey(true, true, false, true, false, false));   // Cmd+Ctrl with another key
+    CHECK(!tpw::fit::MacFullScreenKey(true, true, true, false, false, false));   // F, Cmd+F or Ctrl+F: the game's
+    CHECK(!tpw::fit::MacFullScreenKey(true, true, true, true, true, false));     // Shift or Option as well: not it
+    CHECK(!tpw::fit::MacFullScreenKey(true, true, true, true, false, true));     // a held key's repeat does not toggle again
     // It acts only through the fit and never with --background; --windowed's document window toggles too.
     CHECK(tpw::fit::CanToggleFullScreen(true, false));
     CHECK(!tpw::fit::CanToggleFullScreen(false, false));

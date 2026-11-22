@@ -92,6 +92,9 @@
 #ifdef __linux__
 #include "host_linux.h"
 #endif
+#if defined(__APPLE__)
+#include "fill_notch.h"
+#endif
 #include "platform/arena.h"
 #include "sam_check.h"
 #include "platform/online_boss.h"
@@ -156,9 +159,11 @@ public:
             int32_t exactWide = 0;
             int32_t exactHigh = 0;
             const bool exact = PortResolutionSize(setting, exactWide, exactHigh);
+            // (a size saved at the shape nearest to the screen's, with the game playing at the screen's own: its height at that)
+            if (exact && gStartAtSavedShape) UI_AtScreenShape(gPortScreenShapeWide, gPortScreenShapeHigh, exactWide, exactHigh);
             const int32_t saved = exact ? UI_ClosestPreset(exactWide, exactHigh, gUIWideAspect) : PortResolutionPreset(setting, mPreset);
             const int32_t shape = gStartAtSavedShape ? PortResolutionShape(setting) : -1;
-            const float aspect = shape >= 0 ? UI_ShapeAspect(shape) : gUIWideAspect;
+            const float aspect = shape >= 0 ? UI_PlayedAspect(shape, gPortScreenShapeWide, gPortScreenShapeHigh) : gUIWideAspect;
             int32_t wide = 0;
             int32_t high = 0;
             UI_PresetSize(saved, aspect, wide, high);
@@ -234,15 +239,9 @@ const SDL_DisplayMode* ScreenMode() {
 bool ScreenAspect(int& wide, int& high) {
     const SDL_DisplayMode* mode = ScreenMode();
     if (mode == nullptr) return false;
-    const float shape = static_cast<float>(mode->w) / static_cast<float>(mode->h);
-    int nearest = 0;
-    for (int i = 1; i < kUISizeShapeCount; ++i) {
-        const float distance = std::fabs(shape - static_cast<float>(kUISizeShapes[i].mWide) / static_cast<float>(kUISizeShapes[i].mHigh));
-        const float best = std::fabs(shape - static_cast<float>(kUISizeShapes[nearest].mWide) / static_cast<float>(kUISizeShapes[nearest].mHigh));
-        if (distance < best) nearest = i;
-    }
-    wide = kUISizeShapes[nearest].mWide;
-    high = kUISizeShapes[nearest].mHigh;
+    const UISizeShape& nearest = kUISizeShapes[UI_NearestShape(mode->w, mode->h)];
+    wide = nearest.mWide;
+    high = nearest.mHigh;
     return true;
 }
 
@@ -942,6 +941,12 @@ void LogEditedFiles(const char* tag, const tpw::ui::ImportBackend& backend) {
     }
 }
 
+#if defined(__APPLE__)
+// The Settings box's "Fill Around Camera" is on and its hint counts in this run (ChooseFromDataFolder): a full-screen
+// start takes the screen's own shape (LauncherMain).
+bool gFillNotch = false;
+#endif
+
 // No --game: the edition comes from the data folder, through the launcher's window or --play. Fills in the game
 // folder, the edition, the user folder, the packs and the language (each unless an option named it already) and
 // returns -1 to start the game; any other value is the launcher's exit code (0 when the window was closed).
@@ -1242,6 +1247,21 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
         config.debugOptions[1] = 0;
         tpw::Log("full screen off (the launcher's Settings): the game plays in a window");
     }
+#if defined(__APPLE__)
+    // The Settings box's "Fill Around Camera" (off unless launcher.ini says 1; launcher/fill_notch.h): full screen around
+    // a MacBook's camera notch too. SDL reads it when video starts: here in the game's own process (game_app.h), before
+    // its window; a game that plays in the launcher's process (no game application) started video for the launcher's
+    // window, so there it has no effect, and the log says so.
+    {
+        const bool videoStarted = (SDL_WasInit(SDL_INIT_VIDEO) & SDL_INIT_VIDEO) != 0;
+        if (tpw::launcher::UseFillNotch(tpw::launcher::FillNotchSetting(backend.Setting(tpw::ui::kFillNotchKey)))) {
+            gFillNotch = !videoStarted;
+            tpw::Log("fill notch: on (the launcher's Settings)%s",
+                     videoStarted ? ", but video has already started: no effect in this run" : "");
+        } else
+            tpw::Log("fill notch: off (the launcher's Settings)");
+    }
+#endif
     // launcher.ini's renderer key, which the Settings box's Renderer row writes (Linux: vulkan or opengl, as --renderer
     // asks; --renderer wins when both are given).
     if (!rendererGiven) {
@@ -2139,12 +2159,28 @@ int LauncherMain(int argc, char** argv) {
 
     // 4:3 leaves the game's own sizes alone (the 1280 x 1024 preset stays 5:4); anything wider widens the screen.
 #ifdef TPW_PORT_FIX
-    if (!aspectGiven && !ScreenAspect(aspectWide, aspectHigh)) {
+    bool screenShape = false;
+#if defined(__APPLE__)
+    // Fill Around Camera in full screen: the whole panel, so its own shape (launcher/fill_notch.h); the options panel's
+    // shape nearest to it plays at it (gPortScreenShapeWide, include/TPSettings.h).
+    if (!aspectGiven && gFillNotch) {
+        const SDL_DisplayMode* screen = ScreenMode();
+        screenShape = screen != nullptr &&
+                      tpw::launcher::StartShape(true, config.debugOptions[1] != 0 && !config.background, screen->w, screen->h,
+                                                aspectWide, aspectHigh);
+        if (screenShape) {
+            gPortScreenShapeWide = aspectWide;
+            gPortScreenShapeHigh = aspectHigh;
+        }
+    }
+#endif
+    if (!aspectGiven && !screenShape && !ScreenAspect(aspectWide, aspectHigh)) {
         aspectWide = kDefaultAspectWide;
         aspectHigh = kDefaultAspectHigh;
     }
     gUIWideAspect = aspectWide * 3 == aspectHigh * 4 ? 0.0f : static_cast<float>(aspectWide) / static_cast<float>(aspectHigh);
-    tpw::Log("aspect: %d:%d%s", aspectWide, aspectHigh, gUIWideAspect == 0.0f ? " (the original 4:3 layout)" : "");
+    tpw::Log("aspect: %d:%d%s", aspectWide, aspectHigh,
+             gUIWideAspect == 0.0f ? " (the original 4:3 layout)" : screenShape ? " (the screen's own, Fill Around Camera)" : "");
     gUIHighPresets = 1;
     // The Esc menu's "Enter Full Screen" / "Exit Full Screen" button (include/ui_mainmenu.h): the window's own switch, shown
     // only while it can act (platform/window.cpp; never with --background). For this run only: the Settings box's Full screen
