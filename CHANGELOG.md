@@ -14,6 +14,7 @@
 - The park gate and ride signs in a Russian (or other Cyrillic) unofficial translation now show Russian letters instead of accented Latin letters and question marks
 - A park in the SimCoaster/TPI mod's worlds built with a SimCoaster Bonus Disk ride no longer crashes the game when it is opened without the Bonus Disk added: the park is kept as it was and the game says which ride it needs
 - Fixed rides, shops, paths and coasters being placeable right across the wooden fences at the edge of Polar Zone and Land of Invention in the SimCoaster/TPI - New Worlds, Rides and Sprites mod's worlds once the land on both sides was bought: the fence's squares now refuse building, and anything already built there stays
+- Fixed a white patch flickering in the entrances of the shops and rides in the SimCoaster/TPI - New Worlds, Rides and Sprites mod's worlds, such as Polar Zone's Umbrella Shop, when zoomed out and turning the camera: the ground under the doorway's shadow showed through it
 
 ### Changes
 
