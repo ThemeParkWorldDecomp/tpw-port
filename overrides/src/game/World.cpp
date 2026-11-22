@@ -20,6 +20,7 @@
 #include "helpers/ResearchLabHelpers.h"
 #include "helpers/rsseHelpers.h"
 #include "HLSprite.h"
+#include "TPCamera.h"
 #include "LbFile.h"
 #include "LbSCBack.h"
 #include "LevelInit2.h"
@@ -49,6 +50,7 @@
 #include "TpiGenerations.h"
 #include "TpiGreatLake.h"
 #include "TpiOutside.h"
+#include "TpiUmbrellas.h"
 #include "platform/samsutils.h"
 #include "TPMain.h"
 #include "UIInterface.h"
@@ -337,7 +339,7 @@ int32_t tpw::TpiPlaceOutside(const uint16_t* ids, int32_t count) {
     return placed;
 }
 
-// TPW_PORT_FIX mods tpw::TpiGenerationsNewDay | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGenerations.h): the new park day's weather step CParkTime::Update calls through tpw::gTpiNewDay: in one of the mod's worlds with its TpiPeeps.sam read, on a due day (tpw::TpiWeatherDue, counted from the park's calendar) every visitor's happiness, thirst and hunger move by its generation's effect of the weather there is (tpw::TpiWeatherKind; snow is told from rain by the rain object's type, gei_Rain's mRainType, as the weather's own mPType is never written), kept within 0 to 100 | Why: tpw-mods tpi-worlds generations, the weather is felt as in Theme Park Inc | Off: not built
+// TPW_PORT_FIX mods tpw::TpiGenerationsNewDay | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGenerations.h): the new park day's weather step CParkTime::Update calls through tpw::gTpiNewDay: in one of the mod's worlds with its TpiPeeps.sam read, on a due day (tpw::TpiWeatherDue, counted from the park's calendar) every visitor's happiness, thirst and hunger move by its generation's effect of the weather there is (tpw::TpiWeatherKind; snow is told from rain by the rain object's type, gei_Rain's mRainType, as the weather's own mPType is never written), kept within 0 to 100, and a visitor holding an umbrella (tpw::TpiHoldsUmbrella) loses less happiness to rain, a storm or snow, by Theme Park Inc's PeepInfo.UmbrellaModifier (tpw::TpiUmbrellaWeatherEffect) | Why: tpw-mods tpi-worlds generations and umbrellas, the weather is felt as in Theme Park Inc and an umbrella keeps one unhappiness point of it off | Off: not built
 void tpw::TpiGenerationsNewDay() {
     if (tpw::TpiGenerationsInPlay()) {
         const CWeather* weather = gWorld->GetWeather();
@@ -350,12 +352,30 @@ void tpw::TpiGenerationsNewDay() {
                 CThing* thing = static_cast<CThing*>(entry->mThing);
                 if (thing == nullptr || thing->mKind != 1) continue;   // a visitor (CPerson)
                 uint8_t* person = reinterpret_cast<uint8_t*>(thing);
-                tpw::TpiApplyWeather(*reinterpret_cast<float*>(person + 0x19c), *reinterpret_cast<float*>(person + 0x1a4),
+                float& happiness = *reinterpret_cast<float*>(person + 0x19c);
+                const float before = happiness;
+                tpw::TpiApplyWeather(happiness, *reinterpret_cast<float*>(person + 0x1a4),
                                      *reinterpret_cast<float*>(person + 0x1a8), tpw::TpiGuestGeneration(thing), kind,
                                      tpw::gTpiPeeps);
+                // A visitor holding an umbrella (include/TpiUmbrellas.h) loses less happiness to rain, a storm or snow.
+                if (tpw::TpiHoldsUmbrella(person))
+                    happiness = before + tpw::TpiUmbrellaWeatherEffect(happiness - before, kind, tpw::gTpiUmbrellas.modifier);
             }
         }
     }
+}
+
+// TPW_PORT_FIX mods tpw::TpiSpawnUmbrella | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (include/TpiUmbrellas.h): the script of the umbrella a visitor (a CPerson) holds, which CPerson::SetState makes through tpw::gTpiUmbrellaSpawn: made from the balloon's script block (0x1029fd48, as CPerson::WinningMods makes a balloon's; only while gPortScriptCode is set) with the first umbrella sprite (the one past the balloons' count, tpw::gTpiUmbrellaSprites), in the visitor's colour (tpw::TpiUmbrellaColour, no random number drawn) and at Theme Park Inc's GenericUmbrellaModifiers.ScalingFactor (script variable 8); its handle, 0 for none | Why: tpw-mods tpi-worlds umbrellas | Off: never called
+int32_t tpw::TpiSpawnUmbrella(const void* person) {
+    if (!tpw::TpiUmbrellasInPlay() || !gPortScriptCode) return 0;
+    const int32_t index = ESP_GetNumberOfSprites(static_cast<ESP_Sprites>(10));
+    const ESP_CSprite* sprite = gESPSprites[gESPGroups[10].mFirst + index];
+    if (sprite == nullptr) return 0;
+    const int32_t colour = tpw::TpiUmbrellaColour(tpw::TpiThingIndex(person), static_cast<int32_t>(sprite->mActionCount));
+    const int32_t handle = ESP_SpawnScript(ScriptCodeAt(0x1029fd48u), static_cast<ESP_Sprites>(10), index, static_cast<ACTS>(colour),
+                                           0.0f, 0.0f, 0.0f);
+    if (handle != 0) SCR_SetFloatVariable(handle, 8, tpw::gTpiUmbrellas.scale);
+    return handle;
 }
 
 // The set-up of a new level, in the Mac's order. The answer starts true and is cleared by a failed first or second balance file (the easy
@@ -395,6 +415,20 @@ bool CWorld::SetupNewLevel(char* levelFolder) {
             int32_t loaded = 0;
             if (LbFile_Load(buffer, text.data(), static_cast<uint32_t>(length), &loaded).Succeeded())
                 tpw::TpiParsePeeps(text.data(), text.size(), tpw::gTpiPeeps);
+        }
+    }
+    // TPW_PORT_FIX mods CWorld::SetupNewLevel | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiUmbrellas.h): with the mod on, reads the level's TpiUmbrellas.sam (its umbrella shops and Theme Park Inc's umbrella values, which the converter writes into each of the mod's worlds only) into tpw::gTpiUmbrellas, and points tpw::gTpiUmbrellaSpawn at the umbrella's script maker and tpw::gTpiCameraAt at the camera; a level without the file leaves it not loaded | Why: tpw-mods tpi-worlds umbrellas | Off: the table stays not loaded, no file is read
+    tpw::gTpiUmbrellas = tpw::TpiUmbrellaTable{};
+    tpw::gTpiUmbrellaSpawn = tpw::TpiSpawnUmbrella;
+    tpw::gTpiCameraAt = gCameraPosition;
+    if (gModTpiWorlds) {
+        std::sprintf(buffer, "%s:%s", levelFolder, tpw::kTpiUmbrellasFile);
+        const int32_t length = LbFile_GetLength(buffer);
+        if (length > 0) {
+            std::string text(static_cast<size_t>(length), '\0');
+            int32_t loaded = 0;
+            if (LbFile_Load(buffer, text.data(), static_cast<uint32_t>(length), &loaded).Succeeded())
+                tpw::TpiParseUmbrellas(text.data(), text.size(), tpw::gTpiUmbrellas);
         }
     }
     // TPW_PORT_FIX mods CWorld::SetupNewLevel | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGreatLake.h): with the mod on, reads the level's TpiLake.sam (the lake's water and Theme Park Inc's circles and buoys for the Great Lake's boats, which the converter writes into the Land of Invention only) into tpw::gTpiLake, and forgets the chains of the rides built before; a level without the file leaves it not loaded | Why: tpw-mods tpi-worlds, the Great Lake's boats sail on the lake | Off: the lake stays not loaded, no file is read

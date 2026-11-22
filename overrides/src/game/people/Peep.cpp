@@ -33,6 +33,7 @@
 #include "TpiGenerations.h"
 #include "TPSound.h"
 #include "TpiGuests.h"
+#include "TpiUmbrellas.h"
 #include "VehicleSteer.h"
 #include "World.h"
 #include "WorldSavvy.h"
@@ -677,7 +678,17 @@ void CPeep::UpdatePositionInEngine(float step) {
         q = gPeepBalloonBase - q;
         const float base = 0.0f + q;
         const float sc = gPeepBalloonScale;
-        reinterpret_cast<CPerson*>(this)->DrawBalloon(ppc_fmadds(sc, t[0], f30), ppc_fmadds(sc, t[1], base), ppc_fmadds(sc, t[2], f28), 0);
+        // TPW_PORT_FIX mods CPeep::UpdatePositionInEngine | Mac: the balloon is drawn where the visitor was, lagged behind it (CPerson::DrawBalloon), above its head and bobbing | Port: TPW_MOD_HOOK tpi_worlds (include/TpiUmbrellas.h): a visitor holding an umbrella (tpw::TpiHoldsUmbrella, only in one of the mod's worlds) has it drawn at its own place, at its look's height (Theme Park Inc's PersonSpriteUmbrellaModifiers Y, tpw::TpiUmbrellaHeight), moved toward the camera by Theme Park Inc's GenericUmbrellaModifiers (tpw::TpiUmbrellaPlace), not lagged and not bobbing; the balloons' bob steps on as for a balloon | Why: tpw-mods tpi-worlds umbrellas: an umbrella is held over the head, not flown on a string
+        if (tpw::TpiHoldsUmbrella(this)) {
+            float at[3];
+            tpw::TpiUmbrellaPlace(f27, tpw::TpiUmbrellaHeight(tpw::TpiUmbrellaLookOf(this), tpw::gTpiUmbrellaRow, tpw::gTpiLookCount, tpw::gTpiUmbrellas),
+                                  f26, tpw::gTpiCameraAt, tpw::gTpiUmbrellas, at);
+            SCR_SetScriptPosition(At_2<int32_t>(this, 0x210), at[0], at[1], at[2], 0);
+            At_2<float>(this, 0x218) = f27;
+            At_2<float>(this, 0x21c) = f26;
+        } else {
+            reinterpret_cast<CPerson*>(this)->DrawBalloon(ppc_fmadds(sc, t[0], f30), ppc_fmadds(sc, t[1], base), ppc_fmadds(sc, t[2], f28), 0);
+        }
         const float time = gPeepBalloonTime;
         if (static_cast<double>(time) >= 1.0) {
             const uint32_t n = static_cast<uint32_t>(gPeepBalloonIndex) + 1u;

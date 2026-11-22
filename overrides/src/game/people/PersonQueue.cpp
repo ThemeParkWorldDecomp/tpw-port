@@ -21,6 +21,7 @@
 #include "TPCoaster.h"
 #include "TpiGateFlow.h"
 #include "TpiGuests.h"
+#include "TpiUmbrellas.h"
 #include "TPSound.h"
 #include "VehicleSteer.h"
 #include "World.h"
@@ -195,7 +196,9 @@ void CPerson::ProcessStateIdle() {
                     while (current != gNoBalloonThing) {
                         void* other = ThingAt(current);
                         const ThingId self = thing->GetThingId();
-                        if (current != self.mIndex && At_4<uint8_t>(other, 2) == 1 && At_4<int32_t>(other, 0x210) != 0) {
+                        // TPW_PORT_FIX mods CPerson::ProcessStateIdle | Mac: a prankster bursts the balloon of the first visitor on the cell who holds one | Port: TPW_MOD_HOOK tpi_worlds (include/TpiUmbrellas.h): a visitor holding an umbrella (tpw::TpiHoldsUmbrella) is passed over, as it holds no balloon | Why: tpw-mods tpi-worlds umbrellas: an umbrella cannot be burst
+                        if (current != self.mIndex && At_4<uint8_t>(other, 2) == 1 && At_4<int32_t>(other, 0x210) != 0 &&
+                            !tpw::TpiHoldsUmbrella(other)) {
                             reinterpret_cast<CPerson*>(other)->MakeBalloonPop();
                             acted = true;
                             break;
@@ -1294,7 +1297,8 @@ void CPerson::UpdateTurn() {
                 uint32_t rand = gWorld->GetRand();
                 if (rand % 10u == 0) DoSomeThinking();
                 uint32_t balloon = *reinterpret_cast<uint32_t*>(self + 0x214);
-                if (balloon != 0) {
+                // TPW_PORT_FIX mods CPerson::UpdateTurn | Mac: a held balloon's life runs down by one each turn in the park, and it pops at 0 | Port: TPW_MOD_HOOK tpi_worlds (include/TpiUmbrellas.h): an umbrella's (tpw::TpiHoldsUmbrella, the life tpw::kTpiUmbrellaLife) does not run down | Why: tpw-mods tpi-worlds umbrellas: a visitor keeps the umbrella it bought
+                if (balloon != 0 && !tpw::TpiHoldsUmbrella(this)) {
                     balloon -= 1;
                     *reinterpret_cast<uint32_t*>(self + 0x214) = balloon;
                     if (balloon == 0) MakeBalloonPop();
@@ -1584,6 +1588,10 @@ void CPerson::SetState(PersonState state) {
             reinterpret_cast<CPeep*>(this)->UpdatePositionInEngine(0.0f);
             reinterpret_cast<CPeep*>(this)->SpawnParticleEffect(0x13);
         }
+        // TPW_PORT_FIX mods CPerson::SetState | Mac: a visitor with balloon life left comes out of a ride or shop (other than a balloon stall) with a random balloon | Port: TPW_MOD_HOOK tpi_worlds (include/TpiUmbrellas.h): one holding an umbrella (tpw::TpiHoldsUmbrella) comes out with its umbrella, its script made by tpw::gTpiUmbrellaSpawn (World.cpp, tpw::TpiSpawnUmbrella) when it has none | Why: tpw-mods tpi-worlds umbrellas: the umbrella is drawn from when the visitor leaves the umbrella shop, as a balloon is from the balloon stall
+        if (tpw::TpiHoldsUmbrella(this)) {
+            if (Word(s, 0x210) == 0 && tpw::gTpiUmbrellaSpawn != nullptr) Word(s, 0x210) = static_cast<uint32_t>(tpw::gTpiUmbrellaSpawn(this));
+        } else
         if (Word(s, 0x214) != 0) {
             ride = RideOf(s);
             if (InfoOf(ride)->Value(kRideSlot_AppearanceEffect).mInteger != 1) {

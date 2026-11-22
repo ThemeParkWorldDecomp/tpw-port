@@ -710,6 +710,16 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_tpi_generations PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_generations COMMAND tpw_host_tpi_generations)
   endif()
+  # The TPI Worlds and Rides mod's umbrellas (TPW_MOD_HOOK tpi_worlds, include/TpiUmbrellas.h): the converter's
+  # TpiUmbrellas.sam read back, the umbrella shops only in the mod's worlds, a visitor holding one by its balloon life,
+  # the balloon thrown away for it, its colour, each look's height and its place toward the camera, the bad weather it
+  # keeps off, and that nothing changes elsewhere, without game data. The original has no such mod, so it is made only
+  # with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_tpi_umbrellas ${TPW_DECOMP_DIR}/tests/host_tpi_umbrellas.cpp)
+    target_include_directories(tpw_host_tpi_umbrellas PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_umbrellas COMMAND tpw_host_tpi_umbrellas)
+  endif()
   # The TPI Worlds and Rides mod's opening gate (TPW_MOD_HOOK tpi_worlds, include/TpiObstacleGate.h): a leaf's node name
   # read back as the converter writes it, the rule that opens it (the park owns a cell of its footprint or one next to
   # it) and its swing, without game data. The original has no such mod, so it is made only with the port's fixes.
