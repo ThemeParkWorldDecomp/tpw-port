@@ -65,11 +65,19 @@ python launcher/android/package.py --build-dir build-android `
   --output-apk build-android/stp-tpw-arm64-debug.apk
 ```
 
-To build for an x86-64 emulator, use `-DANDROID_ABI=x86_64` and a separate build directory. The packager reads the ABI, SDL sources and strip tool from the selected CMake build.
+The packager reads the ABI, SDL sources and strip tool from the selected CMake build.
 
 ## Install and test
 
-Connect an Android device with USB debugging enabled or boot an emulator. Run `adb install -r build-android/stp-tpw-arm64-debug.apk`, then open **STP/TPW Launcher** and import your own game data with the file picker. On a debug build, read the game log with `adb shell run-as org.tpwport.android cat files/logs/launcher.log`.
+For an ARM64 device, enable USB debugging and run `adb install -r build-android/stp-tpw-arm64-debug.apk`. Open **STP/TPW Launcher** and import your own game data with the file picker. On a debug build, read the game log with `adb shell run-as org.tpwport.android cat files/logs/launcher.log`.
+
+### Android Emulator
+
+Create an x86-64 Android Virtual Device with Android 13 or newer and Vulkan support. In the build commands above, set `-DANDROID_ABI=x86_64`, use `build-android-x86_64` as the build directory, and package to `build-android-x86_64/stp-tpw-x86_64-debug.apk`. Start the emulator, run `adb install -r build-android-x86_64/stp-tpw-x86_64-debug.apk`, then use the launcher to import your own files.
+
+The emulator playtest used a Pixel 7 profile with the Android 15 (API 35) x86-64 system image and SwiftShader software Vulkan on Ubuntu 24.04 under WSL. The [Android Emulator graphics documentation](https://developer.android.com/studio/run/emulator-acceleration#accel-graphics) describes how to select a graphics backend.
+
+The test imported the Gold bonus through Android's folder picker and confirmed that each game remembered its own Gold switch. Theme Park World loaded Lost Kingdom with 35 bonus rides enabled. The park map opened, and Dizzy Dinos could be bought and placed. Sim Theme Park launched with the bonus rides disabled when its switch was off.
 
 ## Packaging for distribution
 
