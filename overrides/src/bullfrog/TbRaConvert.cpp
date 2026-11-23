@@ -2,6 +2,10 @@
 
 #include "ppc_math.h"
 #include "TbRaConvert.h"
+#ifdef TPW_PORT_FIX
+// FIX pixelbounds: use the port's bounded packed-pixel read.
+#include "packed_pixel.h"
+#endif
 #include <algorithm>
 #include <cstring>
 #include <new>
@@ -25,13 +29,13 @@ inline uint32_t Rotl(uint32_t value, uint32_t amount) {
 inline uint32_t ShiftPair(uint32_t value, uint32_t amount) {
     return ppc_srw(value, amount) | ppc_slw(value, 32 - amount);
 }
-// TPW_PORT_FIX pixelbounds ReadPixel | Mac: reads a full word for every source pixel | Port: reads the source pixel's own bytes | Why: the last pixel of a packed map can end at an unmapped page
-inline uint32_t ReadPixel(const uint8_t* source, uint32_t bytes) {
-    uint32_t pixel = 0;
-    for (uint32_t i = 0; i < std::min(bytes, 4u); ++i) {
-        pixel |= uint32_t(source[i]) << (i * 8);
-    }
-    return pixel;
+inline uint32_t ReadPixel(const uint8_t* source, [[maybe_unused]] uint32_t bytes) {
+#ifdef TPW_PORT_FIX
+    // FIX pixelbounds: the last packed pixel can end at an unmapped page.
+    return tpw::ReadPackedPixel(source, bytes);
+#else
+    return uint32_t(source[0]) | (uint32_t(source[1]) << 8) | (uint32_t(source[2]) << 16) | (uint32_t(source[3]) << 24);
+#endif
 }
 inline void Store16(uint8_t* d, uint32_t value) {
     uint16_t word = static_cast<uint16_t>(value);

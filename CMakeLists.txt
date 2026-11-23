@@ -1233,6 +1233,12 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   add_test(NAME online_boss_e2e COMMAND tpw_online_boss_e2e)
   set_tests_properties(online_boss_e2e PROPERTIES SKIP_RETURN_CODE 77)
 
+  if(NOT ANDROID AND TPW_PORT_FIX)
+    add_executable(tpw_pixel_bounds_tests platform/tests/pixel_bounds_tests.cpp)
+    target_include_directories(tpw_pixel_bounds_tests PRIVATE platform)
+    add_test(NAME pixel_bounds COMMAND tpw_pixel_bounds_tests)
+  endif()
+
   if(TPW_LINUX)
     # The Vulkan renderer against the system's OpenGL, through the game's OpenGL calls (platform/tests/renderer_tests.cpp):
     # needs a display and a Vulkan device (CI runs it under Xvfb with Mesa's software ones), skips (77) without them.
