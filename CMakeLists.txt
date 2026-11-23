@@ -84,6 +84,7 @@ foreach(header ${TPW_OVERLAY_HEADERS})
 endforeach()
 
 add_subdirectory(${TPW_DECOMP_DIR} tpw-decomp)
+target_include_directories(tpw PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/platform)
 if(ANDROID)
   target_include_directories(tpw_archive PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/platform/android)
   target_include_directories(tpw PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/platform/android)

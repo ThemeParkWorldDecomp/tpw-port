@@ -11,8 +11,9 @@
 #include "Game.h"
 #include "GameSys.h"
 #include "InterfaceWindow.h"
-#ifdef __ANDROID__
-#include "interface_scale.h"
+#ifdef TPW_PORT_FIX
+// FIX androiduiscale: use the platform's interface sizing hooks.
+#include "mobile_hooks.h"
 #endif
 #include "keyboard.h"
 #include "LbDrawPrimitives.h"
@@ -469,7 +470,8 @@ void CreateMainMenu(int32_t a) {
         InitialiseLobbyMenu();
         gMainMenuPauseFlag = 1;
     } else {
-#ifdef __ANDROID__
+#ifdef TPW_PORT_FIX
+        // FIX androiduiscale: fit the pause menu before building its hit targets.
         tpw::mobile::FitInterfaceForMenu();
 #endif
         InitialiseMainMenu();

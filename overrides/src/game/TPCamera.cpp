@@ -46,8 +46,9 @@
 #include "UIInterface.h"
 #include "World.h"
 #include "PortFreeCamera.h"
-#ifdef __ANDROID__
-#include "mobile_controls.h"
+#ifdef TPW_PORT_FIX
+// FIX androidcamera: read the platform's analog camera controls.
+#include "mobile_hooks.h"
 #endif
 #include <cmath>
 #include <cstdint>
@@ -1260,7 +1261,8 @@ void HandleCamera() {
     int32_t edge;       // the pointer is at a window edge with edge scrolling on
     int32_t firstOk;    // a first-person view that is not held back
     int32_t keyScroll = 0;
-#ifdef __ANDROID__
+#ifdef TPW_PORT_FIX
+    // FIX androidcamera: get analog camera input independently of the cursor.
     float stickX, stickY;
     tpw::mobile::CameraAxes(stickX, stickY);
 #endif
@@ -1276,7 +1278,8 @@ void HandleCamera() {
         }
         firstOk = 0;
         if (Key(0xd) || Key(0xe) || Key(0xf) || Key(0x10)) keyScroll = 1;
-#ifdef __ANDROID__
+#ifdef TPW_PORT_FIX
+        // FIX androidcamera: treat a deflected camera stick as camera movement.
         if (stickX != 0.0f || stickY != 0.0f) keyScroll = 1;
 #endif
     }
@@ -1383,7 +1386,8 @@ void HandleCamera() {
             }
             gCameraYaw = gCameraF5BF4;
         } else {
-#ifdef __ANDROID__
+#ifdef TPW_PORT_FIX
+            // FIX androidcamera: add analog motion in the same axes as the camera keys.
             f30 += stickX * 0.7f;
             f31 -= stickY * 0.7f;
             if (stickX != 0.0f || stickY != 0.0f) gFirstPersonFlags &= ~0x1000u;

@@ -35,6 +35,10 @@
 #include "UI_pump.h"
 #include "UIInterface.h"
 #include "WorldThings.h"
+#ifdef TPW_PORT_FIX
+// FIX androiduiscale: use the platform's enlarged park interface capability.
+#include "mobile_hooks.h"
+#endif
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
@@ -371,9 +375,9 @@ int16_t gUIScreenHeight = 0;
 // The UI's pixel box and unit space on a screen of width x height at an interface size `scale` (1: all of the height).
 void UnitsFor(int16_t width, int16_t height, float scale, int16_t& realWidth, int16_t& realHeight, int16_t& unitWidth,
               int16_t& unitHeight) {
-#ifdef __ANDROID__
-    // TPW_PORT_FIX androiduiscale: the park can use more pixels per layout unit.
-    if (scale > 1.0f && width > 0 && height > 0) {
+#ifdef TPW_PORT_FIX
+    // FIX androiduiscale: the park can use more pixels per layout unit.
+    if (tpw::mobile::kEnlargedInterface && scale > 1.0f && width > 0 && height > 0) {
         const int32_t baseWidth = gUIWideAspect > 0.0f && width * 3 > height * 4 ? UI_PillarboxWidth(height) : width;
         realWidth = static_cast<int16_t>(baseWidth * scale + 0.5f);
         realHeight = static_cast<int16_t>(height * scale + 0.5f);
@@ -412,11 +416,12 @@ void UI_InterfaceUnits(bool on, int16_t& realWidth, int16_t& realHeight, int16_t
 bool UI_UseInterfaceSize(bool on) {
     if ((gUIInterfaceSizeOn != 0) == on) return false;
     gUIInterfaceSizeOn = on ? 1 : 0;
-#ifdef __ANDROID__
-    if (gUIScreenWidth == 0 || gUIScale == 1.0f) return false;
-#else
-    if (gUIScreenWidth == 0 || !(gUIScale < 1.0f)) return false;
+    bool scaled = gUIScale < 1.0f;
+#ifdef TPW_PORT_FIX
+    // FIX androiduiscale: switching between park and full-screen UI applies to enlarged sizes too.
+    if (tpw::mobile::kEnlargedInterface) scaled = gUIScale != 1.0f;
 #endif
+    if (gUIScreenWidth == 0 || !scaled) return false;
     const int16_t wide = gUIUnitWidth;
     const int16_t high = gUIUnitHeight;
     UI_SetRealScreenRez(gUIScreenWidth, gUIScreenHeight);
@@ -438,9 +443,9 @@ void UI_SetRealScreenRez(int16_t width, int16_t height) {
     const float across = static_cast<float>(gUIRealScreenWidth) / 1024.0f;
     const float down = static_cast<float>(gUIRealScreenHeight) / 768.0f;
     gTbFontScale = std::max(1.0f, std::min(across, down));
-#ifdef __ANDROID__
-    // The original small-resolution fonts also grow when Android enlarges the park UI.
-    gTbFontScale = std::max(gTbFontScale, UI_InterfaceSize());
+#ifdef TPW_PORT_FIX
+    // FIX androiduiscale: enlarge the fonts even at small screen resolutions.
+    if (tpw::mobile::kEnlargedInterface) gTbFontScale = std::max(gTbFontScale, UI_InterfaceSize());
 #endif
 }
 

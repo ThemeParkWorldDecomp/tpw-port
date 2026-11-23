@@ -24,8 +24,9 @@
 #include "ui_Postcard.h"
 #include "UI_pump.h"
 #include "UIInterface.h"
-#ifdef __ANDROID__
-#include "interface_scale.h"
+#ifdef TPW_PORT_FIX
+// FIX androiduiscale: use the platform's interface sizing hooks.
+#include "mobile_hooks.h"
 #include <algorithm>
 #endif
 #include <cstdint>
@@ -93,25 +94,26 @@ bool FourThreePanel(int32_t id, int32_t across) {
 }
 
 bool UsesPanelAnchors() {
-#ifdef __ANDROID__
-    if (gUIUnitHeight < 0x600) return true;
+#ifdef TPW_PORT_FIX
+    // FIX androiduiscale: anchor panels in the smaller unit space too.
+    if (tpw::mobile::kEnlargedInterface && gUIUnitHeight < 0x600) return true;
 #endif
     return gUIUnitWidth > 0x800;
 }
 
 bool UsesTallPanelAnchors() {
-#ifdef __ANDROID__
-    return gUIUnitHeight != 0x600;
-#else
-    return gUIUnitHeight > 0x600;
+#ifdef TPW_PORT_FIX
+    // FIX androiduiscale: apply vertical anchors when the unit space shrinks too.
+    if (tpw::mobile::kEnlargedInterface) return gUIUnitHeight != 0x600;
 #endif
+    return gUIUnitHeight > 0x600;
 }
 
-#ifdef __ANDROID__
+#ifdef TPW_PORT_FIX
+// FIX androiduiscale: keep enlarged panels on screen and clear of the park toolbar.
 AnchorShift FitPanelAnchor(AnchorShift shift, const InterfaceWindow* parent, int32_t left, int32_t top,
                            int32_t right, int32_t bottom) {
-    // TPW_PORT_FIX androiduiscale: anchor enlarged panels to the edges of the smaller unit space.
-    if (gUIUnitHeight < 0x600) {
+    if (tpw::mobile::kEnlargedInterface && gUIUnitHeight < 0x600) {
         if (right - left < gUIUnitWidth)
             shift.across = static_cast<int16_t>(std::clamp<int32_t>(shift.across, -left, gUIUnitWidth - 1 - right));
         if (bottom - top < gUIUnitHeight) {
@@ -142,8 +144,9 @@ AnchorShift FitPanelAnchor(AnchorShift shift, const InterfaceWindow* parent, int
 // (widepanel, tpw-port PRs #12 and #35 by samueleagle91: while gPortWidePanel is set, UI_Base.h, a window exactly 0x800
 // units across, the Options root's 0..2048, is not wide; the login panel's root is)
 bool UI_IsWideWindow(const InterfaceWindow* window) {
-#ifdef __ANDROID__
-    if (window != nullptr && gUIUnitHeight < 0x600 &&
+#ifdef TPW_PORT_FIX
+    // FIX androiduiscale: retain panel anchoring for full-screen parents at enlarged sizes.
+    if (tpw::mobile::kEnlargedInterface && window != nullptr && gUIUnitHeight < 0x600 &&
         (window == gUIRootWindow || (gUIFullWindows != nullptr && gUIFullWindows->count(window) != 0))) return true;
 #endif
     if (window == nullptr || gUIUnitWidth <= 0x800) return false;
@@ -235,7 +238,8 @@ void FollowChildren(InterfaceWindow* window, int32_t oldWide, int32_t oldHigh) {
                 if (bottom - top < gUIUnitHeight - 1)
                     now.down = gCentredDown.count(window) != 0 ? static_cast<int16_t>((gUIUnitHeight - 0x600) / 2)
                                                                : UI_TallAnchor(top, bottom, gUIUnitHeight);
-#ifdef __ANDROID__
+#ifdef TPW_PORT_FIX
+                // FIX androiduiscale: fit existing panels after a resize.
                 now = FitPanelAnchor(now, window, left, top, right, bottom);
 #endif
             }
@@ -309,7 +313,8 @@ InterfaceWindow::InterfaceWindow(InterfaceWindow* parent, int32_t attributes, in
             if (bottom - top < gUIUnitHeight - 1)
                 drop = gCentredDown.count(parent) != 0 ? static_cast<int16_t>((gUIUnitHeight - 0x600) / 2)
                                                        : UI_TallAnchor(top, bottom, gUIUnitHeight);
-#ifdef __ANDROID__
+#ifdef TPW_PORT_FIX
+            // FIX androiduiscale: fit panels and their hit targets as they are created.
             const AnchorShift anchor = FitPanelAnchor({shift, drop}, parent, left, top, right, bottom);
             shift = anchor.across;
             drop = anchor.down;
@@ -1831,7 +1836,8 @@ int32_t InterfaceWindow::CallWindowHandler(int32_t message, int32_t a, int32_t b
 
 // Makes the windows of a script under this one (the callback goes to the first window the script made at its top level).
 InterfaceWindow* InterfaceWindow::Build(int16_t* description, InterfaceWindowCallback callback) {
-#ifdef __ANDROID__
+#ifdef TPW_PORT_FIX
+    // FIX androiduiscale: fit full-screen scripts before creating their controls.
     tpw::mobile::PrepareInterfaceForBuild(this, description);
 #endif
     gUIScriptPosition = 0;

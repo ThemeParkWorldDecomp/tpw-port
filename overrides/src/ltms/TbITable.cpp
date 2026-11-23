@@ -176,8 +176,8 @@ int32_t TbITable::FormatString(unsigned char* out, uint32_t size, uint32_t id, .
     buffer.mOverflow = false;
     va_list args;
     va_start(args, id);
-#if defined(TPW_PORT_FIX) && ((defined(__x86_64__) && !defined(_WIN32)) || defined(__ANDROID__))
-    // TPW_PORT_FIX intel TbITable::FormatString | Mac: hands DoFormat the va_list itself as the address of the tag arguments | Port: on SysV x86-64 and Android the tags are taken with va_arg, as the wide overload above takes them | Why: va_list stores register save state rather than pointing directly at the arguments
+#ifdef TPW_PORT_FIX
+    // FIX intel: read tags with va_arg so register-based va_list layouts work too.
     const int32_t result = Format(mStrings[id], buffer, [&args](uint32_t id) {
         va_list scan;
         va_copy(scan, args);
