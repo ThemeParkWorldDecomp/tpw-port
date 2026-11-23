@@ -155,8 +155,10 @@ void CameraAxes(float& x, float& y) {
 void UpdateControls() {
     SDL_Window* window = SDL_GetKeyboardFocus();
     const bool park = window != nullptr && gGameWindow != nullptr && gUIKeyboardWindow == gGameWindow;
-    static bool cameraShown = false;
     const bool havePark = gGameWindow != nullptr;
+    static bool parkShown = false;
+    if (havePark != parkShown && NotifyActivity("parkAvailable", havePark)) parkShown = havePark;
+    static bool cameraShown = false;
     const bool showCamera = havePark && !InterfaceNeedsControlSpace();
     if (showCamera != cameraShown && NotifyActivity("cameraAvailable", showCamera)) cameraShown = showCamera;
 

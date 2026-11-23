@@ -1,6 +1,7 @@
 package org.tpwport.android;
 
 import android.graphics.Canvas;
+import android.graphics.Insets;
 import android.graphics.Paint;
 import android.graphics.PointF;
 import android.graphics.Typeface;
@@ -10,6 +11,7 @@ import android.text.TextUtils;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.WindowInsets;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import java.util.ArrayList;
@@ -24,7 +26,7 @@ final class TouchControls extends FrameLayout {
     private final Button ctrl, shift;
     private final Button gear, resetLayout, resumePark;
     private final CameraStick stick;
-    private boolean editing, parkActive, canResumePark;
+    private boolean editing, parkLoaded, parkActive, canResumePark;
     private int modifiers;
     private View dragging;
     private int dragFinger = -1;
@@ -122,13 +124,12 @@ final class TouchControls extends FrameLayout {
         layoutRow(building, width, width / 2, height - dp(76), buildLeft);
         if (stick.getVisibility() == VISIBLE) place(stick, stickX, stickY, stickWidth);
         int gearWidth = gear.getMeasuredWidth();
-        int margin = dp(12);
-        // The widest game view is 16:9. Use the left black bar when it can fit the whole button.
-        int sideBar = Math.max(0, (width - Math.round(height * 16f / 9)) / 2);
-        int gearX = width * 3 / 8 - gearWidth / 2;
-        if (editing) gearX = width - gearWidth - margin;
-        else if (sideBar >= gearWidth + 2 * margin) gearX = (sideBar - gearWidth) / 2;
-        place(gear, gearX, dp(10), gearWidth);
+        WindowInsets insets = getRootWindowInsets();
+        Insets cutout = insets == null ? Insets.NONE
+            : insets.getInsetsIgnoringVisibility(WindowInsets.Type.displayCutout());
+        // The player list is on the right in the lobby. The park's cash is on the left.
+        int gearX = editing || parkLoaded ? width - gearWidth - dp(12) - cutout.right : dp(12) + cutout.left;
+        place(gear, gearX, dp(10) + cutout.top, gearWidth);
         if (editing) place(resetLayout, dp(12), dp(10), resetLayout.getMeasuredWidth());
         if (resumePark.getVisibility() == VISIBLE) {
             int buttonWidth = resumePark.getMeasuredWidth();
@@ -182,6 +183,12 @@ final class TouchControls extends FrameLayout {
             clearModifiers();
         }
         updateVisibility();
+    }
+
+    void setParkLoaded(boolean loaded) {
+        if (parkLoaded == loaded) return;
+        parkLoaded = loaded;
+        requestLayout();
     }
 
     void setCanResumePark(boolean available) {

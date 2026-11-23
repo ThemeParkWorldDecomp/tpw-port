@@ -574,6 +574,12 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
 
     void toggleCameraControls() { controls.toggle(); }
 
+    void parkAvailable(boolean available) {
+        runOnUiThread(() -> {
+            if (controls != null && !isFinishing()) controls.setParkLoaded(available);
+        });
+    }
+
     void cameraAvailable(boolean active) {
         runOnUiThread(() -> {
             if (controls != null && !isFinishing()) controls.setParkActive(active);
