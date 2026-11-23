@@ -167,6 +167,7 @@ public:
             int32_t wide = 0;
             int32_t high = 0;
             UI_PresetSize(saved, aspect, wide, high);
+            const bool savedPresetReplacesDefault = gPortStartWide != 0 && PortResolutionPreset(setting, 0) != 0;
             if (exact && gStartAtSavedShape && PortSizeFits(exactWide, exactHigh)) {
                 mPreset = UI_ClosestPreset(exactWide, exactHigh, UI_SizeAspect(exactWide, exactHigh));
                 gUIWideAspect = UI_SizeAspect(exactWide, exactHigh);
@@ -174,9 +175,11 @@ public:
                 gPortStartHigh = exactHigh;
                 tpw::Log("resolution: %dx%d, saved from the options panel", exactWide, exactHigh);
                 tpw::LogFileF("game size: %dx%d, saved from the options panel", exactWide, exactHigh);
-            } else if ((saved != mPreset || aspect != gUIWideAspect) && PortSizeFits(wide, high)) {
+            } else if ((saved != mPreset || aspect != gUIWideAspect || savedPresetReplacesDefault) &&
+                       PortSizeFits(wide, high)) {
                 mPreset = saved;
                 gUIWideAspect = aspect;
+                gPortStartWide = gPortStartHigh = 0;
                 tpw::Log("resolution: %dx%d (preset %d), saved from the options panel", wide, high, mPreset);
                 tpw::LogFileF("game size: %dx%d (preset %d), saved from the options panel", wide, high, mPreset);
             }
@@ -2215,6 +2218,13 @@ int LauncherMain(int argc, char** argv) {
     if (resolution > 0) {
         const char* forced = std::getenv("TPW_LARGEST_GAME_SIZE");
         const int limit = forced != nullptr ? std::atoi(forced) : tpw::LargestGameSize();
+#if defined(__ANDROID__)
+        // Start at Full HD unless the player has saved a size or supplied an explicit size or aspect.
+        if (!resolutionGiven && !aspectGiven) {
+            namedWide = 1920;
+            namedHigh = 1080;
+        }
+#endif
         if (namedWide > 0 && (limit <= 0 || (namedWide <= limit && namedHigh <= limit))) {
             gPortStartWide = namedWide;
             gPortStartHigh = namedHigh;
