@@ -34,6 +34,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -83,6 +84,7 @@ public final class SetupActivity extends Activity {
 
     private static native String[] nativeImport(String dataFolder, String[] inputs);
     private static native String[] nativeOptions(String dataFolder, boolean mods, String changedKey, boolean enabled);
+    private static native String[] nativeGraphicsOptions(String dataFolder, String changedKey, int selection);
 
     @Override
     protected void onCreate(Bundle previous) {
@@ -334,6 +336,9 @@ public final class SetupActivity extends Activity {
             scale.setOnClickListener(view -> chooseInterfaceScale(scale));
             alignStart(scale);
             addRow(fields, scale, 8);
+            Button graphics = launcherButton(R.string.graphics_settings, ButtonStyle.NAVIGATION, () -> showGraphicsOptions(root));
+            alignStart(graphics);
+            addRow(fields, graphics, 8);
         }
         for (int i = 0; i + 4 < rows.length; i += 5) {
             final String key = rows[i];
@@ -368,6 +373,66 @@ public final class SetupActivity extends Activity {
         dialog.show();
     }
 
+    private void showGraphicsOptions(String root) {
+        String[] rows = nativeGraphicsOptions(root, "", -1);
+        if (rows == null) {
+            android.widget.Toast.makeText(this, R.string.options_unavailable, android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout fields = column();
+        fields.setPadding(dp(18), dp(4), dp(18), dp(12));
+        scroll.addView(fields);
+        addRow(fields, label(getString(R.string.graphics_apply_on_launch), 14, MUTED), 4);
+        for (int i = 0; i + 2 < rows.length; i += 3) {
+            String key = rows[i];
+            String title = settingLabel(key);
+            String[] values = splitLines(rows[i + 2]);
+            String[] choices = new String[values.length];
+            for (int j = 0; j < values.length; ++j) choices[j] = graphicsValueLabel(values[j]);
+            Button button = launcherButton(R.string.graphics_settings, ButtonStyle.CHOICE);
+            updateGraphicsChoice(button, title, rows[i + 1]);
+            alignStart(button);
+            button.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle(title)
+                .setSingleChoiceItems(choices, Arrays.asList(values).indexOf(button.getTag()), (picker, index) -> {
+                    if (nativeGraphicsOptions(root, key, index) != null) {
+                        updateGraphicsChoice(button, title, values[index]);
+                        picker.dismiss();
+                    } else {
+                        android.widget.Toast.makeText(this, R.string.option_save_failed, android.widget.Toast.LENGTH_SHORT).show();
+                        picker.dismiss();
+                    }
+                }).setNegativeButton(R.string.cancel, null).show());
+            addRow(fields, button, 8);
+        }
+        new AlertDialog.Builder(this).setTitle(R.string.graphics_settings).setView(scroll)
+            .setPositiveButton(R.string.done, null).show();
+    }
+
+    private void updateGraphicsChoice(Button button, String title, String value) {
+        button.setTag(value);
+        button.setText(getString(R.string.graphics_setting_value, title, graphicsValueLabel(value)));
+    }
+
+    private String graphicsValueLabel(String value) {
+        switch (value) {
+            case "Auto": return getString(R.string.graphics_auto);
+            case "Default": return getString(R.string.graphics_default);
+            case "Original": return getString(R.string.graphics_original);
+            case "Farther": return getString(R.string.graphics_farther);
+            case "Whole world": return getString(R.string.graphics_whole_world);
+            case "Short": return getString(R.string.graphics_short);
+            case "Med": return getString(R.string.graphics_medium);
+            case "Long": return getString(R.string.graphics_long);
+            case "Max": return getString(R.string.graphics_max);
+            case "Off": return getString(R.string.graphics_off);
+            case "On": return getString(R.string.graphics_on);
+            case "Low": return getString(R.string.graphics_low);
+            case "High": return getString(R.string.graphics_high);
+            default: return value;
+        }
+    }
+
     private int interfaceScale() {
         return getPreferences(MODE_PRIVATE).getInt(INTERFACE_SCALE, INTERFACE_SCALES[0]);
     }
@@ -400,6 +465,16 @@ public final class SetupActivity extends Activity {
             case "pc_sound_picks": return getString(R.string.sound_variation);
             case "sound_panning": return getString(R.string.sound_pan);
             case "ride_badges": return getString(R.string.ride_badges);
+            case "frame_rate_limit": return getString(R.string.graphics_frame_rate);
+            case "draw_distance": return getString(R.string.graphics_draw_distance);
+            case "sam_view_distance": return getString(R.string.graphics_view_distance);
+            case "sam_sky_quality": return getString(R.string.graphics_sky_layers);
+            case "sam_sky_shadow": return getString(R.string.graphics_cloud_shadows);
+            case "sam_procedural_texturing": return getString(R.string.graphics_ground_blending);
+            case "sam_texture_quality": return getString(R.string.graphics_texture_quality);
+            case "sam_lighting": return getString(R.string.graphics_lighting);
+            case "sam_sprite_shadow": return getString(R.string.graphics_visitor_shadows);
+            case "sam_num_kids": return getString(R.string.graphics_visitor_looks);
             default: return key;
         }
     }

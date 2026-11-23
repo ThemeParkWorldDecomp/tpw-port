@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -13,6 +14,11 @@
 
 namespace {
 jobjectArray StringArray(JNIEnv* env, const std::vector<std::string>& strings);
+
+auto FindOption(tpw::assets::LauncherIni& ini, const std::string& key) {
+    return std::find_if(ini.extra.begin(), ini.extra.end(), [&](const auto& pair) { return pair.first == key; });
+}
+
 std::string Path(JNIEnv* env, jstring string) {
     const jchar* chars = env->GetStringChars(string, nullptr);
     if (chars == nullptr) return {};
@@ -38,7 +44,7 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
         std::vector<std::string> rows;
         bool changed = false;
         auto row = [&](const std::string& id, const std::string& title, bool defaultOn, bool available, const std::string& note) {
-            auto found = std::find_if(ini.extra.begin(), ini.extra.end(), [&](const auto& pair) { return pair.first == id; });
+            auto found = FindOption(ini, id);
             bool on = found == ini.extra.end() ? defaultOn : found->second == "1";
             if (id == key && available) {
                 on = enabled;
@@ -65,6 +71,63 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
             row(ui::kSoundPanKey, "", false, true, "");
             row(ui::kRideBadgesKey, "", true, true, "");
         }
+        if (!key.empty() && (!changed || !assets::SaveLauncherIni(iniPath, ini, error))) return nullptr;
+        return StringArray(env, rows);
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity_nativeGraphicsOptions(
+    JNIEnv* env, jclass, jstring dataFolder, jstring changedKey, jint selection) {
+    using namespace tpw;
+    try {
+        const auto root = std::filesystem::u8path(Path(env, dataFolder));
+        const std::string key = Path(env, changedKey);
+        if (env->ExceptionCheck()) return nullptr;
+        assets::LauncherIni ini;
+        std::string error;
+        const auto iniPath = (root / "launcher.ini").u8string();
+        if (!assets::LoadLauncherIni(iniPath, ini, error)) return nullptr;
+
+        auto value = [&](const std::string& id) {
+            const auto found = FindOption(ini, id);
+            return found == ini.extra.end() ? std::string() : found->second;
+        };
+        std::vector<std::string> rows;
+        bool changed = false;
+        auto row = [&](const std::string& id, const std::vector<std::string>& labels,
+                       const std::vector<std::string>& values, std::string current) {
+            if (id == key && selection >= 0 && static_cast<size_t>(selection) < values.size()) {
+                const auto found = FindOption(ini, id);
+                if (found == ini.extra.end()) ini.extra.emplace_back(id, values[selection]);
+                else found->second = values[selection];
+                current = labels[selection];
+                changed = true;
+            }
+            std::string choices;
+            for (const auto& label : labels) {
+                if (!choices.empty()) choices += '\n';
+                choices += label;
+            }
+            // Each row has a setting ID, its current label and a newline-delimited list of choices.
+            rows.insert(rows.end(), {id, current, choices});
+        };
+        const int fps = ui::FrameRateSetting(value(ui::kFrameRateKey));
+        row(ui::kFrameRateKey, {"Auto", "30 FPS", "60 FPS"}, {"0", "30", "60"},
+            fps == 0 ? "Auto" : std::to_string(fps) + " FPS");
+
+        const std::vector<std::string> distanceLabels{"Original", "Farther", "Whole world"};
+        const int distance = ui::DrawDistanceSetting(value(ui::kDrawDistanceKey));
+        row(ui::kDrawDistanceKey, distanceLabels,
+            {std::begin(ui::kDrawDistanceValues), std::end(ui::kDrawDistanceValues)}, distanceLabels[distance]);
+        for (const auto& option : ui::SamOptions()) {
+            std::vector<std::string> labels{"Default"}, values{"default"};
+            labels.insert(labels.end(), option.shown.begin(), option.shown.end());
+            for (const int entry : option.values) values.push_back(std::to_string(entry));
+            row(option.key, labels, values, labels[ui::SamChoice(option, value(option.key)) + 1]);
+        }
+
         if (!key.empty() && (!changed || !assets::SaveLauncherIni(iniPath, ini, error))) return nullptr;
         return StringArray(env, rows);
     } catch (...) {
