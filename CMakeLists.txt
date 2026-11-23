@@ -174,17 +174,11 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX OR ANDROID) AND Python3_FOU
   # SDL3 is built from source here (third_party/SDL3, static), never taken from the host: only the system's own frameworks
   # and libraries are linked, and no copy of SDL, libusb or the like that the host has is looked for.
   if(ANDROID)
-    set(TPW_ANDROID_SDL_DIR "" CACHE PATH "Full SDL 3.4.20 source tree (the vendored copy omits the Android backend)")
-    if(NOT EXISTS "${TPW_ANDROID_SDL_DIR}/src/video/android/SDL_androidvideo.c")
-      message(FATAL_ERROR "Set TPW_ANDROID_SDL_DIR to the full SDL 3.4.20 source tree")
-    endif()
-    set(TPW_SDL_DIR "${TPW_ANDROID_SDL_DIR}")
     set(SDL_STATIC OFF CACHE BOOL "" FORCE)
     set(SDL_SHARED ON CACHE BOOL "" FORCE)
     set(TPW_SDL_LIBRARY SDL3-shared)
     set(TPW_SDL_SYMBOLS --dynamic-provides)
   else()
-    set(TPW_SDL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/SDL3)
     set(SDL_STATIC ON CACHE BOOL "" FORCE)
     set(SDL_SHARED OFF CACHE BOOL "" FORCE)
     set(TPW_SDL_LIBRARY SDL3-static)
@@ -199,7 +193,18 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX OR ANDROID) AND Python3_FOU
   # SDL 3.4 stops at a missing X11 extension; XTest is the one the build's packages leave out, and 3.4.20 uses it for
   # nothing (X11_InitXTest is compiled out), so it is off rather than one more package to install.
   set(SDL_X11_XTEST OFF CACHE BOOL "" FORCE)
-  add_subdirectory("${TPW_SDL_DIR}" SDL3 EXCLUDE_FROM_ALL)
+  if(ANDROID)
+    # The desktop vendor tree omits SDL's Android backend and Activity sources.
+    include(FetchContent)
+    FetchContent_Declare(tpw_android_sdl
+      URL https://github.com/libsdl-org/SDL/releases/download/release-3.4.20/SDL3-3.4.20.tar.gz
+      URL_HASH SHA256=f3bb06f55bed9557227a700af2ea62e49497ebdf58037732a731a5fb3ef8581f
+      BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/SDL3")
+    FetchContent_MakeAvailable(tpw_android_sdl)
+    set(TPW_ANDROID_SDL_SOURCE_DIR "${tpw_android_sdl_SOURCE_DIR}" CACHE INTERNAL "SDL Java sources for packaging")
+  else()
+    add_subdirectory(third_party/SDL3 SDL3 EXCLUDE_FROM_ALL)
+  endif()
   target_compile_options(${TPW_SDL_LIBRARY} PRIVATE -w)   # SDL's C is not ours to warn about
   file(GLOB TPW_PLATFORM_SOURCES CONFIGURE_DEPENDS platform/*.cpp ${TPW_DECOMP_DIR}/platform/*.cpp)
   list(REMOVE_DUPLICATES TPW_PLATFORM_SOURCES)

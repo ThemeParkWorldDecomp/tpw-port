@@ -71,9 +71,9 @@ def symbols(nm, files, dynamic=False):
     return undefined, weak, defined
 
 
-def c_name(symbol):
+def c_name(symbol, macho):
     """The name as C source spells it (Mach-O adds a leading underscore)."""
-    return symbol[1:] if DARWIN and symbol.startswith("_") else symbol
+    return symbol[1:] if macho and symbol.startswith("_") else symbol
 
 
 class SystemLibraries:
@@ -141,6 +141,8 @@ def main():
     ap.add_argument("inputs", nargs="+")
     args = ap.parse_args(expand_args(sys.argv[1:]))
 
+    macho = DARWIN and not args.elf
+    coff = WINDOWS and not args.elf
     undefined, weak, defined = symbols(args.nm, args.inputs)
     labels = []
     if WINDOWS or LINUX or args.elf:
@@ -155,7 +157,7 @@ def main():
     defined |= symbols(args.nm, args.dynamic_provides, dynamic=True)[2]
     needed = sorted(undefined - defined)
     system = SystemLibraries(args.syslib) if not args.no_host_libs else None
-    names = [c_name(s) for s in needed]
+    names = [c_name(s, macho) for s in needed]
     # c_name already removes Mach-O's extra underscore. Older Apple c++filt versions strip one by default on
     # stdin; that would turn _Z... into Z... and classify every C++ function as a variable on a clean Mac.
     demangled = run([args.cxxfilt, "--no-strip-underscore"], "\n".join(names) + "\n").splitlines()
@@ -247,7 +249,7 @@ def main():
     w("    return n;")
     w("}")
     w("")
-    out.extend(trampolines(functions))
+    out.extend(trampolines(functions, macho, coff))
     if labels:
         out.extend(label_thunks(labels))
     text = "\n".join(out) + "\n"
@@ -287,7 +289,7 @@ def returns_this(pretty):
     return last == owner or last == "~" + owner
 
 
-def trampolines(functions):
+def trampolines(functions, macho, coff):
     """One entry point per stub: it passes its index to tpw_stub_hit and returns zero in
     the integer and floating-point return registers, so callers expecting an int, a
     pointer, a bool, a float or a double all read zero. (A caller expecting a structure
@@ -297,7 +299,7 @@ def trampolines(functions):
     The processor is the compiler's target, chosen in the generated file, not the one
     Python reports: on an Arm PC an x64 build runs an x64 Python, which can still report
     ARM64."""
-    prefix = "_" if DARWIN else ""
+    prefix = "_" if macho else ""
     lines = []
     w = lines.append
     w("#if defined(__aarch64__)")
@@ -341,7 +343,7 @@ def trampolines(functions):
     w(f'    "{prefix}tpw_stub_common:\\n"')
     w('    "    pushq %rbp\\n"')
     w('    "    movq %rsp, %rbp\\n"')
-    if WINDOWS:
+    if coff:
         # The Windows x64 convention: the first argument in %ecx, and 32 bytes of shadow space for the callee.
         w('    "    movl %eax, %ecx\\n"')
         w('    "    subq $32, %rsp\\n"')
@@ -352,7 +354,7 @@ def trampolines(functions):
     w('    "    xorl %edx, %edx\\n"')
     w('    "    xorps %xmm0, %xmm0\\n"')
     w('    "    xorps %xmm1, %xmm1\\n"')
-    if WINDOWS:
+    if coff:
         w('    "    movq %rbp, %rsp\\n"')
     w('    "    popq %rbp\\n"')
     w('    "    ret\\n"')
