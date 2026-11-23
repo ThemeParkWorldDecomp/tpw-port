@@ -56,9 +56,11 @@ const uint16_t kMacRomanHigh[128] = {
     0xF8FF, 0x00D2, 0x00DA, 0x00DB, 0x00D9, 0x0131, 0x02C6, 0x02DC, 0x00AF, 0x02D8, 0x02D9, 0x02DA, 0x00B8, 0x02DD, 0x02DB, 0x02C7,
 };
 
-int Codepoint(char byte) {
+// Or code page 1251 bytes, for a font of charset 204 (gdi_text.h).
+int Codepoint(char byte, bool cyrillic) {
     const auto b = static_cast<unsigned char>(byte);
-    return b < 0x80 ? b : kMacRomanHigh[b - 0x80];
+    if (b < 0x80) return b;
+    return cyrillic ? kCp1251High[b - 0x80] : kMacRomanHigh[b - 0x80];
 }
 
 // ---- Font files -----------------------------------------------------------------------------
@@ -276,6 +278,25 @@ const Face* FindFace(const std::vector<Face>& faces, const std::string& wanted, 
     return match;
 }
 
+// Whether the face has the Cyrillic letters (two of them, as the CoreText side tests), remembered by its file and offset.
+bool HasCyrillic(const Face& face) {
+    static auto* known = new std::map<std::string, bool>;
+    const std::string key = face.file.u8string() + "#" + std::to_string(face.offset) + "#" +
+                            std::to_string(reinterpret_cast<uintptr_t>(face.bytes.get()));
+    const auto done = known->find(key);
+    if (done != known->end()) return done->second;
+    const std::shared_ptr<std::vector<uint8_t>> bytes = FaceBytes(face);
+    stbtt_fontinfo info;
+    const bool has = bytes && stbtt_InitFont(&info, bytes->data(), face.offset) &&
+                     stbtt_FindGlyphIndex(&info, 0x0416) != 0 && stbtt_FindGlyphIndex(&info, 0x044F) != 0;
+    (*known)[key] = has;
+    return has;
+}
+
+// The faces an unknown name gets: Arial, Helvetica's metric twin; on Linux also Arial's own metric twins and then the
+// usual sans face.
+constexpr const char* kFallbackFaces[] = {"arial", "liberation sans", "arimo", "dejavu sans", "noto sans"};
+
 }  // namespace
 
 int32_t AddFontFile(const std::string& hostPath) {
@@ -322,6 +343,7 @@ struct Font::Impl {
     stbtt_fontinfo info;
     float scale = 0;      // font units to pixels at the size
     bool underline = false;
+    bool cyrillic = false;   // charset 204
     int32_t ascent = 0;
     int32_t avgWidth = 0;
 };
@@ -337,8 +359,7 @@ std::unique_ptr<Font> Font::Create(const Style& style) {
     const Face* face = FindFace(Faces(), wanted, bold, italic);
     if (face == nullptr) face = FindFace(SystemFaces(), wanted, bold, italic);
     if (face == nullptr) {
-        // Arial, Helvetica's metric twin; on Linux also Arial's own metric twins and then the usual sans face.
-        for (const char* name : {"arial", "liberation sans", "arimo", "dejavu sans", "noto sans"}) {
+        for (const char* name : kFallbackFaces) {
             face = FindFace(SystemFaces(), name, bold, italic);
             if (face != nullptr) break;
         }
@@ -348,6 +369,19 @@ std::unique_ptr<Font> Font::Create(const Style& style) {
                                       (face != nullptr ? "\"" + face->family + "\"" : std::string("nothing")));
     }
     if (face == nullptr) return nullptr;
+    const bool cyrillic = style.charset == kCyrillicCharset;
+    if (cyrillic && !HasCyrillic(*face)) {
+        // A face without the Cyrillic letters is drawn in the first of an unknown name's faces that has them.
+        const Face* found = nullptr;
+        for (const char* name : kFallbackFaces) {
+            found = FindFace(SystemFaces(), name, bold, italic);
+            if (found != nullptr && HasCyrillic(*found)) break;
+            found = nullptr;
+        }
+        LogOnce("cyrillic:" + wanted, "\"" + style.face + "\" has no Cyrillic letters, using " +
+                                          (found != nullptr ? "\"" + found->family + "\"" : std::string("it all the same")));
+        if (found != nullptr) face = found;
+    }
     if ((bold && !face->bold) || (italic && !face->italic))
         LogOnce("style:" + wanted, "\"" + style.face + "\" has no bold or italic variant, drawn regular");
     std::unique_ptr<Font> font(new Font);
@@ -361,6 +395,7 @@ std::unique_ptr<Font> Font::Create(const Style& style) {
     if (!stbtt_InitFont(&impl.info, impl.face.bytes->data(), impl.face.offset)) return nullptr;
     impl.scale = stbtt_ScaleForMappingEmToPixels(&impl.info, size);
     impl.underline = style.underline;
+    impl.cyrillic = cyrillic;
     int ascent = 0, descent = 0, gap = 0;
     stbtt_GetFontVMetrics(&impl.info, &ascent, &descent, &gap);
     impl.ascent = static_cast<int32_t>(std::ceil(ascent * impl.scale));
@@ -377,7 +412,7 @@ double Font::Advance(const char* text, int32_t length) const {
     double width = 0;
     for (int32_t i = 0; i < length; ++i) {
         int advance = 0, bearing = 0;
-        stbtt_GetCodepointHMetrics(&mImpl->info, Codepoint(text[i]), &advance, &bearing);
+        stbtt_GetCodepointHMetrics(&mImpl->info, Codepoint(text[i], mImpl->cyrillic), &advance, &bearing);
         width += advance * static_cast<double>(mImpl->scale);
     }
     return width;
@@ -390,7 +425,7 @@ void Font::Draw(uint8_t* ink, int32_t width, int32_t height, int32_t x, int32_t 
     std::vector<uint8_t> coverage;
     double pen = x;   // the horizontal scale stretches the advances too
     for (int32_t i = 0; i < length; ++i) {
-        const int codepoint = Codepoint(text[i]);
+        const int codepoint = Codepoint(text[i], mImpl->cyrillic);
         const int whole = static_cast<int>(std::floor(pen));
         const float shift = static_cast<float>(pen - whole);
         int x0, y0, x1, y1;

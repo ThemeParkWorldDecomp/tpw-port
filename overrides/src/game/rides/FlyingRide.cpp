@@ -9,6 +9,7 @@
 #include "CVariableTime.h"
 #include "Debug.h"
 #include "ESP_sprites.h"
+#include "FlyZone.h"
 #include "FS_Online.h"
 #include "HLSprite.h"
 #include "intrface.h"
@@ -252,7 +253,8 @@ int32_t EmployEric(int32_t index) {
     if ((Rand(gGameWorld) & 1) != 0) {
         const int32_t m = Rand(gGameWorld) * 100;
         const int32_t span = gFlyZoneD - gFlyZoneB;
-        Wd(p, 0x4c) = gFlyZoneB + (m - (m / span) * span);
+        // TPW_PORT_FIX flyzone EmployEric | Mac: the car's starting point, just outside one edge of the fly zone, lies along that edge at the signed remainder of labs(rand) * 100 by the edge's length from its low end, negative when the product wraps | Port: the unsigned remainder (tpw::FlyZoneOffset, include/FlyZone.h) | Why: about half the cars started up to a whole edge's length beyond the zone's corner, far past the map's edge, and flew in from there
+        Wd(p, 0x4c) = gFlyZoneB + tpw::FlyZoneOffset(m, span);
         if ((Rand(gGameWorld) & 1) != 0)
             Wd(p, 0x54) = gFlyZoneA + 0x10000 - 0x5038;
         else
@@ -260,7 +262,8 @@ int32_t EmployEric(int32_t index) {
     } else {
         const int32_t m = Rand(gGameWorld) * 100;
         const int32_t span = gFlyZoneA - gFlyZoneC;
-        Wd(p, 0x54) = gFlyZoneC + (m - (m / span) * span);
+        // TPW_PORT_FIX flyzone EmployEric | Mac: the car's starting point, just outside one edge of the fly zone, lies along that edge at the signed remainder of labs(rand) * 100 by the edge's length from its low end, negative when the product wraps | Port: the unsigned remainder (tpw::FlyZoneOffset, include/FlyZone.h) | Why: about half the cars started up to a whole edge's length beyond the zone's corner, far past the map's edge, and flew in from there
+        Wd(p, 0x54) = gFlyZoneC + tpw::FlyZoneOffset(m, span);
         if ((Rand(gGameWorld) & 1) != 0)
             Wd(p, 0x4c) = gFlyZoneD + 0x10000 - 0x5038;
         else
@@ -779,7 +782,8 @@ void FLY_Tick() {
                     if ((Rand_2() & 1) != 0) {
                         const int32_t m = Mul(Rand_2(), 100);
                         const int32_t span = Sub(gFlyZoneD, gFlyZoneB);
-                        FW(fly, 0x4c) = Add(gFlyZoneB, Sub(m, Mul(m / span, span)));
+                        // TPW_PORT_FIX flyzone FLY_Tick | Mac: a car that leaves (state 4 to 9) flies to a point just outside one edge of the fly zone, along that edge at the signed remainder of labs(rand) * 100 by the edge's length from its low end, negative when the product wraps | Port: the unsigned remainder (tpw::FlyZoneOffset, include/FlyZone.h) | Why: about half the leaving cars flew up to a whole edge's length beyond the zone's corner, far past the map's edge, before they were gone
+                        FW(fly, 0x4c) = Add(gFlyZoneB, tpw::FlyZoneOffset(m, span));
                         if ((Rand_2() & 1) != 0)
                             FW(fly, 0x54) = Add(gFlyZoneA, 0x10000 - 0x5038);
                         else
@@ -787,7 +791,8 @@ void FLY_Tick() {
                     } else {
                         const int32_t m = Mul(Rand_2(), 100);
                         const int32_t span = Sub(gFlyZoneA, gFlyZoneC);
-                        FW(fly, 0x54) = Add(gFlyZoneC, Sub(m, Mul(m / span, span)));
+                        // TPW_PORT_FIX flyzone FLY_Tick | Mac: a car that leaves (state 4 to 9) flies to a point just outside one edge of the fly zone, along that edge at the signed remainder of labs(rand) * 100 by the edge's length from its low end, negative when the product wraps | Port: the unsigned remainder (tpw::FlyZoneOffset, include/FlyZone.h) | Why: about half the leaving cars flew up to a whole edge's length beyond the zone's corner, far past the map's edge, before they were gone
+                        FW(fly, 0x54) = Add(gFlyZoneC, tpw::FlyZoneOffset(m, span));
                         if ((Rand_2() & 1) != 0)
                             FW(fly, 0x4c) = Add(gFlyZoneD, 0x10000 - 0x5038);
                         else

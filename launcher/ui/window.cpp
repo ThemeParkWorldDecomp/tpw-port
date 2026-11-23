@@ -138,6 +138,9 @@ bool DrainLauncherEvents(SDL_WindowID launcher) {
     return closed;
 }
 
+// A scripted drop's drag lasts this many drawn frames (the drop overlay shows) before the files are let go.
+constexpr int kDropFrames = 15;
+
 // The scripted clicks (WindowPlacement::clicks) due before drawn frame `frame`, as the pointer's events.
 void PushClicks(SDL_Window* window, const WindowPlacement& placement, int frame) {
     for (const WindowPlacement::Click& click : placement.clicks) {
@@ -178,6 +181,24 @@ void PushClicks(SDL_Window* window, const WindowPlacement& placement, int frame)
         e.wheel.mouse_y = wheel.y;
         SDL_PushEvent(&e);
         Report("launcher: scripted wheel %.0f at %.0f,%.0f (frame %d)", wheel.notches, wheel.x, wheel.y, frame);
+    }
+    for (const WindowPlacement::Drop& drop : placement.drops) {
+        if (frame != drop.frame && frame != drop.frame + kDropFrames) continue;
+        SDL_Event e{};
+        e.drop.windowID = SDL_GetWindowID(window);
+        if (frame == drop.frame) {
+            e.type = SDL_EVENT_DROP_BEGIN;
+            SDL_PushEvent(&e);
+            Report("launcher: scripted drag of %s (frame %d)", drop.path.c_str(), frame);
+            continue;
+        }
+        e.type = SDL_EVENT_DROP_FILE;
+        e.drop.data = drop.path.c_str();   // the placement outlives the window's events
+        SDL_PushEvent(&e);
+        e.type = SDL_EVENT_DROP_COMPLETE;
+        e.drop.data = nullptr;
+        SDL_PushEvent(&e);
+        Report("launcher: scripted drop of %s (frame %d)", drop.path.c_str(), frame);
     }
 }
 
@@ -269,6 +290,7 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
         FrameDumper& dumper = *dumperOwned;
         int drawn = 0;
         bool importing = backend.Running();
+        LauncherUi::Screen shown = ui.CurrentScreen();
         std::string iconFolder = backend.DataFolder();   // the data folder whose icon the window has
         while (running) {
             PushClicks(window, placement, drawn + 1);
@@ -297,6 +319,13 @@ WindowOutcome RunLauncherWindow(ImportBackend& backend, LaunchChoice& choice, st
                 placement.windowIcon(window, folderNow.c_str(), true);
             importing = nowImporting;
             iconFolder = std::move(folderNow);
+            // The result a round of drops ended on, in the log as the player read it.
+            if (ui.CurrentScreen() == LauncherUi::Screen::Result && shown != LauncherUi::Screen::Result) {
+                const ResultText& result = ui.Result();
+                Report("launcher: drop result: %s", result.headline.c_str());
+                for (const std::string& line : result.lines) Report("launcher: drop result line: %s", line.c_str());
+            }
+            shown = ui.CurrentScreen();
             dumper.NextFrame();
             dumper.Dump(renderer);
             const bool play = ui.TakePlay(choice);

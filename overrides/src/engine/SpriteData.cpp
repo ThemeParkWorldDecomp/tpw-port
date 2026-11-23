@@ -2,6 +2,7 @@
 
 #include "m3d2.h"
 #include "MapWho.h"
+#include "PortSpriteFringe.h"
 #include "platform/msl.h"
 #include "platform/samsutils.h"
 #include "platform/upixels.h"
@@ -1142,7 +1143,33 @@ int32_t SSpriteGameData::AddRegular() {
     SVertex vertices[4] = {};
     params.mVertices = vertices;
     if (CalcRegular(&params) == 0) return 0;
-    return gei_DrawPrimitive->AddSprite(&params, -1);
+    // TPW_PORT_FIX spritefringe SSpriteGameData::AddRegular | Mac: sprites arrive grouped on one page | Port: flush between pages, blending modes or pass kinds; screen-space UI sprites keep the original draw | Why: back-to-front soft edges may cross pages; one primitive must still sample only its own page
+    const bool fringeWorld = tpw::spritefringe::Eligible(params.mBlendingMode) &&
+        (static_cast<uint32_t>(mF10) & kSpriteNoClipTest) == 0;
+    // AddSprite adds the fog bits to the primitive's copy of the mode, so they are not compared.
+    constexpr uint32_t kFogBits = SPrimitive::kFogged | SPrimitive::kFogCleared;
+    const bool sorted = tpw::spritefringe::pass != tpw::spritefringe::Pass::Original;
+    if (sorted) {
+        if (tpw::spritefringe::pass == tpw::spritefringe::Pass::Fringe && !fringeWorld) return 1;
+        const SPrimitive* current = gei_DrawPrimitive->mCurrent;
+        if (current != nullptr && (current->mTexture != params.mTexture ||
+                                  ((current->mBlendingMode ^ params.mBlendingMode) & ~kFogBits) != 0 ||
+                                  ((current->mFlags & (tpw::spritefringe::kCore | tpw::spritefringe::kFringe)) != 0) != fringeWorld)) {
+            if (gei_DrawPrimitive->ExecuteCurrentPrimitive(-1.0f) == 0) return 0;
+        }
+    }
+    const SPrimitive* before = gei_DrawPrimitive->mCurrent;
+    const float depthBefore = before != nullptr ? before->mDepth : 0.0f;
+    const int32_t countBefore = before != nullptr ? before->mVertexCount : 0;
+    const int32_t result = gei_DrawPrimitive->AddSprite(&params, -1);
+    // TPW_PORT_FIX spritefringe SSpriteGameData::AddRegular pass | Mac: no sprite pass marker | Port: mark standard-alpha world sprites as cores or fringes, a core primitive sorting at its farthest sprite | Why: the two passes reach the render memory's deferred, depth-sorted draw
+    SPrimitive* added = gei_DrawPrimitive->mCurrent;
+    if (sorted && fringeWorld && added != nullptr) {
+        const bool core = tpw::spritefringe::pass == tpw::spritefringe::Pass::Core;
+        added->mFlags |= core ? tpw::spritefringe::kCore : tpw::spritefringe::kFringe;
+        if (core) tpw::spritefringe::KeepFarthest(added, before, depthBefore, countBefore);
+    }
+    return result;
 }
 
 // tb_sprites_partial.cpp: the partial sprite draw (engine library of SimTheme Park 2.04b3; the original file is

@@ -24,7 +24,11 @@
 //                                     NO (lookups and listings)  CRideDatabase::LoadTheme scans them: a donor's item would
 //                                                                join the world, and the world's rides are its own
 //   easymode.* (Easymode.TPWI)        NO                         the donor's easy-mode park is a park of the donor world
-//   Sound, Speech, Music              yes                        the banks, the advisor's voice and the music
+//   Sound, Music                      NO (lookups and listings)  the world plays only its own sounds and music: a bank or
+//                                                                map it lacks is not there, so the event plays nothing
+//                                                                (the island screen's cat_locallobbysfx, which Theme Park
+//                                                                Inc has no counterpart of), where the donor's played
+//   Speech                            yes                        the advisor's one line of the world's own (its welcome)
 //   Advisor                           yes, names mapped          the advisor's models and textures are the donor's
 //   sky, ssky                         yes, per file              the sky textures, a safety net (the world has its own)
 //   every other file and folder       yes, per file              global.sam, Standard.sam, Easy_Standard.sam, the wads...

@@ -78,6 +78,14 @@ inline bool FullScreenToggleKey(bool apple, bool enterKey, bool altHeld, bool ot
     return !apple && enterKey && altHeld && !otherModifierHeld && !repeat;
 }
 
+// Whether a key press is the game's own Cmd+Ctrl+F: only on a Mac whose full screen is not a Space of its own
+// (`spacesOff`: Fill Around Camera, launcher/fill_notch.h), where the Window menu's Enter Full Screen is greyed out and
+// the keys would reach the game as F. F with Cmd and Ctrl held and no other modifier, a first press, as Alt+Enter is
+// elsewhere: the press is the host's and never reaches the game. With Spaces on, the system's menu does it as always.
+inline bool MacFullScreenKey(bool apple, bool spacesOff, bool fKey, bool cmdAndCtrlHeld, bool otherModifierHeld, bool repeat) {
+    return apple && spacesOff && fKey && cmdAndCtrlHeld && !otherModifierHeld && !repeat;
+}
+
 // Whether the toggle can act at all: only through the fit (the game draws into its offscreen framebuffer and the
 // window shows it scaled, whatever the window's size) and never with --background (as RealFullScreen). The window need
 // not be the game's full-screen box: --windowed's document window goes full screen the same way.

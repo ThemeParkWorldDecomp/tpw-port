@@ -36,7 +36,7 @@ enum class ButtonKind {
     Danger,  // red: Cancel, Remove
 };
 
-enum class Badge { None, Lock, Partial, Check };
+enum class Badge { None, Lock, Partial, Check, Warning, Missing };
 
 // What an edition tile shows (texts.h writes the words).
 struct TileView {
@@ -89,12 +89,25 @@ public:
     float ButtonWidth(std::string_view label, float iconW = 0) const;
     // Returns where it drew the tile: `r`, a little grown while the pointer is over it (never while a drag is).
     Rect Tile(const std::string& id, const Rect& r, const TileView& view);
+    // Where the last Tile's words end: a button under them goes below.
+    float TileTextBottom() const { return tileTextBottom_; }
+    // Where the last Tile drew its state line (its words, one or two lines).
+    Rect TileStateRect() const { return tileState_; }
+    // How much taller than one line the state of a tile `width` wide is (0, or a line when it goes onto two).
+    float TileStateExtra(float width, const TileView& view) const;
+    // An area of a widget the screen code draws itself (a tile's state line) that takes a click: true when the press
+    // and the release both landed on `r` while interactive.
+    bool ClickArea(const std::string& id, const Rect& r) { return Clicked(id, r, true); }
     // `fraction` < 0: busy without a known amount (a block sweeps back and forth).
     void ProgressBar(const Rect& r, float fraction);
     // Rows of path and status; keeps the newest row in view unless the player scrolled up.
     void LogList(const std::string& id, const Rect& r, const std::vector<LogEntry>& entries);
     // A switch `r` (about 52 x 30); returns true when it was flipped.
     bool Toggle(const std::string& id, const Rect& r, bool& on, bool enabled = true);
+    // A part of a list's row that opens and closes the rest of it (a mod's whole text): pressed anywhere in `r`. Its
+    // chevron, `size` wide and centred on (cx, cy), points right while closed and turns to point down while `open`; `r`
+    // is tinted while the pointer is over it. Returns true when it was clicked.
+    bool Disclosure(const std::string& id, const Rect& r, float cx, float cy, float size, bool open, bool enabled = true);
     // Side by side choices; returns true when the selection changed.
     bool Segmented(const std::string& id, const Rect& r, const std::vector<std::string>& options,
                    const std::vector<bool>& enabled, int& selected);
@@ -144,6 +157,8 @@ public:
     void ScrollBar(const Rect& track, float shown, float total, float offset, Rgba trackColour);
 
 private:
+    // The state's lines in a tile with `width` for its words, and their style (Tile).
+    std::vector<std::string> TileState(const TileView& view, float width, Style& state) const;
     bool DrawButton(const std::string& id, const Rect& r, std::string_view label, ButtonKind kind, bool enabled,
                     Style labelStyle, float iconW, const std::function<void(const Rect& slot)>* icon);
     // The drop field's icon: a tray, and an arrow dropping into it, `size` square from `top`; `k` 1 is the lime of a
@@ -167,6 +182,8 @@ private:
     Text& text_;
     Input input_;
     float dt_ = 0;
+    float tileTextBottom_ = 0;   // TileTextBottom
+    Rect tileState_;             // TileStateRect
     double time_ = 0;
     uint64_t frame_ = 0;
     bool interactive_ = true;

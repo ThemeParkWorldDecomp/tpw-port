@@ -19,6 +19,8 @@
 #include "ThingReceivers.h"
 #include "TPCamera.h"
 #include "TrackCell.h"
+// TPW_PORT_FIX mods MAP_wall_in_way | Mac: no mod header | Port: TPW_MOD_HOOK tpi_worlds, the footbridge walls below | Why: guests stay on the mod's tunnel floors
+#include "TpiFootbridge.h"
 #include "World.h"
 #include "WorldSavvy.h"
 #include <cstddef>
@@ -421,6 +423,8 @@ int32_t MAP_wall_in_way(uint8_t x, uint8_t z, uint8_t dir, NavMode mode) {
 
     const CMapCell* const here = MapCellAt(thisId);
     const CMapCell* const that = MapCellAt(thatId);
+    // TPW_PORT_FIX mods MAP_wall_in_way | Mac: a walker on any cell that is not a path or a queue (a footbridge too) may step onto any open neighbour | Port: TPW_MOD_HOOK tpi_worlds, while tpw::TpiWorldInPlay() a footbridge's sides are walls except toward a path or another mode 0x1e cell (tpw::TpiFootbridgeWall); first person keeps the Mac's rule | Why: a TPI tunnel's floor is a two-cell footbridge strip with open land beside it at the mouths and along the hill's foot, and guests walked out onto it (the maintainer, 0.6.0) | Off: the Mac's walls
+    if (tpw::TpiFootbridgeWall({static_cast<int32_t>(here->mType), here->mFlags}, {static_cast<int32_t>(that->mType), that->mFlags}, m)) return 1;
 
     if (that->IsPath() != 0) {
         if (here->IsQueue() == 0) return 0;

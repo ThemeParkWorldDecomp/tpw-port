@@ -5,6 +5,7 @@
 #include <cstring>
 #include <ctime>
 
+#include "platform/samsutils.h"
 #include "rsse.h"
 
 namespace processinstruction_callee {
@@ -21,7 +22,7 @@ char* StrCat(char* to, const char* from) { return std::strcat(to, from); }
 int32_t StrCmp(const char* a, const char* b) { return std::strcmp(a, b); }
 
 int32_t Time(int32_t* out) {
-    const int32_t now = static_cast<int32_t>(std::time(nullptr));
+    const int32_t now = static_cast<int32_t>(SamsUtilities::UTimer::GetWallSeconds());
     if (out != nullptr) *out = now;
     return now;
 }

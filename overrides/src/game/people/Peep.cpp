@@ -28,9 +28,12 @@
 #include "TPCamera.h"
 #include "TPEngine.h"
 #include "TpiGateFlow.h"
+// TPW_PORT_FIX mods CPeep::SetRandomDestination | Mac: no mod header | Port: TPW_MOD_HOOK tpi_worlds, the footbridge joins below | Why: guests wander through the mod's tunnels
+#include "TpiFootbridge.h"
 #include "TpiGenerations.h"
 #include "TPSound.h"
 #include "TpiGuests.h"
+#include "TpiUmbrellas.h"
 #include "VehicleSteer.h"
 #include "World.h"
 #include "WorldSavvy.h"
@@ -301,7 +304,12 @@ uint32_t ModBridgeSteps(uint16_t cur, const CMapCell* cell, uint32_t nb) {
         if ((nb & kLink[i]) != 0) continue;
         if (CMap::IsXYValid(x + delta[i]->mX, y + delta[i]->mY) == 0) continue;
         const CMapCell* next = CellAt(Step(cur, *delta[i]));
-        if (IsModBridge(next) || (onBridge && next->IsPath() != 0)) steps |= 1u << i;
+        bool joins = IsModBridge(next) || (onBridge && next->IsPath() != 0);
+        // TPW_MOD_HOOK tpi_worlds: use the path tiles' runtime joins while tpw::TpiWorldInPlay(), without saved links.
+        if (tpw::TpiWorldInPlay())
+            joins = tpw::TpiFootbridgeStep({static_cast<int32_t>(cell->mType), cell->mFlags},
+                                         {static_cast<int32_t>(next->mType), next->mFlags});
+        if (joins) steps |= 1u << i;
     }
     return steps;
 }
@@ -334,8 +342,8 @@ int32_t CPeep::SetRandomDestination() {
         }
     }
 
-    // TPW_PORT_FIX mods CPeep::SetRandomDestination | Mac: a random walk steps only along path links, which no cell has toward a bridge (mode 0x1e), so staff never cross one while patrolling | Port: TPW_MOD_HOOK staff_bridge_wander (gModStaffBridgeWander, include/ThingReceivers.h), and in the tpi_worlds hook's worlds (tpw::TpiWorldInPlay, include/TpiGateFlow.h) whether or not it is on, a staff member's walk may also step onto, along and off a bridge (ModBridgeSteps), every other rule the Mac's; off in an original world, the Mac's walk | Why: tpw-mods staff-cross-bridges; tpi-worlds, whose bridges join the two banks of a park (the maintainer, 2026-11-13: in those worlds staff wander across bridges by default)
-    const bool bridges = (gModStaffBridgeWander || tpw::TpiWorldInPlay()) && staff;
+    // TPW_PORT_FIX mods CPeep::SetRandomDestination | Mac: a random walk steps only along path links, which no cell has toward a bridge (mode 0x1e) | Port: TPW_MOD_HOOK staff_bridge_wander (gModStaffBridgeWander, include/ThingReceivers.h) adds ModBridgeSteps for staff, and TPW_MOD_HOOK tpi_worlds adds them for guests and staff while tpw::TpiWorldInPlay(); every other rule the Mac's | Why: staff patrol across bridges, and guests wander through the mod's tunnels as well as take targeted routes through them | Off: the Mac's walk
+    const bool bridges = tpw::TpiFootbridgeWander(staff, gModStaffBridgeWander);
     if (here->NumberOfHVNeighbours() > 0 || (bridges && ModBridgeSteps(PeepCell(self), here, 0) != 0)) {
         while (true) {
             const int32_t old = counter;
@@ -670,7 +678,17 @@ void CPeep::UpdatePositionInEngine(float step) {
         q = gPeepBalloonBase - q;
         const float base = 0.0f + q;
         const float sc = gPeepBalloonScale;
-        reinterpret_cast<CPerson*>(this)->DrawBalloon(ppc_fmadds(sc, t[0], f30), ppc_fmadds(sc, t[1], base), ppc_fmadds(sc, t[2], f28), 0);
+        // TPW_PORT_FIX mods CPeep::UpdatePositionInEngine | Mac: the balloon is drawn where the visitor was, lagged behind it (CPerson::DrawBalloon), above its head and bobbing | Port: TPW_MOD_HOOK tpi_worlds (include/TpiUmbrellas.h): a visitor holding an umbrella (tpw::TpiHoldsUmbrella, only in one of the mod's worlds) has it drawn at its own place, at its look's height (Theme Park Inc's PersonSpriteUmbrellaModifiers Y, tpw::TpiUmbrellaHeight), moved toward the camera by Theme Park Inc's GenericUmbrellaModifiers (tpw::TpiUmbrellaPlace), not lagged and not bobbing; the balloons' bob steps on as for a balloon | Why: tpw-mods tpi-worlds umbrellas: an umbrella is held over the head, not flown on a string
+        if (tpw::TpiHoldsUmbrella(this)) {
+            float at[3];
+            tpw::TpiUmbrellaPlace(f27, tpw::TpiUmbrellaHeight(tpw::TpiUmbrellaLookOf(this), tpw::gTpiUmbrellaRow, tpw::gTpiLookCount, tpw::gTpiUmbrellas),
+                                  f26, tpw::gTpiCameraAt, tpw::gTpiUmbrellas, at);
+            SCR_SetScriptPosition(At_2<int32_t>(this, 0x210), at[0], at[1], at[2], 0);
+            At_2<float>(this, 0x218) = f27;
+            At_2<float>(this, 0x21c) = f26;
+        } else {
+            reinterpret_cast<CPerson*>(this)->DrawBalloon(ppc_fmadds(sc, t[0], f30), ppc_fmadds(sc, t[1], base), ppc_fmadds(sc, t[2], f28), 0);
+        }
         const float time = gPeepBalloonTime;
         if (static_cast<double>(time) >= 1.0) {
             const uint32_t n = static_cast<uint32_t>(gPeepBalloonIndex) + 1u;

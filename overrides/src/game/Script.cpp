@@ -15,6 +15,7 @@
 #include "TPCoaster.h"
 #include "TPEngine.h"
 #include "TpiGuests.h"
+#include "TpiUmbrellas.h"
 #include "World.h"
 #include <climits>
 #include <cstdint>
@@ -966,10 +967,12 @@ void ESP_FixSpriteIDsFromDetail() {
         for (int32_t i = 1; i < gScriptTableSize; ++i) {
             tagSCRIPT* script = Entry(i);
             if (script != nullptr) {
-                // TPW_PORT_FIX mods ESP_FixSpriteIDsFromDetail | Mac: the sprite number is reduced modulo the set's count | Port: TPW_MOD_HOOK tpi_worlds (include/TpiGuests.h): in one of the mod's worlds the kids' and kidsheads' extra visitors loaded past the set count too, so a visitor saved wearing one keeps it | Why: tpw-mods tpi-worlds extra visitors; without the hook (mod off, an older build) the number comes back below the count and the visitor is a kid
+                // TPW_PORT_FIX mods ESP_FixSpriteIDsFromDetail | Mac: the sprite number is reduced modulo the set's count | Port: TPW_MOD_HOOK tpi_worlds (include/TpiGuests.h): in one of the mod's worlds the kids' and kidsheads' extra visitors loaded past the set count too, so a visitor saved wearing one keeps it, and the balloons' set the umbrellas loaded past it (include/TpiUmbrellas.h, tpw::gTpiUmbrellaSprites), so a visitor saved holding one keeps it | Why: tpw-mods tpi-worlds extra visitors and umbrellas; without the hook (mod off, an older build) the number comes back below the count and the visitor is a kid, the umbrella a balloon
                 const int32_t set = script->mVars[10];
+                // The balloons' set (10) counts the umbrellas loaded past it too (tpw::gTpiUmbrellaSprites, 0 elsewhere).
                 const int32_t count = ESP_GetNumberOfSprites(static_cast<ESP_Sprites>(set)) +
-                                      (tpw::TpiWorldInPlay() && (set == 0 || set == 1) ? tpw::gTpiExtraGuests[set] : 0);
+                                      (tpw::TpiWorldInPlay() && (set == 0 || set == 1) ? tpw::gTpiExtraGuests[set] : 0) +
+                                      (tpw::TpiWorldInPlay() && set == 10 ? tpw::gTpiUmbrellaSprites : 0);
                 const int32_t id = script->mVars[11];
                 script->mVars[11] = static_cast<int32_t>(static_cast<uint32_t>(id) - static_cast<uint32_t>(PpcDivw(id, count)) * static_cast<uint32_t>(count));
             }

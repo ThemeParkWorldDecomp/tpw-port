@@ -122,6 +122,17 @@ inline constexpr bool kRendererRow = true;
 #else
 inline constexpr bool kRendererRow = false;
 #endif
+// launcher.ini's key for the Settings box's "Fill Around Camera" (Mac only; "1": full screen covers the whole screen, the
+// strips beside a MacBook's camera notch included, and the notch hides a strip at the top centre; absent or "0": full
+// screen stays below the notch, with a black band above the game, as it has always been). Play reads it in the game's
+// process (launcher/fill_notch.h). Reported by djlongy, tpw-port issue #131.
+inline constexpr const char* kFillNotchKey = "fill_notch";
+// Whether the Settings box has the Fill Around Camera row: on a Mac, the one system with a notch.
+#if defined(__APPLE__)
+inline constexpr bool kFillNotchRow = true;
+#else
+inline constexpr bool kFillNotchRow = false;
+#endif
 // launcher.ini's keys for the "Gold Edition" switch, one an edition: on the play tiles of the all-confirmed home and on the
 // Play screen's card. "0": that edition plays plain although the Gold bonus rides are installed; absent or "1": with them
 // (the maintainer, 2026-10-25: players who have the Gold data must be able to play without it).
@@ -226,7 +237,9 @@ struct ModRow {
     std::string name;
     std::string version;
     std::string author;
-    std::string text;              // what it does, for the player
+    std::string text;              // what it does, for the player, shown when its row is opened
+    std::string category;          // its group in the box (ModCategories), Gameplay when empty or not one of them
+    std::string summary;           // one short line under its name; empty: the text's first sentence
     bool editions[3] = {};         // the editions it supports: 0 US, 1 European, 2 Gold (the Gold bonus rides)
     bool changesSaves = false;     // a game saved with it on differs from the original's
     std::vector<std::string> conflicts;   // the ids of mods it cannot be on with
@@ -336,6 +349,8 @@ public:
     // For the screenshot test.
     Screen CurrentScreen() const { return screen_; }
     void ShowScreen(Screen screen);
+    // The result screen's text (DescribeResult), for the log.
+    const ResultText& Result() const { return result_; }
     // The About / Game Data box (the header's third button): open or closed, and the same with ShowGameData. Opening it
     // reads the data folder's languages again (the Game data rows name them).
     void ShowAbout(bool open);
@@ -350,6 +365,15 @@ public:
     Rect LicensesBoxRect() const { return licensesOpen_ ? licensesBoxRect_ : Rect{}; }
     const std::vector<std::string>& LicensesLines() const { return licenseLines_; }
     void ShowSettings(bool open);
+    void ShowMissing(int index) { missingOpen_ = index >= 0 && index < 3 ? index : -1; }
+    int MissingOpen() const { return missingOpen_; }
+    Rect MissingButtonRect(int index) const { return index >= 0 && index < 3 ? missingButtons_[index] : Rect{}; }
+    // An orange card's state line: the pointer over it shows a short list of the gaps (GapHintRect, the card's index in
+    // GapHintShown, -1 none), and a click on it opens the What's missing box. Empty on a green or red card.
+    Rect StateLineRect(int index) const { return index >= 0 && index < 3 ? stateLines_[index] : Rect{}; }
+    int GapHintShown() const { return gapHint_; }
+    Rect GapHintRect() const { return gapHint_ >= 0 ? gapHintRect_ : Rect{}; }
+    bool IntroUnavailable() const;
     // Opens the Customized settings box of an edition (0 US, 1 European, 2 Gold; -1 closes it), as its badge does.
     void ShowEdited(int index);
     // The edition whose Customized settings box is open (0 US, 1 European, 2 Gold), -1 none.
@@ -419,6 +443,14 @@ public:
     // is closed), and the list's choices for it.
     Rect LanguageRect(int index) const { return settingsOpen_ ? languageRects_[index] : Rect{}; }
     std::vector<LanguageChoice> LanguageChoicesFor(int index) const;
+    bool LanguageOfferOpen() const { return !languageOffers_.empty(); }
+    Rect LanguageSwitchRect() const { return languageSwitchRect_; }
+    Rect LanguageNotNowRect() const { return languageNotNowRect_; }
+    // The question that names a dropped translation whose language is not known (DrawLanguageAsk): whether it is shown,
+    // its language field and Name it button in the last frame, in points.
+    bool LanguageAskShown() const;
+    Rect LanguageAskField() const { return languageAskField_; }
+    Rect LanguageAskNameRect() const { return languageAskNameRect_; }
     // Opens an edition's Language list (0 US, 1 European; -1 closes it), as if its field was clicked.
     void ShowLanguageList(int index);
     // A row of the open Language list in the last frame, in points (empty when no list is shown or no such row).
@@ -452,6 +484,12 @@ public:
     int RendererChoice() const { return renderer_; }
     // For the tests: the Renderer row shown or not, whatever the system (the launcher's own is kRendererRow).
     void ShowRendererRow(bool shown) { rendererRow_ = shown; }
+    // The Settings box's Fill Around Camera switch where the last frame drew it, in points (empty when the box is closed or
+    // has no such row, kFillNotchRow), and whether it is on.
+    Rect FillNotchRect() const { return settingsOpen_ ? fillNotchRect_ : Rect{}; }
+    bool FillNotchOn() const { return fillNotch_; }
+    // For the tests: the Fill Around Camera row shown or not, whatever the system (the launcher's own is kFillNotchRow).
+    void ShowFillNotchRow(bool shown) { fillNotchRow_ = shown; }
     // Whether the last frame scrolled the Settings box, with its clip and its bar (false when the box is closed).
     bool SettingsScrolls() const { return settingsOpen_ && settingsScrolls_; }
     // The Settings box's body (everything below its title) in the last frame, in points: the height counted before it
@@ -483,6 +521,26 @@ public:
         return modsOpen_ && index < modSwitchRects_.size() ? modSwitchRects_[index] : Rect{};
     }
     bool ModsScrolls() const { return modsOpen_ && modsScrolls_; }
+    // The Mods box's groups, in the order it shows them: Bonus Content, then Gameplay (platform/mods.cmake's
+    // TPW_MOD_CATEGORIES). Row `index`'s group: its category, or Gameplay when it has none or another.
+    static const std::vector<std::string>& ModCategories();
+    std::string ModCategory(size_t index) const;
+    // The groups' headings the last frame drew, top to bottom, and where (empty when the box is closed).
+    std::vector<std::string> ModHeadings() const { return modsOpen_ ? modHeadings_ : std::vector<std::string>{}; }
+    Rect ModHeadingRect(size_t index) const {
+        return modsOpen_ && index < modHeadingRects_.size() ? modHeadingRects_[index] : Rect{};
+    }
+    // Row `index` and the part of it a click opens or closes (all of it but its switch), where the last frame drew them;
+    // its one line as shown; and whether it is open, showing the mod's whole text and details (closed until the player
+    // opens it, and not kept from one start to the next).
+    Rect ModRowRect(size_t index) const {
+        return modsOpen_ && index < modRowRects_.size() ? modRowRects_[index] : Rect{};
+    }
+    Rect ModOpenRect(size_t index) const {
+        return modsOpen_ && index < modOpenRects_.size() ? modOpenRects_[index] : Rect{};
+    }
+    std::string ModSummary(size_t index) const;
+    bool ModExpanded(size_t index) const;
     // How many mods are on (launcher.ini's mod.<id> keys), and whether the switch of row `index` is.
     int ModsOn() const;
     bool ModOn(size_t index) const { return index < modOn_.size() && modOn_[index]; }
@@ -521,13 +579,23 @@ private:
     // Flips an edition's Gold Edition switch (0 US, 1 European) and keeps it in launcher.ini (GoldKey).
     void SetGold(int index, bool on);
     TileView TileFor(int index) const;
-    // The small tiles' height: taller while one of them shows the Customized settings badge, which sits at its bottom.
-    float TileHeight() const;
+    // The small tiles' height in a row `width` wide: taller while one of them shows the Customized settings badge,
+    // which sits at its bottom, or its state on two lines.
+    float TileHeight(float width) const;
     // The Customized settings badge of an edition (status_ index) in `r`, when it has edited .sam files; opens its box.
     void EditedBadge(int index, const Rect& r);
     // Reads the data folder's languages again (ImportBackend::Languages() reads the folder; not every frame): at the
     // start, after an import, a check or a remove, and when Settings opens.
     void RefreshLanguages();
+    // The offer to switch to a language a drop made usable (languageOffers_' first), over the screen; an unofficial one
+    // carries the result screen's amber notice (DrawWarningBadge, kUnofficialWarning) and what it changes.
+    void DrawLanguageOffer(const Rect& window);
+    // Before that offer, for an unofficial translation whose language is not known (kUnofficialUnknown), once: the
+    // question that names it, in the same amber style, a list of languages with the name the drop's own file or folder
+    // names chosen (unofficial_language.h SuggestedTranslationLanguage). "Not now" keeps its name.
+    void DrawLanguageAsk(const Rect& window);
+    // The result screen's orange "!" badge, centred at (x, y).
+    void DrawWarningBadge(float x, float y, float radius);
 
     void DrawBackdrop(const Rect& window);
     float DrawHeader(const Rect& window, bool buttons);
@@ -547,6 +615,11 @@ private:
     void DrawGameData(const Rect& panel, const Rect& in, float top, float footerTop);
     void DrawLicenses(const Rect& window);
     void DrawEdited(const Rect& window);
+    void DrawMissing(const Rect& window);
+    void MissingButton(int index, const Rect& rect);
+    void StateLine(int index);   // after an edition's Ui::Tile: its state line's hover and click (StateLineRect)
+    void DrawGapHint(const Rect& window);
+    int TileButtonRows(int index) const;   // the buttons under a tile's text: What's missing, Customized settings
     void DrawMods(const Rect& window);
     // The Game options section of the Settings box (settings_game.cpp): its height, and drawing it at `y` in `in`.
     float GameOptionsHeight(float rowH);
@@ -576,6 +649,11 @@ private:
     std::vector<bool> licenseHeads_;          // which of them are a library's heading
     float licenseWidth_ = 0;
     int editedOpen_ = -1;      // the edition whose Customized settings box is open (status_ index), -1 none
+    int missingOpen_ = -1;
+    Rect missingButtons_[3];
+    Rect stateLines_[3];   // last frame's (StateLineRect)
+    int gapHint_ = -1;     // the card whose state line the pointer is over (GapHintShown)
+    Rect gapHintRect_;     // where the last frame drew its list (GapHintRect)
     std::vector<assets::EditedFile> editedFiles_;   // its edited .sam files, read when it opens and after a restore
     Rect editedBadge_[3];      // last frame's (EditedBadgeRect)
     std::vector<Rect> restoreRects_;   // last frame's (RestoreRect)
@@ -586,6 +664,8 @@ private:
     bool fullScreen_ = true;        // the Settings box's "Full screen", as launcher.ini keeps it (on when absent)
     bool rendererRow_ = kRendererRow;   // whether the Settings box has the Renderer row
     int renderer_ = 0;              // the Settings box's "Renderer": 0 OpenGL (also when absent), 1 Vulkan
+    bool fillNotchRow_ = kFillNotchRow;   // whether the Settings box has the Fill Around Camera row
+    bool fillNotch_ = false;        // the Settings box's "Fill Around Camera", as launcher.ini keeps it (off when absent)
     bool soundPan_ = false;         // the Settings box's "Stereo panning", as launcher.ini keeps it
     std::string onlineServer_;      // the Settings box's "Online server", as launcher.ini keeps it (empty: automatic)
     bool onlineServerEditing_ = false;   // the field has the keyboard (text input is on while it does)
@@ -612,6 +692,16 @@ private:
     std::vector<assets::LanguageStatus> languages_;   // the data folder's languages (RefreshLanguages)
     int languageOpen_ = -1;         // the edition whose Language list is open (0 US, 1 European), -1 none
     std::string language_[2];       // the Language an edition (0 US, 1 European), as launcher.ini keeps it (LanguageKey)
+    std::vector<std::string> languagesBefore_;  // usable names before this round of drops
+    std::vector<assets::LanguageStatus> languageOffers_;
+    Rect languageSwitchRect_, languageNotNowRect_;
+    std::vector<std::string> roundPaths_;      // this round's drops (the language question's suggested name)
+    std::vector<std::string> languageAsked_;   // the unnamed translations the question was answered "Not now" for
+    std::string languageAskFor_;               // the translation the question was last set up for
+    int languageAskChoice_ = -1;               // its chosen language (TranslationLanguages), -1 none yet
+    bool languageAskOpen_ = false;             // its list is open
+    Rect languageAskField_, languageAskNameRect_;
+    std::vector<Rect> languageAskRows_;
     Updater* updater_ = nullptr;
 
     // A drag over the window. It goes to the window as a whole: the importer sorts each file by its content, so no tile
@@ -684,6 +774,7 @@ private:
     Rect freeGamepadRect_;     // last frame's (FreeGamepadRect)
     Rect onlineServerRect_;    // last frame's (OnlineServerRect)
     Rect rendererRect_;        // last frame's (RendererRect)
+    Rect fillNotchRect_;       // last frame's (FillNotchRect)
     bool settingsScrolls_ = false;   // last frame's (SettingsScrolls)
     float settingsBodyCounted_ = 0, settingsBodyDrawn_ = 0;   // last frame's (SettingsBodyCounted, SettingsBodyDrawn)
 
@@ -695,6 +786,10 @@ private:
     std::string modsMessage_;
     Rect modsButtonRect_, modsOnRect_, modsBoxRect_, modsDiamondRect_;
     std::vector<Rect> modSwitchRects_;
+    std::vector<Rect> modRowRects_, modOpenRects_;
+    std::vector<std::string> modHeadings_;
+    std::vector<Rect> modHeadingRects_;
+    std::vector<std::string> modsExpanded_;   // the ids of the rows the player opened
     bool modsScrolls_ = false;
 
     // The About / Game Data box: to open again once a drop made while it was open is done (back on the home), and the

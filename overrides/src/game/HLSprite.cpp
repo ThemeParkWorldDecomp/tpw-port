@@ -33,6 +33,7 @@
 #include "platform/arena.h"
 #include "platform/samsutils.h"
 #include "ppc_math.h"
+#include "Ps2Characters.h"
 #include "RideDB.h"
 #include "rsse.h"
 #include "sprite_engine.h"
@@ -50,6 +51,7 @@
 #include "TPEngine.h"
 #include "TPGlobals.h"
 #include "TpiGuests.h"
+#include "TpiUmbrellas.h"
 #include "TPMain.h"
 #include "TPOptions.h"
 #include "TPResource.h"
@@ -739,6 +741,12 @@ bool ESP_LoadSprites(bool particlesOnly) {
                 for (int32_t s = 0; s < group.mCount + tpw::gTpiExtraGuests[1] && headCount < tpw::kTpiMaxLooks; ++s)
                     heads[headCount++] = gESPSprites[group.mFirst + s]->mName;
                 tpw::TpiSetLooks(bodies, tpw::TpiWorldInPlay() ? bodyCount : 0, heads, headCount);
+                tpw::TpiSetUmbrellaRows(bodies, tpw::TpiWorldInPlay() ? bodyCount : 0);
+            }
+            // TPW_PORT_FIX mods ESP_LoadSprites | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (include/TpiUmbrellas.h): in one of the mod's worlds the theme's own umbrellas (Theme Park Inc's Spr_um, written by the converter) are loaded after the balloons group, outside its count (ESP_FindTpiExtraGuests), and their number kept in tpw::gTpiUmbrellaSprites; elsewhere it is 0, and each look's umbrella row is taken from its name (tpw::TpiSetUmbrellaRows) | Why: tpw-mods tpi-worlds umbrellas: a random balloon is never an umbrella, and the balloons keep their numbers
+            if (i == 10) {
+                const TbDynamicStringTemplate<char> umbrellas("umbrellas");
+                tpw::gTpiUmbrellaSprites = tpw::TpiWorldInPlay() ? ESP_FindTpiExtraGuests(resource, umbrellas) : 0;
             }
         }
     }
@@ -1087,6 +1095,8 @@ void ESP_AddHLSpriteFromScript(tagSCRIPT* script) {
         listed->mFrameBase = static_cast<uint16_t>(first);
     }
     std::memcpy(listed->mLightFrames, b + 0x10c, 4);
+    // TPW_PORT_FIX mods ESP_AddHLSpriteFromScript | Mac: the listed sprite is all the frame keeps of the script's sprite | Port: TPW_MOD_HOOK ps2_characters (gModPs2Characters, include/Ps2Characters.h): the person's sprite set, script, action, frame and view are kept for its PS2 model, read only | Why: tpw-mods ps2-characters draws the people as the PS2's 3D models
+    if (gModPs2Characters) Ps2CaptureSprite(listed, script, sprite, actionNumber, frameBase, viewOffset);
     if ((flags & 0x40000) != 0) {
         gESPGlobalInstances[gESPGlobalCount] = listed;
         gESPGlobalCount = gESPGlobalCount + 1;

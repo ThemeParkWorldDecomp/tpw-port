@@ -179,6 +179,12 @@ std::vector<fs::path>& PackDirs() {
     return dirs;
 }
 
+// Whether this thread's lookups pass over the packs (WithoutPacks).
+static thread_local bool gWithoutPacks = false;
+
+WithoutPacks::WithoutPacks() : mWas(gWithoutPacks) { gWithoutPacks = true; }
+WithoutPacks::~WithoutPacks() { gWithoutPacks = mWas; }
+
 // The folders the game keeps its sound banks in, each an .sdt with its .map index: data/global's sound and speech, and
 // each level's sound, speech and music (`folder` lower case).
 static bool IsSoundBankFolder(const std::string& folder) {
@@ -189,6 +195,24 @@ static bool IsSoundBankFolder(const std::string& folder) {
     if (slash == std::string::npos || slash == levels.size()) return false;
     const std::string kind = folder.substr(slash + 1);
     return kind == "sound" || kind == "speech" || kind == "music";
+}
+
+// A language's own folder, directly under data/Language (`folder` lower case): its text, swear filter, meshes, code page
+// tables and font index beside its fonts, as the original's installer copied them for each language (language_pack.h).
+static bool IsLanguageFolder(const std::string& folder) {
+    const std::string language = "data/language/";
+    return folder.size() > language.size() && folder.compare(0, language.size(), language) == 0 &&
+           folder.find('/', language.size()) == std::string::npos;
+}
+
+// The speech folders' lip movements (`folder` and `name` lower case): data/global/speech/lips.wad and each level's
+// speech/lips/*.lip, which go with the speech banks beside them.
+static bool IsLipsFile(const std::string& folder, const std::string& name, const std::string& kind) {
+    if (folder == "data/global/speech") return name == "lips.wad";
+    const std::string lips = "/speech/lips";
+    return kind == ".lip" && folder.size() > lips.size() &&
+           folder.compare(folder.size() - lips.size(), lips.size(), lips) == 0 &&
+           IsSoundBankFolder(folder.substr(0, folder.size() - 5));
 }
 
 bool PackMayHold(const std::string& path) {
@@ -204,7 +228,11 @@ bool PackMayHold(const std::string& path) {
     const std::string kind = name.substr(dot);
     for (const char* allowed : {".tga", ".wct", ".ani", ".cur", ".sf2", ".ttf", ".bf4", ".mov"})
         if (kind == allowed) return true;
-    return (kind == ".sdt" || kind == ".map") && IsSoundBankFolder(folder);
+    if ((kind == ".sdt" || kind == ".map") && IsSoundBankFolder(folder)) return true;
+    // A language pack's files (a translation): the language's own files, the lip movements of its speech and the
+    // interface's pictures and panels, whose words are drawn in them.
+    if ((kind == ".str" || kind == ".txt" || kind == ".md2" || kind == ".dat") && IsLanguageFolder(folder)) return true;
+    return IsLipsFile(folder, name, kind) || lower == "data/ui.wad";
 }
 
 bool IsGameFile(const std::string& path) {
@@ -224,13 +252,13 @@ static fs::path FindHostPathOf(const std::vector<std::string>& parts) {
     fs::path found = FindUnder(config().userDir, parts);
     if (!found.empty()) return found;
     // The chosen language (language_pack.h): its text, speech and pictures, at their places in the game folder.
-    if (LanguagePackCovers(parts)) {
+    if (!gWithoutPacks && LanguagePackCovers(parts)) {
         found = FindUnder(LanguagePackFolder(), parts);
         if (!found.empty()) return found;
     }
     // From a pack only a file a pack may hold, so neither a folder nor another kind of file there (one put in
     // ".unpacked" by hand, or unpacked by older rules) takes a game file's place.
-    if (PackMayHold(JoinParts(parts))) {
+    if (!gWithoutPacks && PackMayHold(JoinParts(parts))) {
         for (const fs::path& pack : PackDirs()) {
             found = FindUnder(pack, parts);
             std::error_code ec;
@@ -250,8 +278,9 @@ static fs::path FindHostPathOf(const std::vector<std::string>& parts) {
     }
     found = FindUnder(config().gameDir, parts);
     if (!found.empty()) return found;
-    // The TPI Worlds mod's content (tpi_content.h): a file the game folder does not have, and for a file of one of its
-    // worlds that nothing holds, the donor world's.
+    // The TPI Worlds mod's content (tpi_content.h; laid over only with the mod on, TPW_MOD_HOOK tpi_worlds): a file the
+    // game folder does not have, and for a file of one of its worlds that nothing holds, the donor world's, except in the
+    // folders that never fall back (the build lists' and the sound and music banks', kTpiOwnFolders).
     const fs::path& tpi = TpiContentRoot();
     if (tpi.empty()) return found;
     found = FindUnder(tpi, parts);
@@ -337,9 +366,10 @@ std::vector<DirEntry> ListGameFolder(const std::string& gamePath) {
     // content (tpi_content.h) is listed after the game folder, and under one of its worlds the donor's entries follow.
     enum class Root { kUser, kLanguage, kPack, kContent, kGame, kTpi };
     std::vector<std::pair<fs::path, Root>> roots{{config().userDir, Root::kUser}};
-    if (LanguagePackCovers(parts) || LanguagePackLists(parts, LanguagePackName()))
+    if (!gWithoutPacks && (LanguagePackCovers(parts) || LanguagePackLists(parts, LanguagePackName())))
         roots.emplace_back(LanguagePackFolder(), Root::kLanguage);
-    for (const fs::path& pack : PackDirs()) roots.emplace_back(pack, Root::kPack);
+    if (!gWithoutPacks)
+        for (const fs::path& pack : PackDirs()) roots.emplace_back(pack, Root::kPack);
 #ifdef TPW_PORT_FIX
     std::vector<std::string> contentRest;
     const fs::path content = ContentRideFolder(parts, contentRest);

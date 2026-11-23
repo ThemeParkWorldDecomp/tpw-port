@@ -5,6 +5,7 @@
 
 #include "launcher_ui.h"
 #include "updater.h"
+#include "unofficial_language.h"
 
 namespace tpw::ui {
 
@@ -22,6 +23,9 @@ bool ImporterBackend::Open(std::string& err) {
     assets::ImporterConfig config;
     config.dataRoot = assets::ResolveDataRoot(prefPath_);
     config.iniPath = IniPath();
+#ifdef TPW_PORT_FIX
+    assets::ConfigureUnofficialLanguages(config);
+#endif
     auto importer = std::make_unique<assets::Importer>(config);
     if (!importer->Open(err)) return false;
     importer_ = std::move(importer);
@@ -95,6 +99,23 @@ bool ImporterBackend::ChangeDataFolder(const std::string& folder, std::string& e
 
 std::vector<assets::LanguageStatus> ImporterBackend::Languages() const {
     return importer_ ? importer_->Languages() : std::vector<assets::LanguageStatus>();
+}
+
+bool ImporterBackend::NameLanguage(const std::string& id, const std::string& language, std::string& newId,
+                                   std::string& err) {
+#ifdef TPW_PORT_FIX
+    if (Running()) {
+        err = "an import is running";
+        return false;
+    }
+    return assets::NameUnofficialLanguage(DataFolder() + "/assets", id, language, newId, err);
+#else
+    (void)id;
+    (void)language;
+    (void)newId;
+    err = "translations cannot be named here";
+    return false;
+#endif
 }
 
 long ImporterBackend::VerifyEdition(Edition edition, std::string& err) {
@@ -177,7 +198,7 @@ bool ImporterBackend::SetLastChoice(const std::string& choice, std::string& err)
 void KeepSettings(const ImporterBackend& backend, const std::string& prefPath, const std::vector<std::string>& more) {
     std::vector<std::string> keys = {kSkipIntroKey, kBackToLauncherKey, kSmoothZoomKey, kInterfaceSizeKey, kPcSoundPicksKey,
                                      kRideBadgesKey, kSoundPanKey, kSeveralKeysKey, kWasdCameraKey, kFarZoomKey, kFullScreenKey,
-                                     kRendererKey, kFrameRateKey, kFreeCameraKey, kFreeSwipeKey, kFreeInvertKey,
+                                     kRendererKey, kFillNotchKey, kFrameRateKey, kFreeCameraKey, kFreeSwipeKey, kFreeInvertKey,
                                      kFreeSensitivityKey, kFreeFlySpeedKey, kFreeSmoothingKey, kFreeThroughGroundKey,
                                      kFreeGamepadKey, kDrawDistanceKey,
                                      kCheckUpdatesKey, kLanguageUsKey, kLanguageEurKey, kOnlineServerKey,

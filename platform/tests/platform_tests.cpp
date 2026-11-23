@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -213,6 +214,25 @@ static void TestPacks(const fs::path& scratch) {
         CHECK(!tpw::PackMayHold(std::string(folder) + "bank.sdt"));
         CHECK(!tpw::PackMayHold(std::string(folder) + "bank.map"));
     }
+    // A translation (tpw-port issue #128): a language folder's own files, the speech's lip movements and the interface's
+    // wad, each only where the game keeps it.
+    for (const char* file : {"data/Language/English/UITEXT.str", "DATA/LANGUAGE/AMERICAN/THOUGHTS.STR",
+                             "data/Language/English/swears.txt", "data/Language/English/alloweds.txt",
+                             "data/Language/English/bankrupt.MD2", "data/Language/English/MBToUni.dat",
+                             "data/Language/English/residx.dat", "data/Language/German/UniToMB.dat",
+                             "data/global/Speech/lips.WAD", "data/global/speech/lips.wad",
+                             "data/levels/fantasy/speech/lips/sp_001.LIP", "data/levels/space/Speech/lips/sp_002.lip",
+                             "data/ui.wad", "DATA/UI.WAD", "data/Language/English/UITEXT.str.rsrc"})
+        CHECK(tpw::PackMayHold(file));
+    for (const char* file : {"data/Language/UITEXT.str", "data/Language/English/more/UITEXT.str", "data/UITEXT.str",
+                             "data/levels/fantasy/UITEXT.str", "data/x.dat", "data/global/x.txt", "data/x.md2",
+                             "data/Language/English/x.sam", "data/Language/English/x.wad", "data/language/.str",
+                             "data/global/Speech/other.wad", "data/global/lips.wad", "data/lobby.wad", "data/levels/ui.wad",
+                             "data/levels/fantasy/features/bfbin.wad", "data/levels/fantasy/lips/sp_001.lip",
+                             "data/levels/fantasy/speech/sp_001.lip", "data/levels/fantasy/features/lips/sp_001.lip",
+                             "data/levels/speech/lips/sp_001.lip", "data/global/Speech/lips/lips.wad",
+                             "data/levels/fantasy/speech/lips/sp_001.wad"})
+        CHECK(!tpw::PackMayHold(file));
 
     tpw::Config& config = tpw::config();
     const fs::path gameDir = config.gameDir;   // TestPaths' folders, which later tests use
@@ -232,6 +252,11 @@ static void TestPacks(const fs::path& scratch) {
     Touch(first / "data" / "extra.txt");
     Touch(first / features / "BFBIN.WAD" / "x.tga");   // put there by hand, or unpacked by older rules
     Touch(second / "DATA" / "init" / "640" / "Splash_American.tga");
+    Touch(config.gameDir / "data" / "Language" / "English" / "UITEXT.str");
+    Touch(config.gameDir / "data" / "ui.wad");
+    Touch(second / "data" / "Language" / "English" / "uitext.str");
+    Touch(second / "data" / "Language" / "English" / "extra.sam");
+    Touch(first / "data" / "ui.wad");
     tpw::PackDirs() = {first, second};
 
     CHECK(tpw::IsGameFile("data/levels/fantasy/features/bfbin.wad"));
@@ -242,11 +267,29 @@ static void TestPacks(const fs::path& scratch) {
     CHECK(Same(tpw::FindHostPath("data:init:640:Splash_American.tga"), first / "data" / "init" / "640" / "splash_american.tga"));
     CHECK(Same(tpw::FindHostPath("data:sound.sam"), config.userDir / "data" / "sound.sam"));   // the user folder still wins
     CHECK(tpw::FindHostPath("data:extra.txt").empty());   // in a pack, but not a file a pack may hold
+    CHECK(Same(tpw::FindHostPath("data:Language:English:UITEXT.str"),
+               second / "data" / "Language" / "English" / "uitext.str"));   // a translation's text
+    CHECK(Same(tpw::FindHostPath("data:ui.wad"), first / "data" / "ui.wad"));
+    CHECK(tpw::FindHostPath("data:Language:English:extra.sam").empty());
+    std::string english;
+    for (const tpw::DirEntry& entry : tpw::ListGameFolder("data:Language:English:")) english += entry.name + " ";
+    CHECK(english == "uitext.str ");
+    {
+        // The edition's own language beside a pack's translation (old_text_tables.cpp): the game folder's files only.
+        tpw::WithoutPacks gameFolder;
+        CHECK(Same(tpw::FindHostPath("data:Language:English:UITEXT.str"),
+                   config.gameDir / "data" / "Language" / "English" / "UITEXT.str"));
+        CHECK(Same(tpw::FindHostPath("data:ui.wad"), config.gameDir / "data" / "ui.wad"));
+        std::string own;
+        for (const tpw::DirEntry& entry : tpw::ListGameFolder("data:Language:English:")) own += entry.name + " ";
+        CHECK(own == "UITEXT.str ");
+    }
+    CHECK(Same(tpw::FindHostPath("data:ui.wad"), first / "data" / "ui.wad"));   // the packs again once it is gone
     CHECK(Same(tpw::FindHostPath("data:levels:fantasy:features:bfbin.wad"), config.gameDir / features / "bfbin.wad"));
     const auto data = tpw::ListGameFolder("data:");
     std::string names;
     for (const tpw::DirEntry& entry : data) names += entry.name + (entry.isDirectory ? "/ " : " ");
-    CHECK(names == "sound.sam logo.tga init/ levels/ ");
+    CHECK(names == "sound.sam logo.tga ui.wad init/ Language/ levels/ ");
     const auto listed = tpw::ListGameFolder("data:levels:fantasy:features");
     CHECK(listed.size() == 1 && listed[0].name == "bfbin.wad" && !listed[0].isDirectory);
 
@@ -550,6 +593,17 @@ static void TestContentRides(const fs::path& scratch) {
           "launcher to visit it.");
     for (int number = 201; number <= 256; ++number) need(number);
     CHECK(tpw::MissingRidesText(missing, tpw::MissingRidesPlace::kLoadedPark).size() < 500);
+    // A park whose ride records need a ride type no loaded ride carries: Theme Park Inc's by its number, with the Bonus
+    // Disk's rides as the likely ones; another by its number alone.
+    std::memset(missing, 0, sizeof missing);
+    CHECK(tpw::MissingRidesText(missing, tpw::MissingRidesPlace::kOwnPark, 6750) ==
+          "This park needs a Theme Park Inc ride this game hasn't got (ride number 6750), most likely one of the SimCoaster "
+          "Bonus Disk's: Depth Charge or Wilbur's Wind Rush. It has been kept as it was. Add the Bonus Disk in the "
+          "launcher, then play it again.");
+    CHECK(tpw::MissingRidesText(missing, tpw::MissingRidesPlace::kLoadedPark, 4999) ==
+          "This park needs a ride this game hasn't got (ride number 4999). Turn on or import the rides it was built with "
+          "in the launcher to load it.");
+    CHECK(tpw::MissingRidesText(missing, tpw::MissingRidesPlace::kOnlinePark, 7999).size() < 500);
 
     CHECK(tpw::UseContentRides({}) == 0);
     CHECK(tpw::ContentRides().empty());
@@ -578,6 +632,9 @@ static void TestTpiContent(const fs::path& scratch) {
     Touch(jungle / "Easy_Standard.sam", "jungle easy");
     Touch(jungle / "Easymode.TPWI", "jungle easy park");
     Touch(jungle / "Sound" / "AmbientHD.sdt", "jungle ambient");
+    Touch(jungle / "Sound" / "LobbySfxHD.sdt", "jungle island sounds");
+    Touch(jungle / "Sound" / "cat_locallobbysfxBANK.map", "jungle island sounds' banks");
+    Touch(jungle / "Music" / "MusicHD.sdt", "jungle music");
     Touch(jungle / "Speech" / "speechHD.SDT", "jungle speech");
     Touch(jungle / "Advisor" / "Advisor_jun.md2", "jungle advisor");
     Touch(jungle / "Advisor" / "textures" / "adv_JUN01.tga", "jungle advisor texture");
@@ -642,6 +699,13 @@ static void TestTpiContent(const fs::path& scratch) {
     CHECK(!tpw::TpiDonorParts({"data", "levels", "arabian", "sideshow", "x.wad"}, donor));
     CHECK(!tpw::TpiDonorParts({"data", "levels", "arabian", "features"}, donor));
     CHECK(!tpw::TpiDonorParts({"data", "levels", "arabian", "upgrades", "u.wad"}, donor));
+    // The sound and music banks are the world's own or none: never the donor's (the island screen's sounds).
+    CHECK(!tpw::TpiDonorParts({"data", "levels", "arabian", "Sound", "LobbySfxHD.sdt"}, donor));
+    CHECK(!tpw::TpiDonorParts({"data", "levels", "arabian", "sound", "cat_locallobbysfxSFX.map"}, donor));
+    CHECK(!tpw::TpiDonorParts({"data", "levels", "science", "SOUND"}, donor));
+    CHECK(!tpw::TpiDonorParts({"data", "levels", "water", "Music", "MusicHD.sdt"}, donor));
+    CHECK((tpw::TpiDonorParts({"data", "levels", "arabian", "Speech", "speechHD.SDT"}, donor) &&
+           donor == std::vector<std::string>{"data", "levels", "jungle", "Speech", "speechHD.SDT"}));
     CHECK(!tpw::TpiDonorParts({"data", "levels", "arabian", "EASYMODE.TPWI"}, donor));
     CHECK(!tpw::TpiDonorParts({"data", "levels", "arabian", "easymode"}, donor));
     CHECK(tpw::TpiDonorParts({"data", "levels", "arabian", "Easy_Standard.sam"}, donor));
@@ -678,11 +742,15 @@ static void TestTpiContent(const fs::path& scratch) {
     CHECK(Same(tpw::FindHostPath("data:lobby:arabian.txt"), tpi / "Data" / "lobby" / "arabian.txt"));
     CHECK(Same(tpw::FindHostPath("data:levels:jungle:global.sam"), jungle / "global.sam"));   // the game folder's
     CHECK(Same(tpw::FindHostPath("data:levels:arabian"), arabian));
-    // The donor: a file the world lacks, in any case, with the world's letters mapped; not in the ride folders, not
-    // the easy mode's park, not outside the mod's worlds.
+    // The donor: a file the world lacks, in any case, with the world's letters mapped; not in the ride folders nor the
+    // sound and music banks' (a sound the world lacks is none, never the donor's), not the easy mode's park, not outside
+    // the mod's worlds.
     CHECK(Same(tpw::FindHostPath("data:levels:arabian:Standard.sam"), jungle / "Standard.sam"));
     CHECK(Same(tpw::FindHostPath("DATA:LEVELS:ARABIAN:EASY_STANDARD.SAM"), jungle / "Easy_Standard.sam"));
-    CHECK(Same(tpw::FindHostPath("data:levels:arabian:Sound:AmbientHD.sdt"), jungle / "Sound" / "AmbientHD.sdt"));
+    CHECK(tpw::FindHostPath("data:levels:arabian:Sound:AmbientHD.sdt").empty());
+    CHECK(tpw::FindHostPath("data:levels:arabian:Sound:LobbySfxHD.sdt").empty());
+    CHECK(tpw::FindHostPath("data:levels:arabian:Sound:cat_locallobbysfxBANK.map").empty());
+    CHECK(tpw::FindHostPath("data:levels:arabian:Music:MusicHD.sdt").empty());
     CHECK(Same(tpw::FindHostPath("data:levels:arabian:Sound:RideHD.sdt"), arabian / "Sound" / "RideHD.sdt"));
     CHECK(Same(tpw::FindHostPath("data:levels:arabian:Speech:speechHD.SDT"), jungle / "Speech" / "speechHD.SDT"));
     CHECK(Same(tpw::FindHostPath("data:levels:arabian:Speech"), jungle / "Speech"));
@@ -690,7 +758,8 @@ static void TestTpiContent(const fs::path& scratch) {
     CHECK(Same(tpw::FindHostPath("data:levels:arabian:Advisor:textures:adv_ARA01.tga"),
                jungle / "Advisor" / "textures" / "adv_JUN01.tga"));
     CHECK(Same(tpw::FindHostPath("data:levels:water:Standard.sam"), config.gameDir / levels / "hallow" / "Standard.sam"));
-    CHECK(Same(tpw::FindHostPath("data:levels:science:Music:MusicHD.sdt"), config.gameDir / levels / "space" / "Music" / "MusicHD.sdt"));
+    CHECK(tpw::FindHostPath("data:levels:science:Music:MusicHD.sdt").empty());
+    CHECK(tpw::FindHostPath("data:levels:science:Music").empty());
     CHECK(Same(tpw::FindHostPath("data:levels:science:global.sam"), tpiLevels / "science" / "global.sam"));
     CHECK(tpw::FindHostPath("data:levels:arabian:rides:_snake_1.wad").empty());
     CHECK(tpw::FindHostPath("data:levels:arabian:shops:_cola_7.wad").empty());
@@ -700,21 +769,23 @@ static void TestTpiContent(const fs::path& scratch) {
     CHECK(tpw::FindHostPath("data:levels:arabian:nothing.sam").empty());
     CHECK(tpw::FindHostPath("data:levels:jungle:Advisor:Advisor_ara.md2").empty());
     CHECK(tpw::FindHostPath("data:levels:fantasy:Standard.sam").empty());
-    // Listings: the world's own entries first, then the donor's it lacks (never the ride folders' contents nor the
-    // easy mode's park), the donor's names under the world's letters, a bare world as the donor's.
+    // Listings: the world's own entries first, then the donor's it lacks (never the ride, sound and music folders' contents
+    // nor the easy mode's park), the donor's names under the world's letters, a bare world as the donor's.
     CHECK(names(tpw::ListGameFolder("data:levels:arabian")) ==
           "global.sam rides/ sky/ Sound/ Advisor/ Easy_Standard.sam Speech/ Standard.sam ");
     CHECK(names(tpw::ListGameFolder("data:levels:arabian:rides")) == "magic.wad Rides.sam ");
     CHECK(tpw::ListGameFolder("data:levels:arabian:shops").empty());
     CHECK(tpw::ListGameFolder("data:levels:water:rides").empty());
     CHECK(names(tpw::ListGameFolder("data:levels:science:features")) == "tesla.wad ");
-    CHECK(names(tpw::ListGameFolder("data:levels:arabian:Sound")) == "RideHD.sdt AmbientHD.sdt ");
+    CHECK(names(tpw::ListGameFolder("data:levels:arabian:Sound")) == "RideHD.sdt ");
+    CHECK(tpw::ListGameFolder("data:levels:science:Sound").empty() && tpw::ListGameFolder("data:levels:arabian:Music").empty());
     CHECK(names(tpw::ListGameFolder("data:levels:arabian:Advisor")) == "Advisor_ara.md2 textures/ ");
     CHECK(names(tpw::ListGameFolder("data:levels:arabian:Advisor:textures")) == "adv_ARA01.tga ");
     CHECK(names(tpw::ListGameFolder("data:levels:water")) == "global.sam Standard.sam ");
-    CHECK(names(tpw::ListGameFolder("data:levels:science")) == "features/ global.sam Music/ Standard.sam ");
+    CHECK(names(tpw::ListGameFolder("data:levels:science")) == "features/ global.sam Standard.sam ");
     CHECK(names(tpw::ListGameFolder("data:levels:jungle")) ==
-          "Advisor/ Easy_Standard.sam Easymode.TPWI global.sam rides/ shops/ Sound/ Speech/ Standard.sam ");
+          "Advisor/ Easy_Standard.sam Easymode.TPWI global.sam Music/ rides/ shops/ Sound/ Speech/ Standard.sam ");
+    CHECK(names(tpw::ListGameFolder("data:levels:jungle:Sound")) == "AmbientHD.sdt cat_locallobbysfxBANK.map LobbySfxHD.sdt ");
     CHECK(names(tpw::ListGameFolder("data:lobby")) == "arabian.txt ");
     // The user folder still comes first, for a file of a mod world too.
     Touch(config.userDir / levels / "arabian" / "global.sam", "the player's");
@@ -844,6 +915,46 @@ static void TestLanguagePack(const fs::path& scratch) {
     CHECK(Same(tpw::FindHostPath("data:global:speech:speechHD.SDT"), pack / speech / "speechHD.SDT"));
     CHECK(names(tpw::ListGameFolder("data:global:speech")) == "speechHD.SDT cat_speechBANK.map extra.map ");
     CHECK(names(tpw::ListGameFolder("data:Init:640")) == "Welcome_French.tga legal.tga ");
+#ifdef TPW_PORT_FIX
+    const fs::path supplied = root / "lang" / "Russian";
+    Touch(supplied / ".unofficial", "1\nRussian\n");
+    for (const char* own : {"English", "American"}) {
+        Touch(supplied / "data" / "Language" / own / "uitext.str", "synthetic translation");
+        Touch(config.gameDir / "data" / "Language" / own / "ResIdx.dat", "base index");
+    }
+    Touch(supplied / "data" / "ui.wad", "synthetic panels");
+    Touch(supplied / speech / "lips.wad", "synthetic lips");
+    CHECK(tpw::LanguageName("russian") == "Russian");
+    for (const char* own : {"English", "American"}) {
+        CHECK(tpw::UseLanguagePack(root, "Russian", own));
+        CHECK(tpw::LanguagePackName() == own);
+        const std::string path = std::string("data:Language:") + own + ":";
+        CHECK(Same(tpw::FindHostPath(path + "uitext.str"), supplied / "data/Language" / own / "uitext.str"));
+        CHECK(Same(tpw::FindHostPath(path + "ResIdx.dat"), config.gameDir / "data/Language" / own / "ResIdx.dat"));
+        CHECK(Same(tpw::FindHostPath("data:ui.wad"), supplied / "data/ui.wad"));
+        CHECK(Same(tpw::FindHostPath("data:global:speech:lips.wad"), supplied / speech / "lips.wad"));
+        {
+            tpw::WithoutPacks base;
+            CHECK(Same(tpw::FindHostPath(path + "ResIdx.dat"), config.gameDir / "data/Language" / own / "ResIdx.dat"));
+            if (std::string(own) == "English")
+                CHECK(Same(tpw::FindHostPath(path + "uitext.str"), config.gameDir / "data/Language" / own / "uitext.str"));
+        }
+    }
+    CHECK(!tpw::UseLanguagePack(root, "Russian", "French"));
+    CHECK(!tpw::UseLanguagePack(root, ""));
+    // A translation named by its letters or by the player: Unofficial- and its language, its marker naming it so.
+    CHECK(tpw::LanguageName("unofficial-ukrainian") == "Unofficial-ukrainian");
+    CHECK(tpw::LanguageName("Unofficial-").empty() && tpw::LanguageName("Unofficial-Ukr ainian").empty() &&
+          tpw::LanguageName("Unofficial-../x").empty());
+    const fs::path named = root / "lang" / "Unofficial-Ukrainian";
+    Touch(named / "data" / "Language" / "English" / "uitext.str", "synthetic translation");
+    Touch(named / ".unofficial", "1\nUnofficial-Russian\n");
+    CHECK(!tpw::UseLanguagePack(root, "Unofficial-Ukrainian", "English"));
+    Touch(named / ".unofficial", "1\nUnofficial-Ukrainian\n");
+    CHECK(tpw::UseLanguagePack(root, "Unofficial-Ukrainian", "English") && tpw::LanguagePackName() == "English");
+    CHECK(Same(tpw::FindHostPath("data:Language:English:uitext.str"), named / "data/Language/English/uitext.str"));
+    CHECK(!tpw::UseLanguagePack(root, ""));
+#endif
     config.gameDir = gameDir;
     config.userDir = userDir;
     tpw::PackDirs() = packDirs;
@@ -2797,6 +2908,81 @@ static void TestGdiForkFonts() {
     CHECK(tpw::GdiLiveHandles() == 0);
 }
 
+#ifdef TPW_PORT_FIX
+// The ink of the bytes drawn in Arial at 40 pixels in a font of the character set, into a 512 by 64 grey DIB.
+static std::vector<uint8_t> SignInk(const char* text, uint8_t charset) {
+    using namespace NS_MacDoze;
+    InternalHandle* window = GetDC(nullptr);
+    GreyInfo info = MakeGreyInfo(512, 64);
+    void* bits = nullptr;
+    InternalHandle* dib = CreateDIBSection(window, reinterpret_cast<tagBITMAPINFO*>(&info), 0, &bits, nullptr, 0);
+    InternalHandle* dc = CreateCompatibleDC(window);
+    InternalHandle* oldBitmap = SelectObject(dc, dib);
+    tagLOGFONTA logfont;
+    std::memset(&logfont, 0, sizeof logfont);
+    logfont.lfHeight = -40;
+    logfont.lfWeight = 400;
+    logfont.lfCharSet = charset;
+    std::strcpy(logfont.lfFaceName, "Arial");
+    InternalHandle* font = CreateFontIndirect(&logfont);
+    InternalHandle* oldFont = SelectObject(dc, font);
+    SetBkColor(dc, 0);
+    SetTextColor(dc, 0xffffff);
+    TextOut(dc, 8, 8, text, static_cast<int32_t>(std::strlen(text)));
+    std::vector<uint8_t> ink(static_cast<const uint8_t*>(bits), static_cast<const uint8_t*>(bits) + 512 * 64);
+    SelectObject(dc, oldFont);
+    DeleteObject(font);
+    SelectObject(dc, oldBitmap);
+    DeleteObject(dib);
+    DeleteDC(dc);
+    ReleaseDC(nullptr, window);
+    return ink;
+}
+
+// signcyrillic: a translation written in Cyrillic draws its signs in code page 1251 (language_pack.h, gdi_text.h,
+// src/game/rides/RideSign.cpp), from made-up language folders and the system's Arial.
+static void TestSignCyrillic(const fs::path& scratch) {
+    Touch(scratch / "lang" / "Russian" / ".unofficial", "1\nRussian\n");
+    Touch(scratch / "lang" / "Unofficial-English" / ".unofficial", "1\nUnofficial-English\n");
+    Touch(scratch / "lang" / "French" / "data" / "Language" / "French" / "uitext.str", "made up");
+    CHECK(!tpw::UseLanguagePack(scratch, "") && tpw::LanguagePackCodePage() == 0);
+    CHECK(tpw::UseLanguagePack(scratch, "Russian", "English") && tpw::LanguagePackCodePage() == 1251);
+    CHECK(tpw::UseLanguagePack(scratch, "russian", "American") && tpw::LanguagePackCodePage() == 1251);
+    CHECK(tpw::UseLanguagePack(scratch, "Unofficial-English", "English") && tpw::LanguagePackCodePage() == 0);
+    CHECK(tpw::UseLanguagePack(scratch, "French") && tpw::LanguagePackCodePage() == 0);
+    CHECK(!tpw::UseLanguagePack(scratch, "") && tpw::LanguagePackCodePage() == 0);
+
+    // Er, O and Es (0xd0, 0xce, 0xd1) of code page 1251 draw as Arial's P, O and C in a font of charset 204, and as other
+    // letters in any other (Mac Roman's en dash, OE and em dash); ASCII draws the same in both.
+    const std::vector<uint8_t> latin = SignInk("POC", 1);
+    const std::vector<uint8_t> cyrillic = SignInk("\xD0\xCE\xD1", 204);
+    const std::vector<uint8_t> roman = SignInk("\xD0\xCE\xD1", 1);
+    int inked = 0;
+    for (uint8_t value : latin) inked += value != 0;
+    std::printf("gdi: \"POC\" in Arial: %d inked pixels; the code page 1251 bytes in charset 204 %s, in charset 1 %s\n", inked,
+                cyrillic == latin ? "the same" : "DIFFERENT", roman == latin ? "the SAME" : "different");
+    CHECK(inked > 0);
+    CHECK(SignInk("POC", 204) == latin);
+    CHECK(roman != latin && roman != cyrillic);
+#ifdef __APPLE__
+    // The letters' outlines are the Latin ones in the Mac's Arial (the CoreText side; elsewhere the face may be a twin).
+    CHECK(cyrillic == latin);
+    // A face without the Cyrillic letters (the Mac's Futura) is drawn in Helvetica in charset 204 only.
+    tpw::gdi_text::Style style;
+    style.face = "Futura";
+    style.height = -40;
+    std::unique_ptr<tpw::gdi_text::Font> futura = tpw::gdi_text::Font::Create(style);
+    style.charset = 204;
+    std::unique_ptr<tpw::gdi_text::Font> fallback = tpw::gdi_text::Font::Create(style);
+    CHECK(futura != nullptr && futura->FamilyName() == "Futura");
+    CHECK(fallback != nullptr && fallback->FamilyName() == "Helvetica");
+#else
+    CHECK(cyrillic != roman);
+#endif
+    CHECK(tpw::GdiLiveHandles() == 0);
+}
+#endif
+
 // ---- The window fitted to the screen (platform/fit.h) ------------------------------------------------------------
 // The arithmetic only: the window and the framebuffer need a display, so the launcher's "fit:" log line and a frame dump
 // are the proof of those. Every case is a screen the maintainer has, with the usable bounds SDL gives (the menu bar and the dock
@@ -3276,6 +3462,14 @@ static void TestFitFullScreen() {
     CHECK(!tpw::fit::FullScreenToggleKey(false, true, false, false, false));  // Enter alone is the game's
     CHECK(!tpw::fit::FullScreenToggleKey(false, true, true, true, false));    // Ctrl+Alt+Enter, Shift+Alt+Enter: not it
     CHECK(!tpw::fit::FullScreenToggleKey(false, true, true, false, true));    // a held key's repeat does not toggle again
+    // Cmd+Ctrl+F is the game's own only on a Mac with full screen Spaces off (Fill Around Camera): F with Cmd and Ctrl alone.
+    CHECK(tpw::fit::MacFullScreenKey(true, true, true, true, false, false));
+    CHECK(!tpw::fit::MacFullScreenKey(true, false, true, true, false, false));   // Spaces on: the system's menu does it
+    CHECK(!tpw::fit::MacFullScreenKey(false, true, true, true, false, false));   // Windows and Linux: Alt+Enter
+    CHECK(!tpw::fit::MacFullScreenKey(true, true, false, true, false, false));   // Cmd+Ctrl with another key
+    CHECK(!tpw::fit::MacFullScreenKey(true, true, true, false, false, false));   // F, Cmd+F or Ctrl+F: the game's
+    CHECK(!tpw::fit::MacFullScreenKey(true, true, true, true, true, false));     // Shift or Option as well: not it
+    CHECK(!tpw::fit::MacFullScreenKey(true, true, true, true, false, true));     // a held key's repeat does not toggle again
     // It acts only through the fit and never with --background; --windowed's document window toggles too.
     CHECK(tpw::fit::CanToggleFullScreen(true, false));
     CHECK(!tpw::fit::CanToggleFullScreen(false, false));
@@ -4426,7 +4620,51 @@ static void TestStartupFraction() {
     CHECK(std::fabs(tpw::StartupFraction(8924140, 17848280, false) - 0.5f) < 1e-6f);
 }
 
-int main() {
+// A test run's fixed clock (TPW_FIXED_CLOCK, platform/sams_core.cpp), in a run of its own (ctest fixed_clock, which sets
+// TPW_FIXED_CLOCK=1000): 1000 microseconds a pass, a millisecond for each wait's yield, the cycles in nanoseconds, and the
+// wall clock from 1 January 2001, so two runs of one script read the same times.
+static void TestFixedClock() {
+    using SamsUtilities::UTimer;
+    CHECK(tpw::FixedClock());
+    const uint64_t pass = static_cast<uint64_t>(tpw::CurrentPass());
+    CHECK(UTimer::GetAbsolute() == pass * 1000);
+    CHECK(UTimer::GetAbsolute() == pass * 1000);   // still within the pass
+    tpw::FixedClockYield();
+    tpw::FixedClockYield();
+    CHECK(UTimer::GetAbsolute() == pass * 1000 + 2000);
+    CHECK(UTimer::GetAbsoluteCycles() == (pass * 1000 + 2000) * 1000);
+    CHECK(UTimer::GetWallSeconds() == 978307200);
+}
+
+// Without TPW_FIXED_CLOCK (a player's run) the clocks are the machine's: the wall clock is time(), a yield changes nothing.
+static void TestMachineClock() {
+    using SamsUtilities::UTimer;
+    CHECK(!tpw::FixedClock());
+    const int64_t before = static_cast<int64_t>(std::time(nullptr));
+    const int64_t wall = UTimer::GetWallSeconds();
+    CHECK(before <= wall && wall <= static_cast<int64_t>(std::time(nullptr)));
+    const uint64_t now = UTimer::GetAbsolute();
+    tpw::FixedClockYield();
+    CHECK(UTimer::GetAbsolute() >= now);
+}
+
+int main(int argc, char** argv) {
+    if (argc > 1 && std::strcmp(argv[1], "--fixed-clock") == 0) {
+        TestFixedClock();
+        std::printf("platform tests (fixed clock): %d checks passed\n", gChecks);
+        return 0;
+    }
+#ifdef TPW_PORT_FIX
+    if (argc > 1 && std::strcmp(argv[1], "--sign-cyrillic") == 0) {
+        const fs::path alone = fs::temp_directory_path() / ("tpw_platform_tests_sign_" + std::to_string(getpid()));
+        std::error_code old;
+        fs::remove_all(alone, old);
+        TestSignCyrillic(alone);
+        fs::remove_all(alone, old);
+        std::printf("platform tests (sign cyrillic): %d checks passed\n", gChecks);
+        return 0;
+    }
+#endif
     // One folder per process, emptied first: a run that failed leaves its folder behind.
     const fs::path scratch = fs::temp_directory_path() / ("tpw_platform_tests_" + std::to_string(getpid()));
     std::error_code stale;
@@ -4463,6 +4701,9 @@ int main() {
     TestGdi();
     TestResourceFork();
     TestGdiForkFonts();
+#ifdef TPW_PORT_FIX
+    TestSignCyrillic(scratch / "signcyrillic");
+#endif
     TestFitArithmetic();
     TestFullScreenGrab();
     TestFitLetterbox();
@@ -4477,6 +4718,7 @@ int main() {
 #endif
     TestSound(scratch);
     TestStartupFraction();
+    TestMachineClock();
 #if defined(__linux__) && defined(__x86_64__)
     TestLinuxDivision();
 #endif

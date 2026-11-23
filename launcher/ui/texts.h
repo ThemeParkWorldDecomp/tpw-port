@@ -17,6 +17,29 @@ inline constexpr const char* kDropKinds = "game discs, images, zips, 7z, rar or 
 // kDropKinds, with a capital letter when `sentence` (it starts a line).
 std::string DropKinds(bool sentence);
 
+inline constexpr const char* kLanguageHeading = "Language";
+inline constexpr const char* kUnofficialSuffix = " (Unofficial)";
+// The heading over every unofficial translation's offer, whatever its line below says it is (unofficial_language.h).
+inline constexpr const char* kUnofficialWarning = "Not an official release";
+// An unofficial translation's description (LanguageStatus::description) when neither a known release's hashes nor its
+// own letters name its language, until the player names it (the launcher's question, kLanguageAskTitle).
+inline constexpr const char* kUnofficialUnknown = "Its language is not known";
+inline constexpr const char* kLanguageAskTitle = "Which language is this translation?";
+inline constexpr const char* kLanguageAskLine =
+    "Its text does not say. The name you choose is kept with it and shown in Settings.";
+inline constexpr const char* kLanguageAskChoose = "Choose a language";
+inline constexpr const char* kLanguageAskName = "Name it";
+inline constexpr const char* kLanguageNameError = "Cannot name the translation: ";
+inline constexpr const char* kLanguageSwitchNow = "Switch now";
+inline constexpr const char* kLanguageNotNow = "Not now";
+inline constexpr const char* kLanguageSwitchError = "Cannot keep the language setting: ";
+// Starts the reason a dropped translation was not added (unofficial_language.h); the result screen's headline keys on it.
+inline constexpr const char* kLanguagePackRefused = "Language pack refused: ";
+// Text for the language unlocked by a drop, by its English name ("You unlocked French! Switch now?"), an unofficial one
+// with kUnofficialSuffix. Changes are the kinds of files its inventory lists.
+std::string LanguageUnlockedText(const assets::LanguageStatus& language);
+std::string LanguageChangesText(const assets::LanguageStatus& language);
+
 // "1,683"
 std::string FormatCount(uint64_t n);
 // "812 KB", "1.4 GB"
@@ -69,22 +92,49 @@ std::string MissingText(const assets::EditionStatus& status);
 std::string WindowsEditionNote(assets::Edition edition);
 
 struct TileText {
-    std::string state;   // "Ready to play", "715 of 845 confirmed", "Locked"
+    std::string state;   // ReadyLabel, "715 of 845 confirmed", "Locked"
     std::string detail;  // "1,683 files confirmed", "Drag in the US Mac CD to unlock", ...
 };
 TileText DescribeTile(const assets::EditionStatus& status);
+// GREEN every file in place (edited settings the game reads included), ORANGE ready with a gap that does not block
+// Play (an intro film, a repaired settings file), RED a file the game needs is missing.
+enum class CardState { Green, Orange, Red };
+CardState EditionCardState(const assets::EditionStatus& status);
+// A ready edition's state (the maintainer, 2026-11-19): "Ready to play (all files matched)" when green; orange, "Ready to play
+// (files repaired, minimal effect)" when its only gaps are repaired settings files, else "Ready to play (files missing,
+// minimal effect)". `inLine`: with a small r, inside a line ("US edition: ready to play (all files matched)").
+std::string ReadyLabel(const assets::EditionStatus& status, bool inLine = false);
+// A ready edition's gaps and kept edits, for its tile: "; 1 intro film missing, skipped; your edited settings kept".
+std::string GapsText(const assets::EditionStatus& status);
+// The last words of every result and of a tile with a gap.
+extern const char* const kDropMore;
 // Tile `slot` (all six statuses, StatusIndex order): DescribeTile of what it shows, but a tile with nothing yet names
 // both its discs ("Drag in the US Mac CD or the US Windows CD to unlock").
 TileText DescribeSlot(const assets::EditionStatus all[6], int slot);
 
+// The films (data/Movies/*.tgq) of a drop with other content. Every Windows CD, US or European, of every pressing, has
+// the same films, so one of another content is a damaged copy of the disc, never another pressing: the result names
+// it and says a good copy of either Windows CD fills it. The two checks below do not count these.
+std::vector<std::string> DamagedFilms(const assets::ImportReport& report);
+
+// A drop that holds a translation (unofficial_language.h): one taken (ImportReport::translations) or one refused (an
+// error with kLanguagePackRefused; an English disc whose fonts differ can be refused too). Without LooksLikeDisc it is a
+// translation pack alone, which gets no disc headline.
+bool HoldsTranslation(const assets::ImportReport& report);
+// A drop with as many game files as half the US Windows CD's: a disc or an installed game, not a translation pack
+// (whose few files of the game are the ones it left untranslated).
+bool LooksLikeDisc(const assets::ImportReport& report);
 // A European folder that a drop left partial, with files of another content where the manifest expects its own: the
-// older pressing of the PC CD. Reported as "Older pressing, <n> of <files> confirmed" with the Status counts.
-// Not the US Windows CD's first release (LooksLikeFirstRelease), which leaves the European folders partial too.
-bool LooksLikeOlderPressing(const assets::ImportReport& report);
-// The US Windows CD's first release (1.0): the US Windows folder is left partial, with files of another version, and
-// more of its files were found than of the European Windows folder's. The game is played from the 2.0 files: the
-// result says to install it on Windows, apply EA's official v2.0 patch and drop the installed folder with the CD.
-bool LooksLikeFirstRelease(const assets::ImportReport& report);
+// older pressing of the PC CD. The drop confirmed more European files than US Windows ones (`before`: the six
+// statuses from before it), and it is neither a translated disc nor a translation pack alone. Reported as "Older
+// pressing, <n> of <files> confirmed" with the Status counts of the edition the European tile shows (SlotStatus). Not
+// the US Windows CD's first release (LooksLikeFirstRelease), which leaves the European folders partial too.
+bool LooksLikeOlderPressing(const assets::ImportReport& report, const assets::EditionStatus before[6]);
+// The US Windows CD's first release (1.0, ImportReport::firstRelease): the US Windows folder is left partial, with
+// files of another version, and the drop confirmed more of its files than of the European Windows folder's. The game
+// is played from the 2.0 files: the result says to install it on Windows, apply EA's official v2.0 patch and drop the
+// installed folder with the CD.
+bool LooksLikeFirstRelease(const assets::ImportReport& report, const assets::EditionStatus before[6]);
 
 struct ResultText {
     std::string headline;

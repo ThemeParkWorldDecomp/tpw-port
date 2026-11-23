@@ -71,6 +71,9 @@
 #include "TPEngine.h"
 #include "TPGlobals.h"
 #include "TpiWorlds.h"
+// TPW_PORT_FIX mods UpdateHFieldDarkeningNormals | Mac: none of these headers | Port: what the soft edge of the park's land on the converted meshes reads (tpw::TpiWorldInPlay, include/TpiGateFlow.h; tpw::TpiParkEdgeVertexCell, include/TpiParkEdge.h) | Why: tpw-mods tpi-worlds, the hard line along the edge of the park's land on the canyons' cliffs and the tunnel's top
+#include "TpiGateFlow.h"
+#include "TpiParkEdge.h"
 #include "TPMain.h"
 #include "TPMovie.h"
 #include "TPSettings.h"
@@ -357,9 +360,12 @@ void UpdateHFieldDarkeningNormals(tag_sNode* node, sMatrix matrix) {
         for (uint32_t i = 0; i < count; ++i) {
             const float ten = 10.0f;
             const float* vert = reinterpret_cast<const float*>(static_cast<const uint8_t*>(gScratchGeomBuffer) + map[i] * 12u);
-            const float fx = vert[0] / ten;
+            // TPW_PORT_FIX mods UpdateHFieldDarkeningNormals | Mac: the cell under a vertex is taken from its position as it is | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiWorlds.h): while one of the mod's worlds is played, a vertex within a thousandth of a cell of a grid line counts as on it (tpw::TpiParkEdgeVertexCell, include/TpiParkEdge.h), so it takes that grid point's cell, as the ground's soft edge does | Why: tpw-mods tpi-worlds; the converted meshes' vertices on a cell's edge lie a hair before it, so their light stepped a cell away from the ground's fade, a hard line on the edge of the park's land | Off: the position as it is, the Mac's
+            const bool snap = tpw::TpiWorldInPlay();
+            const float fx = snap ? tpw::TpiParkEdgeVertexCell(vert[0] / ten) : vert[0] / ten;
+            const float fz = snap ? tpw::TpiParkEdgeVertexCell(vert[2] / ten) : vert[2] / ten;
             const uint32_t cellX = static_cast<uint32_t>(FloatToCell(static_cast<double>(fx)));
-            const uint32_t cellZ = static_cast<uint32_t>(FloatToCell(static_cast<double>(vert[2] / ten)));
+            const uint32_t cellZ = static_cast<uint32_t>(FloatToCell(static_cast<double>(fz)));
             const uint32_t cellX2 = static_cast<uint32_t>(FloatToCell(static_cast<double>(fx)));
             if (cellX2 < width && cellZ < height) {
                 const uint16_t quad = gHeightfieldQuads[cellX + cellZ * width].mF00;

@@ -31,7 +31,8 @@ void WindowSetValue(InterfaceWindow* window, int32_t value);   // src/game/ui/ui
 
 // TPW_PORT_FIX resslider PortShowShape | Mac: (none) | Port: the size slider's stops become those of a shape, with the thumb on the stop closest to the size asked for, which the game then changes to, and that shape's button stands down | Why: the slider is sizes only, the buttons are the shape
 void PortShowShape(int32_t shape) {
-    gUISizeStopCount = UI_SizeStops(shape, gPortPanelWide, gPortPanelHigh, gPortScreenWide, gPortScreenHigh, gUISizeStops);
+    gUISizeStopCount = UI_SizeStops(shape, gPortPanelWide, gPortPanelHigh, gPortScreenWide, gPortScreenHigh, gUISizeStops,
+                                    gPortScreenShapeWide, gPortScreenShapeHigh);
     const int32_t stop = UI_ClosestStop(gUISizeStops, gUISizeStopCount, gPortWantedWide, gPortWantedHigh, gPortLargestGameSize);
     auto* slider = static_cast<InterfaceScrollBar*>(gSetOnOffRoot->GetWindow(0x1d4d5));
     slider->SetMinMax(0, gUISizeStopCount - 1);

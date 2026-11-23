@@ -77,7 +77,8 @@ inline bool TpiParseGateLeaf(const char* name, TpiGateLeaf& leaf) {
 // takes each cell outside it that has a cell inside beside it on both axes (the steps of a staircase of clicks), and
 // the two rows from (left + 2, bottom) to (right - 1, bottom + 1) at the entrance. Checked against the game's own land
 // on a new park, cell for cell (notes/tpi-worlds.md). The entrance road, which the level's map gives the park and not
-// the hoarding, is not in it.
+// the hoarding, is not in it, nor is the gate ground a new park also owns (tpw::TpiGateGround, include/TpiGateBuild.h),
+// on the entrance's two rows and the four before them beside the road, far from every obstacle gate's footprint.
 struct TpiStartFence {
     int32_t left = 0, right = 0, bottom = 0;   // gHoardingLeft, gHoardingRight, gHoardingBottom as the game sets them
     int32_t count = 0;                         // the clicks held

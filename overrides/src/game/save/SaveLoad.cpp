@@ -40,6 +40,7 @@
 #include "rsse.h"
 #include "SaveLegalText.inc"
 #include "SaveLoad.h"
+#include "SavedRideTypes.h"
 #include "Serialise.h"
 #include "SkyObjects.h"
 #include "TbError.h"
@@ -55,6 +56,7 @@
 #include "TPSettings.h"
 #include "TPSound.h"
 #include "TpiBumperKind.h"
+#include "TpiGateBuild.h"
 #include "TpiGateFlow.h"
 #include "TpiObstacleShut.h"
 #include "TpiOutside.h"
@@ -466,6 +468,7 @@ int32_t CSaveLoad::Load(const char* path, CSaveLoadHeader* header, LoadType type
                    "Cannot have a header-only load but supply no header pointer\n");
     // TPW_PORT_FIX heldpark CSaveLoad::Load | Mac: none | Port: forgets the rides a park loaded before lacked | Why: gPortMissingRides names this load's
     std::memset(gPortMissingRides, 0, sizeof gPortMissingRides);
+    gPortMissingRideType = 0;
     bfl::FileSystem::CDiscFile file;
     const bool opened = file.Open(path, 0x80000000).Succeeded();
     if (opened != (gSaveLoadOpenTestWord == 0)) {
@@ -550,6 +553,19 @@ int32_t CSaveLoad::Load(const char* path, CSaveLoadHeader* header, LoadType type
     // TPW_PORT_FIX v5L27 CSaveLoad::Load | Mac: reads every park in the current format | Port: notes a park an early port build wrote, for the readers of its modules | Why: see gPortEarlySave in SaveLoad.h
     gPortEarlySave = PortIsEarlySave(unpacked, unpackedSize);
     if (gPortEarlySave) std::fprintf(stderr, "port: %s was written by an early port build; reading it in that format\n", path);
+    // TPW_PORT_FIX heldpark CSaveLoad::Load | Mac: reads the modules of a park whose ride records need a ride type the game has not got, and faults restoring the track rides' cars | Port: such a park is refused before any module is read, as LoadHeader refuses one whose ride record needs a missing ride (kErrorMissingRides; the player is told, and a park the player is put in is held) | Why: see gPortMissingRideType in SaveLoad.h
+    if (type != kLoadOnline) {
+        const savedrides::Missing missing = PortMissingSavedRideType(unpacked, unpackedSize);
+        if (missing.type != 0) {
+            std::fprintf(stderr, "port: %s needs ride type %u (ride %u), which this game has not got; it was not loaded\n", path,
+                         missing.type, missing.slot);
+            gPortMissingRideType = missing.type;
+            gPortEarlySave = false;
+            TemporaryAllocator().Free(unpacked);
+            mError = kErrorMissingRides;
+            return 0;
+        }
+    }
 
     // In the arena: BMP_Load's chunks keep the file's address in a 32-bit field (the Mac's file object was on the stack).
     tpw::ArenaHeld<bfl::FileSystem::CMemFile> held;
@@ -1307,6 +1323,8 @@ void CSaveLoad::PostLoadOperations() {
     RepairTpiOutsideFeatures();
     // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a ride keeps the remaining life it saved) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, each placed ride that no longer wears (its record's WearRate 0 at its level) and is not condemned gets its remaining life back to 100 (RepairTpiSpecialRides, include/TpiSaveRepair.h) | Why: the mod's converter 28 gives Theme Park Inc's special rides (Info.IsSpecial, which Theme Park Inc never wears out, as they cannot be rebuilt) WearRate 0, but a park keeps each ride's worn life, and one saved with no life left would still be condemned at its next breakdown (Addable13, Discord, 0.5.6); off, or an original world, a park loads as it was saved
     RepairTpiSpecialRides();
+    // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park keeps the land it saved) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, the gate ground a new park now owns (tpw::TpiOwnGateGround, include/TpiGateBuild.h) is the park's: only flag 0x40 is cleared, only on those cells, so a second load changes nothing | Why: a park saved before this fix kept that ground unowned beside Theme Park Inc's gate (Piro, Discord, 0.6.0); off, or an original world, a park loads as it was saved
+    tpw::TpiOwnGateGround(gGameWorld->mMapCells, gHoardingLeft, gHoardingRight, gHoardingBottom);
     RecalculateParkDarkening();
     gRestartParkClocks = 1;
     gClock.PostLoad();

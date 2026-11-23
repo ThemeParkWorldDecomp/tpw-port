@@ -25,12 +25,18 @@ struct Hooks {
     bool strikeGate = false;          // strike_gate: CStaffHQ::UpdateMonthly considers strikes in an open park with visitors in it
     bool strikeMessages = false;      // strike_messages: the advisor's "last warning" a week before a strike and "strike over" at its end
     bool staffBridgeWander = false;   // staff_bridge_wander: a staff member's random walk (CPeep::SetRandomDestination) may cross a footbridge
+    bool landRoughEdges = false;      // land_rough_edges: the sides of a land purchase may cross rivers, lakes and rocks inside the land, not its outer walls
+    bool landFairPrice = false;       // land_fair_price: a land purchase costs the unowned land inside its new fence line, rivers, lakes and rocks free
+    bool landThinStrips = false;      // land_thin_strips: a land purchase may be one fence square wide, none beside the land in front of the gate
+    bool landUnbought = false;        // land_unbought: land a purchase closes in stays unowned and fenced until bought (LLCC_ReviseHoarding, LLCC_FillInsideOfPark)
     bool ps1Badge = false;            // ps1_badge: the PlayStation rides have the "PS1" tag on the Buy Ride panel (include/RideBadges.h), while "Show Ride Badges" is on
     bool ps1Ground = false;           // ps1_ground: a PlayStation ride's own ground is blended into the park's ground cell by cell (CalculateSkirtVertices)
     bool ps1SaveRepair = false;       // ps1_save_repair: a park's PlayStation rides whose saved doors are not their record's have them moved as it loads (include/Ps1SaveRepair.h)
     bool ps1PickRotation = false;     // ps1_pick_rotation: a PlayStation ride picked from Buy Ride starts half a turn round, its entrance at the bottom like a PC ride's (include/Ps1PickRotation.h)
     bool tpiWorlds = false;           // tpi_worlds: the game's worlds are the original four and the three made from the player's Theme Park Inc copy (include/TpiWorlds.h)
     bool tpiIslands = false;          // tpi_islands: the island screen has a second group of islands for those worlds, and a switch between the groups (include/TpiWorlds.h)
+    bool entertainerSecondActs = false;   // entertainer_second_acts: the eight costumes with an unused second act play it at random as well as their first (include/EntertainerSecondActs.h)
+    bool ps2Characters = false;       // ps2_characters: the children, staff and entertainers with a converted PS2 model are drawn as that 3D model instead of their sprite, draw only (include/Ps2Characters.h)
 };
 
 // A compiled-in mod, as its mod.json describes it.
@@ -49,6 +55,10 @@ struct Mod {
     std::string content;   // its content's folder in the data folder's assets (mod.json's "content", optional): ps1, tpi.
                            // The launcher lays it over the game folder (platform/content_overlay.h) with the mod on,
                            // and keeps the mod locked until the folder holds it
+    std::string category;  // the Mods box's group it is in (mod.json's "category", Gameplay without one): Bonus Content,
+                           // Gameplay (mods.cmake's TPW_MOD_CATEGORIES)
+    std::string summary;   // one short line for its row (mod.json's "summary", optional; empty: the box uses the text's
+                           // first sentence)
 };
 
 // The mods of this build, in their folders' order (mods.cmake's TPW_MODS); empty when the build found no mods folder.
@@ -58,10 +68,11 @@ const std::vector<Mod>& Catalog();
 // launcher.ini's key of a mod: "1" on, absent or "0" off.
 inline std::string Key(const Mod& mod) { return "mod." + mod.id; }
 
-// Puts `hooks` into the game (the hooks' flags, include/ThingReceivers.h's gModStrikeGate, gModStrikeMessages and
-// gModStaffBridgeWander and gModPs1Ground, include/RideBadges.h's gModPs1Badge, include/Ps1SaveRepair.h's gModPs1SaveRepair
+// Puts `hooks` into the game (the hooks' flags, include/ThingReceivers.h's gModStrikeGate, gModStrikeMessages,
+// gModStaffBridgeWander, gModLandRoughEdges, gModLandFairPrice, gModLandThinStrips, gModLandUnbought and gModPs1Ground,
+// include/RideBadges.h's gModPs1Badge, include/Ps1SaveRepair.h's gModPs1SaveRepair
 // include/Ps1PickRotation.h's gModPs1PickRotation and
-// include/TpiWorlds.h's gModTpiWorlds and gModTpiIslands). Before the game starts, once; never called, the
+// include/TpiWorlds.h's gModTpiWorlds and gModTpiIslands, include/EntertainerSecondActs.h's gModEntertainerSecondActs). Before the game starts, once; never called, the
 // game's hooks stay off.
 void Apply(const Hooks& hooks);
 

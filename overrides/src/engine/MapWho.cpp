@@ -30,6 +30,11 @@
 #include "tpw_probe.h"
 // TPW_PORT_FIX freecam CMapWho::RenderWindow/CMapWho::Render | Mac: outside first person the ground is drawn by the overhead gamut, and fog is on only in first person | Port: while the Free camera looks low (gPortFreeLowView) the ground is drawn by DivideAndConquer with the fog flag, as in first person, but the fog space is moved out of reach (kPortFreeFogNear, kPortFreeFogFar) and DivideAndConquer tests the whole map; Render puts both flag words and the fog space back at its end, so GameSys's first-person fog XOR and first person's own fog are not disturbed | Why: the gamut covers only what a high camera sees, so a low view showed holes at the horizon, and first person's fog (230 to 250 at the longest View distance) left plain fog colour where the far park, the mountains and the land around it should be
 #include "TPCamera.h"   // gPortFreeLowView (freecam, CMapWho::RenderWindow and CMapWho::Render), gPortDrawDistance (drawdist)
+#include "TPEngine.h"   // pylonview: the support's original footprint and light context
+#include "tb_mesh.h"
+#include <algorithm>
+// TPW_PORT_FIX groundpool CMapWho::Render | Mac: the height field lists its cells (CHField::Prepare) only in a frame whose view or lights changed | Port: while the far ground's pool has tiles still to make (gPortGroundPending, src/engine/tb_init.cpp), the frame counts as changed, and the flag is put back at the end | Why: the pool makes a few tiles a frame, so a still camera would otherwise keep the far cells' stand-ins
+#include "tb_proctexture.h"   // gPortGroundPending (groundpool, CMapWho::Render)
 #include "Wavelet.h"
 #include <cmath>
 #include <cstring>
@@ -160,6 +165,30 @@ constexpr int32_t kErrAltTabRestore = static_cast<int32_t>(0xb0754014);
 // Global list 6: the lights (CLight links there), prepared first by PrepareWorldspace.
 constexpr int32_t kLightList = 6;
 
+// TPW_PORT_FIX pylonview PrepareList | Mac: the first visible footprint cell supplies a support's local lights | Port: globally registered supports retain that cell's light context and ordinary render flags; when no footprint cell is visible, the first valid footprint cell supplies it | Why: fixing visibility must keep the support's local and global lights, each prepared once
+bool PylonLightContext(CMapLinkBase* link, SMapLinkType*& list) {
+    const auto* mesh = dynamic_cast<const CMesh*>(link);
+    const auto* set = mesh != nullptr ? mesh->mPortPylonSet : nullptr;
+    if (set == nullptr || set->mBraceBlock == nullptr || (set->mFlags & 0x4000) != 0) return false;
+    const CMapWho& map = *gei_MapWho;
+    const int32_t x0 = set->mFC0.mF02, x1 = set->mFC4.mF02;
+    const int32_t z0 = set->mFC0.mF00, z1 = set->mFC4.mF00;
+    if (map.mMap == nullptr || x0 >= map.mWidth || z0 >= map.mHeight || x1 < x0 || z1 < z0) return false;
+    list = map.mMap[x0 + z0 * map.mWidth];
+    const auto* gamut = static_cast<const SGamutQuads*>(map.mGamut);
+    if (gamut != nullptr) {
+        for (int32_t z = z0; z <= z1 && z < map.mHeight; ++z) {
+            if (z < gamut->mFirstRow || z >= gamut->mEndRow) continue;
+            const int32_t x = std::max(x0, static_cast<int32_t>(gamut->mLow[z]));
+            if (x <= x1 && x < map.mWidth && x < gamut->mHigh[z]) {
+                list = map.mMap[x + z * map.mWidth];
+                break;
+            }
+        }
+    }
+    return true;
+}
+
 // Makes `head` the list being prepared (gei_MapWho's mF30, whichever map is drawing) and
 // prepares its links; 0 at the first that fails. Inline in the original (three copies; the
 // name is invented). The next link is read after each Prepare.
@@ -167,7 +196,17 @@ int32_t PrepareList(SMapLinkType* head) {
     gei_MapWho->mF30 = head;
     for (SMapLinkType* node = head; node != nullptr; node = node->mNext) {
         tpw_probe::Hit(tpw_probe::kPrepareListLinks);
-        if (node->mLink->Prepare() == 0) return 0;
+        SMapLinkType* savedList = gei_MapWho->mF30;
+        const uint32_t savedFlags = gRenderEntryFlags;
+        const bool pylon = (savedFlags & 0x01000000) != 0 && PylonLightContext(node->mLink, gei_MapWho->mF30);
+        if (pylon)
+            gRenderEntryFlags &= ~0x01000000u;
+        const int32_t prepared = node->mLink->Prepare();
+        if (pylon) {
+            gei_MapWho->mF30 = savedList;
+            gRenderEntryFlags = savedFlags;
+        }
+        if (prepared == 0) return 0;
     }
     return 1;
 }
@@ -326,6 +365,9 @@ void CMapWho::Render() {
         gei_System.mFlags &= ~CSystem::kAltTab;
     }
     const uint32_t systemFlags = gei_System.mFlags;
+    // groundpool: the height field lists its cells again while the pool has tiles to make (the flag word is put back at the
+    // end)
+    if (gPortGroundPending) gei_System.mFlags |= CSystem::kViewChanged;
     // freecam: fog also while the Free camera looks low, but starting out of reach; both flag words and the fog space are
     // put back at the end, and nothing is changed before the returns above (the TPW_PORT_FIX comment at the includes)
     const float fogNear = gei_Display.mFogNear;

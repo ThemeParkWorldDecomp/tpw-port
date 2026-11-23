@@ -361,6 +361,39 @@ void SignTextMacRoman(char* narrow, const char16_t* text, uint32_t length) {
 }
 }  // namespace
 
+namespace {
+// Code page 1251's letters 0x80..0xff as UTF-16 (the table of platform/gdi_text.h, which draws the bytes back).
+const char16_t kSignCp1251High[128] = {
+    0x0402, 0x0403, 0x201A, 0x0453, 0x201E, 0x2026, 0x2020, 0x2021, 0x20AC, 0x2030, 0x0409, 0x2039, 0x040A, 0x040C, 0x040B, 0x040F,
+    0x0452, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0xFFFD, 0x2122, 0x0459, 0x203A, 0x045A, 0x045C, 0x045B, 0x045F,
+    0x00A0, 0x040E, 0x045E, 0x0408, 0x00A4, 0x0490, 0x00A6, 0x00A7, 0x0401, 0x00A9, 0x0404, 0x00AB, 0x00AC, 0x00AD, 0x00AE, 0x0407,
+    0x00B0, 0x00B1, 0x0406, 0x0456, 0x0491, 0x00B5, 0x00B6, 0x00B7, 0x0451, 0x2116, 0x0454, 0x00BB, 0x0458, 0x0405, 0x0455, 0x0457,
+    0x0410, 0x0411, 0x0412, 0x0413, 0x0414, 0x0415, 0x0416, 0x0417, 0x0418, 0x0419, 0x041A, 0x041B, 0x041C, 0x041D, 0x041E, 0x041F,
+    0x0420, 0x0421, 0x0422, 0x0423, 0x0424, 0x0425, 0x0426, 0x0427, 0x0428, 0x0429, 0x042A, 0x042B, 0x042C, 0x042D, 0x042E, 0x042F,
+    0x0430, 0x0431, 0x0432, 0x0433, 0x0434, 0x0435, 0x0436, 0x0437, 0x0438, 0x0439, 0x043A, 0x043B, 0x043C, 0x043D, 0x043E, 0x043F,
+    0x0440, 0x0441, 0x0442, 0x0443, 0x0444, 0x0445, 0x0446, 0x0447, 0x0448, 0x0449, 0x044A, 0x044B, 0x044C, 0x044D, 0x044E, 0x044F,
+};
+
+// TPW_PORT_FIX signcyrillic TrueTypeRender::render_font_unicode | Mac: narrows the sign's text by each character's low byte and draws the bytes as Mac Roman | Port: while gPortSignCodePage is 1251 (a translation written in Cyrillic), narrows a character of Latin-1 to its low byte and any other to its code page 1251 byte ('?' when it has none, SignTextCyrillic), and draws the bytes as code page 1251 (lfCharSet 204, platform/gdi_text.h), in a face with Cyrillic letters when the sign's has none | Why: such a translation keeps its Cyrillic letters as the code page 1251 bytes the Latin-1 letters of the edition's tables stand for, and its fonts draw Cyrillic there, so the park's name on the gate and the rides' signs came out as accented Latin letters and question marks (the Mir SIM Russian Project)
+void SignTextCyrillic(char* narrow, const char16_t* text, uint32_t length) {
+    for (uint32_t i = 0; i < length; ++i) {
+        const char16_t c = text[i];
+        char byte = '?';
+        if (c < 0x100 && c != 0x98) {
+            byte = static_cast<char>(c);
+        } else {
+            for (int32_t j = 0; j < 128; ++j) {
+                if (kSignCp1251High[j] != c) continue;
+                byte = static_cast<char>(0x80 + j);
+                break;
+            }
+        }
+        narrow[i] = byte;
+    }
+    narrow[length] = 0;
+}
+}  // namespace
+
 int32_t TrueTypeRender::render_font_unicode(NS_MacDoze::InternalHandle* dc, const char16_t* text, Bitmap& out) {
     const uint32_t length = wcslen(text);
     if (length == 0) {
@@ -374,7 +407,9 @@ int32_t TrueTypeRender::render_font_unicode(NS_MacDoze::InternalHandle* dc, cons
 
     char* narrow = new char[length + 1];
     if (narrow == nullptr) return 0;
-    SignTextMacRoman(narrow, text, length);   // TPW_PORT_FIX signtext (above)
+    const bool cyrillic = gPortSignCodePage == 1251;   // TPW_PORT_FIX signcyrillic (above)
+    if (cyrillic) SignTextCyrillic(narrow, text, length);
+    else SignTextMacRoman(narrow, text, length);   // TPW_PORT_FIX signtext (above)
 
     // The bitmap header and a 256-entry grey palette: a DIB twice as wide and high as the mask (top-down, 8 bits).
     uint8_t* raw = new uint8_t[0x42c];
@@ -407,6 +442,8 @@ int32_t TrueTypeRender::render_font_unicode(NS_MacDoze::InternalHandle* dc, cons
     NS_MacDoze::InternalHandle* oldBitmap = NS_MacDoze::SelectObject(memDC, dib);
     NS_MacDoze::SetMapMode(memDC, 1);
     const int32_t savedWidth = mLogFont.lfWidth;
+    const uint8_t savedCharSet = mLogFont.lfCharSet;
+    if (cyrillic) mLogFont.lfCharSet = 204;   // signcyrillic: RUSSIAN_CHARSET
     NS_MacDoze::InternalHandle* font = NS_MacDoze::CreateFontIndirect(&mLogFont);
     NS_MacDoze::InternalHandle* oldFont = NS_MacDoze::SelectObject(memDC, font);
     NS_MacDoze::tagSIZE size;
@@ -442,6 +479,7 @@ int32_t TrueTypeRender::render_font_unicode(NS_MacDoze::InternalHandle* dc, cons
         } while (!done);
     }
     mLogFont.lfWidth = savedWidth;
+    mLogFont.lfCharSet = savedCharSet;
     NS_MacDoze::SetBkColor(memDC, 0);
     NS_MacDoze::SetTextColor(memDC, 0xffffff);
     NS_MacDoze::TextOut(memDC, 0x100 - size.cx / 2, mTextY, narrow, static_cast<int32_t>(length));

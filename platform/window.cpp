@@ -9,8 +9,9 @@
 // own size, not the window's, and the mouse is mapped back through the letterbox. The game's full-screen box (procID 2)
 // is a real full-screen window, the whole screen in a Space of its own (not with --windowed, --background or --no-fit).
 // On a Mac, Cmd+Ctrl+F and the green button take the window in and out of full screen (the system does it; the window's
-// size is read every frame). On Windows and Linux, Alt+Enter does the same through ToggleFullScreen below, and on every
-// system the game's Esc menu has a button for it (src/game/ui/ui_mainmenu.cpp, through the hooks launcher/main.cpp sets).
+// size is read every frame; with Fill Around Camera full screen is no Space, the green button only zooms and Cmd+Ctrl+F
+// goes through ToggleFullScreen, platform/gamework.cpp). On Windows and Linux, Alt+Enter does the same through
+// ToggleFullScreen below, and on every system the game's Esc menu has a button for it (src/game/ui/ui_mainmenu.cpp, through the hooks launcher/main.cpp sets).
 // Out of full screen the window is the system's standard one (fit::WindowBordered): a title bar with the game's name
 // (WindowTitle: Sim Theme Park or Theme Park World by edition), the close, minimise and zoom buttons, draggable and
 // resizable, the game letterboxed inside it at its own aspect ratio. The full-screen box is made with that frame from the
@@ -626,6 +627,7 @@ GrafPort* FrontWindow() {
 // Lets the system run: the engine calls it inside its waits (the splash screen), where no
 // events are being processed, so the window would otherwise stop responding.
 void SystemTask() {
+    tpw::FixedClockYield();
     if (gVideoStarted) SDL_PumpEvents();
 }
 

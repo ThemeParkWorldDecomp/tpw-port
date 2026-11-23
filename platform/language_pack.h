@@ -18,16 +18,23 @@
 namespace tpw {
 
 // `name` as the original spells it, one of its 16 language names (FS_Registry.cpp's, English to American), matched
-// ignoring case; empty if it is none of them.
+// ignoring case; the port also accepts the IDs of validated unofficial translations. Empty for an unknown name.
 std::string LanguageName(const std::string& name);
 
 // Lay the language `name` (any case) over the game folder from `root`/lang/<Name>; an empty `name` takes the overlay
-// away. False, with the overlay away, when `name` is not one of the 16 or the folder is not there.
-bool UseLanguagePack(const std::filesystem::path& root, const std::string& name);
+// away. Unofficial replacements use `own` as the game's language, with the edition's own missing resources. False,
+// with the overlay away, when the name is not supported or the folder/translation marker is not there.
+bool UseLanguagePack(const std::filesystem::path& root, const std::string& name, const std::string& own = "English");
 
 // The overlaid language as the original spells it (empty when off), and its folder (lang/<Name> in the root).
 const std::string& LanguagePackName();
 const std::filesystem::path& LanguagePackFolder();
+
+// The Windows code page the overlaid translation's letters are in: 1251 for a player-supplied translation into a language
+// written in Cyrillic (Russian, Ukrainian, Belarusian, Bulgarian, Serbian, Macedonian), whose text keeps that code page's
+// bytes as the Latin-1 letters of the edition's tables and whose fonts draw Cyrillic there; 0 for an official language,
+// any other translation, or the overlay off.
+int LanguagePackCodePage();
 
 // Whether the game path split into `parts` (SplitGamePath) is one of the overlaid folders or inside one, matched ignoring
 // case: data/Language/<Name> and below, data/global/speech, data/levels/<world>/speech and data/Init. False when off.

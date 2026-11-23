@@ -410,8 +410,19 @@ struct TpiLakeRide {
 // TPW_PORT_FIX mods gTpiLakeRides | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiWorlds.h): the chains of the Great Lakes built (BMP_CreateRide), so that steering finds a boat's | Why: tpw-mods tpi-worlds, the Great Lake's boats sail on the lake | Off: empty, unread
 inline TpiLakeRide gTpiLakeRides[4];
 
-// The collision object flag that marks a lake chain's circle (the Mac's objects use 0x01 to 0x40).
-inline constexpr uint32_t kTpiLakeColFlag = 0x80;
+// The collision object flag that marks a lake chain's circle: a bit no Mac object carries (the Mac's use 0x01 to 0x100,
+// and 0x80 is its own mark of a water track's crossroad centre, a circle with no bump to bump collision).
+inline constexpr uint32_t kTpiLakeColFlag = 0x10000000u;
+// The flags a lake chain's circle gets on top of BMP_StartColObject's: the mark, and the Mac's 0x80 (no bump to bump
+// collision, BMP_Collision), which the lake's circles have had since the Great Lake first sailed.
+inline constexpr uint32_t kTpiLakeColFlags = kTpiLakeColFlag | 0x80u;
+
+// Whether a collision object with `flags` is a lake chain's circle (a crossroad centre is not, though it has 0x80 too).
+inline bool TpiLakeCol(uint32_t flags) { return (flags & kTpiLakeColFlag) != 0; }
+
+// Whether BMP_InsideArea moves a bump into a live collision object with `flags` in the mod's worlds: any object but a
+// lake chain's circle, and a lake chain's circle only for a bump of that chain's ride (`ownChain`).
+inline bool TpiLakeColEnterable(uint32_t flags, bool ownChain) { return !TpiLakeCol(flags) || ownChain; }
 
 }  // namespace tpw
 

@@ -1,6 +1,8 @@
 // old_text_tables.cpp: CText::Init's fix for a language of the older build (include/platform/old_text_tables.h,
 // TPW_PORT_FIX oldtables in src/game/Text.cpp). The edition's own language is opened beside the chosen one, and the
-// strings and fonts the older build lacks are taken from it; the language's files are read as the disc has them.
+// strings and fonts the older build lacks are taken from it; the language's files are read as the disc has them. The
+// edition's own is read from the game folder, never an asset pack (packs.h): a pack's translation is the chosen language
+// itself, in the edition's own language folder, and may be an older build's.
 #include "platform/old_text_tables.h"
 
 #include <algorithm>
@@ -11,6 +13,7 @@
 #include "TbIResourceIndex.h"
 #include "TbITable.h"
 #include "TbTextResourceManager.h"
+#include "packs.h"
 #include "platform/samsutils.h"
 
 namespace {
@@ -46,6 +49,7 @@ bool gBaseTried = false;
 BaseLanguage* Base() {
     if (!gBaseTried) {
         gBaseTried = true;
+        tpw::WithoutPacks gameFolder;
         gBase = new BaseLanguage;
         if (!gBase->Open()) {
             delete gBase;
@@ -87,7 +91,10 @@ bool OldTextTable(TbTextResourceManager& language, void** table, uint32_t id, co
     BaseLanguage* base = Base();
     if (base == nullptr) return false;
     TbITable* later = nullptr;
-    if (!base->mManager.GetResource(&later, id).Succeeded()) return false;
+    {
+        tpw::WithoutPacks gameFolder;
+        if (!base->mManager.GetResource(&later, id).Succeeded()) return false;
+    }
     std::vector<const unsigned char*> strings;
     if (!MergeOldTextTable(id, own->mStrings, own->mCount, later->mStrings, later->mCount, strings)) {
         later->Release();
@@ -122,6 +129,7 @@ bool OldTextFont(TbTextResourceManager& language, TbIFont** out, uint32_t id) {
     TbIResourceIndex* index = language.mIndex;
     if (auto* own = FindOldTextResource(index->mFirst, index->mLast, index->mData, name, 4))
         return index->GetResource(own, reinterpret_cast<void**>(out)).Succeeded();
+    tpw::WithoutPacks gameFolder;
     return baseIndex->GetResource(item, reinterpret_cast<void**>(out)).Succeeded();
 }
 

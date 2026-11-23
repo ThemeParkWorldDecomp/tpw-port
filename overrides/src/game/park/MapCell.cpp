@@ -37,8 +37,13 @@
 #include <cstdint>
 #include <cstdlib>
 
+#include "TpiFenceBuild.h"
+#include "TpiGateBuild.h"
 // TPW_PORT_FIX v5L51 LLCC_SystemGetPointedPeepThing | Mac: no UI header | Port: UI_Base.h for gUIUnitWidth and UI_UnitToViewX | Why: the widescreen hot point below
 #include "UI_Base.h"
+
+// TPW_PORT_FIX mods CMapCell::GetTile | Mac: no mod header | Port: TPW_MOD_HOOK tpi_worlds, the footbridge joins below | Why: paths meet the mod's tunnel floors
+#include "TpiFootbridge.h"
 
 // 0x1009722c, 712 bytes: takes a bridge away from the cell and turns the two bridge cells beside it (a, b) to what they become without it.
 // The two IsXYValid calls on the first block and the track end have their answers dropped (the Mac stores them in dead locals).
@@ -636,6 +641,8 @@ int32_t CMapCell::ConnectionType(CELL_MODES modeIn, int32_t flag) {
         return 0xb;
     }
     if (IsFlag(0x40) != 0) return 1;
+    // TPW_PORT_FIX mods CMapCell::ConnectionType | Mac: Base.map attribute bit 1 is never read for building; such a cell refuses only what unowned or hidden ground refuses | Port: TPW_MOD_HOOK tpi_worlds (tpw::TpiFenceRefuses, include/TpiFenceBuild.h): in one of the mod's worlds such a cell, under or beside the level's own fence, wall or bank, refuses every placement that builds, as unowned land does; demolishing, queue editing and the land tools keep the Mac's answer | Why: a ride or path could stand right across Polar Zone's wooden fence once Buy Land owned both sides (the maintainer, 0.6.1); off, or an original world, the Mac's
+    if (tpw::TpiFenceRefuses(mode, mStatusFlags)) return 1;
     type = static_cast<int32_t>(mType);
     if (type == 4 || type == 9 || type == 10) {
         if (gLLCCDE0B8 > gLLCCDE0B4 && mode != 0x15 && mode != 0x16) {
@@ -653,6 +660,11 @@ int32_t CMapCell::ConnectionType(CELL_MODES modeIn, int32_t flag) {
         track = reinterpret_cast<CTrackCell*>(reinterpret_cast<char*>(gGameWorld) + 0x2d8 +
                                               (static_cast<int32_t>(track->mParentID) - 1) * 0x28 + 0x110000);
     }
+    // TPW_PORT_FIX mods CMapCell::ConnectionType | Mac: a hoarding post and its three block cells refuse every ground placement | Port: TPW_MOD_HOOK tpi_worlds (tpw::TpiBuildOverGateHoarding, include/TpiGateBuild.h): in one of the mod's worlds a path, queue or building may stand over the hidden hoarding on the gate ground Theme Park Inc owns beside its gate, after the usual ownership and occupied ground checks; track still refuses it, and the posts and their blocks stay as they are for land buying | Why: the hidden Theme Park World fence blocked the strips beside Theme Park Inc's gate and along the road up to it (Piro, Discord, 0.6.0); off, or an original world, the Mac's
+    const int32_t cellIndex = static_cast<int32_t>(mCellId) - 1;
+    const bool hiddenHoarding = tpw::TpiBuildOverGateHoarding(static_cast<int32_t>(track->mType), mode, mStatusFlags,
+                                                              cellIndex & 0x7f, cellIndex >> 7, gHoardingLeft,
+                                                              gHoardingRight, gHoardingBottom);
     if (mode == 0xb && track->IsTrack() != 0 && gLLCCE0DC == 0) {
         gLLCCC214 = 1;
         return 1;
@@ -663,7 +675,7 @@ int32_t CMapCell::ConnectionType(CELL_MODES modeIn, int32_t flag) {
     }
     if (gLLCCC210 != 0) gLLCCC214 = 1;
     if (flag == 0 && gLLCCC214 != 0) return 1;
-    if (static_cast<int32_t>(track->mType) == 0x19) {
+    if (static_cast<int32_t>(track->mType) == 0x19 && !hiddenHoarding) {
         gLLCCC214 = 1;
         return 1;
     }
@@ -720,8 +732,8 @@ int32_t CMapCell::ConnectionType(CELL_MODES modeIn, int32_t flag) {
         gLLCCC210 = 1;
         return 1;
     }
-    if (mode == 4 && track->IsTrack() != 0) return gLLCCE0DC == 0 ? 1 : 0;
-    if (track->IsCorner() != 0 || track->IsCrossRoad() != 0) {
+    if (mode == 4 && !hiddenHoarding && track->IsTrack() != 0) return gLLCCE0DC == 0 ? 1 : 0;
+    if (!hiddenHoarding && (track->IsCorner() != 0 || track->IsCrossRoad() != 0)) {
         gLLCCC210 = 1;
         return 1;
     }
@@ -846,8 +858,16 @@ int32_t CMapCell::ModifyTypeBody(CELL_MODES mode) {
 // 0x1009bc54. The tile word (kind << 16 | index) for the cell's mode and neighbour byte; *rotation gets the table's rotation (plus 0xb4 for a mode 3
 // straight that does not run along 0x40 / 0x10). The modes 2, 7, 0x1e, 4, 9, 10 and 0x15 (by absolute value) answer 8 with rotation 0.
 uint32_t CMapCell::GetTile(int32_t* rotation) {
-    const uint8_t neighbours = GetNeighbours();
+    // TPW_PORT_FIX mods CMapCell::GetTile | Mac: draws only the stored path links, which do not join footbridges | Port: TPW_MOD_HOOK tpi_worlds, a path's tile also joins straight footbridge neighbours while tpw::TpiWorldInPlay(); the links are not stored | Why: paths at both tunnel mouths must meet the floor without building on it, including in saved parks | Off: the Mac's tile
+    uint8_t neighbours = GetNeighbours();
     const int32_t type = static_cast<int32_t>(mType);
+    if (type == 1) {
+        neighbours |= tpw::TpiFootbridgeLinks({type, mFlags}, [this](uint8_t direction) {
+            const CMapCell* cell = GetNeighbouringCell(direction);
+            return cell == nullptr ? tpw::TpiFootbridgeCell{-1, 0}
+                                   : tpw::TpiFootbridgeCell{static_cast<int32_t>(cell->mType), cell->mFlags};
+        });
+    }
     const uint8_t direction = GetDirection();
     *rotation = 0;
     int32_t extra = 0;

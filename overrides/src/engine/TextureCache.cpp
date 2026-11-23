@@ -1584,6 +1584,59 @@ int32_t CTextureCache::PackTextures(CTextureEntry** list) {
     return link->PageUpdated();
 }
 
+// TPW_PORT_FIX cachegrow CTextureCache::GenerateTexturePages | Mac: the cache has the pages AutoDetectPageCreation made at the start (248 at the 64 MB of video memory the port reports), and an entry that finds no page left to fill this frame is drawn without its texture and asked for again the next | Port: with the Free camera, Zoom out further or a Draw distance past Original, an entry that finds no page left to fill this frame of a size that holds it adds an empty page (PortCacheGrow): of the smallest size that holds it, else the next larger one, with fewer than kPagesPerSize pages, and is packed there; a wrapping entry (a page of its own, of its best size) whose size has all its kPagesPerSize pages instead opens the next of them in SortTextures' order, whose entries asked for this frame are packed again; the pages added stay until the cache is made again; with all three off, and in the differential tests, it adds none | Why: at the far views these settings allow, the ground, the build menu and the Park Information panel ask for more than the 248 pages hold: what did not fit flickered white (squares on the ground, white text, boxes and graphs) and was uploaded again every frame, which made the game lag
+#include "TPCamera.h"   // gPortFarZoom, gPortFreeCamera, gPortDrawDistance (cachegrow, PortCacheGrow)
+// The pages PortCacheGrow added since the start, and the pages it opened past those SortTextures left to fill (tests/host_cache_grow.cpp
+// reads them).
+int32_t gPortCachePagesAdded = 0;
+int32_t gPortCachePagesOpened = 0;
+
+namespace {
+
+// Makes one empty page of `size` and puts it where this frame's pages to fill end (the page that was there goes last).
+bool AddPage(CTextureCache& cache, int32_t size) {
+    const int32_t count = cache.mPageCount[size];
+    int32_t made = 1;
+    if (!cache.CreateSurfaces(0x100 >> size, made, gei_TextureSettings.mFormat, cache.mMipmaps) ||
+        cache.mPageCount[size] != count + 1)
+        return false;
+    std::swap(cache.mPages[size][cache.mUsable[size]], cache.mPages[size][count]);
+    ++cache.mUsable[size];
+    ++gPortCachePagesAdded;
+    return true;
+}
+
+}  // namespace
+
+// Adds an empty page for `first`, the queue's first entry, when the far view settings are on and PackTextures found no page
+// for it (-1) while no page of a size that holds it is left to fill this frame. A wrapping entry takes a page of its own of its
+// best size (PackTextures starts there and has cut it down as far as it goes, so a smaller page left that it failed on is too
+// narrow): one added, or when the size has kPagesPerSize, the next of its pages in SortTextures' order opened to fill this
+// frame (PackTextures puts that page's entries asked for this frame back on the queue, as for any page). Another entry shares a
+// page of any size its cache width and height fit (PackTextures starts at 256 and fails on the first size with a page left
+// that is too small): the smallest of those, else the next larger one, with fewer than kPagesPerSize. Answers whether it
+// added or opened one.
+bool PortCacheGrow(CTextureCache& cache, CTextureEntry* first) {
+    if (!gPortFarZoom && !gPortFreeCamera && gPortDrawDistance == kPortDrawOriginal) return false;
+    if (first->StoreAsWrapping() != 0) {
+        const int32_t size = first->GetBestSize();
+        if (size < 0 || size >= CTextureCache::kSizes || cache.mF1830[size] < cache.mUsable[size]) return false;
+        if (cache.mPageCount[size] < CTextureCache::kPagesPerSize) return AddPage(cache, size);
+        if (cache.mUsable[size] >= cache.mPageCount[size]) return false;
+        ++cache.mUsable[size];
+        ++gPortCachePagesOpened;
+        return true;
+    }
+    const int32_t need = std::max(first->mCacheWidth, first->mCacheHeight);
+    int32_t holds = 0;   // the smallest size whose page the entry fits
+    while (holds + 1 < CTextureCache::kSizes && (0x100 >> (holds + 1)) >= need) ++holds;
+    for (int32_t size = 0; size <= holds; ++size)
+        if (cache.mF1830[size] < cache.mUsable[size]) return false;
+    for (int32_t size = holds; size >= 0; --size)
+        if (cache.mPageCount[size] < CTextureCache::kPagesPerSize) return AddPage(cache, size);
+    return false;
+}
+
 int32_t CTextureCache::GenerateTexturePages() {
     std::memset(mF1830, 0, sizeof mF1830);
     int32_t result = 1;
@@ -1591,6 +1644,10 @@ int32_t CTextureCache::GenerateTexturePages() {
     // it is dropped back to the state of an entry on no page.
     while (mF18AC != nullptr && result != 0) {
         result = PackTextures(&mF18AC);
+        if (result == -1 && PortCacheGrow(*this, mF18AC)) {   // cachegrow: a page added, the entry packed again
+            result = 1;
+            continue;
+        }
         if (result == -1) {
             ForgetPlacement(mF18AC);
             result = 1;

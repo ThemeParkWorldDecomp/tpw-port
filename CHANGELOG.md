@@ -1,5 +1,81 @@
 # Changelog
 
+## 0.6.2 (2026-11-22)
+
+### New Features
+
+- A new Mac setting, Fill Around Camera: full screen fills a MacBook's whole screen, the sides of the camera notch included, instead of leaving a black band above the game (Thanks @djlongy for the report and the hint, tpw-port #131)
+- Visitors who buy from the Umbrella Shop in the SimCoaster/TPI mod's worlds now walk around holding their umbrella, as in the original, and keep it through rides, shops and saves; an umbrella also keeps a little of the rain, storms and snow off their mood (the launcher converts the Theme Park Inc worlds again once)
+
+### Bug Fixes
+
+- Fixed the launcher refusing copies of the PlayStation disc that lack the small file naming the game's program: it now starts them the way a PlayStation does, and their rides convert like any other copy's
+- Fixed the launcher refusing an unofficial translation as having a "damaged compressed glyph" when its fonts end some letters early, as the game's own fonts do. A translation is now named by its language (from a known release, its own letters, or by asking you once) instead of "English (Unofficial)", a disc with the same text in two folders is listed once, a translation with a few letters its fonts do not draw is added and says which and where, one whose character tables are the other edition's than its fonts gets the right ones so the park's name no longer shows one letter off, the older US and European discs' own English text is no longer taken for a translation, and dropping a changed version replaces the one added before (Thanks @Nitablade)
+- The launcher no longer calls a translation pack, a translated US Windows CD or an early US Windows CD an "older pressing" of the European disc: a pack dropped alone says whether its language was added, a US disc is named as the US Windows CD, a translated disc no longer counts its own translated files as missing (dropped on editions that are already ready it says "Language added", otherwise it names only what is really missing, on an untranslated copy of that disc), a disc that holds the game only inside an installer now says so and asks you to install it and drop the installed folder, and the result lists up to three problems one by one and counts the rest
+- The park gate and ride signs in a Russian (or other Cyrillic) unofficial translation now show Russian letters instead of accented Latin letters and question marks
+- A park in the SimCoaster/TPI mod's worlds built with a SimCoaster Bonus Disk ride no longer crashes the game when it is opened without the Bonus Disk added: the park is kept as it was and the game says which ride it needs
+- Fixed rides, shops, paths and coasters being placeable right across the wooden fences at the edge of Polar Zone and Land of Invention in the SimCoaster/TPI - New Worlds, Rides and Sprites mod's worlds once the land on both sides was bought: the fence's squares now refuse building, and anything already built there stays
+- Fixed a white patch flickering in the entrances of the shops and rides in the SimCoaster/TPI - New Worlds, Rides and Sprites mod's worlds, such as Polar Zone's Umbrella Shop, when zoomed out and turning the camera: the ground under the doorway's shadow showed through it
+
+### Changes
+
+- The README explains what to do when files are missing: what each card's colour means and how to fill a gap
+
+## 0.6.1 (2026-11-20)
+
+### New Features
+
+- A new mod, Better land buying: buy across rivers and rocks, strips one square wide and land around unbought patches, paying only for the usable land bought (Thanks @zackpollard, tpw-port #134 and tpw-mods #1)
+- The launcher's edition cards show how ready each game is: green when every file is there, orange when it plays with a few optional files missing or repaired, red while an essential file is missing. A What's missing button lists each missing file and what it changes in play, and you can drop more discs or files any time to fill the gaps
+- A ready card says how ready: "Ready to play (all files matched)" when green, "Ready to play (files missing, minimal effect)" or "Ready to play (files repaired, minimal effect)" when orange, and the import result says the same. Point at an orange card's state to see its missing or repaired files in short, or click it for the full What's missing list
+- A missing or damaged intro film no longer keeps an edition from playing: the game skips it and plays the others. With none left, Skip the intro films is switched on and locked in Settings, which says why
+- A damaged .sam settings file is repaired line by line from the original game's own settings, on import and at every start: the lines the game can read are kept as you edited them, and the card says it was repaired. Edited .sam files the game reads are kept as before and never change which edition a card shows. The original settings never stand in for a missing disc
+- Drop a language disc or your own unofficial translation on the launcher and it offers to switch to it; Language is now at the top of Settings, an unofficial translation is marked as one and kept apart from the game files, and one with damaged text or missing letters is refused
+- An asset pack can now hold a translation's text, fonts, speech and interface pictures, including the text of older editions (Thanks @Nitablade)
+
+### Bug Fixes
+
+- Paths now join both ends of the SimCoaster/TPI mod's tunnels, and visitors wander through them
+- Visitors in the SimCoaster/TPI mod's tunnels now stay on the tunnel's two-tile walkway, and no longer wander onto the sand beside it at the tunnel mouths
+- The boulders on top of Arabian Nights' tunnel in the SimCoaster/TPI mod now clear away with the tunnel's rubble once its land is bought, so the land over the tunnel can be built on (the launcher converts the Theme Park Inc worlds again once)
+- The edge between bought and unbought land in the SimCoaster/TPI mod's worlds now fades softly along the canyons' cliffs and over Arabian Nights' tunnel too, where it still showed as a stepped hard line
+- A damaged intro film is now named as damaged, with advice to drop a good copy of either Windows CD, instead of calling the disc the first release (Thanks Merk7_18 on Reddit)
+- Fixed source builds failing their tests when the optional platform-test tools are unavailable
+- Fixed building from source inside a folder named src
+- Fixed coaster supports disappearing while riding up a hill (Thanks Piro on Discord)
+- Fixed being unable to build paths, queues and rides right beside the park gate and along the road up to it in the SimCoaster/TPI - New Worlds, Rides and Sprites mod's worlds: that land is now the park's from the start, as in SimCoaster, in parks saved before this fix too (Thanks Piro on Discord)
+- Fixed the launcher refusing the European (Theme Park World, SLES-50032) and Japanese (Theme Park 2001, SLPS-20048) PlayStation 2 discs for the PS2 Guest Models mod: they hold the same models as the US disc (Theme Park Roller Coaster), and all three now work (Thanks Piro)
+
+### Changes
+
+- Windows release builds now run the same platform checks as the regular builds
+- Linux build checks now retry temporary package download failures
+
+## 0.6.0 (2026-11-19)
+
+### New Features
+
+- A new mod, PS2 Guest Models (3D): the park's children, staff and entertainers are drawn as the PlayStation 2 edition's 3D models, walking and animated where the sprites were, with the visitors' heads on rides and in the first-person views too. The four entertainers the PlayStation 2 has no model for are drawn as one of their own world's, and both mechanics as its one mechanic. Drop your own PlayStation 2 disc (the disc, a .bin and .cue, an .iso or a copy of its folder) on the launcher to convert the models and unlock it in the Mods box. Display only: parks play and save exactly as before
+- A new mod, Entertainers' second acts: eight entertainer costumes perform the second act their sprite files hold but the game never plays, chosen at random with their first: the vampire, Frankenstein's monster and the hunchback in Halloween World, the dinosaur, the explorer and the tribal dancer in the Lost Kingdom, and the orange alien and the purple monster in the Space Zone. Saved games are unchanged
+- The SimCoaster/TPI - New Worlds, Rides and Sprites mod takes the SimCoaster Bonus Disk (Extra Value Pack) too: drop the disc (its .iso, a copy of its folder or a zip of either) on the launcher after your SimCoaster AKA Theme Park Inc, and its two rides join their worlds, the Depth Charge flume in Polar Zone and the Wilbur coaster in Land of Invention, in the build menus like the others. Parks and saves from before keep every ride they had. The disc's ready-made coasters are kept with it but cannot be built yet, as Theme Park World has no ready-made coasters
+
+### Bug Fixes
+
+- Fixed square holes cut into visitors, staff and entertainers where the faint outer edge of someone standing in front of them overlapped them (a bug of the original game, worst in busy crowds and queues): their edges still blend softly, and they are still hidden behind scenery and rides as before. Display only
+- Fixed a circle of plain, darker ground around the camera when zoomed far out over a big park (with Zoom out further, Free camera or the Farther and Whole world Draw distance): every square of ground in view now has its detailed texture, the far ones at a smaller size so the textures still take little memory, made over a few frames when many are needed at once
+- Fixed squares of ground, the build menu and the Park Information panel's text, boxes and graphs flickering white, and the lag with them, when zoomed far out over a big park (with Zoom out further, Free camera or the Farther and Whole world Draw distance): the game's texture memory now grows as far as these views need, about 11 MB more over the biggest park tried and never more than about 21 MB, and stays as it was with the original's camera and Draw distance
+- Fixed the park music in the SimCoaster/TPI - New Worlds, Rides and Sprites mod's Arabian Nights (and in a very busy Polar Zone) turning into one short burst of noise repeated many times a second when the park got busy: SimCoaster AKA Theme Park Inc's own music files for those two worlds are missing some pieces in every copy of the game, and a missing piece is now never played and another piece of the same level plays instead
+- Fixed the SimCoaster/TPI - New Worlds, Rides and Sprites mod's paths and queues laid where rocks or cliffs (Arabian Nights) or swamp (Polar Zone) used to block the way showing as bare ground after loading a saved park: they are drawn again as soon as the park loads, without laying a new path over them
+- Fixed the SimCoaster/TPI - New Worlds, Rides and Sprites mod's islands playing the sound effects of the world they borrow from on the island screen (the Lost Kingdom's jungle beasts on Arabian Nights, Halloween World's bats and bells on Polar Zone, the Space Zone's spaceships on Land of Invention): the three worlds now play only their own sounds and music
+- Fixed the SimCoaster/TPI - New Worlds, Rides and Sprites mod's water rides getting stuck at a 4-way junction (Wheel Deal in Land of Invention, Eskimotion in Polar Zone, Cruise The Nile in Arabian Nights): since 0.5.6 the tubes and boats could not enter the junction and piled up at its edge; they go straight through it again, and the Great Lake's boats sail on the lake as before
+- Fixed the flying rides (Jurassic Tours, the blimp, bird and spaceship tours, and the SimCoaster/TPI - New Worlds, Rides and Sprites mod's High Flyer) flying far off past the edge of the map about half the time as they came in or left: a bug in the original game picked a point up to a whole park's width beyond the park's corner, and they now come in and leave along the park's edge
+- Fixed the game crashing in the SimCoaster/TPI - New Worlds, Rides and Sprites mod's worlds when a Buy Land rectangle was drawn around the park gate: such a rectangle is now refused, as Theme Park World's own worlds refuse it, and land past the obstacles and next to the bridges can still be bought
+
+### Changes
+
+- The launcher's Mods box now shows the mods in two groups, Bonus Content first, then Gameplay, each mod with its name and a short line saying what it does. Click a mod's row (or its arrow) to read its full description, its version and which editions it works with, and click again to hide it. A mod chooses its own group in its mod.json ("category"); one that names none is in Gameplay
+- On a Mac, the Delete key (fn+Delete on a laptop) now clears land, as Delete does on Windows and Linux; F7 still clears land too, and the big delete key above Return still deletes track, queues and path as before
+
 ## 0.5.6 (2026-11-17)
 
 ### New Features

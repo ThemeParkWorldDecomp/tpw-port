@@ -151,7 +151,7 @@ int32_t DayOfWeek(int32_t year, int32_t month, int32_t day) {
 }
 
 _SYSTEMTIME NowLocal() {
-    const std::time_t now = std::time(nullptr);
+    const std::time_t now = static_cast<std::time_t>(SamsUtilities::UTimer::GetWallSeconds());
     std::tm local{};
     localtime_r(&now, &local);
     _SYSTEMTIME time{};

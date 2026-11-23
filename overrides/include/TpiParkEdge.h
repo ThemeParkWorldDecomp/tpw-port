@@ -11,6 +11,12 @@
 // as UpdateHFieldDarkeningNormals picks the cell under a vertex, and the colours between the corners are blended as the
 // meshes' are, so the ground fades over one cell, beside the river's fade. Header only and pure, so the host test sees
 // what the game does.
+// The meshes the converter takes from Theme Park Inc's levels (the canyons' cliffs, the tunnel's top and mouths, the
+// sculptures) have vertices meant to lie on a cell's edge that lie a hair before it (up to about 0.01 world units, a
+// thousandth of a cell), so UpdateHFieldDarkeningNormals took the cell before the edge for them and the mesh's light
+// stepped one cell away from the ground's fade: a hard line along the edge of the park's land. In the mod's worlds a
+// vertex within a thousandth of a cell of a grid line counts as on it (TpiParkEdgeVertexCell), so it takes that grid
+// point's cell, as the ground's corner does.
 #pragma once
 
 
@@ -38,6 +44,28 @@ inline uint32_t TpiParkEdgeCorners(const Quad* quads, uint32_t width, uint32_t h
         if ((quads[x + z * width].mF00 & kQuadUnowned) != 0) mask |= 1u << k;
     }
     return mask;
+}
+
+}  // namespace tpw
+
+
+
+// TPW_PORT_FIX mods TpiParkEdgeVertexCell | Mac: no such function; UpdateHFieldDarkeningNormals takes the cell under a vertex from its position as it is | Port: in the mod's worlds (TPW_MOD_HOOK tpi_worlds, UpdateHFieldDarkeningNormals) a position within a thousandth of a cell of a grid line counts as on it | Why: tpw-mods tpi-worlds; the converted meshes' vertices on a cell's edge lie a hair before it, so their light stepped a cell away from the ground's fade, a hard line on the edge of the park's land | Off: not called, the Mac's cut-down
+
+#include <cmath>
+
+namespace tpw {
+
+// How near a grid line, in cells, a mesh vertex counts as on it (TpiParkEdgeVertexCell): the converted meshes' vertices
+// lie up to about 0.0008 cell from the line they are meant to be on, and no vertex of theirs nearer than this is meant to
+// be off it.
+inline constexpr float kTpiParkEdgeSnap = 0.001f;
+
+// A mesh vertex's position `cells` along one axis, in cells (world units / 10), as UpdateHFieldDarkeningNormals gives it
+// to FloatToCell: the nearest grid line when within kTpiParkEdgeSnap of it, else `cells` as it is.
+inline float TpiParkEdgeVertexCell(float cells) {
+    const float line = std::floor(cells + 0.5f);
+    return std::fabs(cells - line) < kTpiParkEdgeSnap ? line : cells;
 }
 
 }  // namespace tpw

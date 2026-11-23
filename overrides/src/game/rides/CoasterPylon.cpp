@@ -1863,6 +1863,8 @@ tag_sTrackBrace* NewTrackBrace(sPylonRecord* pylon, float x, float z, float loft
         tag_sRideAnimSet* set = gRideAnimSets[brace->mWord70];
         set->mFlags |= 0x80000;
         set->mBraceBlock = brace;
+        // TPW_PORT_FIX pylonview NewTrackBrace | Mac: the support stays linked to its ground cells | Port: new and restored supports use their mesh bounds (PortDrawCoasterPylon) | Why: a ride camera can see the tall support above ground outside the view
+        PortDrawCoasterPylon(set);
         set = gRideAnimSets[brace->mWord70];
         char* timeControl = static_cast<char*>(set->mTimeControls);
         for (uint32_t i = 0; i < 5; i++) {

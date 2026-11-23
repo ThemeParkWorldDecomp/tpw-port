@@ -11,6 +11,7 @@
 #include "lobby.h"
 #include "MapCell.h"
 #include "OptionsBalance.h"
+#include "platform/samsutils.h"
 #include "ppc_math.h"
 #include "rsse.h"
 #include "TbDynamicStringTemplate.h"
@@ -84,7 +85,8 @@ CLBLobby::CLBLobby() {
     mF1C = 0;
     mWidth = 0x400;
     mHeight = 0x300;
-    mStarted = static_cast<uint32_t>(std::time(nullptr));
+    // TPW_PORT_FIX fixedclock CLBLobby::CLBLobby | Mac: the lobby's random seed is time(NULL) | Port: the platform's wall clock, time(NULL) unless a test run's fixed clock is on (TPW_FIXED_CLOCK, never set for a player) | Why: a test run repeats exactly, for the mods' save comparisons | Off: time(NULL), as the original
+    mStarted = static_cast<uint32_t>(SamsUtilities::UTimer::GetWallSeconds());
 }
 
 CLBLobby::~CLBLobby() { DeleteSystemList(); }

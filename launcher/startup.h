@@ -17,6 +17,8 @@ extern bool gNoPreload;
 // --window-click: scripted clicks in the launcher's window (a test run).
 extern std::vector<ui::WindowPlacement::Click> gWindowClicks;
 extern std::vector<ui::WindowPlacement::Wheel> gWindowWheels;
+// --window-drop: scripted drops on the launcher's window (a test run).
+extern std::vector<ui::WindowPlacement::Drop> gWindowDrops;
 // --window-size: the launcher's window size at open, in points (a test run); 0: the start size.
 extern int gWindowWidth, gWindowHeight;
 

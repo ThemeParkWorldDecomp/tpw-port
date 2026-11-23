@@ -93,6 +93,7 @@ Settings:
 | Skip the intro films | Off | Straight to the lobby. |
 | Back to the launcher after playing | Off | The launcher reopens when the game quits. |
 | Full screen | On | Off plays in a window. Cmd+Ctrl+F (Mac) or Alt+Enter switches. |
+| Fill Around Camera (Mac) | Off | Full screen fills a MacBook's whole screen at its own shape, the sides of the camera notch included; the notch hides a strip at the top centre. The green button then only zooms the window: Cmd+Ctrl+F or the Esc menu's button switch full screen. Off keeps full screen below the notch. |
 | Renderer (Linux) | OpenGL | Vulkan: the port's own renderer. |
 | Smooth wheel zoom | Off | The wheel eases toward the pointer. |
 | Zoom out further | Off | The camera goes further out. |
@@ -152,7 +153,7 @@ for resets. The 1999 game sends passwords unencrypted: use a new one. Forgot pas
 | Build several | Hold Cmd/Ctrl | Hold Ctrl |
 | Copy an object | Cmd+click | Ctrl+click |
 | Delete track section | Backspace | Backspace |
-| Clear land | F7 | Delete |
+| Clear land | F7 or Delete (fn+Delete on a laptop) | Delete |
 | Delete path tile | Backspace | Backspace |
 | Speed up time | Numpad + | Numpad + |
 | Slow down time | Numpad - | Numpad - |
@@ -263,17 +264,57 @@ use `build\tpw_launcher.exe 2> log.txt`.
 
 - `.sam` files live in `assets/us/Theme Park Data` and `assets/eur/Theme Park Data`. Edit freely: they are kept.
 - A Customized settings badge lists them. Restore original puts the disc's copy back.
-- A line the game can't read can crash it. The list warns you.
+- A line the game can't read is put back from the original. The list says Repaired.
+
+### Missing files?
+
+- Each card shows its state. Green: every file is there. Orange: Ready to play, with gaps. Red: an essential file is missing, no Play yet.
+- What's missing lists each file and what it changes. Essential stops Play. Optional doesn't.
+- Drop more discs any time. Each drop fills what it can.
+- Missing or damaged intro film: the game skips it. The others still play.
+- No intro films at all: Skip the intro films stays on.
+- Damaged film: drag in a good copy of either Windows CD.
+- Older pressing: a European PC CD from 2000 or later.
+- First release: patch to 2.0 on Windows.
+- Damaged `.sam` file: repaired line by line from the original. Your readable edits stay.
+- The original settings never replace a disc.
 
 ## Asset packs
 
 - A zip of replacement files at their game paths, e.g. `data/init/640/Splash_American.tga`.
 - Put it in `packs` in the data folder, or pass `--packs DIR`. Later names win.
 - Allowed: `.tga`, `.wct`, `.ani`, `.cur`, `.sf2`, `.sdt` with `.map`, `.ttf`, `.bf4`, `.mov`. No `.sam`.
+- A translation too: its language folder's `.str`, `.txt`, `.md2` and `.dat` files (`data/Language/English/` for the
+  European edition, `American` for the US one), the speech's `lips.wad` and `.lip` files, and `data/ui.wad`. Keep
+  Settings' Language on the edition's own: a language chosen there comes before a pack.
 - Ignored: zips starting with a dot, packs over 8 GB. The log says why.
 - Use the game's formats (uncompressed TGA). Replace all three logo folders (`640`, `800`, `1024`). A new
   `welcome.tga` must be at least as wide as `legal.tga`.
 - A broken file can crash the game.
+
+### Your own translation
+
+- Drop its zip or folder on the launcher. It is checked, kept apart from the game files and offered in Settings'
+  Language, so you can switch back any time.
+- Inside: `data/Language/English/` (or `American`) with the text tables (`UITEXT.str` at least) and fonts (`.bf4`).
+  Also taken: speech (`data/global/speech/`, `data/levels/<world>/speech/`), `data/Init/` pictures and `data/ui.wad`.
+  A folder around `data` is fine.
+- `data/ui.wad` replaces every interface picture, the words drawn in them included. Leave it out unless yours are
+  redrawn.
+- Fonts can be redrawn or the edition's own. Letters beyond English need every text font redrawn with them; the
+  date and cash fonts can stay the edition's own.
+- The game draws each byte of the text with the font's letter of that number, and the US and European editions number
+  their letters one apart. A table taken from the other edition than the fonts, or a letter a font draws as nothing,
+  is said when the translation is added (the file, the lines, the letter). A letter past a font's last one, or so many
+  drawn as nothing that the text would not show, refuses it.
+- `MBToUni.dat` and `UniToMB.dat` from the other edition than the fonts are replaced by the fonts' edition's own, so the
+  names the game writes itself (the park's, the rides') show right. This is said when the translation is added.
+- Dropping a changed version replaces the one kept. The same one again changes nothing.
+- Its name: a known release by its files (the Russian Project's, 2000); else its language read from its own letters
+  (Russian, Ukrainian, Belarusian, Bulgarian, for a Cyrillic translation made over the Latin-1 letters); else the
+  launcher asks you once, suggesting the name of the zip or folder. It is shown as "<language> (Unofficial)".
+- English text is the game's own, from another pressing (the US 1.0 and 1.1 discs, the older European one), never a
+  translation: it is neither added nor asked about, and its files count for the edition as any disc's do.
 
 ## Where it stands
 
@@ -288,7 +329,7 @@ use `build\tpw_launcher.exe 2> log.txt`.
 - [tpw-decomp](https://github.com/ThemeParkWorldDecomp/tpw-decomp) submodule: the translated game, bugs included.
 - launcher/: the launcher. launcher/net/ is the only internet code.
 - platform/: Mac and Windows shims on SDL3 and OpenGL. platform/vulkan/: the Linux Vulkan renderer.
-- overrides/: 624 fixes, listed in [FIXES.md](FIXES.md).
+- overrides/: 723 fixes, listed in [FIXES.md](FIXES.md).
 - mods/: the [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) submodule, via TPW_MOD_HOOK. `-DTPW_MODS_DIR=<folder>` points elsewhere.
 
 ### The Windows build

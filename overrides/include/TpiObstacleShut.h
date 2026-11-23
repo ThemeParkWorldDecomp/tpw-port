@@ -23,6 +23,7 @@
 #include <cstring>
 
 #include "TpiObstacleGate.h"
+#include "TpiSaveRepair.h"
 
 namespace tpw {
 
@@ -126,6 +127,24 @@ inline int32_t TpiShutQuadChange(bool cleared, bool copyHidden) {
 // land (mode 0) that belongs to nothing and is no path edge (flag 0x20). Anything built on it is kept.
 inline bool TpiShutCellToClose(int32_t mode, uint16_t parent, uint16_t flags) {
     return mode == 0 && parent == 0 && (flags & 0x20u) == 0;
+}
+
+// Whether a closed cell whose quad changed (`change`, TpiShutQuadChange) is reset (CMapCell::Reset, which draws its tile):
+// shown again, a cell that still holds the hidden quad's mode of its attribute (TpiStaleHiddenMapCell) or plain land
+// (TpiShutCellToClose); hidden again, plain land. A cell something is built on is kept either way.
+inline bool TpiShutResetsCell(int32_t change, int32_t mode, uint8_t attribute, uint16_t parent, uint16_t flags) {
+    if (change > 0)
+        return TpiStaleHiddenMapCell(mode, attribute, parent, flags, true) || TpiShutCellToClose(mode, parent, flags);
+    return change < 0 && TpiShutCellToClose(mode, parent, flags);
+}
+
+// Whether a closed cell whose quad is shown again, and which is not reset, has its own tile drawn again
+// (CMapCell::SetHFieldTile) after the copy's tile (0x37) that showing the quad drew over it: one that holds what was
+// built there (a path, a queue, a ride, a shop). A park loaded with its obstacle's land bought draws those first
+// (CMap::UpdateMapInEngine) and shows the quads on the first tick after, so without this they look like bare ground.
+// Plain land (0, 5) takes the copy's tile anyway, and a hidden quad's mode (2, 7, 0x1e) would hide the quad again.
+inline bool TpiShutRedrawsCell(int32_t change, bool reset, int32_t mode) {
+    return change > 0 && !reset && mode > 0 && mode != 2 && mode != 5 && mode != 7 && mode != 0x1e;
 }
 
 }  // namespace tpw

@@ -13,6 +13,8 @@
 #include "TbSoundBank.h"
 #include "TbSoundInfo.h"
 #include "TbSoundManager.h"
+#include "TpiGateFlow.h"
+#include "TpiSoundStandIns.h"
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -143,6 +145,8 @@ TbError TbMMFileBank::RegisterBank(const char* path, uint32_t size) {
             // (the original reads every header into the same uninitialised stack buffer: a short read leaves the rest of
             // the previous sample's header in it)
             uint8_t raw[0x28] = {};
+            // TPW_PORT_FIX mods TbMMFileBank::RegisterBank | Mac: every offset's 0x28 bytes are taken as a sample's header | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGateFlow.h): in one of the mod's worlds a sample whose header is not one (its first word is not 0x28, or it and its data do not end within the file, tpw::TpiSdtSampleIsSound, include/TpiSoundStandIns.h) is kept with no size and no cache, so the codec factory never starts it and TbMapStreamer::RegisterSFXData lets another sample of its sound stand in for it; off, an original world, or a sample that is one, the Mac's | Why: tpw-mods tpi-worlds; Theme Park Inc's Arabian Nights music bank has 40 such samples from the 104th on and Polar Zone's 15 from the 102nd (the retail files end early), which played as a burst of noise and were started again 100 times a second | Off: the Mac's
+            const int32_t fileSize = tpw::TpiWorldInPlay() ? mFile.GetSize() : -1;
             for (uint32_t i = 0; i < mCount; ++i) {
                 mFile.Seek(offsets[i], 0);
                 mFile.Read(raw, 0x28);
@@ -154,6 +158,13 @@ TbError TbMMFileBank::RegisterBank(const char* path, uint32_t size) {
                 header->mFlags = raw[0x1b];
                 header->mBits = raw[0x1a];
                 int32_t bytes = header->mSize;
+                if (fileSize >= 0 &&
+                    !tpw::TpiSdtSampleIsSound(SamsUtilities::USwap32(Load32(raw)), static_cast<uint32_t>(header->mSize), offsets[i],
+                                              static_cast<uint64_t>(fileSize))) {
+                    header->mSize = 0;
+                    header->mData = nullptr;
+                    continue;
+                }
                 // TPW_PORT_FIX bankcache TbMMFileBank::RegisterBank | Mac: the size is capped at 0x2000 by a signed compare, so a negative one is kept and taken as unsigned by new[], a block of 2 to 4 GB that the Mac's 32-bit heap never had (NULL, the sample's data left out) | Port: the cap compares unsigned, so such a sample caches its first 0x2000 bytes like any long one | Why: a 64-bit heap hands the 2 to 4 GB blocks out, one per such sample, filled from the file as far as its end; Theme Park Inc's own retail banks have them (Arabian Nights' Music/MusicHD.sdt, 24 samples from the 104th on, and Polar Zone's, 6 from the 102nd, whose offsets point into music data instead of a header), which took 70 GB of address space at the park's start and, on Windows, which commits what it hands out, 12 to 20 GB of memory and a freeze (Discord, 2026-11-12); the streaming codecs read no more of the cache than its first 0x2000 bytes (the MPEG file player's first buffer), so the samples play as before
                 if (static_cast<uint32_t>(bytes) > 0x2000) bytes = 0x2000;
                 header->mData = new (std::nothrow) uint8_t[static_cast<uint32_t>(bytes)];

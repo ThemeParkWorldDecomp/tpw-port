@@ -22,6 +22,7 @@
 #include "TPCoaster.h"
 #include "TPEngine.h"
 #include "TpiBumperKind.h"
+#include "TpiGateBuild.h"
 #include "TpiGateFlow.h"
 #include "TpiGreatLake.h"
 #include "TPSound.h"
@@ -262,6 +263,8 @@ void LLCR_DeleteRide(int32_t x, int32_t y, int32_t flag) {
             cell->Delete(0, 0);
             CTrackCell* track = cell->GetTrackCellEquiv();
             if (flag == 0) {
+                // TPW_PORT_FIX mods LLCR_DeleteRide | Mac: deleting a ground object also deletes the track cell beneath it | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds a hidden hoarding post or block under the removed object stays (tpw::TpiKeepGroundHoarding, include/TpiGateBuild.h); fence editing is unchanged | Why: the gate ground beside Theme Park Inc's gate can now be built on over the hidden fence (CMapCell::ConnectionType), and removing a path, queue or building there must not cut the fence that buying land walks; off, or an original world, the Mac's
+                if (!tpw::TpiKeepGroundHoarding(*track, gGameWorld->mTrackCells))
                 track->Delete(0, 0, true);
             } else {
                 track->UnSetFlag(0x10);

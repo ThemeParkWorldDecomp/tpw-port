@@ -51,6 +51,7 @@
 #include "TPSettings.h"
 #include "TPAdvisor.h"
 #include "TPCamera.h"
+#include "PortSpriteFringe.h"
 #include "AdvisorScoring.h"
 #include "TrueTypeRender.h"
 #include "analyser.h"
@@ -58,6 +59,7 @@
 #include "app_bundle.h"
 #include "app_icon.h"
 #include "asset_packs.h"
+#include "sam_originals.h"
 #include "game_app.h"
 #include "gold_rides.h"
 #include "language_pack.h"
@@ -73,6 +75,7 @@
 #include "ps1_convert.h"
 #include "ps1_disc.h"
 #include "ps1_refresh.h"
+#include "ps2_convert.h"
 #include "tpi_content.h"
 #include "tpi_convert.h"
 #include "tpi_refresh.h"
@@ -80,6 +83,7 @@
 #include "ride_badges.h"
 #include "Ps1PickRotation.h"
 #include "Ps1SaveRepair.h"
+#include "Ps2Characters.h"
 #include "RideBadges.h"
 #endif
 #ifdef _WIN32
@@ -87,6 +91,9 @@
 #endif
 #ifdef __linux__
 #include "host_linux.h"
+#endif
+#if defined(__APPLE__)
+#include "fill_notch.h"
 #endif
 #include "platform/arena.h"
 #include "sam_check.h"
@@ -152,9 +159,11 @@ public:
             int32_t exactWide = 0;
             int32_t exactHigh = 0;
             const bool exact = PortResolutionSize(setting, exactWide, exactHigh);
+            // (a size saved at the shape nearest to the screen's, with the game playing at the screen's own: its height at that)
+            if (exact && gStartAtSavedShape) UI_AtScreenShape(gPortScreenShapeWide, gPortScreenShapeHigh, exactWide, exactHigh);
             const int32_t saved = exact ? UI_ClosestPreset(exactWide, exactHigh, gUIWideAspect) : PortResolutionPreset(setting, mPreset);
             const int32_t shape = gStartAtSavedShape ? PortResolutionShape(setting) : -1;
-            const float aspect = shape >= 0 ? UI_ShapeAspect(shape) : gUIWideAspect;
+            const float aspect = shape >= 0 ? UI_PlayedAspect(shape, gPortScreenShapeWide, gPortScreenShapeHigh) : gUIWideAspect;
             int32_t wide = 0;
             int32_t high = 0;
             UI_PresetSize(saved, aspect, wide, high);
@@ -230,15 +239,9 @@ const SDL_DisplayMode* ScreenMode() {
 bool ScreenAspect(int& wide, int& high) {
     const SDL_DisplayMode* mode = ScreenMode();
     if (mode == nullptr) return false;
-    const float shape = static_cast<float>(mode->w) / static_cast<float>(mode->h);
-    int nearest = 0;
-    for (int i = 1; i < kUISizeShapeCount; ++i) {
-        const float distance = std::fabs(shape - static_cast<float>(kUISizeShapes[i].mWide) / static_cast<float>(kUISizeShapes[i].mHigh));
-        const float best = std::fabs(shape - static_cast<float>(kUISizeShapes[nearest].mWide) / static_cast<float>(kUISizeShapes[nearest].mHigh));
-        if (distance < best) nearest = i;
-    }
-    wide = kUISizeShapes[nearest].mWide;
-    high = kUISizeShapes[nearest].mHigh;
+    const UISizeShape& nearest = kUISizeShapes[UI_NearestShape(mode->w, mode->h)];
+    wide = nearest.mWide;
+    high = nearest.mHigh;
     return true;
 }
 
@@ -424,6 +427,8 @@ void Usage(const char* program) {
                  "                 opens 925 x 685 points), pressed before its drawn frame F and released before F + 1\n"
                  "  --window-wheel X,Y,N@F  a scripted turn of the wheel by N notches (below 0: down) in the launcher's\n"
                  "                 window, the pointer at point (X, Y) of it, before its drawn frame F\n"
+                 "  --window-drop PATH@F  a scripted drop of the file or folder PATH on the launcher's window, as from\n"
+                 "                 the Finder or Explorer: dragged over it before its drawn frame F, let go before F + 15\n"
                  "  --window-size WxH  the launcher's window opens W x H points (at least 880 x 520) instead of\n"
                  "                 925 x 685, for a test run of a window of another size\n"
                  "  --data DIR     the folder launcher.ini is in (default: the per-user folder SDL names for the\n"
@@ -526,7 +531,7 @@ void Usage(const char* program) {
 
 // The options that take a value (main's loop), so the early look below skips their values.
 bool TakesValue(const std::string& arg) {
-    static const char* const kWithValue[] = {"--game",  "--data",        "--play",       "--import",     "--program",    "--window-click", "--window-wheel",
+    static const char* const kWithValue[] = {"--game",  "--data",        "--play",       "--import",     "--program",    "--window-click", "--window-wheel", "--window-drop",
                                              "--window-size", "--user",  "--edition",     "--resolution", "--aspect",     "--frames",
                                              "--click", "--drag",        "--wheel",      "--cam-drag",   "--pad",   "--type",       "--type-env",   "--dump-frames", "--dump-every",
                                              "--dump-limit", "--display", "--write-icon", "--language", "--language-root",
@@ -749,16 +754,20 @@ std::filesystem::path ModContentFolder(const tpw::ui::ImporterBackend& backend, 
 
 // Whether a mod can be on: one without content always, a content mod once its folder holds its content (the Mods box
 // shows it locked until then): a ride for the PlayStation rides (platform/content_overlay.h), the stamp and all three
-// worlds for the Theme Park Inc worlds (platform/tpi_content.h).
+// worlds for the Theme Park Inc worlds (platform/tpi_content.h), the converter's stamp for the PS2's models
+// (assets/ps2_convert.h).
 bool ModContentReady(const tpw::ui::ImporterBackend& backend, const tpw::mods::Mod& mod) {
     if (mod.content.empty()) return true;
     if (mod.content == "tpi") return tpw::TpiContentReady(ModContentFolder(backend, mod));
+    if (mod.content == "ps2")
+        return tpw::assets::ReadPs2ConverterStamp(backend.DataFolder()) == tpw::assets::kPs2ConverterVersion;
     return !tpw::FindContentRides(ModContentFolder(backend, mod)).empty();
 }
 
 // A content mod's content as the Game data box names it: the PlayStation rides' titles, or the Theme Park Inc worlds'.
 std::vector<std::string> ModContentNames(const tpw::ui::ImporterBackend& backend, const tpw::mods::Mod& mod) {
     if (mod.content == "tpi") return tpw::FindTpiWorlds(ModContentFolder(backend, mod));
+    if (mod.content == "ps2") return {};
     std::vector<std::string> names;
     for (const tpw::ContentRide& ride : tpw::FindContentRides(ModContentFolder(backend, mod)))
         names.push_back(!ride.title.empty() ? ride.title : ride.folder.substr(ride.folder.find_last_of('/') + 1));
@@ -916,6 +925,7 @@ void RegisterSamTables() {
     add({"rides.sam", "shops.sam", "sideshow.sam", "features.sam", "upgrades.sam", "online_rides.sam"},
         gRideBalanceDescriptions, std::size(gRideBalanceDescriptions));
     add({"advisor.sam"}, gAdvisorBalanceDescriptions, std::size(gAdvisorBalanceDescriptions));
+    tpw::launcher::RegisterSamOriginals();   // the originals a damaged .sam is repaired from (sam_originals.h)
 }
 
 // The .sam files kept as the player's edit (assets/importer.h EditedFiles), one line each.
@@ -930,6 +940,12 @@ void LogEditedFiles(const char* tag, const tpw::ui::ImportBackend& backend) {
         }
     }
 }
+
+#if defined(__APPLE__)
+// The Settings box's "Fill Around Camera" is on and its hint counts in this run (ChooseFromDataFolder): a full-screen
+// start takes the screen's own shape (LauncherMain).
+bool gFillNotch = false;
+#endif
 
 // No --game: the edition comes from the data folder, through the launcher's window or --play. Fills in the game
 // folder, the edition, the user folder, the packs and the language (each unless an option named it already) and
@@ -1039,6 +1055,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
         placement.dumpLimit = config.dumpLimit;
         placement.clicks = tpw::launcher::gWindowClicks;   // --window-click
         placement.wheels = tpw::launcher::gWindowWheels;   // --window-wheel
+        placement.drops = tpw::launcher::gWindowDrops;     // --window-drop
         placement.width = tpw::launcher::gWindowWidth;     // --window-size
         placement.height = tpw::launcher::gWindowHeight;
         // The window's report lines and its screens go to the log file too; its About box shows the logs folder.
@@ -1088,6 +1105,8 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
                 row.version = mod.version;
                 row.author = mod.author;
                 row.text = mod.text;
+                row.category = mod.category;
+                row.summary = mod.summary;
                 row.editions[0] = (mod.editions & tpw::mods::kUs) != 0;
                 row.editions[1] = (mod.editions & tpw::mods::kEuropean) != 0;
                 row.editions[2] = (mod.editions & tpw::mods::kGold) != 0;
@@ -1228,6 +1247,21 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
         config.debugOptions[1] = 0;
         tpw::Log("full screen off (the launcher's Settings): the game plays in a window");
     }
+#if defined(__APPLE__)
+    // The Settings box's "Fill Around Camera" (off unless launcher.ini says 1; launcher/fill_notch.h): full screen around
+    // a MacBook's camera notch too. SDL reads it when video starts: here in the game's own process (game_app.h), before
+    // its window; a game that plays in the launcher's process (no game application) started video for the launcher's
+    // window, so there it has no effect, and the log says so.
+    {
+        const bool videoStarted = (SDL_WasInit(SDL_INIT_VIDEO) & SDL_INIT_VIDEO) != 0;
+        if (tpw::launcher::UseFillNotch(tpw::launcher::FillNotchSetting(backend.Setting(tpw::ui::kFillNotchKey)))) {
+            gFillNotch = !videoStarted;
+            tpw::Log("fill notch: on (the launcher's Settings)%s",
+                     videoStarted ? ", but video has already started: no effect in this run" : "");
+        } else
+            tpw::Log("fill notch: off (the launcher's Settings)");
+    }
+#endif
     // launcher.ini's renderer key, which the Settings box's Renderer row writes (Linux: vulkan or opengl, as --renderer
     // asks; --renderer wins when both are given).
     if (!rendererGiven) {
@@ -1419,11 +1453,12 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
         std::vector<std::filesystem::path> ps1Content;   // the content of the mod that switched ps1_badge on
         std::vector<std::filesystem::path> repairContent;   // the content of the mod that switched ps1_save_repair on
         std::vector<std::filesystem::path> pickContent;   // the content of the mod that switched ps1_pick_rotation on
+        std::filesystem::path ps2Content;   // the PS2's models, with their mod on
         std::string line;
         // Every content mod, on or off, for the message of a park that needs its rides (include/platform/missing_rides.h).
         std::vector<tpw::ContentMod> known;
         for (const tpw::mods::Mod& mod : tpw::mods::Catalog())
-            if (!mod.content.empty()) known.push_back({mod.name, ModContentFolder(backend, mod)});
+            if (!mod.content.empty() && mod.content != "ps2") known.push_back({mod.name, ModContentFolder(backend, mod)});
         tpw::KnowContentMods(known);
         for (const tpw::mods::Mod& mod : tpw::mods::Catalog()) {
             if (backend.Setting(tpw::mods::Key(mod)) != "1") continue;
@@ -1458,11 +1493,16 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
                 pickContent.push_back(ModContentFolder(backend, mod));
             on.push_back(&mod);
             if (mod.content == "tpi") tpiContent = ModContentFolder(backend, mod);
+            else if (mod.content == "ps2") ps2Content = ModContentFolder(backend, mod);
             else if (!mod.content.empty()) content.push_back(ModContentFolder(backend, mod));
             tpw::Log("mods: %s %s on", mod.id.c_str(), mod.version.c_str());
             line += (line.empty() ? "" : ", ") + mod.id + " " + mod.version;
         }
         tpw::mods::Apply(hooks);
+        // The PS2's models (include/Ps2Characters.h), read from the data folder with their mod on.
+        Ps2InstallRuntime();
+        gPs2CharactersRoot = gModPs2Characters ? ps2Content.u8string() : std::string();
+        if (gModPs2Characters) tpw::Log("mods: ps2_characters on, models in %s", gPs2CharactersRoot.c_str());
         // The content mods' rides, laid over the game folder (platform/content_overlay.h).
         if (!content.empty()) {
             std::vector<std::string> refused;
@@ -1594,6 +1634,8 @@ int ImportFromOptions(const std::string& dataDir, const std::vector<std::string>
     for (const std::string& error : report.errors) tpw::Log("import: error: %s", error.c_str());
     for (const std::string& line : report.playStation) tpw::Log("import: %s", line.c_str());
     for (const std::string& line : report.themeParkInc) tpw::Log("import: %s", line.c_str());
+    for (const std::string& line : report.themeParkIncAddOn) tpw::Log("import: %s", line.c_str());
+    for (const std::string& line : report.playStation2) tpw::Log("import: %s", line.c_str());
     for (const std::string& dest : report.differentVersions) tpw::Log("import: a different version (not used): %s", dest.c_str());
     if (report.cancelled || report.aborted) tpw::Log("import: stopped before the end%s", report.aborted ? " by a write error" : "");
     tpw::launcher::RefreshInstalledIcon(backend.DataFolder());   // the import may have written the game's icon
@@ -1787,6 +1829,19 @@ int LauncherMain(int argc, char** argv) {
                 return 2;
             }
             tpw::launcher::gWindowWheels.push_back(wheel);
+        }
+        else if (arg == "--window-drop") {
+            const std::string spec = value();
+            const size_t at = spec.rfind('@');
+            tpw::ui::WindowPlacement::Drop drop;
+            drop.frame = at == std::string::npos ? 0 : std::atoi(spec.c_str() + at + 1);
+            if (at == std::string::npos || at == 0 || drop.frame < 1) {
+                tpw::LogRawF("launcher: --window-drop wants PATH@F (a file or folder and a drawn frame from 1): %s\n",
+                             spec.c_str());
+                return 2;
+            }
+            drop.path = spec.substr(0, at);
+            tpw::launcher::gWindowDrops.push_back(drop);
         }
         else if (arg == "--window-size") {
             const char* spec = value();
@@ -2000,6 +2055,7 @@ int LauncherMain(int argc, char** argv) {
             return arg == "--help" || arg == "-h" ? 0 : 2;
         }
     }
+    RegisterSamTables();   // --import and --verify check and repair .sam files too
     if (!imports.empty()) {
         if (verify) {
             tpw::LogRawF("launcher: --import and --verify are separate runs\n");
@@ -2087,7 +2143,7 @@ int LauncherMain(int argc, char** argv) {
     // The edition's own (English in the European game folder, American in the US one) needs no folder.
     if (!language.empty()) {
         const std::string own = config.edition == "stp" ? "American" : "English";
-        if (tpw::UseLanguagePack(languageRoot, language))
+        if (tpw::UseLanguagePack(languageRoot, language, own))
             tpw::Log("language: %s, from %s", language.c_str(), tpw::PathText(tpw::LanguagePackFolder()).c_str());
         else if (language == own)
             tpw::Log("language: %s, the edition's own", language.c_str());
@@ -2103,12 +2159,28 @@ int LauncherMain(int argc, char** argv) {
 
     // 4:3 leaves the game's own sizes alone (the 1280 x 1024 preset stays 5:4); anything wider widens the screen.
 #ifdef TPW_PORT_FIX
-    if (!aspectGiven && !ScreenAspect(aspectWide, aspectHigh)) {
+    bool screenShape = false;
+#if defined(__APPLE__)
+    // Fill Around Camera in full screen: the whole panel, so its own shape (launcher/fill_notch.h); the options panel's
+    // shape nearest to it plays at it (gPortScreenShapeWide, include/TPSettings.h).
+    if (!aspectGiven && gFillNotch) {
+        const SDL_DisplayMode* screen = ScreenMode();
+        screenShape = screen != nullptr &&
+                      tpw::launcher::StartShape(true, config.debugOptions[1] != 0 && !config.background, screen->w, screen->h,
+                                                aspectWide, aspectHigh);
+        if (screenShape) {
+            gPortScreenShapeWide = aspectWide;
+            gPortScreenShapeHigh = aspectHigh;
+        }
+    }
+#endif
+    if (!aspectGiven && !screenShape && !ScreenAspect(aspectWide, aspectHigh)) {
         aspectWide = kDefaultAspectWide;
         aspectHigh = kDefaultAspectHigh;
     }
     gUIWideAspect = aspectWide * 3 == aspectHigh * 4 ? 0.0f : static_cast<float>(aspectWide) / static_cast<float>(aspectHigh);
-    tpw::Log("aspect: %d:%d%s", aspectWide, aspectHigh, gUIWideAspect == 0.0f ? " (the original 4:3 layout)" : "");
+    tpw::Log("aspect: %d:%d%s", aspectWide, aspectHigh,
+             gUIWideAspect == 0.0f ? " (the original 4:3 layout)" : screenShape ? " (the screen's own, Fill Around Camera)" : "");
     gUIHighPresets = 1;
     // The Esc menu's "Enter Full Screen" / "Exit Full Screen" button (include/ui_mainmenu.h): the window's own switch, shown
     // only while it can act (platform/window.cpp; never with --background). For this run only: the Settings box's Full screen
@@ -2120,11 +2192,15 @@ int LauncherMain(int argc, char** argv) {
     gPortNoWorldAdvisorGuard = true;
     // The key tables get a character key as the layout's plain key, the PC's virtual key, so Option and Shift cheats match (TPMain.h).
     gPortPlainKey = tpw::PlainKeyCharacter;
+    // The world sprite passes preserve opaque depth and blend soft edges (PortSpriteFringe.h).
+    tpw::spritefringe::enabled = true;
     // The fixes of samueleagle91 (tpw-port PRs #2, #5, #7, #12 and #13): the advisor's aspect (TPAdvisor.h), the Options
     // panel as a 4:3 panel (UI_Base.h), the signs' text (TrueTypeRender.h) and the spawns from the script code (analyser.h).
     gPortAdvisorAspect = true;
     gPortWidePanel = true;
     gPortSignText = true;
+    // A translation written in Cyrillic draws its signs in code page 1251 (TrueTypeRender.h, platform/language_pack.h).
+    gPortSignCodePage = tpw::LanguagePackCodePage();
     gPortScriptCode = true;
     // The ride context read as the tag_sMesh it is (rsse.h; samueleagle91, tpw-port PR #25).
     gPortRideCtx = true;

@@ -19,6 +19,7 @@
 #include "platform/msl.h"
 #include "platform/samsutils.h"
 #include "ppc_math.h"
+#include "Ps2Characters.h"
 #include "rsse.h"
 #include "ThingReceivers.h"
 #include "TPCamera.h"
@@ -594,6 +595,8 @@ void TickRideHeads(tag_sMesh*& meshRef) {
             continue;
         }
         SCR_SetScriptPosition(handle, block[12], block[13], block[14], 0);
+        // TPW_PORT_FIX mods TickRideHeads | Mac: the head's sprite is placed and its picture chosen from the camera's direction | Port: TPW_MOD_HOOK ps2_characters (gModPs2Characters, include/Ps2Characters.h): the head node's matrix is kept for the head's PS2 model, read only | Why: tpw-mods ps2-characters draws the riders' heads as the PS2 kids' heads, turned with the ride
+        if (gModPs2Characters) Ps2NoteRideHead(handle, block);
         // L = the camera's matrix combined with the inverse of the head's: the camera as seen from the head.
         sMatrix toCamera;
         std::memcpy(&toCamera, block, sizeof toCamera);

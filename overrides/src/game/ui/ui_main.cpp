@@ -1460,7 +1460,8 @@ int32_t Engine_GameWinMsg(InterfaceWindow* window, int32_t message, int32_t a, i
         CMouse::ProcessIngameMouse(a == 0 ? 0xf0 : 0xf1, 0, MessageX(b), MessageY(b), nullptr);
     } else if (message == kMsgKeyDown) {
         // The tables in the order debug, camera, game, shortcuts; the first that answers stops. None: the cheat table, when cheating.
-        const int16_t key = static_cast<int16_t>(a);
+        // TPW_PORT_FIX pc-keys Engine_GameWinMsg | Mac: the key goes to the tables as HandleTyping made it, so the forward Delete key does nothing over the park | Port: as PortParkKey (keyboard.h) gives it, on the key down and the key up alike: on the Mac a plain Delete is F7 and clears land, every other key and system is unchanged | Why: The maintainer (2026-11-17): Delete on the Mac should do what it does on Windows
+        const int16_t key = PortParkKey(static_cast<int16_t>(a), static_cast<int16_t>((static_cast<uint32_t>(b) >> 16) & 0xff));
         const int16_t modifiers = static_cast<int16_t>((static_cast<uint32_t>(b) >> 16) & 0xff);
         // TPW_PORT_FIX wasd-camera Engine_GameWinMsg | Mac: W, A, S and D go to the debug, camera, game and shortcuts tables | Port: with the launcher's "W A S D move the camera" on, the plain four move the camera (PortWasdCameraKey) and no table is asked | Why: to move the map with W A S D instead of the mouse, as the maintainer asked
         if (PortWasdCameraKey(key, modifiers, true)) return window->CallDefaultWindowHandler(message, a, b);
@@ -1469,7 +1470,8 @@ int32_t Engine_GameWinMsg(InterfaceWindow* window, int32_t message, int32_t a, i
             if (GameWinCheat()->IsCheating() != 0) gKeyTableCheat->KeyDown(key, modifiers);
         }
     } else if (message == kMsgKeyUp) {
-        const int16_t key = static_cast<int16_t>(a);
+        // TPW_PORT_FIX pc-keys Engine_GameWinMsg | Mac: the key up goes to the tables as HandleTyping made it | Port: as PortParkKey gives it, as the key down above, so the Mac's plain Delete lets go of F7's entry | Why: clear land is the game table entry's key up action (KeyUp, +0x0c), so the key up must be F7's too
+        const int16_t key = PortParkKey(static_cast<int16_t>(a), static_cast<int16_t>((static_cast<uint32_t>(b) >> 16) & 0xff));
         const int16_t modifiers = static_cast<int16_t>((static_cast<uint32_t>(b) >> 16) & 0xff);
         if (PortWasdCameraKey(key, modifiers, false)) return window->CallDefaultWindowHandler(message, a, b);
         if (gKeyTableDebug->KeyUp(key, modifiers) == 0 && gKeyTableCamera->KeyUp(key, modifiers) == 0 &&

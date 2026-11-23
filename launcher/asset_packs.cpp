@@ -28,7 +28,7 @@ constexpr char kUnpackedFolder[] = ".unpacked";
 constexpr char kStampFile[] = ".pack";
 // The rules, raised whenever they change (tpw::PackMayHold, LeftOutBecause), so a folder unpacked by older rules is
 // unpacked again. The stamps of the first packs had none.
-constexpr char kRules[] = "rules 2";
+constexpr char kRules[] = "rules 3";
 // The most a pack may unpack to (8 GB, over 25 times the game folder), so a zip that expands without end cannot fill
 // the disk.
 constexpr uint64_t kMaxPackBytes = uint64_t{8} << 30;
@@ -112,7 +112,7 @@ std::string LeftOutBecause(const std::string& path) {
         if (path.find('.', start) < slash) return "a folder in its path has a dot in its name";
         if (tpw::IsGameFile(path.substr(0, slash))) return "a folder in its path is a file in the game folder";
     }
-    if (!tpw::PackMayHold(path)) return "it is not a picture, sound, font or film the game keeps there";
+    if (!tpw::PackMayHold(path)) return "it is not a picture, sound, font, film or translation file the game keeps there";
     return {};
 }
 
@@ -161,6 +161,7 @@ bool Unpack(const fs::path& zip, const fs::path& unpacked, const fs::path& out, 
     fs::create_directories(out, ec);
     std::vector<char> buffer(1 << 16);
     uint64_t written = 0;
+    size_t inData = 0;   // the files unpacked under data/
     for (const Item& item : items) {
         const assets::Entry* entry = item.entry;
         // A resource fork is kept as the game folder keeps one, in an ".rsrc" side file.
@@ -204,7 +205,13 @@ bool Unpack(const fs::path& zip, const fs::path& unpacked, const fs::path& out, 
         }
         if (read < 0) return false;
         ++files;
+        if (Lower(path.substr(0, 5)) == "data/") ++inData;
     }
+    // The game looks for its files under data/ only, so a pack of the data folder's insides ("global/...", "Language/...")
+    // changes nothing.
+    if (files > 0 && inData == 0)
+        tpw::Log("asset pack: %s: no file is under a \"data\" folder, so the game finds none of them: a pack's files go "
+                 "at their places in the game folder (\"data/init/640/Splash_American.tga\")", name.c_str());
     std::ofstream(out / kStampFile) << StampOf(zip) << "\n";
     return true;
 }

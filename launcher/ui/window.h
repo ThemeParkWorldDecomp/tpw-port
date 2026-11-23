@@ -43,6 +43,13 @@ struct WindowPlacement {
         int frame = 0;
     };
     std::vector<Wheel> wheels;
+    // Scripted drops (the launcher's --window-drop PATH@F): the file or folder dragged over the window before drawn frame
+    // F and let go before frame F + 15, as a drop from the Finder or Explorer.
+    struct Drop {
+        std::string path;
+        int frame = 0;
+    };
+    std::vector<Drop> drops;
     // The window's size at open, in points (the launcher's --window-size WxH, a test run); 0: the start size.
     int width = 0, height = 0;
     // The launcher's log (launcher/main.cpp: stderr and the log file, platform/log_file.h) for the window's own report

@@ -138,7 +138,8 @@ std::vector<std::string> LauncherArguments(int argc, char** argv) {
     std::vector<std::string> args;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--play") == 0 || std::strcmp(argv[i], kFromLauncherOption) == 0 ||
-            std::strcmp(argv[i], "--window-click") == 0 || std::strcmp(argv[i], kGameAppTestOption) == 0) {
+            std::strcmp(argv[i], "--window-click") == 0 || std::strcmp(argv[i], "--window-drop") == 0 ||
+            std::strcmp(argv[i], kGameAppTestOption) == 0) {
             if (i + 1 < argc) ++i;   // its value
             continue;
         }

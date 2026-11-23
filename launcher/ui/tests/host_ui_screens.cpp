@@ -22,6 +22,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -212,38 +213,7 @@ public:
                                                 assets::kEditionUsPc,       assets::kEditionEurPc};
     // As Importer::StatusLocked (assets/importer.cpp).
     EditionStatus Status(Edition edition) const override {
-        EditionStatus s;
-        s.edition = edition;
-        const ManifestRecord* records = assets::ManifestRecords();
-        for (size_t i = 0; i < assets::ManifestRecordCount(); ++i) {
-            const ManifestRecord& r = records[i];
-            if (!(r.editions & edition)) continue;
-            bool have = (present_[i] & edition) != 0;
-            bool required = (r.flags & assets::kFlagRequired) != 0;
-            bool file = !SideFile(r);
-            bool satisfied = have;
-            if (const ManifestRecord* other = required ? assets::FilmCounterpart(r, edition) : nullptr) {
-                if (other->flags & assets::kFlagRequired) {
-                    size_t j = static_cast<size_t>(other - records);
-                    const std::string dest = r.dest;
-                    if (dest.compare(dest.size() - 4, 4, ".tgq") == 0) required = false;
-                    else satisfied = have || (present_[j] & edition) != 0;
-                }
-            }
-            ++s.records;
-            s.required += required;
-            s.requiredPresent += required && satisfied;
-            s.files += file;
-            if (have) {
-                ++s.present;
-                s.filesPresent += file;
-                s.bytesPresent += assets::RecordHash(r, 0).size;
-            } else if (required && !satisfied && r.source < 3) {
-                ++s.missing[r.source];
-                if (file) ++s.missingFiles[r.source];
-            }
-        }
-        s.unlocked = s.required > 0 && s.requiredPresent == s.required;
+        EditionStatus s = assets::DescribeEdition(edition, present_);
         auto it = edited.find(edition);
         s.edited = it == edited.end() ? 0 : it->second.size();
         return s;
@@ -269,11 +239,16 @@ public:
         auto it = settings.find(key);
         return it == settings.end() ? std::string() : it->second;
     }
-    bool SaveSetting(const std::string& key, const std::string& value, std::string&) override {
+    bool SaveSetting(const std::string& key, const std::string& value, std::string& err) override {
+        if (key == saveFailureKey) {
+            err = "synthetic write failure";
+            return false;
+        }
         settings[key] = value;
         return true;
     }
     std::map<std::string, std::string> settings;   // launcher.ini's settings, as SaveSetting kept them
+    std::string saveFailureKey;
     std::vector<assets::LanguageStatus> Languages() const override {
         ++languageReads;
         return languages;
@@ -354,6 +329,7 @@ void DropOlderPressing(FakeBackend& b, ImportReport& report) {
 
 // The US Windows CD's first release (1.0) as it leaves the US Windows folder: every 25th of its files has other content.
 void DropFirstRelease(FakeBackend& b, ImportReport& report) {
+    report.firstRelease = true; // the importer supplies exact-disc fingerprint evidence, tested by host_pressing
     std::vector<size_t> pc = FileRecords(assets::kEditionUsPc, assets::kSourcePcCd);
     std::vector<bool> miss(assets::ManifestRecordCount(), false);
     for (size_t k = 0; k < pc.size(); ++k) {
@@ -366,6 +342,37 @@ void DropFirstRelease(FakeBackend& b, ImportReport& report) {
     report.written = b.CountFiles(assets::kEditionUsPc) - before;
     report.entries = report.hashed = report.matched = pc.size();
     report.unknownFiles = 40;
+}
+
+// A US Windows CD whose copy has one damaged film (Reddit, 2026-11-15): every file but data/Movies/jug.tgq is in place,
+// and that one has other content.
+void DropDamagedFilm(FakeBackend& b, ImportReport& report) {
+    const std::string film = "data/Movies/jug.tgq";
+    size_t before = b.CountFiles(assets::kEditionUsPc);
+    b.Fill(assets::kEditionUsPc, [&](size_t, const ManifestRecord& r) { return film != r.dest; });
+    report.differentVersions.push_back(film);
+    report.written = b.CountFiles(assets::kEditionUsPc) - before;
+    report.entries = report.hashed = report.matched = FileRecords(assets::kEditionUsPc, assets::kSourcePcCd).size();
+}
+
+// An older pressing of the European PC CD after it: its films are good (the damaged one is filled for both Windows
+// editions), and every sixth of its other files has other content.
+void DropOlderPressingAfterDamagedFilm(FakeBackend& b, ImportReport& report) {
+    std::vector<size_t> pc = FileRecords(assets::kEditionEurPc, assets::kSourcePcCd);
+    std::vector<bool> miss(assets::ManifestRecordCount(), false);
+    const ManifestRecord* records = assets::ManifestRecords();
+    size_t k = 0;
+    for (size_t i : pc) {
+        if (std::string(records[i].dest).compare(0, 12, "data/Movies/") == 0 || !OlderPressingMiss(k++)) continue;
+        miss[i] = true;
+        report.differentVersions.push_back(records[i].dest);
+    }
+    size_t before = b.CountFiles(assets::kEditionEurPc);
+    for (Edition e : {assets::kEditionEur, assets::kEditionEurPc})
+        b.Fill(e, [&](size_t i, const ManifestRecord& r) { return r.source == assets::kSourcePcCd && !miss[i]; });
+    b.Fill(assets::kEditionUsPc, [](size_t, const ManifestRecord& r) { return std::string(r.dest) == "data/Movies/jug.tgq"; });
+    report.written = b.CountFiles(assets::kEditionEurPc) - before + 1;
+    report.entries = report.hashed = report.matched = pc.size();
 }
 
 void FillWindows(FakeBackend& b) {
@@ -548,6 +555,16 @@ SDL_Event WheelEvent(float lines) {
     return e;
 }
 
+// A click at the middle of `r`: the pointer moved there, the button down and up, a frame each.
+void ClickAt(LauncherUi& ui, const Rect& r, const std::function<void(int)>& frames) {
+    ui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+    frames(1);
+    ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+    frames(1);
+    ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+    frames(1);
+}
+
 void FillEverything(FakeBackend& b) {
     b.FillAll(assets::kEditionUs);
     b.FillAll(assets::kEditionEur);
@@ -705,12 +722,15 @@ void Render(const std::string& dir, const Shot& shot, int scale) {
 // ---- the states
 
 // The Mods box's rows (SetMods): tpw-mods' Enable strikes and Patrolling staff can cross bridges as their mod.json files
-// have them, and a made-up mod that conflicts with Enable strikes, for the European edition only, and changes saved games.
+// have them, and a made-up mod that conflicts with Enable strikes, for the European edition only, and changes saved games
+// (with no category or summary, as an outside mod.json may leave them out: in Gameplay, its text's first sentence).
 ModRow EnableStrikes() {
     ModRow row;
     row.id = "enable-strikes";
     row.name = "Enable strikes";
-    row.version = "1.0.0";
+    row.category = "Gameplay";
+    row.summary = "Unhappy staff can go on strike in an open park.";
+    row.version = "1.1.1";
     row.author = "TPW Decomp";
     row.text = "Staff can go on strike in an open park, as Bullfrog's code was written to do before the release blocked "
                "it. Strikes still need a park older than 24 months and staff with a real grievance. The advisor also gives the two "
@@ -722,7 +742,9 @@ ModRow StaffCrossBridges() {
     ModRow row;
     row.id = "staff-cross-bridges";
     row.name = "Patrolling staff can cross bridges";
-    row.version = "1.0.0";
+    row.category = "Gameplay";
+    row.summary = "Staff on patrol walk over footbridges too.";
+    row.version = "1.0.1";
     row.author = "TPW Decomp";
     row.text = "Staff walking their rounds can cross a footbridge, like the bridge over the stream in the Lost Kingdom. In "
                "the original they only crossed one when sent to a job on the other side. A bridge outside a worker's patrol "
@@ -735,6 +757,8 @@ ModRow Ps1Rides() {
     ModRow row;
     row.id = "ps1-rides";
     row.name = "PlayStation rides";
+    row.category = "Bonus Content";
+    row.summary = "The PlayStation edition's seven rides, from your own disc.";
     row.version = "0.1.0";
     row.author = "TPW Decomp";
     row.text = "Adds the rides only the PlayStation edition had, converted from your own PlayStation disc.";
@@ -758,6 +782,8 @@ ModRow TpiWorlds() {
     ModRow row;
     row.id = "tpi-worlds";
     row.name = kTpiModName;
+    row.category = "Bonus Content";
+    row.summary = "Three SimCoaster worlds, from your own copy of that game.";
     row.version = "0.1.0";
     row.author = "TPW Decomp";
     row.text = "Adds SimCoaster AKA Theme Park Inc's three worlds and their rides, converted from your own SimCoaster AKA Theme Park Inc disc.";
@@ -779,6 +805,47 @@ ModRow TpiWorldsStale() {
     ModRow row = TpiWorldsConverted();
     row.stale = true;
     return row;
+}
+// tpw-mods' Entertainers' second acts, and its PS2 Guest Models (3D) locked until the player's own PlayStation 2 disc is
+// converted, as their mod.json files have them.
+ModRow SecondActs() {
+    ModRow row;
+    row.id = "entertainer-second-acts";
+    row.name = "Entertainers' second acts";
+    row.category = "Bonus Content";
+    row.summary = "Eight entertainer costumes perform their unused second act.";
+    row.version = "1.0.1";
+    row.author = "TPW Decomp";
+    row.text = "Eight entertainer costumes have a finished second act in the game's files that never plays: the vampire, "
+               "Frankenstein's monster and the hunchback (Halloween World), the dinosaur, the explorer and the tribal dancer "
+               "(Lost Kingdom), and the orange alien and the purple monster (Space Zone). With the mod on, each act is the "
+               "first or the second at random. Both last as long and cheer visitors alike.";
+    row.editions[0] = row.editions[1] = row.editions[2] = true;
+    return row;
+}
+ModRow Ps2Characters() {
+    ModRow row;
+    row.id = "ps2-characters";
+    row.name = "PS2 Guest Models (3D)";
+    row.category = "Bonus Content";
+    row.summary = "Children, staff and entertainers as the PS2's 3D models.";
+    row.version = "0.1.1";
+    row.author = "TPW Decomp";
+    row.text = "Draws the park's children, staff and entertainers as the PlayStation 2 edition's 3D models, converted from "
+               "your own PlayStation 2 disc: walking and animated where the sprites were, with the visitors' heads on rides "
+               "and in the first-person views too. The PC's two mechanics share the PS2's one, and the four entertainers it "
+               "has no model for wear one from their own world (the ladybird the flower, the hunchback Frankenstein's "
+               "monster, the native the hunter, the tentacle monster the alien). Every staff and entertainer type can still "
+               "be hired. Locked until that disc's models are in the data folder: drop the disc on the launcher. Display "
+               "only: parks play and save exactly as before.";
+    row.editions[0] = row.editions[1] = row.editions[2] = true;
+    row.locked = ContentModLockedText("ps2");
+    row.content = "ps2";
+    return row;
+}
+// Every mod of tpw-mods, in its mods.cmake's order, the content ones before the player's discs are converted.
+std::vector<ModRow> AllMods() {
+    return {EnableStrikes(), StaffCrossBridges(), Ps1Rides(), TpiWorlds(), SecondActs(), Ps2Characters()};
 }
 ModRow NoStrikes() {
     ModRow row;
@@ -1125,6 +1192,126 @@ std::vector<Shot> Shots() {
                      },
                      Screen::Result, {}});
 
+    // Gaps that do not block Play: the US Windows edition without one intro film is ready, orange, with a What's
+    // missing button that lists the film and what it costs; a partial edition is red and lists its essential files.
+    // Every record but the film `gone` (empty: but every film).
+    const auto allBut = [](const std::string& gone) {
+        return [gone](size_t, const ManifestRecord& r) {
+            const std::string dest = r.dest;
+            return dest.compare(0, 12, "data/Movies/") != 0 || (!gone.empty() && dest != gone);
+        };
+    };
+    const auto oneFilmGone = [allBut](FakeBackend& b) {
+        b.Fill(assets::kEditionUsPc, allBut("data/Movies/jug.tgq"));
+        b.FillAll(assets::kEditionEurPc);
+    };
+    shots.push_back({"47-home-ready-film-gap", metric::kStartWidth, metric::kStartHeight, oneFilmGone,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         frames(1);
+                         Check(ui.MissingButtonRect(0).w > 0 && ui.MissingButtonRect(1).w == 0,
+                               "ready home: What's missing on the orange tile only");
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"47-ready-home-film-gap", metric::kStartWidth, metric::kStartHeight,
+                     [oneFilmGone](FakeBackend& b) {
+                         oneFilmGone(b);
+                         b.FillAll(assets::kEditionGold);
+                     },
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         frames(1);
+                         Check(ui.MissingButtonRect(0).w > 0 && ui.MissingButtonRect(1).w == 0,
+                               "all-confirmed home: What's missing on the orange tile only");
+                     },
+                     Screen::Home, {}});
+    // An orange card's state line (the maintainer, 2026-11-19): the pointer over it lists the gaps in short, a click on it opens
+    // the What's missing box; a green card's has neither.
+    const auto hoverState = [](LauncherUi& ui, const std::function<void(int)>& frames, const char* where) {
+        const Rect r = ui.StateLineRect(0);
+        Check(r.w > 0 && ui.StateLineRect(1).w == 0, std::string(where) + ": a state line to point at on the orange card only");
+        ui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+        frames(30);
+        Check(ui.GapHintShown() == 0 && ui.GapHintRect().w > 0 && ui.MissingOpen() < 0,
+              std::string(where) + ": the pointer over the orange state line shows its gaps");
+    };
+    shots.push_back({"47-home-film-gap-hover", metric::kStartWidth, metric::kStartHeight, oneFilmGone,
+                     [hoverState](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         frames(1);
+                         hoverState(ui, frames, "drop-field home");
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"47-home-film-gap-hover-smallest", metric::kMinWidth, metric::kMinHeight, oneFilmGone,
+                     [hoverState](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         frames(1);
+                         hoverState(ui, frames, "drop-field home, smallest");
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"47-ready-home-film-gap-hover", metric::kStartWidth, metric::kStartHeight,
+                     [oneFilmGone](FakeBackend& b) {
+                         oneFilmGone(b);
+                         b.FillAll(assets::kEditionGold);
+                     },
+                     [hoverState](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         frames(1);
+                         hoverState(ui, frames, "all-confirmed home");
+                         ui.HandleEvent(MotionEvent(10, 10));
+                         frames(2);
+                         Check(ui.GapHintShown() < 0, "all-confirmed home: the pointer gone, so are the gaps");
+                         hoverState(ui, frames, "all-confirmed home, again");
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"47-ready-home-green", metric::kStartWidth, metric::kStartHeight, FillEverything,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         frames(1);
+                         Check(ui.StateLineRect(0).w == 0 && ui.StateLineRect(1).w == 0 && ui.MissingButtonRect(0).w == 0,
+                               "green home: no state line to point at, no What's missing");
+                         ui.HandleEvent(MotionEvent(metric::kStartWidth * 0.25f, metric::kStartHeight * 0.3f));
+                         frames(30);
+                         Check(ui.GapHintShown() < 0, "green home: nothing listed under the pointer");
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"47-state-line-click", metric::kStartWidth, metric::kStartHeight, oneFilmGone,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         frames(1);
+                         ClickAt(ui, ui.StateLineRect(0), frames);
+                         Check(ui.MissingOpen() == 0 && ui.GapHintShown() < 0,
+                               "a click on the orange state line opens What's missing, over the short list");
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"47-whats-missing-film", metric::kStartWidth, metric::kStartHeight, oneFilmGone,
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         frames(1);
+                         ui.ShowMissing(0);
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"47-whats-missing-essential-smallest", metric::kMinWidth, metric::kMinHeight,
+                     [](FakeBackend& b) {
+                         b.Fill(assets::kEditionUsPc, [](size_t i, const ManifestRecord&) { return i % 7 != 0; });
+                     },
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         frames(1);
+                         Check(ui.MissingButtonRect(0).w > 0 && ui.MissingButtonRect(1).w == 0,
+                               "drop-field home: What's missing on the partial tile only");
+                         ui.ShowMissing(0);
+                     },
+                     Screen::Home, {}});
+    shots.push_back({"47-result-damaged-film", metric::kStartWidth, metric::kStartHeight, nullptr,
+                     [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>&) {
+                         FakeBackend::Script s;
+                         s.finish = [](FakeBackend& fb, ImportReport& r) { DropDamagedFilm(fb, r); };
+                         b.Queue(s);
+                         ui.OfferPaths({"/media/US Windows CD"});
+                     },
+                     Screen::Result, {}});
+    // No intro film at all: Skip the intro films is on and locked, and says why.
+    shots.push_back({"47-settings-no-intro-films", metric::kStartWidth, metric::kStartHeight,
+                     [allBut](FakeBackend& b) { b.Fill(assets::kEditionUsPc, allBut("")); },
+                     [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+                         frames(1);
+                         Check(ui.IntroUnavailable(), "no intro films: Skip intro is forced on");
+                         ui.ShowSettings(true);
+                     },
+                     Screen::Home, {}});
+
     shots.push_back({"18-play-wide", 1100, 760, PartialUsEur,
                      [](LauncherUi& ui, FakeBackend&, const std::function<void(int)>&) {
                          ui.ShowScreen(LauncherUi::Screen::Play);
@@ -1324,6 +1511,31 @@ std::vector<Shot> Shots() {
                          Screen::Home, {}});
     }
 
+    for (const bool unofficial : {false, true}) {
+        shots.push_back({unofficial ? "81-language-unofficial-unlocked" : "80-language-official-unlocked",
+                         metric::kMinWidth, metric::kMinHeight, FillEverything,
+                         [unofficial](LauncherUi& ui, FakeBackend& backend, const std::function<void(int)>& frames) {
+                             FakeBackend::Script script;
+                             script.finish = [unofficial](FakeBackend& b, ImportReport& report) {
+                                 auto language = Language(unofficial ? "Russian" : "French");
+                                 language.unofficial = unofficial;
+                                 language.description = unofficial ? "Russian (unofficial translation, 2000)" : "";
+                                 language.changes = "text, fonts, speech";
+                                 b.languages = {language};
+                                 report.languages = b.languages;
+                                 // as the importer says it: the translation's line (unofficial_language.h), or a
+                                 // language disc's files
+                                 report.written = unofficial ? 350 : 64;
+                                 if (unofficial)
+                                     report.translations = {
+                                         "Russian (unofficial translation, 2000) added: text, fonts, speech"};
+                             };
+                             backend.Queue(std::move(script));
+                             ui.OfferPaths({"synthetic-language.zip"});
+                             frames(2);
+                         }, Screen::Result, {}});
+    }
+
     // The Language section (launcher_ui.h LanguageKey) with the European edition's list open, on the five-language disc's
     // data: scrolled until the rows are in view, the list below its field.
     shots.push_back({"28-settings-language-open", metric::kStartWidth, metric::kStartHeight, FiveLanguages,
@@ -1458,6 +1670,35 @@ std::vector<Shot> Shots() {
                      },
                      Screen::Home, {}});
 
+    // Every mod of tpw-mods in its group (the maintainer, 2026-11-18): Bonus Content, then Gameplay, each row its name and one line,
+    // with Enable strikes on and the content mods locked; then with one row opened (its whole text and details), with the
+    // locked PS2 row opened, in the smallest window, and with an outside mod that names no category (in Gameplay).
+    const auto allModsOn = [](FakeBackend& b) {
+        FillEverything(b);
+        b.settings[ModKey("enable-strikes")] = "1";
+    };
+    const auto openRows = [](std::vector<ModRow> mods, std::vector<size_t> open) {
+        return [mods, open](LauncherUi& ui, FakeBackend&, const std::function<void(int)>& frames) {
+            ui.SetMods(mods);
+            ui.ShowMods(true);
+            frames(1);
+            for (size_t index : open) ClickAt(ui, ui.ModOpenRect(index), frames);
+            ui.HandleEvent(MotionEvent(4, 4));   // the pointer off the rows
+        };
+    };
+    shots.push_back({"45-mods-groups", metric::kStartWidth, metric::kStartHeight, allModsOn, openRows(AllMods(), {}),
+                     Screen::Home, {}});
+    shots.push_back({"45-mods-one-open", metric::kStartWidth, metric::kStartHeight, allModsOn, openRows(AllMods(), {4}),
+                     Screen::Home, {}});
+    shots.push_back({"45-mods-ps2-locked-open", metric::kStartWidth, metric::kStartHeight, allModsOn,
+                     openRows({Ps1RidesConverted(), Ps2Characters(), EnableStrikes()}, {1}), Screen::Home, {}});
+    shots.push_back({"45-mods-groups-smallest", metric::kMinWidth, metric::kMinHeight, allModsOn, openRows(AllMods(), {}),
+                     Screen::Home, {}});
+    shots.push_back({"45-mods-one-open-smallest", metric::kMinWidth, metric::kMinHeight, allModsOn,
+                     openRows(AllMods(), {2}), Screen::Home, {}});
+    shots.push_back({"45-mods-no-category", metric::kStartWidth, metric::kStartHeight, allModsOn,
+                     openRows({EnableStrikes(), NoStrikes(), SecondActs()}, {}), Screen::Home, {}});
+
     // The update banner under the title (updater.h), in the smallest window: on the home with the drop field (whose
     // icon makes room for it) and on the all-confirmed one.
     shots.push_back({"22-update-found-smallest", metric::kMinWidth, metric::kMinHeight, nullptr, nullptr, Screen::Home,
@@ -1549,6 +1790,35 @@ std::vector<Shot> Shots() {
                          };
                          b.Queue(s);
                          ui.OfferPaths({"/media/Theme Park Inc"});
+                     },
+                     Screen::Result, {}});
+    // The result screen after a PS2 disc drop (the PS2 Guest Models mod): the converter's line, and nothing about the
+    // editions.
+    shots.push_back({"80-result-ps2-ready", metric::kStartWidth, metric::kStartHeight, everything,
+                     [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>&) {
+                         FakeBackend::Script s;
+                         s.finish = [](FakeBackend&, ImportReport& r) {
+                             r.playStation2Converted = true;
+                             r.playStation2.push_back("PS2 Guest Models: 24 characters converted from the US PlayStation 2 "
+                                                      "disc (SLUS_200.99).");
+                         };
+                         b.Queue(s);
+                         ui.OfferPaths({"/media/Theme Park Roller Coaster (USA).cue"});
+                     },
+                     Screen::Result, {}});
+    // The result screen after a SimCoaster Bonus Disk drop on an imported SimCoaster: what it added and what it kept.
+    shots.push_back({"81-result-tpi-bonus-disk", metric::kStartWidth, metric::kStartHeight, everything,
+                     [](LauncherUi& ui, FakeBackend& b, const std::function<void(int)>&) {
+                         FakeBackend::Script s;
+                         s.finish = [](FakeBackend&, ImportReport& r) {
+                             r.themeParkIncAddOnAdded = true;
+                             r.themeParkIncAddOn.push_back(
+                                 "SimCoaster Bonus Disk: added Depth Charge (Polar Zone) and Wilbur's Wind Rush (Land "
+                                 "of Invention); its 35 ready-made coasters are kept but cannot be built (Theme Park "
+                                 "World has no ready-made coasters).");
+                         };
+                         b.Queue(s);
+                         ui.OfferPaths({"/media/SimCoaster - Bonus Disk (USA).iso"});
                      },
                      Screen::Result, {}});
     shots.push_back({"64-home-header-smallest-update", metric::kMinWidth, metric::kMinHeight, nullptr, nullptr,
@@ -1644,13 +1914,14 @@ void CheckWindowsTexts() {
     const EditionStatus& us = SlotStatus(all, 0);
     Check(us.edition == assets::kEditionUsPc && us.unlocked, "SlotStatus: the US Windows edition shows when ready");
     Check(SlotStatus(all, 1).edition == assets::kEditionEurPc, "SlotStatus: the European Windows edition shows when ready");
-    CheckEq(DescribeSlot(all, 0).state, "Ready to play", "US Windows tile state");
+    CheckEq(DescribeSlot(all, 0).state, "Ready to play (all files matched)", "US Windows tile state");
     CheckEq(DescribeSlot(all, 0).detail, Files(us.filesPresent) + " confirmed; no Mac bonus rides", "US Windows tile detail");
     ResultText r = DescribeResult(report, before);
-    CheckEq(r.headline, "All assets confirmed for the US edition (Windows disc) and the European edition (Windows disc)",
+    CheckEq(r.headline, "Ready to play (all files matched): the US edition (Windows disc) and the European edition (Windows disc)",
             "Windows discs headline");
-    Check(r.good && r.lines.size() >= 2 && r.lines[0] == "US edition (Windows disc): ready to play" &&
-              r.lines[1] == "European edition (Windows disc): ready to play",
+    Check(r.lines.back() == "Drop more discs any time.", "a result ends with: drop more discs any time");
+    Check(r.good && r.lines.size() >= 2 && r.lines[0] == "US edition (Windows disc): ready to play (all files matched)" &&
+              r.lines[1] == "European edition (Windows disc): ready to play (all files matched)",
           "Windows discs: a line a tile");
 
     // the Mac CD then: the Mac editions show again, and the European one is named alone
@@ -1661,11 +1932,11 @@ void CheckWindowsTexts() {
     b.AllStatuses(all);
     Check(SlotStatus(all, 0).edition == assets::kEditionUs && SlotStatus(all, 1).edition == assets::kEditionEur,
           "SlotStatus: a ready Mac edition goes first");
-    CheckEq(DescribeResult(report, before).headline, "All assets confirmed for the US edition and the European edition",
+    CheckEq(DescribeResult(report, before).headline, "Ready to play (all files matched): the US edition and the European edition",
             "Mac CD after the Windows discs");
     // both editions dropped together: the Windows one is not named beside the Mac one of its tile
     for (int i = 0; i < 6; ++i) before[i] = EditionStatus();
-    CheckEq(DescribeResult(report, before).headline, "All assets confirmed for the US edition and the European edition",
+    CheckEq(DescribeResult(report, before).headline, "Ready to play (all files matched): the US edition and the European edition",
             "Mac and Windows discs together");
 
     // partial: the one with more files shows, and its missing files name its own disc
@@ -1684,8 +1955,8 @@ void CheckWindowsTexts() {
     DropFirstRelease(f, first);
     f.AllStatuses(first.status);
     const EditionStatus& usPc = first.status[StatusIndex(assets::kEditionUsPc)];
-    Check(LooksLikeFirstRelease(first), "the first release is recognised");
-    Check(!LooksLikeOlderPressing(first), "the first release is not an older European pressing");
+    Check(LooksLikeFirstRelease(first, before), "the first release is recognised");
+    Check(!LooksLikeOlderPressing(first, before), "the first release is not an older European pressing");
     ResultText fr = DescribeResult(first, before);
     CheckEq(fr.headline, "First release, " + FormatCount(usPc.filesPresent) + " of " + FormatCount(usPc.files) +
                              " confirmed", "first release headline");
@@ -1696,6 +1967,80 @@ void CheckWindowsTexts() {
     for (const std::string& line : fr.lines)
         Check(line.find("of a different version") == std::string::npos, "first release: the versions are said once");
     std::printf("first release (scripted): %s\n", fr.headline.c_str());
+
+    // a US Windows CD with one damaged film (Reddit, 2026-11-15): not the first release; an intro film is not needed to
+    // play, so the edition is ready with a gap (orange), and the film is named, with the discs that have it
+    FakeBackend d;
+    d.AllStatuses(before);
+    ImportReport film;
+    DropDamagedFilm(d, film);
+    d.AllStatuses(film.status);
+    const EditionStatus& usFilm = film.status[StatusIndex(assets::kEditionUsPc)];
+    Check(usFilm.unlocked && usFilm.filesPresent + 1 == usFilm.files, "a damaged film: the US Windows folder lacks one file");
+    Check(EditionCardState(usFilm) == CardState::Orange && usFilm.introFilmsPresent + 1 == usFilm.introFilms &&
+              usFilm.gaps.size() == 1 && usFilm.gaps[0].dest == "data/Movies/jug.tgq",
+          "a damaged film: the card is orange, and its gap is the film");
+    CheckEq(DescribeTile(usFilm).state, "Ready to play (files missing, minimal effect)", "a damaged film: the tile state");
+    {
+        // the same edition with only a repaired settings file for a gap, nothing missing (the maintainer, 2026-11-19)
+        EditionStatus repaired = usFilm;
+        repaired.gaps = {{"data/Data/Global.sam", "Damaged settings, repaired from the original game's", false}};
+        repaired.repaired = 1;
+        Check(EditionCardState(repaired) == CardState::Orange, "a repaired settings file: the card is orange");
+        CheckEq(DescribeTile(repaired).state, "Ready to play (files repaired, minimal effect)",
+                "a repaired settings file: the tile state");
+        repaired.gaps.push_back(usFilm.gaps[0]);
+        CheckEq(DescribeTile(repaired).state, "Ready to play (files missing, minimal effect)",
+                "a repaired settings file and a missing film: the tile state");
+    }
+    CheckEq(DescribeTile(usFilm).detail, Files(usFilm.filesPresent) + " confirmed; 1 intro film missing, skipped; "
+                                         "no Mac bonus rides. Drop more discs any time.", "a damaged film: the tile detail");
+    Check(DamagedFilms(film) == std::vector<std::string>{"data/Movies/jug.tgq"}, "a damaged film is found");
+    Check(!LooksLikeFirstRelease(film, before), "a damaged film is not the first release");
+    Check(!LooksLikeOlderPressing(film, before), "a damaged film is not an older pressing");
+    ResultText dr = DescribeResult(film, before);
+    CheckEq(dr.headline, "Ready to play (files missing, minimal effect): the US edition (Windows disc)", "damaged film headline");
+    const std::string filmLine = "1 intro film is damaged: jug.tgq. Play skips it. The others still play. To fix it: "
+                                 "drop a good copy of either Windows CD, US or European.";
+    Check(dr.good && !dr.lines.empty() && dr.lines[0] == filmLine, "damaged film: the file and the discs that have it");
+    for (const std::string& line : dr.lines)
+        Check(line.find("of a different version") == std::string::npos && line.find("1.0") == std::string::npos,
+              "damaged film: said once, and no patch advice");
+    std::printf("damaged film (scripted): %s\n", dr.headline.c_str());
+
+    // the Gold CD in the same drop: Gold is confirmed, and the film is still named
+    FakeBackend g;
+    g.AllStatuses(before);
+    ImportReport gold;
+    DropDamagedFilm(g, gold);
+    g.FillAll(assets::kEditionGold);
+    g.AllStatuses(gold.status);
+    ResultText gr = DescribeResult(gold, before);
+    bool named = false;
+    for (const std::string& line : gr.lines) named = named || line == filmLine;
+    Check(gr.good && named, "damaged film with Gold: Gold is confirmed and the film is named");
+
+    // then an older pressing of the European PC CD: its film completes the US edition, and the headline counts are the
+    // European tile's
+    d.AllStatuses(before);
+    ImportReport older;
+    DropOlderPressingAfterDamagedFilm(d, older);
+    d.AllStatuses(older.status);
+    Check(older.status[StatusIndex(assets::kEditionUsPc)].unlocked, "the European disc's film completes the US edition");
+    const EditionStatus& eurTile = SlotStatus(older.status, 1);
+    Check(eurTile.edition == assets::kEditionEurPc && !eurTile.unlocked, "the European tile shows its Windows edition");
+    Check(LooksLikeOlderPressing(older, before), "the older pressing after a damaged film is recognised");
+    ResultText orr = DescribeResult(older, before);
+    CheckEq(orr.headline, "Older pressing, " + FormatCount(eurTile.filesPresent) + " of " + FormatCount(eurTile.files) +
+                              " confirmed", "older pressing headline: the European tile's counts");
+    bool tile = false, newer = false;
+    for (const std::string& line : orr.lines) {
+        tile = tile || line == "US edition (Windows disc): ready to play (all files matched)";
+        newer = newer || line == "A European PC CD from 2000 or later has every file in the version used.";
+        Check(line != filmLine, "older pressing: the film is in place, so not named");
+    }
+    Check(tile && newer, "older pressing: the US tile is ready, and a 2000 European PC CD is named");
+    std::printf("older pressing after a damaged film (scripted): %s\n", orr.headline.c_str());
 }
 
 void CheckTexts() {
@@ -1712,7 +2057,7 @@ void CheckTexts() {
         tpi.themeParkIncConverted = true;
         ResultText result = DescribeResult(tpi, before);
         CheckEq(result.headline, "SimCoaster AKA Theme Park Inc worlds ready", "TPI conversion headline");
-        Check(result.good && result.lines.size() == 1 && result.lines.front() == tpi.themeParkInc.front(),
+        Check(result.good && result.lines.size() == 2 && result.lines.front() == tpi.themeParkInc.front(),
               "TPI conversion reports its own content without changing edition counts");
         tpi.themeParkIncConverted = false;
         result = DescribeResult(tpi, before);
@@ -1722,8 +2067,8 @@ void CheckTexts() {
         tpi.playStation.push_back("PlayStation rides: 7 rides and the Tower converted.");
         tpi.playStationConverted = true;
         result = DescribeResult(tpi, before);
-        Check(result.headline == "PlayStation rides ready" && result.lines.size() == 2 &&
-                  result.lines.back() == tpi.themeParkInc.front(),
+        Check(result.headline == "PlayStation rides ready" && result.lines.size() == 3 &&
+                  result.lines[1] == tpi.themeParkInc.front(),
               "both discs: the PlayStation headline, then both converters' lines");
     }
     {
@@ -1733,11 +2078,72 @@ void CheckTexts() {
         ps1.playStationConverted = true;
         ResultText result = DescribeResult(ps1, before);
         CheckEq(result.headline, "PlayStation rides ready", "PS1 conversion headline");
-        Check(result.good && result.lines.size() == 1 && result.lines.front() == ps1.playStation.front(),
+        Check(result.good && result.lines.size() == 2 && result.lines.front() == ps1.playStation.front(),
               "PS1 conversion reports its own content without changing edition counts");
         ps1.playStationConverted = false;
         result = DescribeResult(ps1, before);
         Check(!result.good && result.headline == "PlayStation disc recognised", "PS1 without PC donors stays honest");
+    }
+    {
+        ImportReport bonus;
+        EditionStatus before[6] = {};
+        bonus.themeParkIncAddOn.push_back("SimCoaster Bonus Disk: added Depth Charge (Polar Zone).");
+        bonus.themeParkIncAddOnAdded = true;
+        ResultText result = DescribeResult(bonus, before);
+        CheckEq(result.headline, "SimCoaster Bonus Disk rides added", "Bonus Disk headline");
+        Check(result.good && result.lines.size() == 2 && result.lines.front() == bonus.themeParkIncAddOn.front(),
+              "Bonus Disk reports its own line without changing edition counts");
+        Check(!bonus.ChangedNothing(), "a Bonus Disk that added rides changed something");
+        bonus.themeParkIncAddOnAdded = false;
+        bonus.themeParkIncAddOnAlready = true;
+        result = DescribeResult(bonus, before);
+        Check(result.good && result.headline == "Nothing new: the SimCoaster Bonus Disk is already added",
+              "Bonus Disk added again: nothing new");
+        bonus.themeParkIncAddOnAlready = false;
+        bonus.themeParkIncAddOn.front() = "SimCoaster Bonus Disk recognised; import SimCoaster AKA Theme Park Inc first.";
+        result = DescribeResult(bonus, before);
+        Check(!result.good && result.headline == "SimCoaster Bonus Disk recognised" &&
+                  result.lines.front() == bonus.themeParkIncAddOn.front(),
+              "Bonus Disk without SimCoaster: refused, and the line says why");
+        // With the game in the same drop: the copy's headline, then both lines.
+        bonus.themeParkInc.push_back("SimCoaster AKA Theme Park Inc: 3 worlds converted from the US copy.");
+        bonus.themeParkIncConverted = true;
+        result = DescribeResult(bonus, before);
+        Check(result.headline == "SimCoaster AKA Theme Park Inc worlds ready" && result.lines.size() == 3 &&
+                  result.lines[1] == bonus.themeParkIncAddOn.front(),
+              "Bonus Disk with the game: the game's headline, then both lines");
+    }
+    {
+        CheckEq(ContentModLockedText("ps2"), "Drop your own PlayStation 2 disc on the launcher to unlock.",
+                "content mod: how to unlock the PS2 Guest Models");
+        ImportReport ps2;
+        EditionStatus before[6] = {};
+        ps2.playStation2.push_back("PS2 Guest Models: 24 characters converted from the US PlayStation 2 disc (SLUS_200.99).");
+        ps2.playStation2Converted = true;
+        ResultText result = DescribeResult(ps2, before);
+        CheckEq(result.headline, "PS2 Guest Models ready", "PS2 conversion headline");
+        Check(result.good && result.lines.size() == 2 && result.lines.front() == ps2.playStation2.front(),
+              "PS2 conversion reports its own content without changing edition counts");
+        ps2.playStation2Converted = false;
+        result = DescribeResult(ps2, before);
+        Check(!result.good && result.headline == "PlayStation 2 disc recognised", "PS2 recognised but not converted stays honest");
+        // A refused PS2 disc is an error line under the damaged-drop headline.
+        ImportReport refused;
+        refused.errors.push_back("TPRC.bin: PlayStation 2 disc refused: DATA/DATA.WAD is missing");
+        result = DescribeResult(refused, before);
+        Check(!result.good && result.headline == "A file could not be read" && !result.lines.empty() &&
+                  result.lines.front() == refused.errors.front(),
+              "a refused PS2 disc names the file and the reason");
+        // Merged rounds keep the PS2 lines (launcher_ui.cpp's merge).
+        ImportReport both;
+        both.playStation.push_back("PlayStation rides: 7 rides and the Tower converted.");
+        both.playStationConverted = true;
+        both.playStation2 = ps2.playStation2;
+        both.playStation2Converted = true;
+        result = DescribeResult(both, before);
+        Check(result.headline == "PlayStation rides ready" && result.lines.size() == 3 &&
+                  result.lines[1] == ps2.playStation2.front(),
+              "PS1 and PS2 discs: the PlayStation headline, then both converters' lines");
     }
     CheckEq(FileUrl("/Users/a b/Library/Application Support/STP-TPW Launcher/logs"),
             "file:///Users/a%20b/Library/Application%20Support/STP-TPW%20Launcher/logs", "FileUrl: spaces");
@@ -1788,8 +2194,8 @@ void CheckTexts() {
     DropOlderPressing(b, report);
     b.AllStatuses(report.status);
     const EditionStatus& eur = report.status[1];
-    Check(LooksLikeOlderPressing(report), "an older pressing is recognised");
-    Check(!LooksLikeFirstRelease(report), "an older European pressing is not the US first release");
+    Check(LooksLikeOlderPressing(report, before), "an older pressing is recognised");
+    Check(!LooksLikeFirstRelease(report, before), "an older European pressing is not the US first release");
     ResultText r = DescribeResult(report, before);
     CheckEq(r.headline, "Older pressing, " + FormatCount(eur.filesPresent) + " of " + FormatCount(eur.files) + " confirmed",
             "older pressing headline");
@@ -1800,7 +2206,7 @@ void CheckTexts() {
     b.FillAll(assets::kEditionEur);
     EditionStatus full = b.Status(assets::kEditionEur);
     Check(full.unlocked, "a full European folder unlocks");
-    CheckEq(DescribeTile(full).state, "Ready to play", "unlocked tile state");
+    CheckEq(DescribeTile(full).state, "Ready to play (all files matched)", "unlocked tile state");
     CheckEq(DescribeTile(full).detail, Files(full.filesPresent) + " confirmed", "unlocked tile detail");
 
     // a damaged container: the result names the file and the reason, and is not "nothing new"
@@ -1816,8 +2222,8 @@ void CheckTexts() {
     ResultText two = DescribeResult(damaged, before);
     CheckEq(two.headline, "Some files could not be read", "several damaged containers headline");
     bool counted = false;
-    for (const std::string& line : two.lines) counted = counted || line == "2 problems in all";
-    Check(counted, "the count of problems is shown");
+    for (const std::string& line : two.lines) counted = counted || line == "Problem 2 of 2: " + damaged.errors[1];
+    Check(counted, "the second problem is shown with the count");
 
     CheckWindowsTexts();
 
@@ -2588,6 +2994,8 @@ void CheckLanguages(SDL_Renderer* renderer) {
         Check(b.languageReads == reads + 1, "language: opening Settings reads the languages again");
         Check(ui.LanguageRect(0).w > 0 && ui.LanguageRect(1).w > 0, "language: a Language row an edition");
         Check(ui.LanguageRect(0).Bottom() < ui.LanguageRect(1).y, "language: the US row above the European one");
+        Check(ui.LanguageRect(1).Bottom() < ui.InterfaceSizeRect().y,
+              "language: both language fields precede the display settings");
         Check(ui.LanguageListRow(0).w == 0, "language: no list before a click");
 
         click(ui, ui.LanguageRect(1));
@@ -2660,6 +3068,449 @@ void CheckLanguages(SDL_Renderer* renderer) {
         Check(ui.TakePlay(choice) && choice.language.empty(), "language: a kept language now gone falls back to the own");
         CheckEq(b.Setting("language_us"), "Korean", "language: the gone language's key is kept");
     }
+}
+
+// One drop on a new window (FakeBackend script `finish`, run through LauncherUi::FinishImport): the result screen's text.
+ResultText DropResult(SDL_Renderer* renderer, FakeBackend& b, std::function<void(FakeBackend&, ImportReport&)> finish) {
+    LauncherUi ui(renderer, b);
+    for (int i = 0; i < 2; ++i) ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+    FakeBackend::Script script;
+    script.finish = std::move(finish);
+    b.Queue(std::move(script));
+    ui.OfferPaths({"/home/player/drop"});
+    for (int i = 0; i < 4; ++i) ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+    Check(ui.CurrentScreen() == LauncherUi::Screen::Result, "import headline: the drop ends on the result");
+    return ui.Result();
+}
+
+bool HasLine(const ResultText& r, const std::string& text) {
+    for (const std::string& line : r.lines)
+        if (line.find(text) != std::string::npos) return true;
+    return false;
+}
+
+// Drops that are not a disc, or not the disc they look like (0.6.2): the result after the window's own round, never a
+// disc headline for a translation pack, nor "older pressing" for a translated disc.
+void CheckImportHeadlines(SDL_Renderer* renderer) {
+    const std::string added = "Russian (unofficial translation) added: text, fonts, speech, interface pictures.";
+    const std::string translated = "The translated files on it are not damage: the translation is added as a language of "
+                                   "its own.";
+    // A pack's few files of the game: some of the US Windows CD's, fewer European ones, as Russian.zip has.
+    auto pack = [](FakeBackend& backend, ImportReport& report) {
+        backend.Fill(assets::kEditionUsPc, [](size_t i, const ManifestRecord&) { return i % 15 == 0; });
+        backend.Fill(assets::kEditionUs, [](size_t i, const ManifestRecord&) { return i % 20 == 0; });
+        for (Edition e : {assets::kEditionEur, assets::kEditionEurPc})
+            backend.Fill(e, [](size_t i, const ManifestRecord&) { return i % 50 == 0; });
+        report.matched = 40;
+        report.written = 250;
+    };
+    // A translated US Windows CD (the torr.ru disc): most files of both Windows editions, a few other versions.
+    auto translatedDisc = [](FakeBackend& backend, ImportReport& report) {
+        backend.Fill(assets::kEditionUsPc, [](size_t i, const ManifestRecord&) { return i % 10 != 0; });
+        backend.Fill(assets::kEditionUs, [](size_t i, const ManifestRecord&) { return i % 10 > 1; });
+        for (Edition e : {assets::kEditionEur, assets::kEditionEurPc})
+            backend.Fill(e, [](size_t i, const ManifestRecord&) { return i % 10 > 2; });
+        for (int k = 0; k < 15; ++k)
+            report.differentVersions.push_back("data/Generic/early" + std::to_string(k) + ".wad");
+        report.matched = 669;
+        report.written = 2783;
+        report.unknownFiles = 68;
+        report.translations = {"Russian (unofficial translation, 2000) added: text, fonts, speech, interface pictures."};
+    };
+
+    {
+        // a refused pack that still put some files in place (Russian.zip on 0.6.1: "Older pressing, 15 of 845")
+        FakeBackend b;
+        const std::string refused = std::string("Russian.zip: ") + kLanguagePackRefused + "datebig.bf4: damaged glyph";
+        ResultText r = DropResult(renderer, b, [&](FakeBackend& backend, ImportReport& report) {
+            pack(backend, report);
+            for (int k = 0; k < 60; ++k)
+                report.differentVersions.push_back("data/Language/English/t" + std::to_string(k) + ".str");
+            report.errors = {refused};
+        });
+        CheckEq(r.headline, "Language not added", "import headline: a refused pack alone");
+        Check(!r.lines.empty() && r.lines.front() == refused, "import headline: a refused pack says why first");
+        Check(!HasLine(r, "pressing") && !HasLine(r, "still missing"), "import headline: a refused pack is no disc");
+        std::printf("refused pack (scripted): %s\n", r.headline.c_str());
+    }
+    {
+        // a pack taken: the window's round keeps its translation line (fix/ru128 showed a partial US Windows disc)
+        FakeBackend b;
+        ResultText r = DropResult(renderer, b, [&](FakeBackend& backend, ImportReport& report) {
+            pack(backend, report);
+            report.translations = {added};
+        });
+        CheckEq(r.headline, "Language added", "import headline: a pack alone");
+        Check(r.good && HasLine(r, added) && !HasLine(r, "still missing"), "import headline: a pack alone is no disc");
+    }
+    {
+        // a translated first-release US Windows CD alone (as torr.ru, "Older pressing, 601 of 817" on 0.6.1)
+        FakeBackend b;
+        ResultText r = DropResult(renderer, b, [&](FakeBackend& backend, ImportReport& report) {
+            translatedDisc(backend, report);
+            report.firstRelease = true;
+        });
+        Check(r.headline.compare(0, 15, "First release, ") == 0,
+              "import headline: a translated first-release US disc: " + r.headline);
+        Check(HasLine(r, translated) && HasLine(r, "This US Windows CD is the first release") &&
+                  !HasLine(r, "older pressing"),
+              "import headline: a translated first-release US disc says its translation is not damage");
+        std::printf("translated first-release US disc (scripted): %s\n", r.headline.c_str());
+    }
+    {
+        // the same disc on a European edition already in place: still the US disc
+        FakeBackend b;
+        b.FillAll(assets::kEditionEur);
+        ResultText r = DropResult(renderer, b, [&](FakeBackend& backend, ImportReport& report) {
+            translatedDisc(backend, report);
+            report.firstRelease = true;
+        });
+        Check(r.headline.compare(0, 15, "First release, ") == 0,
+              "import headline: a translated first-release US disc on a European base: " + r.headline);
+    }
+    {
+        // a translated disc of no known release, partial: its missing files, never another pressing
+        FakeBackend b;
+        ResultText r = DropResult(renderer, b, translatedDisc);
+        Check(r.headline.find("still missing") != std::string::npos && r.headline.find("pressing") == std::string::npos &&
+                  HasLine(r, translated),
+              "import headline: a translated partial disc: " + r.headline);
+    }
+    {
+        // the older European pressing itself is still one, through the window too
+        FakeBackend b;
+        ResultText r = DropResult(renderer, b, DropOlderPressing);
+        Check(r.headline.compare(0, 16, "Older pressing, ") == 0, "import headline: an older pressing: " + r.headline);
+    }
+    // An English disc whose fonts a translation check refused (the EN-NL-IT-PL pressing, the US 1.0 and 1.1 CDs): a
+    // disc, never "Language not added", and nothing said of a translation it does not have.
+    const std::string fonts = std::string("SIMTHEM.iso: ") + kLanguagePackRefused + "cashbig.bf4: damaged compressed glyph";
+    {
+        FakeBackend b;
+        ResultText r = DropResult(renderer, b, [&](FakeBackend& backend, ImportReport& report) {
+            DropOlderPressing(backend, report);
+            report.errors = {fonts};
+        });
+        Check(r.headline.compare(0, 16, "Older pressing, ") == 0 && !HasLine(r, "translat"),
+              "import headline: an older pressing with refused fonts: " + r.headline);
+    }
+    {
+        FakeBackend b;
+        ResultText r = DropResult(renderer, b, [&](FakeBackend& backend, ImportReport& report) {
+            backend.Fill(assets::kEditionUsPc, [](size_t i, const ManifestRecord&) { return i % 30 != 0; });
+            backend.Fill(assets::kEditionUs, [](size_t i, const ManifestRecord&) { return i % 10 > 1; });
+            for (Edition e : {assets::kEditionEur, assets::kEditionEurPc})
+                backend.Fill(e, [](size_t i, const ManifestRecord&) { return i % 10 > 1; });
+            for (int k = 0; k < 27; ++k)
+                report.differentVersions.push_back("data/Generic/v1_" + std::to_string(k) + ".wad");
+            report.matched = 725;
+            report.written = 3131;
+            report.errors = {fonts};
+        });
+        Check(r.headline.find("still missing: they are on the US Windows CD") != std::string::npos &&
+                  !HasLine(r, "translat") && !HasLine(r, "pressing"),
+              "import headline: an early US disc with refused fonts: " + r.headline);
+    }
+    // A translated US Windows disc on a data folder whose US (Mac), European and Gold editions are ready (Мир SIM's
+    // unpacked cab: "125 files still missing: they are on the US Windows CD" before): it fills only the US Windows
+    // edition the US tile does not show, so nothing the player sees is missing.
+    auto readyBase = [](FakeBackend& backend) {
+        for (Edition e : {assets::kEditionUs, assets::kEditionEur, assets::kEditionGold}) backend.FillAll(e);
+    };
+    auto usWindowsPart = [](FakeBackend& backend, ImportReport& report) {
+        backend.Fill(assets::kEditionUsPc, [](size_t i, const ManifestRecord&) { return i % 6 != 0; });
+        report.matched = 700;
+        report.written = 1538;
+        report.alreadyThere = 1201;
+    };
+    {
+        FakeBackend b;
+        readyBase(b);
+        ResultText r = DropResult(renderer, b, [&](FakeBackend& backend, ImportReport& report) {
+            usWindowsPart(backend, report);
+            report.translations = {"Russian (unofficial translation, 2000) added: text, fonts, speech, interface pictures"};
+        });
+        Check(r.good && r.headline == "Language added" && HasLine(r, translated) && !HasLine(r, "still missing"),
+              "import headline: a translated disc on ready editions: " + r.headline);
+        std::printf("translated disc on ready editions (scripted): %s\n", r.headline.c_str());
+    }
+    {
+        // the same without a translation: what was put in place, not the hidden edition's gap
+        FakeBackend b;
+        readyBase(b);
+        ResultText r = DropResult(renderer, b, usWindowsPart);
+        CheckEq(r.headline, "1,538 files put in place", "import headline: a US Windows disc beside a ready US Mac edition");
+    }
+    {
+        // the US tile not ready (its Mac edition partial): the US Windows disc's gap is still said
+        FakeBackend b;
+        b.FillAll(assets::kEditionEur);
+        ResultText r = DropResult(renderer, b, usWindowsPart);
+        Check(r.headline.find("still missing: they are on the US Windows CD") != std::string::npos,
+              "import headline: a partial US Windows disc on a European base: " + r.headline);
+    }
+    // A US Windows disc translated in place (torr.ru's Tpworld.mdf: "111 files still missing: they are on the US
+    // Windows CD" before): it holds its text folder only in translation, so those files are the translation's and only
+    // what is really missing is said.
+    auto inPlace = [](const ManifestRecord& r) { return std::string(r.dest).rfind("data/Language/American/", 0) == 0; };
+    std::vector<std::string> inPlaceDests;
+    {
+        std::set<std::string> dests;
+        const ManifestRecord* records = assets::ManifestRecords();
+        for (size_t i = 0; i < assets::ManifestRecordCount(); ++i)
+            if ((records[i].editions & assets::kEditionUsPc) && inPlace(records[i])) dests.insert(records[i].dest);
+        inPlaceDests.assign(dests.begin(), dests.end());
+    }
+    auto translatedInPlace = [&](const std::string& alsoMissing) {
+        return [&, alsoMissing](FakeBackend& backend, ImportReport& report) {
+            backend.Fill(assets::kEditionUsPc, [&](size_t, const ManifestRecord& r) {
+                return !inPlace(r) && alsoMissing != r.dest;
+            });
+            report.matched = 637;
+            report.written = 2968;
+            report.translations = {"Russian (unofficial translation, 2000) added: text, fonts, speech, interface pictures"};
+            report.translatedOnly = inPlaceDests;
+        };
+    };
+    {
+        FakeBackend b;
+        ResultText r = DropResult(renderer, b, translatedInPlace(""));
+        CheckEq(r.headline, "Language added: no edition of the game is ready to play it yet",
+                "import headline: a disc translated in place on an empty data folder");
+        Check(!r.good && HasLine(r, translated) && HasLine(r, "here only in translation. An untranslated copy of the US "
+                                                             "Windows CD has the game's own") &&
+                  !HasLine(r, "still missing"),
+              "a disc translated in place: its translated files are the translation's, not missing ones");
+        std::printf("disc translated in place (scripted): %s\n", r.headline.c_str());
+    }
+    {
+        FakeBackend b;
+        b.FillAll(assets::kEditionEur);
+        ResultText r = DropResult(renderer, b, translatedInPlace(""));
+        Check(r.good && r.headline == "Language added",
+              "import headline: a disc translated in place on a ready European edition: " + r.headline);
+    }
+    {
+        // a file it really lacks is the headline, and only that one, on a copy that is not the one just dropped
+        FakeBackend b;
+        ResultText r = DropResult(renderer, b, translatedInPlace("data/ui.wad"));
+        CheckEq(r.headline, "1 file still missing: it is on an untranslated copy of the US Windows CD",
+                "import headline: a disc translated in place that lacks one more file");
+        Check(HasLine(r, "here only in translation"), "a disc translated in place lacking a file: the translation's line");
+    }
+}
+
+// The game inside an InstallShield setup (ImportReport::installers, the Мир SIM compilation): said as such, never the
+// other games' archive errors as the headline.
+void CheckInstallerHeadline(SDL_Renderer* renderer) {
+    FakeBackend b;
+    ResultText r = DropResult(renderer, b, [](FakeBackend&, ImportReport& report) {
+        report.installers = {"Mir SIM.iso/ThemeParkWorld"};
+        report.unknownFiles = 322;
+        report.containers = 4;
+        for (int k = 1; k <= 3; ++k)
+            report.errors.push_back("Mir SIM.iso/RCT/part" + std::to_string(k) + ".cab: cab: unsupported compression");
+    });
+    CheckEq(r.headline, "The game is inside an installer the launcher cannot open", "installer headline");
+    Check(!r.lines.empty() && r.lines[0].compare(0, 26, "Mir SIM.iso/ThemeParkWorld") == 0 &&
+              HasLine(r, "then drag in the installed game folder") &&
+              HasLine(r, "Problem 1 of 3: Mir SIM.iso/RCT/part1.cab") &&
+              HasLine(r, "Problem 3 of 3: Mir SIM.iso/RCT/part3.cab") && !HasLine(r, "not shown"),
+          "installer: the folder, what to do, and every one of the other games' errors below");
+    std::printf("installer (scripted): %s\n", r.headline.c_str());
+    // a disc that has its files besides a setup (the US 2.0 CD's USENGLIS/SETUP) is the disc
+    FakeBackend d;
+    ResultText disc = DropResult(renderer, d, [](FakeBackend& backend, ImportReport& report) {
+        backend.FillAll(assets::kEditionUsPc);
+        report.written = backend.CountFiles(assets::kEditionUsPc);
+        report.matched = report.written;
+        report.installers = {"TPWORLD.ISO/USENGLIS/SETUP"};
+    });
+    Check(disc.good && disc.headline.find("installer") == std::string::npos,
+          "installer: a disc with a setup is the disc");
+}
+
+// Problems on the result screen: each its own line up to three, and the count of the rest (ruplay: "3 problems in all"
+// with only one of them listed).
+void CheckProblemLines() {
+    EditionStatus before[6];
+    FakeBackend b;
+    b.AllStatuses(before);
+    ImportReport report;
+    b.AllStatuses(report.status);
+    for (int k = 1; k <= 5; ++k) report.errors.push_back("drop/part" + std::to_string(k) + ".zip: zip: bad deflate data");
+    ResultText r = DescribeResult(report, before);
+    CheckEq(r.headline, "Some files could not be read", "problems: nothing written");
+    Check(!r.lines.empty() && r.lines.front() == report.errors[0] &&
+              HasLine(r, "Problem 2 of 5: " + report.errors[1]) && HasLine(r, "Problem 3 of 5: " + report.errors[2]) &&
+              !HasLine(r, report.errors[3]) && HasLine(r, "2 more problems not shown (3 of 5 shown)"),
+          "problems: the first as the reason, two more listed, the rest counted");
+    report.written = 12;
+    report.errors.resize(4);
+    r = DescribeResult(report, before);
+    Check(HasLine(r, "Problem 1 of 4: " + report.errors[0]) && HasLine(r, "Problem 3 of 4: " + report.errors[2]) &&
+              HasLine(r, "1 more problem not shown (3 of 4 shown)"),
+          "problems: below a result, three listed and the rest counted");
+    report.errors.resize(1);
+    r = DescribeResult(report, before);
+    Check(HasLine(r, "1 problem: " + report.errors[0]) && !HasLine(r, "Problem 1 of"), "problems: a single one");
+}
+
+void CheckLanguageUnlocks(SDL_Renderer* renderer) {
+    const float width = metric::kStartWidth, height = metric::kStartHeight;
+    {
+        // A translation's drop (unofficial_language.h) is said as such, never as a game's missing files.
+        FakeBackend b;
+        FillEverything(b);
+        EditionStatus before[6];
+        b.AllStatuses(before);
+        ImportReport report;
+        b.AllStatuses(report.status);
+        report.written = 350;
+        report.translations = {"Russian (unofficial translation, 2000) added: text, fonts, speech"};
+        ResultText r = DescribeResult(report, before);
+        Check(r.good && r.headline == "Language added" &&
+                  std::find(r.lines.begin(), r.lines.end(), report.translations.front()) != r.lines.end(),
+              "language result: an added translation is the headline and its line");
+        report.written = 0;
+        report.alreadyThere = 350;
+        report.translations = {"Russian (unofficial translation, 2000) was already added"};
+        CheckEq(DescribeResult(report, before).headline, "Nothing new: this language is already added",
+                "language result: a second drop");
+        report.alreadyThere = 0;
+        report.translations.clear();
+        report.errors = {std::string("ru.zip: ") + kLanguagePackRefused + "missing glyph fonts: MENUMED.bf4"};
+        r = DescribeResult(report, before);
+        Check(!r.good && r.headline == "Language not added" && !r.lines.empty() && r.lines.front() == report.errors.front(),
+              "language result: a refused translation says why");
+    }
+    auto frames = [&](LauncherUi& ui, int n = 2) {
+        for (int i = 0; i < n; ++i) ui.Frame(kDt, width, height, 1);
+    };
+    auto click = [&](LauncherUi& ui, const Rect& r) {
+        Check(r.w > 0, "language unlock: a visible action");
+        ui.HandleEvent(MotionEvent(r.CentreX(), r.CentreY()));
+        frames(ui, 1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, r.CentreX(), r.CentreY()));
+        frames(ui, 1);
+        ui.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, r.CentreX(), r.CentreY()));
+        frames(ui, 1);
+    };
+    for (const bool unofficial : {false, true}) {
+        FakeBackend b;
+        FillEverything(b);
+        assets::LanguageStatus language = Language(unofficial ? "Russian" : "French");
+        language.unofficial = unofficial;
+        language.description = unofficial ? "Russian (unofficial translation, 2000)" : "";
+        language.changes = "text, fonts, speech";
+        auto queue = [&] {
+            FakeBackend::Script script;
+            script.finish = [language](FakeBackend& backend, ImportReport& report) {
+                backend.languages = {language};
+                report.languages = backend.languages;
+            };
+            b.Queue(std::move(script));
+        };
+        LauncherUi ui(renderer, b);
+        frames(ui);
+        Check(!ui.LanguageOfferOpen(), "language unlock: no offer on startup");
+        queue();
+        ui.OfferPaths({"synthetic-language.zip"});
+        frames(ui);
+        Check(ui.LanguageOfferOpen(), "language unlock: a newly usable language offers a switch");
+        Check(ui.LanguageSwitchRect().Bottom() < height && ui.LanguageNotNowRect().x >= 0,
+              "language unlock: both actions fit in the starting window");
+        const auto choices = ui.LanguageChoicesFor(1);
+        Check((choices.back().shown.find(kUnofficialSuffix) != std::string::npos) == unofficial,
+              "language unlock: unofficial label only on unofficial language");
+        click(ui, ui.LanguageNotNowRect());
+        Check(!ui.LanguageOfferOpen() && b.Setting(kLanguageUsKey).empty() && b.Setting(kLanguageEurKey).empty(),
+              "language unlock: Not now preserves both choices");
+        queue();
+        ui.OfferPaths({"synthetic-language.zip"});
+        frames(ui);
+        Check(!ui.LanguageOfferOpen(), "language unlock: a repeated drop does not offer the same unlock");
+        b.languages.clear();
+        queue();
+        ui.OfferPaths({"synthetic-language.zip"});
+        frames(ui);
+        SDL_Event escape{};
+        escape.type = SDL_EVENT_KEY_DOWN;
+        escape.key.key = SDLK_ESCAPE;
+        ui.HandleEvent(escape);
+        frames(ui);
+        Check(!ui.LanguageOfferOpen() && ui.CurrentScreen() == LauncherUi::Screen::Result && b.Setting(kLanguageEurKey).empty(),
+              "language unlock: Escape dismisses the offer and leaves the result usable");
+        b.languages.clear();
+        queue();
+        ui.OfferPaths({"synthetic-language.zip"});
+        frames(ui);
+        b.saveFailureKey = kLanguageEurKey;
+        click(ui, ui.LanguageSwitchRect());
+        Check(ui.LanguageOfferOpen() && b.Setting(kLanguageUsKey) == language.name && b.Setting(kLanguageEurKey).empty(),
+              "language unlock: failed save keeps the offer open and preserves the unsaved edition");
+        b.saveFailureKey.clear();
+        click(ui, ui.LanguageSwitchRect());
+        Check(!ui.LanguageOfferOpen() && b.Setting(kLanguageUsKey) == language.name &&
+                  b.Setting(kLanguageEurKey) == language.name,
+              "language unlock: Switch now keeps the choice for both editions");
+        CheckEq(LanguageUnlockedText(language),
+                unofficial ? "You unlocked Russian (Unofficial)! Switch now?" : "You unlocked French! Switch now?",
+                "language unlock: prompt wording");
+        assets::LanguageStatus french;
+        french.name = "French";
+        CheckEq(LanguageUnlockedText(french), "You unlocked French! Switch now?",
+                "language unlock: an official language by its English name");
+        assets::LanguageStatus american;
+        american.name = "Unofficial-American";
+        american.unofficial = true;
+        CheckEq(LanguageUnlockedText(american), "You unlocked American English (Unofficial)! Switch now?",
+                "language unlock: an unofficial edition language");
+        Check(LanguageChangesText(language).find("text, fonts and speech") != std::string::npos &&
+                  LanguageChangesText(language).find("game files are unchanged") != std::string::npos,
+              "language unlock: warning explains the actual changes and game files");
+    }
+    for (const bool aborted : {false, true}) {
+        FakeBackend b;
+        LauncherUi ui(renderer, b);
+        FakeBackend::Script script;
+        script.holdOpen = !aborted;
+        script.finish = [aborted](FakeBackend& backend, ImportReport& report) {
+            backend.languages = {Language("French")};
+            report.aborted = aborted;
+        };
+        b.Queue(std::move(script));
+        ui.OfferPaths({"synthetic-language.zip"});
+        ui.OfferPaths({"queued-language.zip"});
+        if (!aborted) b.Cancel();
+        frames(ui);
+        Check(!ui.LanguageOfferOpen() && b.Started().size() == 1 && ui.CurrentScreen() == LauncherUi::Screen::Result,
+              "language unlock: cancellation or abort drops queued imports and offers no switch");
+    }
+    {
+        FakeBackend b;
+        LauncherUi ui(renderer, b);
+        FakeBackend::Script first;
+        first.holdOpen = true;
+        first.finish = [](FakeBackend& backend, ImportReport&) { backend.languages = {Language("French")}; };
+        FakeBackend::Script second;
+        second.finish = [](FakeBackend& backend, ImportReport&) { backend.languages.push_back(Language("German")); };
+        b.Queue(std::move(first));
+        b.Queue(std::move(second));
+        ui.OfferPaths({"first-language.zip"});
+        ui.OfferPaths({"second-language.zip"});
+        frames(ui);
+        Check(!ui.LanguageOfferOpen(), "language unlock: no prompt while a queued round is running");
+        b.Release();
+        frames(ui, 3);
+        Check(ui.LanguageOfferOpen() && b.Started().size() == 2, "language unlock: queued round offers its first language");
+        click(ui, ui.LanguageNotNowRect());
+        Check(ui.LanguageOfferOpen(), "language unlock: the second language gets its own offer");
+        click(ui, ui.LanguageSwitchRect());
+        Check(!ui.LanguageOfferOpen() && b.Setting(kLanguageEurKey) == "German",
+              "language unlock: the queued second offer selects the second language");
+    }
+    CheckEq(LanguageShownName("Unofficial-English"), "English", "language unlock: generic pack shows its language name");
 }
 
 // The Settings box's Stereo panning switch (tpw-port PR #19): off when launcher.ini has no key (the original's centred sounds),
@@ -3292,6 +4143,54 @@ void CheckRendererRow(SDL_Renderer* renderer) {
     Check(again.RendererChoice() == 1, "renderer: a launcher.ini with vulkan shows Vulkan");
 }
 
+// The Settings box's Fill Around Camera row (tpw-port issue #131, djlongy): on a Mac only (kFillNotchRow; the test shows
+// it on every system), off when launcher.ini has no key (full screen below the notch, as it has always been), nothing
+// kept until the player chooses, a click keeps "1", a second "0", and a launcher.ini with "1" shows it on.
+void CheckFillNotchRow(SDL_Renderer* renderer) {
+    FakeBackend b;
+    const float width = 1100, height = 2400;   // tall enough for the whole box
+    {
+        LauncherUi plain(renderer, b);
+        plain.ShowSettings(true);
+        plain.Frame(kDt, width, height, 1);
+        Check((plain.FillNotchRect().w > 0) == kFillNotchRow, "fill notch: the row is in the Settings box on a Mac only");
+    }
+    LauncherUi ui(renderer, b);
+    ui.ShowFillNotchRow(true);
+    auto frames = [&](LauncherUi& u, int n) {
+        for (int i = 0; i < n; ++i) u.Frame(kDt, width, height, 1);
+    };
+    auto click = [&](LauncherUi& u) {
+        const Rect r = u.FillNotchRect();
+        const float x = r.CentreX(), y = r.CentreY();
+        u.HandleEvent(MotionEvent(x, y));
+        frames(u, 1);
+        u.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, x, y));
+        frames(u, 1);
+        u.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, x, y));
+        frames(u, 1);
+    };
+    ui.ShowSettings(true);
+    frames(ui, 1);
+    Check(ui.FillNotchRect().w > 0, "fill notch: the row is in the Settings box when shown");
+    Check(!ui.FillNotchOn(), "fill notch: off by default");
+    Check(ui.FillNotchRect().Bottom() <= ui.InterfaceSizeRect().y, "fill notch: the row sits above Interface size");
+    CheckEq(b.Setting(kFillNotchKey), "", "fill notch: nothing is kept until the player chooses");
+    click(ui);
+    CheckEq(b.Setting(kFillNotchKey), "1", "fill notch: a click turns it on");
+    click(ui);
+    CheckEq(b.Setting(kFillNotchKey), "0", "fill notch: a second click turns it off");
+    ui.ShowSettings(false);
+    frames(ui, 1);
+    Check(ui.FillNotchRect().w == 0, "fill notch: no switch while the box is closed");
+    b.settings[kFillNotchKey] = "1";
+    LauncherUi again(renderer, b);
+    again.ShowFillNotchRow(true);
+    again.ShowSettings(true);
+    frames(again, 1);
+    Check(again.FillNotchOn(), "fill notch: a launcher.ini with 1 shows it on");
+}
+
 // The Graphics section's Visitor looks row (tpw-port PR #31 by samueleagle91): the original's NUMKIDS, slot 24 of the
 // options table, with the files' four values shown as the looks the game loads for them. Default until changed, nothing
 // written to launcher.ini until then; in the smallest window it scrolls into the box, a click on its last choice keeps
@@ -3603,6 +4502,145 @@ void CheckMods(SDL_Renderer* renderer) {
         frames(3);
         Check(ui.ModOn(2), "mods: a completed Theme Park Inc drop unlocks the worlds without restarting the launcher");
         Check(ui.ModsOn() == 1, "mods: the unlocked TPI mod counts as on");
+    }
+    // The groups (the maintainer, 2026-11-18): each mod in its mod.json's category, Bonus Content above Gameplay, each row its name
+    // and one short line, its text and details only when the player opens it.
+    for (int size = 0; size < 2; ++size) {
+        const float w = size == 0 ? metric::kStartWidth : metric::kMinWidth;
+        const float h = size == 0 ? metric::kStartHeight : metric::kMinHeight;
+        const std::string what = "mod groups at " + std::to_string(static_cast<int>(w)) + "x" + std::to_string(static_cast<int>(h));
+        FakeBackend b;
+        FillEverything(b);
+        LauncherUi ui(renderer, b);
+        auto frames = [&](int n) {
+            for (int i = 0; i < n; ++i) ui.Frame(kDt, w, h, 1);
+        };
+        // tpw-mods' order (its mods.cmake): the two Gameplay mods first, so the groups are the launcher's, not the list's.
+        const std::vector<ModRow> all = AllMods();
+        ui.SetMods(all);
+        ui.ShowMods(true);
+        frames(1);
+        const std::vector<std::string> headings = ui.ModHeadings();
+        Check(headings == std::vector<std::string>({"Bonus Content", "Gameplay"}),
+              what + ": two headed groups, Bonus Content first");
+        Check(ui.ModHeadingRect(0).Bottom() <= ui.ModHeadingRect(1).y, what + ": Bonus Content's heading is above Gameplay's");
+        for (size_t i = 0; i < all.size(); ++i) {
+            const std::string name = what + ": " + all[i].id;
+            CheckEq(ui.ModCategory(i), all[i].category, name + " is in its mod.json's group");
+            const size_t group = all[i].category == "Bonus Content" ? 0 : 1;
+            const Rect row = ui.ModRowRect(i);
+            Check(row.y >= ui.ModHeadingRect(group).Bottom() &&
+                      (group == 1 || row.Bottom() <= ui.ModHeadingRect(1).y),
+                  name + "'s row is under its group's heading");
+            CheckEq(ui.ModSummary(i), all[i].summary, name + "'s row shows its summary");
+            Check(ui.ModSummary(i).size() <= 80, name + "'s summary is one short line");
+            Check(!ui.ModExpanded(i), name + " is closed by default");
+            const Rect open = ui.ModOpenRect(i), sw = ui.ModSwitchRect(i);
+            Check(open.w > 0 && !Overlaps(open, sw), name + ": its row opens apart from its switch");
+        }
+        Check(ui.ModRowRect(2).y < ui.ModRowRect(0).y && ui.ModRowRect(5).y < ui.ModRowRect(0).y,
+              what + ": the content mods are drawn above the Gameplay mods, whatever their order in the list");
+        Check(ui.ModRowRect(0).Bottom() <= ui.ModRowRect(1).y, what + ": each group keeps the list's order");
+        // A closed row is about two lines: its name and its summary. A locked one keeps how to unlock it in view.
+        const float closed = ui.ModRowRect(0).h;
+        Check(closed < 70, what + ": a closed row is its name and one line (" + std::to_string(closed) + ")");
+        Check(ui.ModRowRect(5).h > closed, what + ": the locked PS2 row keeps how to unlock it in view while closed");
+        // Open Entertainers' second acts (the row, not the switch): its text shows, and the switch did not move.
+        if (ui.ModsScrolls()) {   // the row may be under the view: scroll to it
+            ui.HandleEvent(MotionEvent(w * 0.5f, h * 0.5f));
+            ui.HandleEvent(WheelEvent(-10));
+            frames(2);
+        }
+        const float before = ui.ModRowRect(4).h;
+        press(ui, ui.ModOpenRect(4), frames);
+        frames(1);
+        Check(ui.ModExpanded(4), what + ": a click on a row opens it");
+        Check(ui.ModRowRect(4).h > before + 40, what + ": the opened row shows its text");
+        for (size_t i = 0; i < all.size(); ++i)
+            if (i != 4) Check(!ui.ModExpanded(i), what + ": opening one row leaves the others closed (" + all[i].id + ")");
+        CheckEq(b.Setting(ModKey("entertainer-second-acts")), "", what + ": opening a row does not turn its mod on");
+        Check(ui.ModsScrolls() || ui.ModsBoxRect().Bottom() <= h, what + ": the opened row fits or the box scrolls");
+        if (ui.ModsScrolls()) {
+            ui.HandleEvent(MotionEvent(w * 0.5f, h * 0.5f));
+            ui.HandleEvent(WheelEvent(10));
+            frames(2);
+            ui.HandleEvent(WheelEvent(-3));
+            frames(2);
+        }
+        const Rect sw = ui.ModSwitchRect(4);
+        Check(sw.y >= ui.ModsBoxRect().y && sw.Bottom() <= ui.ModsBoxRect().Bottom(), what + ": the opened row's switch is in view");
+        press(ui, sw, frames);
+        CheckEq(b.Setting(ModKey("entertainer-second-acts")), "1", what + ": an opened row's switch turns its mod on");
+        Check(ui.ModExpanded(4), what + ": the switch leaves the row open");
+        press(ui, ui.ModOpenRect(4), frames);
+        frames(1);
+        Check(!ui.ModExpanded(4), what + ": a second click closes it");
+        Check(ui.ModRowRect(4).h < before + 1, what + ": closed again, the row is its two lines");
+        CheckEq(b.Setting(ModKey("entertainer-second-acts")), "1", what + ": closing the row leaves the mod on");
+        // A locked row opens like any other, and its switch still cannot be turned on.
+        press(ui, ui.ModOpenRect(5), frames);
+        frames(1);
+        Check(ui.ModExpanded(5), what + ": the locked PS2 row opens");
+        press(ui, ui.ModSwitchRect(5), frames);
+        Check(!ui.ModOn(5) && b.Setting(ModKey("ps2-characters")).empty(), what + ": the locked PS2 row's switch stays off");
+        // The box opens again with every row closed (which were open is not kept, the maintainer, 2026-11-18).
+        ui.ShowMods(false);
+        frames(1);
+        ui.ShowMods(true);
+        frames(1);
+        Check(ui.ModsBoxRect().w > 0 && !ui.ModExpanded(5), what + ": the box opens again with its rows closed");
+    }
+    {   // an outside mod.json with no category or summary: in Gameplay, its row's line its text's first sentence
+        FakeBackend b;
+        FillEverything(b);
+        LauncherUi ui(renderer, b);
+        ModRow odd = StaffCrossBridges();
+        odd.id = "made-up-category";
+        odd.category = "Cheats";   // not one of the launcher's: in Gameplay too
+        odd.summary.clear();
+        ui.SetMods({NoStrikes(), SecondActs(), odd});
+        ui.ShowMods(true);
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        CheckEq(LauncherUi::ModCategories().front(), "Bonus Content", "mod groups: Bonus Content is the first group");
+        CheckEq(ui.ModCategory(0), "Gameplay", "mod groups: a mod with no category is in Gameplay");
+        CheckEq(ui.ModCategory(2), "Gameplay", "mod groups: a category the launcher does not know is Gameplay");
+        CheckEq(ui.ModSummary(0), "Staff never strike.", "mod groups: with no summary and a one-sentence text, the row shows it");
+        CheckEq(ui.ModSummary(2), "Staff walking their rounds can cross a footbridge, like the bridge over the stream in the Lost Kingdom.",
+                "mod groups: with no summary the row shows the text's first sentence");
+        Check(ui.ModHeadings() == std::vector<std::string>({"Bonus Content", "Gameplay"}),
+              "mod groups: the mods without a category make the Gameplay group");
+        ui.SetMods({NoStrikes()});
+        ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        Check(ui.ModHeadings() == std::vector<std::string>({"Gameplay"}), "mod groups: an empty group has no heading");
+    }
+    {   // the PS2 Guest Models: locked until a drop of the PlayStation 2 disc converts them, then on as launcher.ini says
+        FakeBackend b;
+        FillEverything(b);
+        b.settings[ModKey("ps2-characters")] = "1";
+        LauncherUi ui(renderer, b);
+        auto frames = [&](int n) {
+            for (int i = 0; i < n; ++i) ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+        };
+        ui.SetMods(AllMods());
+        ui.ShowMods(true);
+        frames(1);
+        Check(!ui.ModOn(5), "mods: the locked PS2 mod shows off, though launcher.ini has it on");
+        bool contentReady = false;
+        ui.SetModsReader([&] {
+            std::vector<ModRow> mods = AllMods();
+            if (contentReady) mods[5].locked.clear();
+            return mods;
+        });
+        FakeBackend::Script conversion;
+        conversion.finish = [&](FakeBackend&, ImportReport& report) {
+            contentReady = true;
+            report.playStation2Converted = true;
+            report.playStation2.push_back("PS2 Guest Models: 24 characters converted.");
+        };
+        b.Queue(std::move(conversion));
+        ui.OfferPaths({"ps2.iso"});
+        frames(3);
+        Check(ui.ModOn(5), "mods: a completed PlayStation 2 drop unlocks the PS2 Guest Models without restarting");
     }
     {   // a build with no mods folder: the box says so
         FakeBackend b;
@@ -4478,7 +5516,17 @@ void CheckKeepSettings(const std::string& screens) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    std::string dir = argc > 1 ? argv[1] : "";
+    bool languageOnly = false, headlinesOnly = false;
+    std::string dir;
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--language-only") languageOnly = true;
+        else if (std::string(argv[i]) == "--headlines-only") headlinesOnly = true;
+        else if (dir.empty()) dir = argv[i];
+        else {
+            std::fprintf(stderr, "usage: %s [--language-only | --headlines-only] [screens-directory]\n", argv[0]);
+            return 1;
+        }
+    }
     if (dir.empty()) {
         const char* env = std::getenv("TPW_UI_SCREENS_DIR");
         dir = env && *env ? env : TPW_UI_SCREENS_DEFAULT;
@@ -4488,49 +5536,64 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    CheckTexts();
-    CheckNoProgram(dir);
-    CheckKeepSettings(dir);
+    if (!languageOnly && !headlinesOnly) {
+        CheckTexts();
+        CheckNoProgram(dir);
+        CheckKeepSettings(dir);
+    }
 
     SDL_Surface* scratch = SDL_CreateSurface(320, 240, SDL_PIXELFORMAT_XRGB8888);
     SDL_Renderer* renderer = scratch ? SDL_CreateSoftwareRenderer(scratch) : nullptr;
     Check(renderer != nullptr, std::string("software renderer: ") + SDL_GetError());
-    if (renderer) {
-        CheckButton(renderer);
-        CheckDrops(renderer);
-        CheckReady(renderer);
-        CheckDropOverlay(renderer);
-        CheckWindowsReady(renderer);
-        CheckTilePlay(renderer);
-        CheckScroll(renderer);
-        CheckSettingsScroll(renderer);
+    if (renderer && headlinesOnly) {   // the import headlines alone, to run them many times by themselves
+        CheckImportHeadlines(renderer);
+        CheckInstallerHeadline(renderer);
+        CheckProblemLines();
+    } else if (renderer) {
         CheckLanguages(renderer);
-        CheckVisitorLooks(renderer);
-        CheckDrawDistance(renderer);
-        CheckSoundPanSwitch(renderer);
-        CheckRideBadgesSwitch(renderer);
-        CheckGameOptions(renderer);
-        CheckSeveralKeysSwitch(renderer);
-        CheckWasdCameraSwitch(renderer);
-        CheckFreeCameraSwitch(renderer);
-        CheckOnlineServerField(renderer);
-        CheckFrameRateSlider(renderer);
-        CheckRendererRow(renderer);
-        CheckMods(renderer);
-        CheckGameData(renderer);
-        CheckVersionAndLogs(renderer);
-        CheckTitleVersion(renderer);
-        CheckHeaderAndSizes(renderer);
-        CheckUpdateBanner(renderer);
-        CheckEdited(renderer);
-        SDL_DestroyRenderer(renderer);
+        CheckLanguageUnlocks(renderer);
+        if (!languageOnly) {
+            CheckButton(renderer);
+            CheckDrops(renderer);
+            CheckImportHeadlines(renderer);
+            CheckInstallerHeadline(renderer);
+            CheckProblemLines();
+            CheckReady(renderer);
+            CheckDropOverlay(renderer);
+            CheckWindowsReady(renderer);
+            CheckTilePlay(renderer);
+            CheckScroll(renderer);
+            CheckSettingsScroll(renderer);
+            CheckVisitorLooks(renderer);
+            CheckDrawDistance(renderer);
+            CheckSoundPanSwitch(renderer);
+            CheckRideBadgesSwitch(renderer);
+            CheckGameOptions(renderer);
+            CheckSeveralKeysSwitch(renderer);
+            CheckWasdCameraSwitch(renderer);
+            CheckFreeCameraSwitch(renderer);
+            CheckOnlineServerField(renderer);
+            CheckFrameRateSlider(renderer);
+            CheckRendererRow(renderer);
+            CheckFillNotchRow(renderer);
+            CheckMods(renderer);
+            CheckGameData(renderer);
+            CheckVersionAndLogs(renderer);
+            CheckTitleVersion(renderer);
+            CheckHeaderAndSizes(renderer);
+            CheckUpdateBanner(renderer);
+            CheckEdited(renderer);
+        }
     }
+    if (renderer) SDL_DestroyRenderer(renderer);
     SDL_DestroySurface(scratch);
 
     // TPW_UI_SHOTS: draw only the pictures whose names hold one of its comma-separated parts (a quicker run while
     // working on a screen; the ctest draws them all).
     const char* only = std::getenv("TPW_UI_SHOTS");
     const auto wanted = [&](const std::string& name) {
+        if (headlinesOnly) return false;
+        if (languageOnly) return name == "80-language-official-unlocked" || name == "81-language-unofficial-unlocked";
         if (only == nullptr || *only == 0) return true;
         std::string parts = only;
         for (size_t at = 0; at <= parts.size();) {
