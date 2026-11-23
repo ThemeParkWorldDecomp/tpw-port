@@ -71,6 +71,7 @@ public final class SetupActivity extends Activity {
 
     private final ExecutorService work = Executors.newSingleThreadExecutor();
     private Button play, files, folder, edition, language, options, mods;
+    private Switch goldRides;
     private TextView gameTitle, status;
     private LinearLayout body, header, quickActions, panels, gamePanel, dataPanel;
     private ProgressBar progress;
@@ -78,6 +79,7 @@ public final class SetupActivity extends Activity {
     private String[] editions = {}, europeanLanguages = {}, americanLanguages = {};
     private String[] europeanLabels = {}, americanLabels = {};
     private String chosenEdition = "", chosenLanguage = "";
+    private boolean goldAvailable, goldUs, goldEur;
 
     private static native String[] nativeImport(String dataFolder, String[] inputs);
     private static native String[] nativeOptions(String dataFolder, boolean mods, String changedKey, boolean enabled);
@@ -126,6 +128,14 @@ public final class SetupActivity extends Activity {
         play.setMinHeight(dp(56));
         addRow(gamePanel, edition, 12);
         addRow(gamePanel, language, 8);
+        goldRides = new Switch(this);
+        goldRides.setText(R.string.gold_rides);
+        goldRides.setTextColor(PAPER);
+        goldRides.setMinHeight(dp(48));
+        goldRides.setPadding(dp(12), 0, dp(12), 0);
+        goldRides.setVisibility(View.GONE);
+        goldRides.setOnClickListener(view -> saveGoldRides());
+        addRow(gamePanel, goldRides, 8);
         addRow(gamePanel, play, 14);
 
         dataPanel = panel(0xFF31554E, 0xFF203C40, 0xFF668B7F);
@@ -513,6 +523,7 @@ public final class SetupActivity extends Activity {
         play.setEnabled(!running && !chosenEdition.isEmpty());
         edition.setEnabled(!running && editions.length > 1);
         language.setEnabled(!running && !chosenEdition.isEmpty() && languages().length > 1);
+        goldRides.setEnabled(!running && goldAvailable && !chosenEdition.isEmpty());
     }
 
     private void showResult(String[] result, boolean imported) {
@@ -523,6 +534,9 @@ public final class SetupActivity extends Activity {
             americanLanguages = splitLines(result[4]);
             europeanLabels = splitLines(result[5]);
             americanLabels = splitLines(result[6]);
+            goldAvailable = !result[7].isEmpty();
+            goldUs = result[7].equals("1");
+            goldEur = result[8].equals("1");
             String oldEdition = getPreferences(MODE_PRIVATE).getString(EDITION, "");
             chosenEdition = contains(editions, oldEdition) ? oldEdition : editions.length == 0 ? "" : editions[0];
             chooseSavedLanguage();
@@ -591,14 +605,29 @@ public final class SetupActivity extends Activity {
         edition.setText(chosenEdition.isEmpty() ? getString(R.string.edition_empty) :
             getString(R.string.edition_current, pc ? "PC" : "Mac", region));
         language.setText(getString(R.string.language_current, languageLabel(chosenLanguage)));
+        goldRides.setVisibility(goldAvailable && !chosenEdition.isEmpty() ? View.VISIBLE : View.GONE);
+        goldRides.setChecked(usEdition() ? goldUs : goldEur);
+    }
+
+    private void saveGoldRides() {
+        boolean enabled = goldRides.isChecked();
+        String key = usEdition() ? "gold_us" : "gold_eur";
+        if (nativeOptions(getFilesDir().getAbsolutePath(), false, key, enabled) == null) {
+            goldRides.setChecked(!enabled);
+            android.widget.Toast.makeText(this, R.string.option_save_failed, android.widget.Toast.LENGTH_SHORT).show();
+        } else if (usEdition()) {
+            goldUs = enabled;
+        } else {
+            goldEur = enabled;
+        }
     }
 
     private static String editionLabel(String code) {
         switch (code) {
-            case "eur-pc": return "Theme Park World (PC)";
+            case "us": return "Sim Theme Park";
             case "us-pc": return "Sim Theme Park (PC)";
             case "eur": return "Theme Park World";
-            case "us": return "Sim Theme Park";
+            case "eur-pc": return "Theme Park World (PC)";
             default: return code;
         }
     }

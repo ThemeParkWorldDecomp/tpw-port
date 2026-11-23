@@ -7,6 +7,7 @@
     <string name="done">Done</string>
     <string name="cancel">Cancel</string>
     <string name="play">Play</string>
+    <string name="gold_rides">Gold Edition rides</string>
     <string name="select_edition">Choose an edition</string>
     <string name="edition">Edition</string>
     <string name="edition_empty">Edition · No game data</string>

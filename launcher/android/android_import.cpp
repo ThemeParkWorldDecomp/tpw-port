@@ -56,6 +56,8 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
                 const std::string details = ready ? mod.text : mod.content;
                 row(tpw::mods::Key(mod), mod.name, false, ready, details);
             }
+        } else if (key == ui::kGoldUsKey || key == ui::kGoldEurKey) {
+            row(key, "", true, true, "");
         } else {
             row(ui::kSmoothZoomKey, "", false, true, "");
             row(ui::kFarZoomKey, "", false, true, "");
@@ -95,7 +97,7 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
         if (env->ExceptionCheck()) return nullptr;
         Importer importer(config);
         std::string error;
-        if (!importer.Open(error)) return StringArray(env, {"open_error", "", "", "0", "", "", ""});
+        if (!importer.Open(error)) return StringArray(env, {"open_error", "", "", "0", "", "", "", "", ""});
 
         std::vector<std::string> paths;
         for (jsize i = 0; i < env->GetArrayLength(inputs); ++i) {
@@ -107,7 +109,7 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
         const ImportReport report = paths.empty() ? ImportReport{} : importer.Import(paths);
 
         std::string editions;
-        for (const Edition edition : {kEditionEurPc, kEditionUsPc, kEditionEur, kEditionUs}) {
+        for (const Edition edition : {kEditionUs, kEditionUsPc, kEditionEur, kEditionEurPc}) {
             const EditionStatus status = importer.Status(edition);
             if (status.unlocked) {
                 if (!editions.empty()) editions += ',';
@@ -128,12 +130,22 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
         std::string europeanNames, europeanLabels, americanNames, americanLabels;
         languageRows(kEditionEur, europeanNames, europeanLabels);
         languageRows(kEditionUs, americanNames, americanLabels);
+        const auto ini = importer.Ini();
+        const bool goldReady = importer.Status(kEditionGold).unlocked;
+        auto gold = [&](const char* key) {
+            if (!goldReady) return "";
+            for (const auto& [name, value] : ini.extra) {
+                if (name == key && value == "0") return "0";
+            }
+            return "1";
+        };
         const bool recognized = report.matched != 0 || report.playStationConverted || report.themeParkIncConverted;
         const char* result = report.aborted || !report.errors.empty() ? "import_error" :
                              !paths.empty() && !recognized ? "unrecognized" : "ok";
         return StringArray(env, {result, editions, europeanNames, std::to_string(report.written),
-                                 americanNames, europeanLabels, americanLabels});
+                                 americanNames, europeanLabels, americanLabels,
+                                 gold(tpw::ui::kGoldUsKey), gold(tpw::ui::kGoldEurKey)});
     } catch (...) {
-        return StringArray(env, {"import_error", "", "", "0", "", "", ""});
+        return StringArray(env, {"import_error", "", "", "0", "", "", "", "", ""});
     }
 }
