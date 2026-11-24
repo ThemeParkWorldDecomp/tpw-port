@@ -250,4 +250,6 @@
     <string name="refresh_previous">Use previously imported files</string>
     <string name="mod_refresh_done">Mod data refreshed.</string>
     <string name="mod_refresh_failed">Could not refresh the mod. Select the source disc or installation again.</string>
+    <string name="download_update">Download APK</string>
+    <string name="update_install_prompt">Download version %1$s in your browser, then open the APK to install it over the current app.</string>
 </resources>

@@ -16,6 +16,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.LayerDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
@@ -469,13 +470,16 @@ public final class SetupActivity extends Activity {
         checkingUpdates = true;
         final String installedVersion = versionName();
         new Thread(() -> {
-            String found = AndroidUpdates.newest(installedVersion);
+            AndroidUpdates.Release found = AndroidUpdates.newest(installedVersion, Build.SUPPORTED_ABIS);
             runOnUiThread(() -> {
                 checkingUpdates = false;
                 if (isFinishing() || isDestroyed() || found == null ||
                     !getPreferences(MODE_PRIVATE).getBoolean(AUTO_UPDATES, true)) return;
-                update.setText(getString(R.string.update_available, found));
-                update.setOnClickListener(view -> openReleases(AndroidUpdates.RELEASES + "/tag/v" + found));
+                update.setText(getString(R.string.update_available, found.version));
+                update.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle(R.string.download_update)
+                    .setMessage(getString(R.string.update_install_prompt, found.version))
+                    .setPositiveButton(R.string.download_update, (dialog, which) -> openReleases(found.download))
+                    .setNegativeButton(R.string.cancel, null).show());
                 update.setVisibility(View.VISIBLE);
             });
         }, "Launcher update check").start();

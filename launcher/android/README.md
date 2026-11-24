@@ -58,7 +58,7 @@ The Android launcher exposes smooth wheel zoom, extended zoom, varied sounds, st
 
 The game starts in landscape with Vulkan. **Immersive full screen** hides the system bars, **Fill around the display cutout** lets the game use the screen beside a cutout, and **Return to launcher after playing** opens the launcher task when the game quits. Android manages split-screen and freeform windows on supported devices. Builds with movie support play intro films from the imported game files. Use **Skip the intro films** to go straight to the player lobby.
 
-**Check for Android updates** asks GitHub at launcher startup. The launcher shows a link when a newer official release includes an APK. A failed check leaves the launcher usable offline. **Diagnostics** always provides the releases link.
+**Check for Android updates** reads the official GitHub releases at startup. The launcher picks the newest compatible APK, including when more recent releases only contain desktop builds. The banner opens the APK download in your browser. Open that APK to let Android install the update over the current app. A failed check leaves the launcher usable offline. **Diagnostics** always provides the releases link.
 
 ## Manage files and diagnostics
 
@@ -122,4 +122,4 @@ The test imported the Gold bonus through Android's folder picker and confirmed t
 
 Set `TPW_SIGNING_PASSWORD` and pass `--application-id`, `--version-code`, `--version-name`, `--release-keystore` and `--release-key-alias` to `package.py`. Updates use the same application ID and signing key with a higher version code. Debug packages use a local test key. The APK contains the port and its libraries, with third-party notices in `assets/licenses/`. Players import their own game files.
 
-For direct distribution, provide the signed APK, its SHA-256 checksum and the device requirements. Test a new installation through the file picker and an update over the previous signed build.
+For direct distribution, provide the signed APK, its SHA-256 checksum and the device requirements. Give the APK filename a matching suffix such as `-arm64-v8a.apk` or `-x86_64.apk` so the launcher can pick it from the release. Test a new installation through the file picker and an update over the previous signed build.

@@ -245,4 +245,6 @@
     <string name="refresh_previous">Użyj poprzednio importowanych plików</string>
     <string name="mod_refresh_done">Odświeżono dane moda.</string>
     <string name="mod_refresh_failed">Nie udało się odświeżyć moda. Wybierz ponownie płytę lub folder instalacji.</string>
+    <string name="download_update">Pobierz APK</string>
+    <string name="update_install_prompt">Pobierz wersję %1$s w przeglądarce, a potem otwórz APK, aby zaktualizować aplikację.</string>
 </resources>
