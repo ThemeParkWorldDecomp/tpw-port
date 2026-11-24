@@ -119,7 +119,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
         getSystemService(InputManager.class).registerInputDeviceListener(this, null);
     }
 
-    @SuppressWarnings("deprecation") // The Bitmap constructor also works on API 33–36.
+    @SuppressWarnings("deprecation") // These constructors work on API 30 and support the imported bitmap.
     private void describeGameTask() {
         String edition = getIntent().getStringExtra(SetupActivity.EDITION);
         String title = getString(edition != null && edition.startsWith("us")
@@ -127,7 +127,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
         // The shared importer keeps the icon from the player's discs next to launcher.ini.
         Bitmap importedIcon = BitmapFactory.decodeFile(new File(getFilesDir(), "icon.png").getPath());
         ActivityManager.TaskDescription description = importedIcon == null
-            ? new ActivityManager.TaskDescription.Builder().setLabel(title).setIcon(R.mipmap.tpw_game_icon).build()
+            ? new ActivityManager.TaskDescription(title, R.mipmap.tpw_game_icon)
             : new ActivityManager.TaskDescription(title, importedIcon);
         setTitle(title);
         setTaskDescription(description);

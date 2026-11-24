@@ -127,7 +127,7 @@ def package(args):
         jar, dex = work / "classes.jar", work / "dex.zip"
         run(jdk_tool("jar"), "cf", jar, "-C", classes, ".")
         run(jdk_tool("java"), "-cp", tools / "lib/d8.jar", "com.android.tools.r8.D8", "--lib", platform,
-            "--min-api", "33", "--output", dex, jar)
+            "--min-api", "30", "--output", dex, jar)
 
         unsigned, aligned, signed = work / "unsigned.apk", work / "aligned.apk", work / "signed.apk"
         assemble(unsigned, base, dex, libraries, abi, sdl, ndk)

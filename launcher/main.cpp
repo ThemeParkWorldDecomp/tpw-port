@@ -22,7 +22,9 @@
 #include <dlfcn.h>
 // The _WIN32 parts of this file: Windows port contributed by samueleagle91 (tpw-port PR #1).
 #ifndef _WIN32
+#ifndef __ANDROID__
 #include <execinfo.h>
+#endif
 #include <sys/ucontext.h>
 #endif
 #include <unistd.h>
@@ -132,10 +134,10 @@ std::string gGameIconFolder;    // the data folder whose icon.png the game's win
 bool gGameUs = true;            // the edition playing is the US one (DressGameWindow)
 bool gTraceStubs = false;
 std::string gOnlineServer;      // --online-server HOST: the online server the game connects to (updater.h ChooseOnlineServer)
+std::string gOnlineServerSetting, gOnlineServerFound;   // launcher.ini's online_server (the player's) and online_server_found
 #ifdef __ANDROID__
 std::string gAndroidOnlineServerFound;   // validated pointer cached by the Android launcher
 #endif
-std::string gOnlineServerSetting, gOnlineServerFound;   // launcher.ini's online_server (the player's) and online_server_found
 long gStubCalls = 0;
 const char* volatile gLastStub = nullptr;
 // Calls per stand-in (keyed by its name, which the stub table keeps for the whole run), so the
@@ -336,6 +338,14 @@ void CrashWrite(const char* text, int length) {
     if (fd >= 0) tpw::WriteScrubbed(fd, text, static_cast<size_t>(length));
 }
 
+#if defined(__ANDROID__)
+int (*CrashBacktrace)(void**, int) = nullptr;
+void (*WriteCrashFrames)(void* const*, int, int) = nullptr;
+#elif !defined(_WIN32)
+constexpr auto CrashBacktrace = backtrace;
+constexpr auto WriteCrashFrames = backtrace_symbols_fd;
+#endif
+
 // A crash right after a stand-in returned is usually caused by it (a zero where the caller
 // expected an object, or a structure result left unwritten): name the last one reached.
 void OnCrash(int signal) {
@@ -354,17 +364,21 @@ void OnCrash(int signal) {
         CrashWrite(fatal, static_cast<int>(std::strlen(fatal)));
         CrashWrite("\n", 1);
     }
-    const int fd = tpw::LogFileDescriptor();
-    if (fd >= 0) {
-#else
-    // Where it happened (the launcher keeps its symbols); in the log file too.
-    static void* frames[48];
-    const int depth = backtrace(frames, 48);
-    backtrace_symbols_fd(frames, depth, 2);
-    const int fd = tpw::LogFileDescriptor();
-    if (fd >= 0) {
-        backtrace_symbols_fd(frames, depth, fd);
 #endif
+    const int fd = tpw::LogFileDescriptor();
+#ifndef _WIN32
+    // Where it happened (the launcher keeps its symbols); in the log file too.
+#ifdef __ANDROID__
+    if (CrashBacktrace != nullptr && WriteCrashFrames != nullptr)
+#endif
+    {
+        static void* frames[48];
+        const int depth = CrashBacktrace(frames, 48);
+        WriteCrashFrames(frames, depth, 2);
+        if (fd >= 0) WriteCrashFrames(frames, depth, fd);
+    }
+#endif
+    if (fd >= 0) {
         gExitLogged = 1;
         const int length = signal == SIGABRT ? std::snprintf(text, sizeof text, "exit: abort%s\n", tpw::LogRunTag())
                                              : std::snprintf(text, sizeof text, "exit: crashed (signal %d)%s\n", signal,
@@ -1766,6 +1780,11 @@ int LauncherMain(int argc, char** argv) {
     // (game_app.h), does the same, into the same file.
     if (!tpw::win32::HasStandardError()) tpw::win32::CaptureOutputToLog();
 #else
+#ifdef __ANDROID__
+    // Android added these libc functions in API 33. Resolve them before installing the handler.
+    CrashBacktrace = reinterpret_cast<decltype(CrashBacktrace)>(dlsym(RTLD_DEFAULT, "backtrace"));
+    WriteCrashFrames = reinterpret_cast<decltype(WriteCrashFrames)>(dlsym(RTLD_DEFAULT, "backtrace_symbols_fd"));
+#endif
     for (int crash : {SIGSEGV, SIGBUS, SIGTRAP, SIGILL, SIGABRT}) {
         struct sigaction action{};
         action.sa_sigaction = OnCrashInfo;

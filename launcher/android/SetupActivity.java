@@ -121,10 +121,10 @@ public final class SetupActivity extends Activity {
                                                        int screenWidth, int screenHeight);
 
     @Override
+    @SuppressWarnings("deprecation") // TaskDescription.Builder requires API 33.
     protected void onCreate(Bundle previous) {
         super.onCreate(previous);
-        setTaskDescription(new ActivityManager.TaskDescription.Builder()
-            .setLabel(getString(R.string.launcher_name)).setIcon(R.mipmap.tpw_icon).build());
+        setTaskDescription(new ActivityManager.TaskDescription(getString(R.string.launcher_name), R.mipmap.tpw_icon));
         migrateLanguagePreference();
         createScreen();
         runImport(new ArrayList<>(), false, "");

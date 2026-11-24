@@ -10,6 +10,7 @@
 - The Android launcher discovers the online server, and the game overlay and controller bindings can open, write and send chat.
 - Listed missing and customized files, added verified settings restoration and refresh for PlayStation rides and SimCoaster worlds.
 - Updates pick an APK for the device from the official releases and open its download.
+- The Android port now supports Android 11 and later on devices with Vulkan.
 
 ## 0.6.3 (2026-11-24)
 

@@ -1,6 +1,6 @@
 # Sim Theme Park and Theme Park World on Android
 
-The APK requires Android 13 or newer and Vulkan. The ARM64 build is for phones and handhelds. The x86-64 build is for compatible Android emulators.
+The APK requires Android 11 or newer and Vulkan. The ARM64 build is for phones and handhelds. The x86-64 build is for compatible Android emulators.
 
 ## First launch
 
@@ -86,7 +86,7 @@ On macOS or Linux, from the repository root with `ANDROID_HOME` set to the SDK:
 ```sh
 cmake -S . -B build-android -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/28.2.13676358/build/cmake/android.toolchain.cmake" \
-  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-33 -DANDROID_STL=c++_static
+  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-30 -DANDROID_STL=c++_static
 cmake --build build-android --target tpw_launcher
 python3 launcher/android/package.py --build-dir build-android \
   --android-jar "$ANDROID_HOME/platforms/android-36/android.jar" \
@@ -99,7 +99,7 @@ On Windows, from PowerShell with `ANDROID_HOME` set:
 ```powershell
 $sdk = $env:ANDROID_HOME
 cmake -S . -B build-android -G Ninja "-DCMAKE_TOOLCHAIN_FILE=$sdk/ndk/28.2.13676358/build/cmake/android.toolchain.cmake" `
-  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-33 -DANDROID_STL=c++_static
+  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-30 -DANDROID_STL=c++_static
 cmake --build build-android --target tpw_launcher
 python launcher/android/package.py --build-dir build-android `
   --android-jar "$sdk/platforms/android-36/android.jar" --build-tools-dir "$sdk/build-tools/36.0.0" `
@@ -114,9 +114,9 @@ For an ARM64 device, enable USB debugging and run `adb install -r build-android/
 
 ### Android Emulator
 
-Create an x86-64 Android Virtual Device with Android 13 or newer and Vulkan support. In the build commands above, set `-DANDROID_ABI=x86_64`, use `build-android-x86_64` as the build directory, and package to `build-android-x86_64/stp-tpw-x86_64-debug.apk`. Start the emulator, run `adb install -r build-android-x86_64/stp-tpw-x86_64-debug.apk`, then use the launcher to import your own files.
+Create an x86-64 Android Virtual Device with Android 11 or newer and Vulkan support. In the build commands above, set `-DANDROID_ABI=x86_64`, use `build-android-x86_64` as the build directory, and package to `build-android-x86_64/stp-tpw-x86_64-debug.apk`. Start the emulator, run `adb install -r build-android-x86_64/stp-tpw-x86_64-debug.apk`, then use the launcher to import your own files.
 
-The emulator playtest used a Pixel 7 profile with the Android 15 (API 35) x86-64 system image and SwiftShader software Vulkan on Ubuntu 24.04 under WSL. The [Android Emulator graphics documentation](https://developer.android.com/studio/run/emulator-acceleration#accel-graphics) describes how to select a graphics backend.
+The emulator playtests used Ubuntu 24.04 under WSL. On Android 11 (API 30), a Pixel 4 profile with an x86-64 image and Lavapipe Vulkan ran the European PC edition through player creation, park entry and resuming from Recents. The Android 15 (API 35) test used a Pixel 7 profile, an x86-64 image and SwiftShader Vulkan. The [Android Emulator graphics documentation](https://developer.android.com/studio/run/emulator-acceleration#accel-graphics) describes how to select a graphics backend.
 
 The test imported the Gold bonus through Android's folder picker and confirmed that each game remembered its own Gold switch. Theme Park World loaded Lost Kingdom with 35 bonus rides enabled. The park map opened, and Dizzy Dinos could be bought and placed. Sim Theme Park launched with the bonus rides disabled when its switch was off.
 
