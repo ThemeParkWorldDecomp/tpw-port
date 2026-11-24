@@ -22,6 +22,8 @@
 #include "tb_starfield.h"
 #include "tb_texturecache.h"
 #include "tb_textureentry.h"
+// TPW_PORT_FIX mods TpiTunnelTop | Mac: no such header | Port: tpw::TpiShadowHeights, the floor heights a tunnel walker's shadow lies on | Why: keep tunnel walkers' shadows underneath the cleared top (TPW_MOD_HOOK tpi_worlds)
+#include "TpiTunnelTop.h"
 #include "UI_Base.h"
 #include "Wavelet.h"
 #include <cstddef>
@@ -879,6 +881,8 @@ int32_t SSpriteGameData::CreateShadow(SVertex* vertices, CMatrix* shadowMatrix, 
     gei_MathUnit->Transform(shadowMatrix, vertices, vertices, 0x10, 0x10, 4, 0);
 
     // The ground under each corner, last corner first.
+    // TPW_PORT_FIX mods SSpriteGameData::CreateShadow | Mac: the live height field's heights | Port: TPW_MOD_HOOK tpi_worlds, tpw::TpiShadowHeights (include/TpiTunnelTop.h): a sprite standing below the Arabian tunnel's cleared top over its floor cells lays its shadow on the level's own heights, the floor's | Why: the cleared top gives those cells the top's height, so the tunnel guests' shadows showed on the top (the maintainer, 0.6.2: the tunnel stays the same) | Off: the live field's heights
+    const float* const shadowHeights = tpw::TpiShadowHeights(gei_HField->mF00, mPosition.x, mPosition.y, mPosition.z);
     const float lift = (flags & kFlagLifted) != 0 ? mShadowLift : 0.0f;
     const float base = lift + gei_Display.mF938;
     for (int32_t i = 3; i >= 0; --i) {
@@ -906,7 +910,7 @@ int32_t SSpriteGameData::CreateShadow(SVertex* vertices, CMatrix* shadowMatrix, 
         } else if (nextZ < 0) {
             nextZ = 0;
         }
-        const float* heights = grid->mHeights;
+        const float* heights = shadowHeights;
         const int32_t rowStart = columns * cellZ;
         const float corner00 = heights[cellX + rowStart];
         const float corner10 = heights[nextX + rowStart];

@@ -291,10 +291,12 @@ inline bool IsModBridge(const CMapCell* cell) {
 // TPW_PORT_FIX mods ModBridgeSteps | Mac: no such function | Port: TPW_MOD_HOOK staff_bridge_wander, the steps the hook adds from the cell `cur`
 // (bit i for SetRandomDestination's candidate i: +Y, +X, -Y, -X) where `nb`, its path links, has none: onto a bridge cell from a path or a
 // bridge cell, and onto a path cell from a bridge cell | Why: tpw-mods staff-cross-bridges
-uint32_t ModBridgeSteps(uint16_t cur, const CMapCell* cell, uint32_t nb) {
+// `roof` is the walker's layer on `cur` in the Arabian tunnel (include/TpiTunnelTop.h): 1 on its top, 0 on the route
+// under it, where a covered cell is the route's footbridge (tpw::TpiWalkerCell).
+uint32_t ModBridgeSteps(uint16_t cur, const CMapCell* cell, uint32_t nb, int roof = 1) {
     static const uint32_t kLink[4] = {0x10, 0x04, 0x01, 0x40};
     const MapDelta* const delta[4] = {&gMapDeltaPlusY, &gMapDeltaPlusX, &gMapDeltaMinusY, &gMapDeltaMinusX};
-    const bool onBridge = IsModBridge(cell);
+    const bool onBridge = IsModBridge(cell) || (roof == 0 && tpw::TpiTunnelCovered(cur));
     if (!onBridge && cell->IsPath() == 0) return 0;
     const uint32_t m = static_cast<uint32_t>(cur) - 1u;
     const int32_t x = static_cast<int32_t>(m & 0x7fu);
@@ -307,8 +309,8 @@ uint32_t ModBridgeSteps(uint16_t cur, const CMapCell* cell, uint32_t nb) {
         bool joins = IsModBridge(next) || (onBridge && next->IsPath() != 0);
         // TPW_MOD_HOOK tpi_worlds: use the path tiles' runtime joins while tpw::TpiWorldInPlay(), without saved links.
         if (tpw::TpiWorldInPlay())
-            joins = tpw::TpiFootbridgeStep({static_cast<int32_t>(cell->mType), cell->mFlags},
-                                         {static_cast<int32_t>(next->mType), next->mFlags});
+            joins = tpw::TpiFootbridgeStep(tpw::TpiWalkerCell(static_cast<int32_t>(cell->mType), cell->mFlags, cur, roof),
+                                         tpw::TpiWalkerCell(static_cast<int32_t>(next->mType), next->mFlags, next->mCellId, roof));
         if (joins) steps |= 1u << i;
     }
     return steps;
@@ -344,7 +346,12 @@ int32_t CPeep::SetRandomDestination() {
 
     // TPW_PORT_FIX mods CPeep::SetRandomDestination | Mac: a random walk steps only along path links, which no cell has toward a bridge (mode 0x1e) | Port: TPW_MOD_HOOK staff_bridge_wander (gModStaffBridgeWander, include/ThingReceivers.h) adds ModBridgeSteps for staff, and TPW_MOD_HOOK tpi_worlds adds them for guests and staff while tpw::TpiWorldInPlay(); every other rule the Mac's | Why: staff patrol across bridges, and guests wander through the mod's tunnels as well as take targeted routes through them | Off: the Mac's walk
     const bool bridges = tpw::TpiFootbridgeWander(staff, gModStaffBridgeWander);
-    if (here->NumberOfHVNeighbours() > 0 || (bridges && ModBridgeSteps(PeepCell(self), here, 0) != 0)) {
+    // TPW_MOD_HOOK tpi_worlds: the walk keeps the peep's layer in the Arabian tunnel (Vehicle::next_step's rule), so it
+    // walks the top's paths only from the top and the route under them only from the route, where it follows no path
+    // link of the top (the maintainer, 0.6.2).
+    int roof = tpw::TpiWalkerRoof(reinterpret_cast<Pilot*>(self + 0xd4)->mPad61[0], PeepCell(self));
+    const auto below = [&roof](uint16_t id) { return roof == 0 && tpw::TpiTunnelCovered(id); };
+    if ((!below(PeepCell(self)) && here->NumberOfHVNeighbours() > 0) || (bridges && ModBridgeSteps(PeepCell(self), here, 0, roof) != 0)) {
         while (true) {
             const int32_t old = counter;
             counter = old - 1;
@@ -353,6 +360,8 @@ int32_t CPeep::SetRandomDestination() {
             CMapCell* cell = CellAt(cur);
             uint32_t nb = static_cast<uint32_t>(cell->GetNeighbours()) & 0x55u;
             int32_t n = cell->NumberOfHVNeighbours();
+            // TPW_PORT_FIX mods CPeep::SetRandomDestination | Mac: the cell's path links | Port: TPW_MOD_HOOK tpi_worlds, none on a covered cell of the Arabian tunnel walked underneath: a path there is the top's | Why: see `roof` above | Off: the Mac's links
+            if (below(cur)) { nb = 0; n = 0; }
             uint16_t cand[4];
             cand[0] = (nb & 0x10) ? Step(cur, gMapDeltaPlusY) : 0;
             cand[1] = (nb & 0x04) ? Step(cur, gMapDeltaPlusX) : 0;
@@ -360,7 +369,7 @@ int32_t CPeep::SetRandomDestination() {
             cand[3] = (nb & 0x40) ? Step(cur, gMapDeltaMinusX) : 0;
             // TPW_PORT_FIX mods CPeep::SetRandomDestination | Mac: the candidates are the path links only | Port: TPW_MOD_HOOK staff_bridge_wander, the bridge steps join them before the patrol, queue and exit tests | Why: tpw-mods staff-cross-bridges
             if (bridges) {
-                const uint32_t extra = ModBridgeSteps(cur, cell, nb);
+                const uint32_t extra = ModBridgeSteps(cur, cell, nb, roof);
                 const MapDelta* const delta[4] = {&gMapDeltaPlusY, &gMapDeltaPlusX, &gMapDeltaMinusY, &gMapDeltaMinusX};
                 for (int32_t i = 0; i < 4; ++i) {
                     if ((extra & (1u << i)) == 0) continue;
@@ -448,6 +457,8 @@ int32_t CPeep::SetRandomDestination() {
                 if (i == start + 4) CTRACE(2, kTextNoDirection);
             }
             cur = cand[dir];
+            // TPW_PORT_FIX mods CPeep::SetRandomDestination | Mac: no layers | Port: TPW_MOD_HOOK tpi_worlds, the layer after the step (tpw::TpiStepRoof) | Why: see ModBridgeSteps' `roof` | Off: unused
+            roof = tpw::TpiStepRoof(roof, cell->mCellId, cur);
             GAME_ASSERTMSG(static_cast<int32_t>(gPeepNoCell[8] != cur), kTextProblem);
             prev = (dir + 2) & 3u;
             if (cur == PeepCell(self) && counter == 0) ++counter;
@@ -655,8 +666,10 @@ void CPeep::UpdatePositionInEngine(float step) {
     f27 = (10.0f * static_cast<float>(jx)) / 65536.0f;
     const float f26 = (10.0f * static_cast<float>(jy)) / 65536.0f;
 
+    // TPW_PORT_FIX mods CPeep::UpdatePositionInEngine | Mac: the sprite, its thought bubble and its balloon stand on the ground (the script height 0, which the sprite code adds to DetermineHFieldHeightQuick) | Port: TPW_MOD_HOOK tpi_worlds, a peep walking the Arabian tunnel's route under its cleared top (Pilot mPad61[0] 0, see Vehicle::next_step) is lowered from the top's ground, which DetermineHFieldHeightQuick gives there, to the tunnel floor (tpw::TpiTunnelLift) | Why: guests walk through the tunnel under the paths built on its top (the maintainer, 0.6.2) | Off: 0
+    const float lift = tpw::TpiTunnelLift(pilot->mPad61[0], f27, f26, DetermineHFieldHeightQuick, TpiTunnelFloorHeightQuick);
     if (At_2<int32_t>(this, 0x28) == 0) {
-        SCR_SetScriptPosition(At_2<int32_t>(this, 0xc), f27, 0.0f, f26, static_cast<int32_t>(((static_cast<uint32_t>(At_2<int32_t>(this, 0x1c)) + 0x480u) >> 8) & 7));
+        SCR_SetScriptPosition(At_2<int32_t>(this, 0xc), f27, lift, f26, static_cast<int32_t>(((static_cast<uint32_t>(At_2<int32_t>(this, 0x1c)) + 0x480u) >> 8) & 7));
     }
     if (IsStranded()) {
         const uint16_t cell = static_cast<uint16_t>(static_cast<uint8_t>(Bytes(this)[4]) + (static_cast<uint8_t>(Bytes(this)[6]) << 7) + 1);
@@ -665,7 +678,7 @@ void CPeep::UpdatePositionInEngine(float step) {
         DC_AddSquareFaceToList(10.0f * static_cast<float>(cx), 1.0f, 10.0f * static_cast<float>(cy), 0, 1, 0, 1.0f, 0, 0, 0, static_cast<DYN_Type>(0));
     }
     if (At_2<int32_t>(this, 0xb4) != 0) {
-        SCR_SetScriptPosition(At_2<int32_t>(this, 0xb4), f27, 0.0f + gPeepScriptHeight, f26, 0);
+        SCR_SetScriptPosition(At_2<int32_t>(this, 0xb4), f27, lift + gPeepScriptHeight, f26, 0);
     }
     if (static_cast<uint8_t>(Bytes(this)[2]) == 1 && At_2<int32_t>(this, 0x210) != 0) {
         const uint16_t id = reinterpret_cast<CThing*>(this)->GetThingId().mIndex;
@@ -676,7 +689,7 @@ void CPeep::UpdatePositionInEngine(float step) {
         const float dx = std::fabs(f30 - f27);
         float q = (dx + dz) / gPeepBalloonDivisor;
         q = gPeepBalloonBase - q;
-        const float base = 0.0f + q;
+        const float base = lift + q;
         const float sc = gPeepBalloonScale;
         // TPW_PORT_FIX mods CPeep::UpdatePositionInEngine | Mac: the balloon is drawn where the visitor was, lagged behind it (CPerson::DrawBalloon), above its head and bobbing | Port: TPW_MOD_HOOK tpi_worlds (include/TpiUmbrellas.h): a visitor holding an umbrella (tpw::TpiHoldsUmbrella, only in one of the mod's worlds) has it drawn at its own place, at its look's height (Theme Park Inc's PersonSpriteUmbrellaModifiers Y, tpw::TpiUmbrellaHeight), moved toward the camera by Theme Park Inc's GenericUmbrellaModifiers (tpw::TpiUmbrellaPlace), not lagged and not bobbing; while first-person sprites are drawn (gESPThirdPerson 0, through tpw::gTpiThirdPersonAt: walking, or a ride with its first-person sprites) it is held in the hand, to one side, by Theme Park Inc's PersonSpriteUmbrellaModifiers FP fields for the visitor's facing (tpw::TpiUmbrellaHandPlace), not moved toward the camera, and placed as in third person when the world's file has no FP fields; the balloons' bob steps on as for a balloon | Why: tpw-mods tpi-worlds umbrellas: an umbrella is held over the head, not flown on a string, and in first person in the hand, as Theme Park Inc does (Discord report, Nov 22: centred on the visitor in POV)
         if (tpw::TpiHoldsUmbrella(this)) {

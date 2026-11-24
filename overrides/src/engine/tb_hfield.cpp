@@ -43,6 +43,7 @@
 // TPW_PORT_FIX freecam CHField::DivideAndConquer | Mac: the cells within half the view distance of the camera are tested (230 with fog off, 350 at most with fog), against a far plane 1000 out | Port: with gPortFreeCamera (the launcher's "Free camera"), outside the island screen (PortFreeCameraDraws), every cell of the map is tested, fog on or off, against a far plane that reaches the map's farthest corner (PortFreeFarPlane); the block near the camera and the procedural textures' window stay the original's | Why: the free camera looks along the ground from anywhere up to 150 outside the map, so the map's far side is up to 1400 away: the ground stopped at the view distance and the sky showed where the far park should be
 #include "TpiGateFlow.h"   // tpw::TpiWorldInPlay (TPW_MOD_HOOK tpi_worlds, CHField::Execute)
 #include "TpiParkEdge.h"   // tpw::TpiParkEdgeCorners (the same)
+#include "TpiTunnelTop.h"  // tpw::TpiTunnelTopSlopes (the same, CHField::CalcFullLighting)
 #include "PortGroundPool.h"   // tpw::PortGroundPixels, tpw::PortGroundLevel (groundpool, CHField::Prepare)
 #include <vector>
 
@@ -628,6 +629,7 @@ void CHField::CalcFullLighting() {
     SVertex vertices[128];
     D3DVECTOR normals[128];
     float z = field.mF08[1];
+    const bool topLit = tpw::TpiTunnelOpen() && tpw::gTpiTunnelTopField == mF00;   // the cleared top's edge (below)
     for (int32_t row = 0; row < mGridHeight; ++row) {
         float x = field.mF08[0];
         for (int32_t column = 0; column < mGridWidth; ++column) {
@@ -651,6 +653,11 @@ void CHField::CalcFullLighting() {
                 slopeZ = heights[-mGridWidth] - heights[mGridWidth];
             } else {
                 slopeZ = heights[-0x80] - heights[0];
+            }
+            // TPW_PORT_FIX mods CHField::CalcFullLighting | Mac: each grid point's normal comes from the heights of its four neighbours | Port: TPW_MOD_HOOK tpi_worlds, while the Arabian tunnel's top is cleared (tpw::TpiTunnelOpen) a grid point of the top lights as if a neighbour that is not one of the top's points stood at its own height (tpw::TpiTunnelTopSlopes, include/TpiTunnelTop.h) | Why: the top's edge quads stand over the canyon's hidden cliff quads, whose points keep the canyon's height, so they were lit as a steep slope and showed as darker stepped wedges on the cleared top (0.6.3 test, north-east and south-west corners) | Off: the Mac's
+            if (topLit) {
+                tpw::TpiTunnelTopSlopes(tpw::gTpiTunnelTop, column, row, mGridWidth, mGridHeight, heights, slopeX, slopeZ);
+                normals[column].x = slopeX * mInvHeightRange;
             }
             normals[column].z = slopeZ * mInvHeightRange;
             ++heights;
