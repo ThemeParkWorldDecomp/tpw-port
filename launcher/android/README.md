@@ -47,6 +47,12 @@ The Android launcher exposes smooth wheel zoom, extended zoom, varied sounds, st
 - **Export saves** stores the chosen game's profiles and parks in a ZIP with `save/` at its root. On desktop, ZIP the `save` folder from `saves/us` for Sim Theme Park or `saves/eur` for Theme Park World. **Import saves** restores that ZIP for the game you select, replacing its existing profiles and parks. Close the game before importing or exporting saves. A park that uses Gold or a content mod needs the same content enabled on the destination.
 - **Diagnostics** shows the APK version, a preview of recent logs and third-party licenses. Export the scrubbed logs to a location you choose. The releases button opens GitHub in your browser.
 
+## Online play
+
+Open **Settings → Online server** to choose a host name or IP address. Leave it blank to use the default server. The new address applies the next time the game starts. Select the globe in the player lobby to connect. Starting the launcher, single-player play and saves work offline.
+
+The original online protocol sends passwords without encryption. Use a password unique to this game.
+
 ## Build
 
 Install CMake, Ninja, Python 3, a JDK (17 or newer), Android NDK r28c (`28.2.13676358`), SDK Platform 36 and Build Tools 36.0.0. Initialize the repository's submodules. CMake fetches SDL 3.4.20 and checks the archive's SHA-256 on the first configure. No game data is needed to build or package.

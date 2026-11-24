@@ -11,10 +11,12 @@
 #include "content_overlay.h"
 #include "mods.h"
 #include "log_export.h"
+#include "net/net.h"
 #include "tpi_content.h"
 #include "ui/launcher_ui.h"
 #include "ui/unofficial_language.h"
 #include "ui/texts.h"
+#include "ui/updater.h"
 
 namespace {
 jobjectArray StringArray(JNIEnv* env, const std::vector<std::string>& strings);
@@ -137,6 +139,37 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
 
         if (!key.empty() && (!changed || !assets::SaveLauncherIni(iniPath, ini, error))) return nullptr;
         return StringArray(env, rows);
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity_nativeOnlineServer(
+    JNIEnv* env, jclass, jstring dataFolder, jstring host) {
+    using namespace tpw;
+    try {
+        const auto root = std::filesystem::u8path(Path(env, dataFolder));
+        const std::string wanted = host == nullptr ? std::string() : Path(env, host);
+        if (env->ExceptionCheck()) return nullptr;
+        assets::LauncherIni ini;
+        std::string error;
+        const auto iniPath = (root / "launcher.ini").u8string();
+        if (!assets::LoadLauncherIni(iniPath, ini, error)) return nullptr;
+
+        const auto found = FindOption(ini, ui::kOnlineServerFoundKey);
+        const auto automatic = ui::ChooseOnlineServer("", "", found == ini.extra.end() ? "" : found->second);
+        const auto setting = FindOption(ini, ui::kOnlineServerKey);
+        std::string saved = setting == ini.extra.end() ? "" : setting->second;
+        if (host != nullptr && !wanted.empty() && !net::ValidHost(wanted)) {
+            return StringArray(env, {"invalid", saved, automatic.host});
+        }
+        if (host != nullptr && wanted != saved) {
+            if (setting != ini.extra.end()) setting->second = wanted;
+            else ini.extra.emplace_back(ui::kOnlineServerKey, wanted);
+            if (!assets::SaveLauncherIni(iniPath, ini, error)) return nullptr;
+            saved = wanted;
+        }
+        return StringArray(env, {"ok", saved, automatic.host});
     } catch (...) {
         return nullptr;
     }

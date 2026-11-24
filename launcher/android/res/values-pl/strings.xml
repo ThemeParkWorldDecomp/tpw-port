@@ -159,4 +159,11 @@
     <string name="licenses">Licencje</string>
     <string name="check_updates">Otwórz wydania w przeglądarce</string>
     <string name="browser_unavailable">Brak przeglądarki, która może otworzyć stronę wydań.</string>
+    <string name="online_server">Serwer online</string>
+    <string name="online_server_auto">Automatycznie</string>
+    <string name="online_server_current">Serwer online · %1$s</string>
+    <string name="online_server_hint">Puste pole oznacza serwer %1$s. Zmiana zacznie działać po ponownym uruchomieniu gry. Aby się połączyć, wybierz globus w menu gracza.</string>
+    <string name="online_password_hint">Oryginalny protokół przesyła hasła bez szyfrowania. Użyj hasła przeznaczonego tylko do tej gry.</string>
+    <string name="online_server_save">Zapisz</string>
+    <string name="online_server_invalid">Wpisz nazwę hosta lub adres IP bez adresu URL i numeru portu.</string>
 </resources>

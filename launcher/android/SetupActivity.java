@@ -19,10 +19,13 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
+import android.text.InputType;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
+import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -98,6 +101,7 @@ public final class SetupActivity extends Activity {
     private static native boolean nativeNameTranslation(String dataFolder, String id, String language);
     private static native String[] nativeOptions(String dataFolder, boolean mods, String changedKey, boolean enabled);
     private static native String[] nativeGraphicsOptions(String dataFolder, String changedKey, int selection);
+    private static native String[] nativeOnlineServer(String dataFolder, String host);
 
     @Override
     protected void onCreate(Bundle previous) {
@@ -354,6 +358,14 @@ public final class SetupActivity extends Activity {
             Button graphics = launcherButton(R.string.graphics_settings, ButtonStyle.NAVIGATION, () -> showGraphicsOptions(root));
             alignStart(graphics);
             addRow(fields, graphics, 8);
+            String[] server = nativeOnlineServer(root, null);
+            if (server != null) {
+                Button online = launcherButton(R.string.online_server, ButtonStyle.CHOICE);
+                updateOnlineServerLabel(online, server);
+                online.setOnClickListener(view -> showOnlineServer(root, online));
+                alignStart(online);
+                addRow(fields, online, 8);
+            }
         }
         for (int i = 0; i + 4 < rows.length; i += 5) {
             final String key = rows[i];
@@ -386,6 +398,50 @@ public final class SetupActivity extends Activity {
             addRow(fields, option, 8);
         }
         dialog.show();
+    }
+
+    private void updateOnlineServerLabel(Button button, String[] server) {
+        String value = server[1].isEmpty() ? getString(R.string.online_server_auto) : server[1];
+        button.setText(getString(R.string.online_server_current, value));
+    }
+
+    private void showOnlineServer(String root, Button button) {
+        String[] current = nativeOnlineServer(root, null);
+        if (current == null) {
+            status.setText(R.string.options_unavailable);
+            return;
+        }
+
+        LinearLayout contents = column();
+        contents.setPadding(dp(22), dp(8), dp(22), dp(12));
+        EditText host = new EditText(this);
+        host.setSingleLine(true);
+        host.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        host.setContentDescription(getString(R.string.online_server));
+        host.setHint(current[2]);
+        host.setText(current[1]);
+        host.setSelectAllOnFocus(true);
+        addRow(contents, host, 0);
+        addRow(contents, label(getString(R.string.online_server_hint, current[2]), 14, PAPER), 8);
+        addRow(contents, label(getString(R.string.online_password_hint), 14, MUTED), 8);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(contents);
+
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle(R.string.online_server).setView(scroll)
+            .setPositiveButton(R.string.online_server_save, null).setNegativeButton(R.string.cancel, null).create();
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+            String[] updated = nativeOnlineServer(root, host.getText().toString().trim());
+            if (updated == null) host.setError(getString(R.string.option_save_failed));
+            else if (updated[0].equals("invalid")) host.setError(getString(R.string.online_server_invalid));
+            else {
+                updateOnlineServerLabel(button, updated);
+                dialog.dismiss();
+            }
+        });
     }
 
     private void showGraphicsOptions(String root) {

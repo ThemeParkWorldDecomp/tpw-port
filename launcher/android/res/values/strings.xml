@@ -164,4 +164,11 @@
     <string name="licenses">Licenses</string>
     <string name="check_updates">Open releases in browser</string>
     <string name="browser_unavailable">There is no browser available to open the releases page.</string>
+    <string name="online_server">Online server</string>
+    <string name="online_server_auto">Automatic</string>
+    <string name="online_server_current">Online server · %1$s</string>
+    <string name="online_server_hint">Leave blank to use %1$s. Changes apply the next time the game starts. Select the globe in the player lobby to connect.</string>
+    <string name="online_password_hint">The original protocol sends passwords without encryption. Use a password unique to this game.</string>
+    <string name="online_server_save">Save</string>
+    <string name="online_server_invalid">Enter a host name or IP address without a URL or port.</string>
 </resources>
