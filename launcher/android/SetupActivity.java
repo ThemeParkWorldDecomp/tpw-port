@@ -390,7 +390,9 @@ public final class SetupActivity extends Activity {
             addRow(option, toggle, 0);
             if (!rows[i + 4].isEmpty()) {
                 String note = rows[i + 4];
-                String detail = toggle.isEnabled() ? note : getString(note.equals("ps1") ? R.string.mod_need_ps1 : R.string.mod_need_tpi);
+                int requiredDisc = note.equals("ps1") ? R.string.mod_need_ps1 :
+                    note.equals("ps2") ? R.string.mod_need_ps2 : R.string.mod_need_tpi;
+                String detail = toggle.isEnabled() ? note : getString(requiredDisc);
                 TextView description = label(detail, 14, MUTED);
                 description.setPadding(0, 0, 0, dp(9));
                 addRow(option, description, 0);
@@ -704,8 +706,12 @@ public final class SetupActivity extends Activity {
         }
         updateLabels();
         setBusy(false);
-        if (result == null || result[0].endsWith("error")) {
+        if (result != null && result[0].equals("ps2_import_error")) {
+            status.setText(R.string.ps2_import_error);
+        } else if (result == null || result[0].endsWith("error")) {
             status.setText(R.string.import_failed);
+        } else if (result[0].equals("ps2_ready")) {
+            status.setText(R.string.ps2_import_ready);
         } else if (result[0].equals("unrecognized")) {
             status.setText(R.string.import_unrecognized);
         } else if (chosenEdition.isEmpty()) {

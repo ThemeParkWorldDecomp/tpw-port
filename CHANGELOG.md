@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Android
+
+- Import a supported PlayStation 2 disc and enable PS2 Guest Models to display its 3D park guests, staff and entertainers.
+
 ## 0.6.3 (2026-11-24)
 
 ### Bug Fixes

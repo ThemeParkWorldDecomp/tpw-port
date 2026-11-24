@@ -12,6 +12,7 @@
 #include "mods.h"
 #include "log_export.h"
 #include "net/net.h"
+#include "ps2_convert.h"
 #include "tpi_content.h"
 #include "ui/launcher_ui.h"
 #include "ui/unofficial_language.h"
@@ -64,7 +65,8 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
             for (const tpw::mods::Mod& mod : tpw::mods::Catalog()) {
                 const auto content = root / "assets" / mod.content;
                 bool ready = mod.content.empty() || (mod.content == "ps1" && !FindContentRides(content).empty()) ||
-                             (mod.content == "tpi" && !FindTpiWorlds(content).empty());
+                             (mod.content == "tpi" && !FindTpiWorlds(content).empty()) ||
+                             (mod.content == "ps2" && assets::ReadPs2ConverterStamp(root) == assets::kPs2ConverterVersion);
                 const std::string details = ready ? mod.text : mod.content;
                 row(tpw::mods::Key(mod), mod.name, false, ready, details);
             }
@@ -273,8 +275,11 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
             }
         }
         const bool recognized = report.matched != 0 || report.playStationConverted || report.themeParkIncConverted ||
+                                report.playStation2Converted ||
                                 !report.translations.empty() || report.themeParkIncAddOnAdded || report.themeParkIncAddOnAlready;
         const char* result = affected < 0 || report.aborted || !report.errors.empty() ? "import_error" :
+                             report.playStation2Converted ? "ps2_ready" :
+                             !report.playStation2.empty() ? "ps2_import_error" :
                              !paths.empty() && !recognized ? "unrecognized" : "ok";
         return StringArray(env, {result, editions, europeanNames, std::to_string(operation == 0 ? report.written : affected),
                                  americanNames, europeanLabels, americanLabels,

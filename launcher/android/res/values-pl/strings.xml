@@ -68,6 +68,9 @@
     <string name="graphics_low">Niska</string>
     <string name="graphics_high">Wysoka</string>
     <string name="mod_need_ps1">Zaimportuj odpowiednią płytę PlayStation.</string>
+    <string name="mod_need_ps2">Zaimportuj odpowiednią płytę PlayStation 2.</string>
+    <string name="ps2_import_ready">Zaimportowano modele PS2. Włącz PS2 Guest Models w menu modów.</string>
+    <string name="ps2_import_error">Nie udało się przekonwertować modeli PlayStation 2. Sprawdź pliki z płyty.</string>
     <string name="mod_need_tpi">Zaimportuj Theme Park Inc / SimCoaster.</string>
     <string name="controls">Sterowanie</string>
     <string name="control_settings">Ustawienia sterowania</string>

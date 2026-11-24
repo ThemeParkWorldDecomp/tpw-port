@@ -6,7 +6,7 @@ The APK requires Android 13 or newer and Vulkan. The ARM64 build is for phones a
 
 Open **STP/TPW Launcher** and select **Import files** for disc images or archives of your own copy of the game, or **Import folder** for unpacked files. You can select several related files together and add language packs or [your own translations](../../README.md#your-own-translation) later. The launcher verifies the imported data before enabling **Play**. Imports need temporary space for a copy of the selected files.
 
-The launcher lists Sim Theme Park before Theme Park World. Import the Gold bonus CD alongside either base game to unlock **Gold Edition rides**. The switch is on by default once the bonus data is verified and is saved separately for each game. The PlayStation and SimCoaster content mods require their own game data.
+The launcher lists Sim Theme Park before Theme Park World. Import the Gold bonus CD alongside either base game to unlock **Gold Edition rides**. The switch is on by default once the bonus data is verified and is saved separately for each game. The PlayStation and SimCoaster content mods require their own game data. Import a supported PlayStation 2 disc to convert its 3D guest, staff and entertainer models. Enable **PS2 Guest Models (3D)** in **Mods** after the import and start the game.
 
 The launcher and touch controls follow the system or app language in English and Polish. Game language is selected separately for each game from the installed language packs.
 

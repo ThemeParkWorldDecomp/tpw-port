@@ -71,6 +71,9 @@
     <string name="graphics_low">Low</string>
     <string name="graphics_high">High</string>
     <string name="mod_need_ps1">Import a supported PlayStation disc.</string>
+    <string name="mod_need_ps2">Import a supported PlayStation 2 disc.</string>
+    <string name="ps2_import_ready">PS2 models imported. Enable PS2 Guest Models in Mods.</string>
+    <string name="ps2_import_error">Could not convert the PlayStation 2 models. Check the disc files.</string>
     <string name="mod_need_tpi">Import Theme Park Inc / SimCoaster.</string>
     <string name="controls">Controls</string>
     <string name="control_settings">Control settings</string>
