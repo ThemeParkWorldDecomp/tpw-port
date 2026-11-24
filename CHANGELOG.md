@@ -1,15 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.6.4 (not released yet)
 
 ### Android
 
 - Import a supported PlayStation 2 disc and enable PS2 Guest Models to display its 3D park guests, staff and entertainers.
 - Added orbit camera, advanced free-camera and physical keyboard settings, more frame rate and interface size choices, game and profile options, and Android display and launcher settings.
-- The launcher can notify players when a newer official release includes an Android APK.
 - The Android launcher discovers the online server, and the game overlay and controller bindings can open, write and send chat.
 - Listed missing and customized files, added verified settings restoration and refresh for PlayStation rides and SimCoaster worlds.
-- Updates pick an APK for the device from the official releases and open its download.
+- The launcher offers to download an APK for your device when a newer official release is available.
 - The Android port now supports Android 11 and later on devices with Vulkan.
 
 ## 0.6.3 (2026-11-24)
