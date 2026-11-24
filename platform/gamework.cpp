@@ -545,7 +545,7 @@ void UGamework::Run() {
 #endif
             case SDL_EVENT_KEY_DOWN: {
 #ifdef __ANDROID__
-                if (tpw::mobile::GeneratedTextKey(sdl.key)) break;
+                if (tpw::mobile::IgnorePrintableTextKey(sdl.key)) break;
 #endif
                 // Alt+Enter on Windows and Linux toggles full screen (fit::FullScreenToggleKey; never on a Mac). It is
                 // the host's key: the game is not told of the press, no key is remembered for it, and its release is
@@ -595,7 +595,7 @@ void UGamework::Run() {
             }
             case SDL_EVENT_KEY_UP:
 #ifdef __ANDROID__
-                if (tpw::mobile::GeneratedTextKey(sdl.key)) break;
+                if (tpw::mobile::IgnorePrintableTextKey(sdl.key)) break;
 #endif
                 // 0x100056a0: releases the remembered key, whichever key came up. The Event Manager repeated the key
                 // that went down last until that key came up.

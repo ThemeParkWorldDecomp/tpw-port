@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cstdint>
 
+#include "FS_OnlineLoginPanel.h"
 #include "Game.h"
 #include "InterfaceScrollBar.h"
 #include "InterfaceWindow.h"
@@ -29,6 +30,7 @@ std::atomic<Uint32> gSliderDragEvent{0};
 std::atomic<int> gTurns{0};
 float gCameraX = 0, gCameraY = 0;
 bool gParkPausedByFocus = false;
+bool gRestartKeyboardOnHide = false;
 InterfaceWindow* gTouchSliderThumb = nullptr;
 bool gSliderMouseHeld = false;
 
@@ -196,22 +198,34 @@ void UpdateControls() {
     }
 
     static const InterfaceWindow* previousEditor = nullptr;
+    static bool previousPassword = false;
     const InterfaceWindow* editor = window != nullptr && Editing() ? gUIKeyboardWindow : nullptr;
+    const bool editorChanged = editor != previousEditor;
+    const bool password = editorChanged ? editor != nullptr &&
+        dynamic_cast<const InterfacePasswordTextObject*>(editor->mClientDrawObject) != nullptr : previousPassword;
     const bool requested = gKeyboardRequested.exchange(false, std::memory_order_relaxed);
-    if (editor != nullptr && (editor != previousEditor || requested) && !SDL_TextInputActive(window)) {
-        const SDL_PropertiesID properties = SDL_CreateProperties();
-        SDL_SetBooleanProperty(properties, SDL_PROP_TEXTINPUT_AUTOCORRECT_BOOLEAN, false);
-        SDL_StartTextInputWithProperties(window, properties);
-        SDL_DestroyProperties(properties);
-    } else if (editor == nullptr && window != nullptr && SDL_TextInputActive(window)) {
+    if (window != nullptr && (editor == nullptr || password != previousPassword) && SDL_TextInputActive(window)) {
+        // The Android hide command completes asynchronously. Reopen after its event so it cannot hide the new editor.
+        gRestartKeyboardOnHide = editor != nullptr && SDL_ScreenKeyboardShown(window);
         SDL_StopTextInput(window);
     }
+    if (editor != nullptr && !gRestartKeyboardOnHide && (editorChanged || requested) && !SDL_TextInputActive(window)) {
+        const SDL_PropertiesID properties = SDL_CreateProperties();
+        SDL_SetBooleanProperty(properties, SDL_PROP_TEXTINPUT_AUTOCORRECT_BOOLEAN, false);
+        if (password) SDL_SetNumberProperty(properties, SDL_PROP_TEXTINPUT_TYPE_NUMBER, SDL_TEXTINPUT_TYPE_TEXT_PASSWORD_HIDDEN);
+        SDL_StartTextInputWithProperties(window, properties);
+        SDL_DestroyProperties(properties);
+    }
     previousEditor = editor;
+    previousPassword = password;
 }
 
-bool GeneratedTextKey(const SDL_KeyboardEvent& key) {
-    // SDL's Android IME sends both commit text and global synthetic key events for ASCII.
-    return key.which == 0 && key.key >= 0x20 && key.key < 0x7f && Editing();
+bool IgnorePrintableTextKey(const SDL_KeyboardEvent& key) {
+    if (!Editing() || key.key < 0x20 || key.key == 0x7f || key.key > 0x10ffff) return false;
+    if (key.which == 0) return true;  // SDL also generates synthetic ASCII keys for IME commits.
+    // SDLActivity emits the physical key and commits its text while text input is active.
+    SDL_Window* window = SDL_GetKeyboardFocus();
+    return window != nullptr && SDL_TextInputActive(window) && (key.mod & SDL_KMOD_CTRL) == 0;
 }
 
 void CommitText(const char* text) {
@@ -224,6 +238,10 @@ void CommitText(const char* text) {
 }
 
 void KeyboardHidden() {
+    if (gRestartKeyboardOnHide) {
+        gRestartKeyboardOnHide = false;
+        gKeyboardRequested.store(true, std::memory_order_relaxed);
+    }
     if (SDL_Window* window = SDL_GetKeyboardFocus(); window != nullptr && SDL_TextInputActive(window)) {
         SDL_StopTextInput(window);
     }
