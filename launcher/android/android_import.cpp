@@ -70,6 +70,9 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
             row(ui::kPcSoundPicksKey, "", true, true, "");
             row(ui::kSoundPanKey, "", false, true, "");
             row(ui::kRideBadgesKey, "", true, true, "");
+#ifdef TPW_ANDROID_MOVIES
+            row(ui::kSkipIntroKey, "", false, true, "");
+#endif
         }
         if (!key.empty() && (!changed || !assets::SaveLauncherIni(iniPath, ini, error))) return nullptr;
         return StringArray(env, rows);

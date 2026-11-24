@@ -265,7 +265,7 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX OR ANDROID) AND Python3_FOU
 
   # The game's films (the Mac CD's QuickTime ones, Sorenson video, or the PC CD's EA .TGQ ones, EA TQI video) play
   # through FFmpeg (platform/quicktime.cpp), built from source here (third_party/ffmpeg: a trimmed FFmpeg, LGPL 2.1 or
-  # later, static); no copy on the host is ever looked for. With TPW_MOVIES off the game skips its films.
+  # later); no copy on the host is ever looked for. With TPW_MOVIES off the game skips its films.
   option(TPW_MOVIES "Play the game's films (FFmpeg, built from third_party/ffmpeg)" ON)
   set(TPW_MOVIE_SYSLIBS)
   if(TPW_MOVIES)
@@ -273,8 +273,13 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX OR ANDROID) AND Python3_FOU
     add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/ffmpeg ffmpeg)
     target_compile_definitions(tpw_platform PRIVATE TPW_HAVE_FFMPEG=1)
     target_link_libraries(tpw_platform PUBLIC tpw_ffmpeg)
-    # The generator must not stand in for FFmpeg's functions: the static library defines them.
-    set(TPW_MOVIE_SYSLIBS --provides $<TARGET_FILE:tpw_ffmpeg>)
+    # The generator must not stand in for FFmpeg's functions.
+    if(ANDROID)
+      set(TPW_MOVIE_SYSLIBS --dynamic-provides $<TARGET_FILE:tpw_ffmpeg>)
+    else()
+      set(TPW_MOVIE_SYSLIBS --provides $<TARGET_FILE:tpw_ffmpeg>)
+    endif()
+    set(TPW_MOVIE_TARGET tpw_ffmpeg)
     message(STATUS "tpw: films play (FFmpeg 9.0.2, third_party/ffmpeg)")
   endif()
 
@@ -284,6 +289,9 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX OR ANDROID) AND Python3_FOU
   if(ANDROID)
     target_sources(tpw_launcher_objects PRIVATE launcher/android/android_main.cpp launcher/android/android_import.cpp
                    platform/android/interface_scale.cpp platform/android/mobile_controls.cpp)
+    if(TPW_MOVIES)
+      target_compile_definitions(tpw_launcher_objects PRIVATE TPW_ANDROID_MOVIES=1)
+    endif()
   endif()
   target_include_directories(tpw_launcher_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
   if(APPLE)
@@ -389,7 +397,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     add_custom_command(
       OUTPUT ${out}
       COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/launcher/gen_stubs.py @${args_file}
-      DEPENDS tpw tpw_platform ${TPW_SDL_LIBRARY} tpw_zlib tpw_libjpeg tpw_launcher_ui tpw_assets $<TARGET_OBJECTS:${objects}>
+      DEPENDS tpw tpw_platform ${TPW_SDL_LIBRARY} tpw_zlib tpw_libjpeg tpw_launcher_ui tpw_assets ${TPW_MOVIE_TARGET} $<TARGET_OBJECTS:${objects}>
               launcher/gen_stubs.py ${args_file}
       VERBATIM
       COMMENT "${comment}")

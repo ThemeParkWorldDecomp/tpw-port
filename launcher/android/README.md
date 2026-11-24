@@ -38,7 +38,7 @@ Android starts at 1920 × 1080 by default. Change the rendering resolution in th
 
 Under **Settings → Graphics**, choose **Auto**, **30 FPS** or **60 FPS**. Auto follows the display refresh rate without an explicit frame rate cap. **Draw distance** controls how far the game renders while riding an attraction or walking with the camcorder. The menu also exposes the original game's graphics options, including texture quality, lighting and shadows. **Game default** follows the graphics detail level selected in the game. Changes apply the next time the game starts.
 
-The Android launcher exposes smooth wheel zoom, extended zoom, varied sounds, stereo panning and ride badges. The preview starts in landscape with Vulkan, and intro films are disabled. Desktop windowing and renderer choices, the Mac camera-notch option, and the desktop return-to-launcher switch have no Android control. The launcher also leaves out the desktop free-camera and keyboard options. Android has its own controller and touch controls, interface-size choices and return to the launcher through Recents or the game's Quit action.
+The Android launcher exposes smooth wheel zoom, extended zoom, varied sounds, stereo panning and ride badges. The game starts in landscape with Vulkan. Builds with movie support play intro films from the imported game files. Use **Skip the intro films** in **Settings** to go straight to the player lobby. Desktop windowing and renderer choices, the Mac camera-notch option, and the desktop return-to-launcher switch have no Android control. The launcher also leaves out the desktop free-camera and keyboard options. Android has its own controller and touch controls, interface-size choices and return to the launcher through Recents or the game's Quit action.
 
 ## Build
 
@@ -49,7 +49,7 @@ On macOS or Linux, from the repository root with `ANDROID_HOME` set to the SDK:
 ```sh
 cmake -S . -B build-android -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/28.2.13676358/build/cmake/android.toolchain.cmake" \
-  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-33 -DANDROID_STL=c++_static -DTPW_MOVIES=OFF
+  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-33 -DANDROID_STL=c++_static
 cmake --build build-android --target tpw_launcher
 python3 launcher/android/package.py --build-dir build-android \
   --android-jar "$ANDROID_HOME/platforms/android-36/android.jar" \
@@ -62,14 +62,14 @@ On Windows, from PowerShell with `ANDROID_HOME` set:
 ```powershell
 $sdk = $env:ANDROID_HOME
 cmake -S . -B build-android -G Ninja "-DCMAKE_TOOLCHAIN_FILE=$sdk/ndk/28.2.13676358/build/cmake/android.toolchain.cmake" `
-  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-33 -DANDROID_STL=c++_static -DTPW_MOVIES=OFF
+  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-33 -DANDROID_STL=c++_static
 cmake --build build-android --target tpw_launcher
 python launcher/android/package.py --build-dir build-android `
   --android-jar "$sdk/platforms/android-36/android.jar" --build-tools-dir "$sdk/build-tools/36.0.0" `
   --output-apk build-android/stp-tpw-arm64-debug.apk
 ```
 
-The packager reads the ABI, SDL sources and strip tool from the selected CMake build.
+The packager reads the ABI, SDL sources and strip tool from the selected CMake build. The default `TPW_MOVIES=ON` builds the bundled [FFmpeg sources](../../third_party/ffmpeg/NOTE.md) as a separate `libtpw_ffmpeg.so`. Rebuild `tpw_ffmpeg` and repackage the APK with your own signing key to use a modified decoder. Pass `-DTPW_MOVIES=OFF` to build without films.
 
 ## Install and test
 

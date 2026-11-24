@@ -51,6 +51,11 @@ def assemble(output, base, dex, libraries, abi, sdl, ndk):
         "Android-NDK.txt": ndk / "NOTICE",
         "Android-NDK-toolchain.txt": ndk / "NOTICE.toolchain",
     }
+    if any(library.name == "libtpw_ffmpeg.so" for library in libraries):
+        ffmpeg = third_party / "ffmpeg"
+        notices.update({"FFmpeg-LGPL.txt": ffmpeg / "COPYING.LGPLv2.1",
+                        "FFmpeg-LICENSE.md": ffmpeg / "LICENSE.md",
+                        "FFmpeg-NOTE.md": ffmpeg / "NOTE.md"})
     with ZipFile(output, "w") as apk, ZipFile(base) as resources, ZipFile(dex) as bytecode:
         for entry in resources.infolist():
             apk.writestr(entry, resources.read(entry))
@@ -85,7 +90,11 @@ def package(args):
     with tempfile.TemporaryDirectory(prefix="tpw-apk-", dir=output.parent) as tmp:
         work = Path(tmp)
         libraries = []
-        for name in LIBRARIES:
+        names = LIBRARIES
+        movies = cache.get("TPW_MOVIES", "").upper()
+        if movies not in ("", "0", "OFF", "NO", "FALSE", "N", "IGNORE", "NOTFOUND") and not movies.endswith("-NOTFOUND"):
+            names += ("ffmpeg/libtpw_ffmpeg.so",)
+        for name in names:
             stripped = work / Path(name).name
             run(cache["CMAKE_STRIP"], "--strip-debug", "-o", stripped, build / name)
             libraries.append(stripped)

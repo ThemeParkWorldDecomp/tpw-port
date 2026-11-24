@@ -121,4 +121,5 @@
     <string name="toggle_overlay">Pokaż lub ukryj nakładkę</string>
     <string name="pause">Pauza</string>
     <string name="entrance_view">Widok bramy</string>
+    <string name="skip_intro">Pomiń filmy wprowadzające</string>
 </resources>

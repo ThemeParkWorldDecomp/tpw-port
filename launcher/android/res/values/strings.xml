@@ -126,4 +126,5 @@
     <string name="toggle_overlay">Show or hide overlay</string>
     <string name="pause">Pause</string>
     <string name="entrance_view">Entrance view</string>
+    <string name="skip_intro">Skip the intro films</string>
 </resources>

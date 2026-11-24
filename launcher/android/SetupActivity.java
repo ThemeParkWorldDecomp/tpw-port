@@ -465,6 +465,7 @@ public final class SetupActivity extends Activity {
             case "pc_sound_picks": return getString(R.string.sound_variation);
             case "sound_panning": return getString(R.string.sound_pan);
             case "ride_badges": return getString(R.string.ride_badges);
+            case "skip_intro": return getString(R.string.skip_intro);
             case "frame_rate_limit": return getString(R.string.graphics_frame_rate);
             case "draw_distance": return getString(R.string.graphics_draw_distance);
             case "sam_view_distance": return getString(R.string.graphics_view_distance);
