@@ -231,4 +231,23 @@
     <string name="free_camera_reset">Reset camera view</string>
     <string name="free_camera_reset_short">Reset</string>
     <string name="free_camera_select_hint">Hold Select to enter or leave free camera in a park.</string>
+    <string name="data_file_details">Missing files and customized settings</string>
+    <string name="no_data_file_problems">All checked files are present. There are no customized settings files.</string>
+    <string name="data_file_required">Required file missing or damaged</string>
+    <string name="data_file_optional">Optional file missing or damaged</string>
+    <string name="data_file_customized">Customized settings</string>
+    <string name="data_file_repaired">Customized settings repaired</string>
+    <string name="data_file_unreadable">Customized settings unreadable at line %1$s</string>
+    <string name="restore_original">Restore original</string>
+    <string name="restore_original_confirm">Replace these customized settings with the verified original file?</string>
+    <string name="original_restored">Original settings restored.</string>
+    <string name="original_needs_disc">Import the source disc or installation again to make a verified original available.</string>
+    <string name="corrupt_data_removed">Removed %1$s files that failed verification. See the file details before importing replacements.</string>
+    <string name="mod_outdated">Converted content is outdated or incomplete.</string>
+    <string name="mod_content_ready">Mod content imported. Turn it on in Mods.</string>
+    <string name="mod_source_incomplete">Mod source recognized. Check that the base game and the complete mod source are imported.</string>
+    <string name="refresh_mod_data">Refresh mod data</string>
+    <string name="refresh_previous">Use previously imported files</string>
+    <string name="mod_refresh_done">Mod data refreshed.</string>
+    <string name="mod_refresh_failed">Could not refresh the mod. Select the source disc or installation again.</string>
 </resources>

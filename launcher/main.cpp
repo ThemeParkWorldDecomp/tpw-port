@@ -2303,6 +2303,11 @@ int LauncherMain(int argc, char** argv) {
 }  // namespace
 
 #ifdef __ANDROID__
+void InitAndroidSamTables() {
+    static const bool registered = [] { RegisterSamTables(); return true; }();
+    (void)registered;
+}
+
 int TpwLauncherMain(int argc, char** argv) {
 #else
 int main(int argc, char** argv) {

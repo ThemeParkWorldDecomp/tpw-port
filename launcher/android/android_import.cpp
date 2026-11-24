@@ -12,8 +12,10 @@
 #include "mods.h"
 #include "log_export.h"
 #include "net/net.h"
+#include "ps1_refresh.h"
 #include "ps2_convert.h"
 #include "tpi_content.h"
+#include "tpi_refresh.h"
 #include "ui/launcher_ui.h"
 #include "ui/unofficial_language.h"
 #include "ui/texts.h"
@@ -22,6 +24,8 @@
 #ifdef TPW_PORT_FIX
 #include "game_size_rules.h"
 #endif
+
+void InitAndroidSamTables();
 
 namespace {
 jobjectArray StringArray(JNIEnv* env, const std::vector<std::string>& strings);
@@ -54,7 +58,8 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
         if (!assets::LoadLauncherIni(iniPath, ini, error)) return nullptr;
         std::vector<std::string> rows;
         bool changed = false;
-        auto row = [&](const std::string& id, const std::string& title, bool defaultOn, bool available, const std::string& note) {
+        auto row = [&](const std::string& id, const std::string& title, bool defaultOn, bool available,
+                       const std::string& note, const std::string& refresh = "") {
             auto found = FindOption(ini, id);
             bool on = found == ini.extra.end() ? defaultOn : found->second == "1";
             if (id == key && available) {
@@ -63,16 +68,19 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
                 else found->second = on ? "1" : "0";
                 changed = true;
             }
-            rows.insert(rows.end(), {id, title, on ? "1" : "0", available ? "1" : "0", note});
+            rows.insert(rows.end(), {id, title, on ? "1" : "0", available ? "1" : "0", note, refresh});
         };
         if (mods) {
             for (const tpw::mods::Mod& mod : tpw::mods::Catalog()) {
                 const auto content = root / "assets" / mod.content;
                 bool ready = mod.content.empty() || (mod.content == "ps1" && !FindContentRides(content).empty()) ||
-                             (mod.content == "tpi" && !FindTpiWorlds(content).empty()) ||
+                             (mod.content == "tpi" && TpiContentReady(content)) ||
                              (mod.content == "ps2" && assets::ReadPs2ConverterStamp(root) == assets::kPs2ConverterVersion);
+                const bool refresh = (mod.content == "ps1" && launcher::Ps1RidesStale(content, root)) ||
+                    (mod.content == "tpi" && (launcher::TpiWorldsStale(content, root) ||
+                        (!ready && !FindTpiWorlds(content).empty())));
                 const std::string details = ready ? mod.text : mod.content;
-                row(tpw::mods::Key(mod), mod.name, false, ready, details);
+                row(tpw::mods::Key(mod), mod.name, false, ready, details, refresh ? mod.content : "");
             }
         } else if (key == ui::kGoldUsKey || key == ui::kGoldEurKey) {
             row(key, "", true, true, "");
@@ -328,6 +336,7 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
     JNIEnv* env, jclass, jstring dataFolder, jobjectArray inputs, jint operation, jstring editionCode) {
     using namespace tpw::assets;
     try {
+        InitAndroidSamTables();
         ImporterConfig config;
         config.dataRoot = Path(env, dataFolder);
         const std::string code = Path(env, editionCode);
@@ -410,12 +419,44 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
         const char* result = affected < 0 || report.aborted || !report.errors.empty() ? "import_error" :
                              report.playStation2Converted ? "ps2_ready" :
                              !report.playStation2.empty() ? "ps2_import_error" :
+                             !recognized && (!report.playStation.empty() || !report.themeParkInc.empty()) ?
+                                 "mod_source_incomplete" :
                              !paths.empty() && !recognized ? "unrecognized" : "ok";
         return StringArray(env, {result, editions, europeanNames, std::to_string(operation == 0 ? report.written : affected),
                                  americanNames, europeanLabels, americanLabels,
-                                 gold(tpw::ui::kGoldUsKey), gold(tpw::ui::kGoldEurKey), installed, unnamed});
+                                 gold(tpw::ui::kGoldUsKey), gold(tpw::ui::kGoldEurKey), installed, unnamed,
+                                 report.playStationConverted ? "1" : "0", report.themeParkIncConverted ? "1" : "0",
+                                 std::to_string(importer.LastOpenCheck().Removed())});
     } catch (...) {
-        return StringArray(env, {"import_error", "", "", "0", "", "", "", "", ""});
+        return nullptr;
+    }
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity_nativeEditionDetails(
+    JNIEnv* env, jclass, jstring dataFolder, jstring editionCode, jstring restore) {
+    using namespace tpw::assets;
+    try {
+        InitAndroidSamTables();
+        ImporterConfig config;
+        config.dataRoot = Path(env, dataFolder);
+        const std::string code = Path(env, editionCode);
+        const std::string dest = restore == nullptr ? "" : Path(env, restore);
+        Edition edition;
+        if (env->ExceptionCheck() || !EditionFromName(code.c_str(), edition) || edition == kEditionLanguages) return nullptr;
+        Importer importer(config);
+        std::string error;
+        if (!importer.Open(error) || (!dest.empty() && !importer.RestoreOriginal(edition, dest, error))) return nullptr;
+        std::vector<std::string> rows;
+        for (const FileGap& gap : importer.Status(edition).gaps) {
+            rows.insert(rows.end(), {"gap", gap.dest, gap.effect, gap.essential ? "1" : "0"});
+        }
+        for (const EditedFile& file : importer.EditedFiles(edition)) {
+            const std::string state = file.repaired ? "repaired" : std::to_string(file.unreadableLine);
+            rows.insert(rows.end(), {"edit", file.dest, state, file.original ? "1" : "0"});
+        }
+        return StringArray(env, rows);
+    } catch (...) {
+        return nullptr;
     }
 }
 

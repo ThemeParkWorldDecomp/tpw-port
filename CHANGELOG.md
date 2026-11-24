@@ -7,6 +7,7 @@
 - Import a supported PlayStation 2 disc and enable PS2 Guest Models to display its 3D park guests, staff and entertainers.
 - Added orbit camera, advanced free-camera and physical keyboard settings, more frame rate and interface size choices, game and profile options, and Android display and launcher settings.
 - The launcher can notify players when a newer official release includes an Android APK.
+- Listed missing and customized files, added verified settings restoration and refresh for PlayStation rides and SimCoaster worlds.
 
 ## 0.6.3 (2026-11-24)
 

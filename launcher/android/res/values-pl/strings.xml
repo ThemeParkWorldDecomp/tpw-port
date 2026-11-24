@@ -226,4 +226,23 @@
     <string name="immersive_full_screen">Ukryj paski systemowe w grze</string>
     <string name="fill_display_cutout">Wypełnij ekran wokół wcięcia</string>
     <string name="return_to_launcher">Wróć do launchera po wyjściu z gry</string>
+    <string name="data_file_details">Brakujące pliki i zmienione ustawienia</string>
+    <string name="no_data_file_problems">Wszystkie sprawdzane pliki są dostępne. Brak zmodyfikowanych plików ustawień.</string>
+    <string name="data_file_required">Brakujący lub uszkodzony plik wymagany</string>
+    <string name="data_file_optional">Brakujący lub uszkodzony plik opcjonalny</string>
+    <string name="data_file_customized">Zmodyfikowane ustawienia</string>
+    <string name="data_file_repaired">Naprawione ustawienia użytkownika</string>
+    <string name="data_file_unreadable">Nie można odczytać ustawień od wiersza %1$s</string>
+    <string name="restore_original">Przywróć oryginał</string>
+    <string name="restore_original_confirm">Zastąpić zmodyfikowane ustawienia zweryfikowanym plikiem oryginalnym?</string>
+    <string name="original_restored">Przywrócono oryginalne ustawienia.</string>
+    <string name="original_needs_disc">Zaimportuj ponownie płytę lub folder instalacji, aby uzyskać zweryfikowany oryginał.</string>
+    <string name="corrupt_data_removed">Usunięto pliki, które nie przeszły weryfikacji (%1$s). Sprawdź listę plików przed ponownym importem.</string>
+    <string name="mod_outdated">Przekonwertowane dane są nieaktualne lub niekompletne.</string>
+    <string name="mod_content_ready">Zaimportowano zawartość. Włącz ją w menu modów.</string>
+    <string name="mod_source_incomplete">Rozpoznano źródło moda. Sprawdź, czy zaimportowano podstawową grę i komplet plików moda.</string>
+    <string name="refresh_mod_data">Odśwież dane moda</string>
+    <string name="refresh_previous">Użyj poprzednio importowanych plików</string>
+    <string name="mod_refresh_done">Odświeżono dane moda.</string>
+    <string name="mod_refresh_failed">Nie udało się odświeżyć moda. Wybierz ponownie płytę lub folder instalacji.</string>
 </resources>

@@ -65,6 +65,8 @@ public final class SetupActivity extends Activity {
     private static final int PICK_SAVES_US = 4, PICK_SAVES_EUR = 5;
     private static final int EXPORT_SAVES_US = 6, EXPORT_SAVES_EUR = 7;
     private static final int EXPORT_LOG = 8;
+    private static final int REFRESH_PS1_FILES = 9, REFRESH_PS1_FOLDER = 10;
+    private static final int REFRESH_TPI_FILES = 11, REFRESH_TPI_FOLDER = 12;
     private static final int READ_DATA = 0, VERIFY_DATA = 1, REMOVE_DATA = 2;
     private static final int NAVY = 0xFF0C2032;
     private static final int PAPER = 0xFFF3F9E9;
@@ -111,6 +113,7 @@ public final class SetupActivity extends Activity {
     private static native String[] nativeChoiceOptions(String dataFolder, boolean camera, String changedKey, int selection,
                                                        int maxFrameRate);
     private static native String[] nativeOnlineServer(String dataFolder, String host);
+    private static native String[] nativeEditionDetails(String dataFolder, String edition, String restore);
     private static native String[] nativeGameOptions(String dataFolder, String edition, String profile, int option, int value,
                                                        int screenWidth, int screenHeight);
 
@@ -121,7 +124,7 @@ public final class SetupActivity extends Activity {
             .setLabel(getString(R.string.launcher_name)).setIcon(R.mipmap.tpw_icon).build());
         migrateLanguagePreference();
         createScreen();
-        runImport(new ArrayList<>(), false);
+        runImport(new ArrayList<>(), false, "");
         checkForUpdates();
     }
 
@@ -400,7 +403,7 @@ public final class SetupActivity extends Activity {
                 else update.setVisibility(View.GONE);
             });
         }
-        for (int i = 0; i + 4 < rows.length; i += 5) {
+        for (int i = 0; i + 5 < rows.length; i += 6) {
             final String key = rows[i];
             LinearLayout option = column();
             option.setBackground(gradient(0xFF234842, 0xFF1B3838, 0xFF496D65, 12, 1));
@@ -423,6 +426,15 @@ public final class SetupActivity extends Activity {
                 TextView description = label(detail, 14, MUTED);
                 description.setPadding(0, 0, 0, dp(9));
                 addRow(option, description, 0);
+            }
+            String refresh = rows[i + 5];
+            if (!refresh.isEmpty()) {
+                addRow(option, label(getString(R.string.mod_outdated), 14, PAPER), 0);
+                Button rebuild = launcherButton(R.string.refresh_mod_data, ButtonStyle.NAVIGATION, () -> {
+                    dialog.dismiss();
+                    showRefreshSources(refresh, true);
+                });
+                addRow(option, rebuild, 6);
             }
             addRow(fields, option, 8);
         }
@@ -808,11 +820,15 @@ public final class SetupActivity extends Activity {
     }
 
     private void launchPicker(boolean tree) {
+        launchImportPicker(tree, tree ? PICK_FOLDER : PICK_FILES);
+    }
+
+    private void launchImportPicker(boolean tree, int request) {
         if (!canChangeFiles()) return;
         Intent intent = new Intent(tree ? Intent.ACTION_OPEN_DOCUMENT_TREE : Intent.ACTION_OPEN_DOCUMENT);
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         if (!tree) intent.setType("*/*").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-        launchDocument(intent, tree ? PICK_FOLDER : PICK_FILES);
+        launchDocument(intent, request);
     }
 
     @Override
@@ -829,7 +845,10 @@ public final class SetupActivity extends Activity {
             if (data.getData() != null) runFileTool(request, data.getData());
             return;
         }
-        if ((request != PICK_FILES && request != PICK_FOLDER) || !canChangeFiles()) return;
+        boolean tree = request == PICK_FOLDER || request == REFRESH_PS1_FOLDER || request == REFRESH_TPI_FOLDER;
+        String refresh = request == REFRESH_PS1_FILES || request == REFRESH_PS1_FOLDER ? "ps1" :
+                         request == REFRESH_TPI_FILES || request == REFRESH_TPI_FOLDER ? "tpi" : "";
+        if ((request != PICK_FILES && request != PICK_FOLDER && refresh.isEmpty()) || !canChangeFiles()) return;
         List<Uri> sources = new ArrayList<>();
         ClipData clip = data.getClipData();
         if (clip != null) {
@@ -838,10 +857,45 @@ public final class SetupActivity extends Activity {
                 if (uri != null && !sources.contains(uri)) sources.add(uri);
             }
         } else if (data.getData() != null) sources.add(data.getData());
-        if (!sources.isEmpty()) runImport(sources, request == PICK_FOLDER);
+        if (!sources.isEmpty()) runImport(sources, tree, refresh);
     }
 
-    private void runImport(List<Uri> sources, boolean tree) {
+    private void showRefreshSources(String mod, boolean allowPrevious) {
+        if (!canChangeFiles()) return;
+        SharedPreferences preferences = getPreferences(MODE_PRIVATE);
+        List<Uri> previous = new ArrayList<>();
+        for (String value : splitLines(preferences.getString("mod_sources_" + mod, ""))) previous.add(Uri.parse(value));
+        boolean remembered = allowPrevious && !previous.isEmpty() && previous.stream().allMatch(uri ->
+            getContentResolver().getPersistedUriPermissions().stream().anyMatch(
+                permission -> permission.isReadPermission() && permission.getUri().equals(uri)));
+        String[] choices = remembered ? new String[]{getString(R.string.refresh_previous), getString(R.string.import_files),
+            getString(R.string.import_folder)} : new String[]{getString(R.string.import_files), getString(R.string.import_folder)};
+        new AlertDialog.Builder(this).setTitle(R.string.refresh_mod_data).setItems(choices, (dialog, index) -> {
+            if (remembered && index == 0) {
+                runImport(previous, preferences.getBoolean("mod_source_tree_" + mod, false), mod);
+            } else {
+                boolean tree = index == choices.length - 1;
+                int request = mod.equals("ps1") ? REFRESH_PS1_FILES : REFRESH_TPI_FILES;
+                launchImportPicker(tree, request + (tree ? 1 : 0));
+            }
+        }).setNegativeButton(R.string.cancel, null).show();
+    }
+
+    private void rememberModSources(String mod, List<Uri> sources, boolean tree) {
+        List<String> saved = new ArrayList<>();
+        try {
+            for (Uri uri : sources) {
+                getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                saved.add(uri.toString());
+            }
+        } catch (SecurityException ignored) {
+            return;   // A provider without a durable grant can be picked again when needed.
+        }
+        getPreferences(MODE_PRIVATE).edit().putString("mod_sources_" + mod, String.join("\n", saved))
+            .putBoolean("mod_source_tree_" + mod, tree).apply();
+    }
+
+    private void runImport(List<Uri> sources, boolean tree, String refresh) {
         setBusy(true);
         status.setText(sources.isEmpty() ? R.string.import_checking : R.string.import_copying);
         work.execute(() -> {
@@ -876,7 +930,19 @@ public final class SetupActivity extends Activity {
                 deleteStage(stage);
             }
             final String[] outcome = result;
-            runOnUiThread(() -> showResult(outcome, !sources.isEmpty()));
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                boolean ps1 = outcome != null && outcome[11].equals("1");
+                boolean tpi = outcome != null && outcome[12].equals("1");
+                if (ps1) rememberModSources("ps1", sources, tree);
+                if (tpi) rememberModSources("tpi", sources, tree);
+                showResult(outcome, !sources.isEmpty());
+                if (!refresh.isEmpty()) {
+                    boolean converted = refresh.equals("ps1") ? ps1 : tpi;
+                    status.setText(converted ? R.string.mod_refresh_done : R.string.mod_refresh_failed);
+                    if (!converted) showRefreshSources(refresh, false);
+                }
+            });
         });
     }
 
@@ -968,6 +1034,12 @@ public final class SetupActivity extends Activity {
             status.setText(R.string.ps2_import_ready);
         } else if (result[0].equals("unrecognized")) {
             status.setText(R.string.import_unrecognized);
+        } else if (result[0].equals("mod_source_incomplete")) {
+            status.setText(R.string.mod_source_incomplete);
+        } else if (result[11].equals("1") || result[12].equals("1")) {
+            status.setText(R.string.mod_content_ready);
+        } else if (!result[13].equals("0")) {
+            status.setText(getString(R.string.corrupt_data_removed, result[13]));
         } else if (chosenEdition.isEmpty()) {
             status.setText(imported ? R.string.import_need_base : R.string.import_prompt);
         } else {
@@ -1017,12 +1089,19 @@ public final class SetupActivity extends Activity {
     }
 
     private void showFileTools() {
-        int[] actions = { R.string.installed_editions, R.string.asset_packs, R.string.import_saves,
+        int[] actions = { R.string.installed_editions, R.string.data_file_details, R.string.asset_packs, R.string.import_saves,
             R.string.export_saves, R.string.diagnostics };
         String[] labels = Arrays.stream(actions).mapToObj(this::getString).toArray(String[]::new);
         new AlertDialog.Builder(this).setTitle(R.string.manage_files).setItems(labels, (dialog, index) -> {
             switch (actions[index]) {
                 case R.string.installed_editions: showInstalledEditions(); break;
+                case R.string.data_file_details:
+                    String[] codes = {"us", "us-pc", "eur", "eur-pc", "gold"};
+                    String[] titles = Arrays.stream(codes).map(this::editionLabel).toArray(String[]::new);
+                    new AlertDialog.Builder(this).setTitle(R.string.data_file_details).setItems(titles,
+                        (picker, which) -> showEditionDetails(codes[which], null))
+                        .setNegativeButton(R.string.cancel, null).show();
+                    break;
                 case R.string.asset_packs: showAssetPacks(); break;
                 case R.string.import_saves: chooseSaveEdition(true); break;
                 case R.string.export_saves: chooseSaveEdition(false); break;
@@ -1048,15 +1127,73 @@ public final class SetupActivity extends Activity {
             if (!canChangeFiles()) return;
             String code = installed[index].split(":")[0];
             String title = editionLabel(code);
-            new AlertDialog.Builder(this).setTitle(title).setItems(new String[]{getString(R.string.verify_edition),
+            new AlertDialog.Builder(this).setTitle(title).setItems(new String[]{getString(R.string.data_file_details),
+                getString(R.string.verify_edition),
                 getString(R.string.remove_edition)}, (options, action) -> {
-                if (action == 0) changeEditionData(VERIFY_DATA, code);
+                if (action == 0) showEditionDetails(code, null);
+                else if (action == 1) changeEditionData(VERIFY_DATA, code);
                 else new AlertDialog.Builder(this).setTitle(R.string.remove_edition)
                     .setMessage(getString(R.string.remove_edition_confirm, title))
                     .setNegativeButton(R.string.cancel, null)
                     .setPositiveButton(R.string.remove_edition, (confirm, button) -> changeEditionData(REMOVE_DATA, code)).show();
             }).setNegativeButton(R.string.cancel, null).show();
         }).show();
+    }
+
+    private void showEditionDetails(String code, String restore) {
+        if (!canChangeFiles()) return;
+        setBusy(true);
+        status.setText(R.string.file_operation_progress);
+        work.execute(() -> {
+            String[] rows = nativeEditionDetails(getFilesDir().getAbsolutePath(), code, restore);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                setBusy(false);
+                if (rows == null) {
+                    status.setText(R.string.file_operation_failed);
+                    return;
+                }
+                status.setText(restore != null ? R.string.original_restored :
+                    chosenEdition.isEmpty() ? R.string.import_prompt : R.string.data_ready);
+                AlertDialog.Builder details = new AlertDialog.Builder(this).setTitle(editionLabel(code))
+                    .setNegativeButton(R.string.done, null);
+                if (rows.length == 0) {
+                    details.setMessage(R.string.no_data_file_problems).show();
+                    return;
+                }
+                String[] labels = new String[rows.length / 4];
+                for (int i = 0; i < labels.length; ++i) {
+                    int row = i * 4;
+                    String info;
+                    if (rows[row].equals("gap")) {
+                        info = getString(rows[row + 3].equals("1") ? R.string.data_file_required : R.string.data_file_optional);
+                        if (!rows[row + 2].isEmpty()) info += " · " + rows[row + 2];
+                    } else if (rows[row + 2].equals("repaired")) {
+                        info = getString(R.string.data_file_repaired);
+                    } else if (!rows[row + 2].equals("0")) {
+                        info = getString(R.string.data_file_unreadable, rows[row + 2]);
+                    } else {
+                        info = getString(R.string.data_file_customized);
+                    }
+                    labels[i] = rows[row + 1] + "\n" + info;
+                }
+                details.setItems(labels, (list, index) -> {
+                    int row = index * 4;
+                    String path = rows[row + 1];
+                    AlertDialog.Builder item = new AlertDialog.Builder(this).setTitle(path)
+                        .setNegativeButton(R.string.cancel, null);
+                    if (rows[row].equals("gap") || !rows[row + 3].equals("1")) {
+                        item.setMessage(rows[row].equals("gap") ? labels[index] : getString(R.string.original_needs_disc))
+                            .setPositiveButton(R.string.import_files, (dialog, which) -> launchPicker(false))
+                            .setNeutralButton(R.string.import_folder, (dialog, which) -> launchPicker(true));
+                    } else {
+                        item.setMessage(R.string.restore_original_confirm)
+                            .setPositiveButton(R.string.restore_original, (dialog, which) -> showEditionDetails(code, path));
+                    }
+                    item.show();
+                }).show();
+            });
+        });
     }
 
     private void changeEditionData(int operation, String code) {
