@@ -2031,21 +2031,6 @@ void BMP_AI(tagBUMP* b) {
         uint8_t* own = OwnerOf(b);
         uint32_t index = static_cast<uint32_t>(Wd_2(own, 0)) + 14;
         if (index <= 13 && kLeave[index]) {
-            // TPW_PORT_FIX mods BMP_AI | Mac: when the ride's time is up a boat (kind -11) unloads where it is | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiGreatLake.h): in the mod's worlds a Great Lake boat out on the lake first sails back into its plot's circle (by the chain, as SetNavRoute steers it), and unloads there, or where it is after 0x1000 turns; off, an original world or any other ride, the Mac's | Why: tpw-mods tpi-worlds; the boats unload on the plot, not out on the lake
-            if (tpw::TpiWorldInPlay()) {
-                const tpw::TpiLakeRide* lake = TpiLakeRideOf(own);
-                if (lake != nullptr && PointInColObject(b->x, b->y, static_cast<tabCOLOBJECT*>(lake->cols[0])) == 0 &&
-                    Wd_2(b, 0x88) > -0x1000) {
-                    Wd_2(b, 0x88) = Wd_2(b, 0x88) - 1;
-                    b->flags |= 0x4000;   // the end of the ride's time took the turning away (kClearAnim); it sails back
-                    int32_t rc = SetNavRoute(b, Wd_2(own, 0x90), Wd_2(own, 0x94));
-                    if ((b->flags & 0x20000) && rc <= Wd_2(own, 0x68)) {
-                        b->flags &= ~0x20000u;
-                        b->flags |= 0x10000;
-                    }
-                    return;
-                }
-            }
             BMP_LeaveBump(b);
             int32_t handle = Wd_2(b, 0x20);
             if (handle != 0) SOUND_FadeSoundEffect(handle);
