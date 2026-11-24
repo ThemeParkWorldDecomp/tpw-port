@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.3 (2026-11-24)
+
+### Bug Fixes
+
+- In the SimCoaster/TPI mod's worlds, a visitor's umbrella seen in first person (walking around the park, or on a ride that shows the visitors up close) is now held in their hand, off to one side, as in the original, instead of floating over the middle of their head (Thanks slappyhead)
+- Fixed the boats of The Great Lake in the SimCoaster/TPI - New Worlds, Rides and Sprites mod's Land of Invention sailing under the lake's water, which showed most in first person: they now float on the water, and as in the original they stay out on the lake and their riders beam on and off, instead of the boats sailing back under the ride's building (the launcher converts the Theme Park Inc worlds again once) (Thanks Addable13 and slappyhead)
+
+### Changes
+
+- Arabian Nights' tunnel in the SimCoaster/TPI mod's worlds loses its rubble roof once its land is bought: paths can be built across its top from plateau to plateau while visitors still walk through the tunnel underneath, and in first person you can walk over the top without falling in, or through the tunnel both ways (Thanks slappyhead)
+
 ## 0.6.2 (2026-11-22)
 
 ### New Features

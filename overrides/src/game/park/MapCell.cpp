@@ -862,10 +862,11 @@ uint32_t CMapCell::GetTile(int32_t* rotation) {
     uint8_t neighbours = GetNeighbours();
     const int32_t type = static_cast<int32_t>(mType);
     if (type == 1) {
-        neighbours |= tpw::TpiFootbridgeLinks({type, mFlags}, [this](uint8_t direction) {
+        // A path on the Arabian tunnel's cleared top is on the top (include/TpiTunnelTop.h): it joins no footbridge of the route beneath.
+        neighbours |= tpw::TpiFootbridgeLinks(tpw::TpiWalkerCell(type, mFlags, mCellId, 1), [this](uint8_t direction) {
             const CMapCell* cell = GetNeighbouringCell(direction);
             return cell == nullptr ? tpw::TpiFootbridgeCell{-1, 0}
-                                   : tpw::TpiFootbridgeCell{static_cast<int32_t>(cell->mType), cell->mFlags};
+                                   : tpw::TpiWalkerCell(static_cast<int32_t>(cell->mType), cell->mFlags, cell->mCellId, 1);
         });
     }
     const uint8_t direction = GetDirection();

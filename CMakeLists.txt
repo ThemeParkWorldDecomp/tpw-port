@@ -710,6 +710,14 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     add_executable(tpw_host_tpi_footbridge ${TPW_DECOMP_DIR}/tests/host_tpi_footbridge.cpp)
     target_include_directories(tpw_host_tpi_footbridge PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_footbridge COMMAND tpw_host_tpi_footbridge)
+    # Cleared tunnel ground beside the unchanged floor route: heights, ownership, reload and movement separation.
+    add_executable(tpw_host_tpi_tunnel_top ${TPW_DECOMP_DIR}/tests/host_tpi_tunnel_top.cpp)
+    target_include_directories(tpw_host_tpi_tunnel_top PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_tunnel_top COMMAND tpw_host_tpi_tunnel_top)
+    # A path crossing over the tunnel's fixed floor: its columns, the two walker layers, lifts and shadows.
+    add_executable(tpw_host_tpi_tunnel_cross ${TPW_DECOMP_DIR}/tests/host_tpi_tunnel_cross.cpp)
+    target_include_directories(tpw_host_tpi_tunnel_cross PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_tunnel_cross COMMAND tpw_host_tpi_tunnel_cross)
   endif()
   # TPW_MOD_HOOK tpi_worlds: a footbridge's sides are walls (MAP_wall_in_way), so a guest's walk through a made-up tunnel
   # reaches exactly its floor and the paths at both mouths.
@@ -1176,6 +1184,24 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
       target_link_options(tpw_host_tpi_gate_build PRIVATE -Wl,--export-all-symbols)
     endif()
     add_test(NAME tpi_gate_build COMMAND tpw_host_tpi_gate_build)
+    if(TPW_PORT_FIX)
+      add_library(tpw_host_tpi_tunnel_top_engine_objects OBJECT ${TPW_DECOMP_DIR}/tests/host_tpi_tunnel_top_engine.cpp ${TPW_DECOMP_DIR}/tests/host_tpi_ground_colour.cpp launcher/pending_manual.cpp)
+      target_include_directories(tpw_host_tpi_tunnel_top_engine_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
+      target_link_libraries(tpw_host_tpi_tunnel_top_engine_objects PRIVATE SDL3::SDL3)
+      set(TPW_TPI_TUNNEL_TOP_STUBS ${CMAKE_CURRENT_BINARY_DIR}/stubs_tpi_tunnel_top_engine.cpp)
+      tpw_gen_stubs(${TPW_TPI_TUNNEL_TOP_STUBS} tpw_host_tpi_tunnel_top_engine_objects "Generating stand-ins for the tunnel top engine test")
+      add_executable(tpw_host_tpi_tunnel_top_engine $<TARGET_OBJECTS:tpw_host_tpi_tunnel_top_engine_objects> ${TPW_TPI_TUNNEL_TOP_STUBS})
+      target_include_directories(tpw_host_tpi_tunnel_top_engine PRIVATE ${TPW_INCLUDE_DIR} launcher)
+      target_link_libraries(tpw_host_tpi_tunnel_top_engine PRIVATE tpw tpw_platform tpw_launcher_ui)
+      if(TPW_LINUX)
+        target_link_libraries(tpw_host_tpi_tunnel_top_engine PRIVATE $<TARGET_FILE:tpw>)
+      endif()
+      if(WIN32)
+        target_link_options(tpw_host_tpi_tunnel_top_engine PRIVATE -Wl,--export-all-symbols)
+      endif()
+      add_test(NAME tpi_tunnel_top_engine COMMAND tpw_host_tpi_tunnel_top_engine)
+      add_test(NAME tpi_ground_colour COMMAND tpw_host_tpi_tunnel_top_engine --ground-colour)
+    endif()
   endif()
   # Building on the TPI mod's worlds' own fences, walls and banks (Base.map attribute bit 1, include/TpiFenceBuild.h),
   # using the real map and track cells, with no game data or window. Linked as the launcher is, so this also runs on

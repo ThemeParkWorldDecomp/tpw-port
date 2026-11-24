@@ -29,6 +29,8 @@
 #include "Main.h"
 #include "MainWindowCallback.h"
 #include "MapCell.h"
+// TPW_PORT_FIX mods TpiTunnelTop | Mac: no such header | Port: the mod's separate roof and floor height sources | Why: keep tunnel walkers underneath the raised roof ground (TPW_MOD_HOOK tpi_worlds)
+#include "TpiTunnelTop.h"
 #include "MapWho.h"
 #include "Mouse.h"
 #include "ObjectParts.h"
@@ -237,6 +239,10 @@ sHFieldQuad* gHeightfieldQuads;
 sHField* gHeightfieldCopy;
 
 int32_t LoadLevelHeightfield(int32_t useLevel, int32_t mode) {
+    // TPW_PORT_FIX mods LoadLevelHeightfield | Mac: no such state | Port: clear the runtime roof state on a new terrain | Why: TPW_MOD_HOOK tpi_worlds, a reused allocation must not carry a former world's raised roof into another
+    tpw::gTpiTunnelTopField = nullptr;
+    tpw::gTpiTunnelTopOpen = false;
+    tpw::gTpiTunnelTopPrepared = false;
     char folder[1024], shared[1024];
     std::sprintf(folder, "%s:Terrain", useLevel ? gTPFileInfo.GetLevelPath().mData : get_theme_path());
     // TPW_PORT_FIX mods LoadLevelHeightfield | Mac: the island screen's terrain and sea from lobby:Terrain | Port: TPW_MOD_HOOK tpi_islands (gModTpiIslands, include/TpiWorlds.h; assets/tpi_lobby_sea.h): with the mod on, from lobby:tpisea when the converter wrote it: the same files with the sea carried on outwards, its texture, mapping, animation and fog as the original's | Why: tpw-mods tpi-worlds: the second ring of islands stands near the original sea's edge, and the camera saw past it | Off: lobby:Terrain
@@ -1216,13 +1222,28 @@ bool InsideField(const sHField* hf, float x, float z) {
     if (z >= ten * CountToFloat(hf->mF18[1])) return false;
     return true;
 }
+// TPW_PORT_FIX mods TpiWalkingField | Mac: always the live field | Port: TPW_MOD_HOOK tpi_worlds, select the level copy for the fixed tunnel floor | Why: keep its walkers at their original height beneath the new roof
+// Keep the tunnel's fixed footbridge walkers at the unmodified floor even when the live
+// field's shared corners have been raised for ground beside them. Ordinary roof paths use the live field.
+// The route's cells under the cleared top hold the top's ground (mode 0), so a walker on the route there asks for the
+// floor itself (TpiTunnelFloorHeightQuick).
+bool sTpiForceFloor = false;
+const sHField* TpiWalkingField(const sHField* field, float x, float z) {
+    if (!InsideField(field, x, z) || tpw::gTpiTunnelFloorSource == nullptr || tpw::gTpiTunnelFloorMode == nullptr) return field;
+    if (sTpiForceFloor && field == tpw::gTpiTunnelTopField) return static_cast<const sHField*>(tpw::gTpiTunnelFloorSource);
+    const int ix = int(x / field->mF08[2]), iy = int(z / field->mF08[3]);
+    if (ix < 0 || iy < 0 || ix >= 128 || iy >= 128) return field;
+    const int mode = tpw::gTpiTunnelFloorMode(ix, iy);
+    return tpw::TpiTunnelFloorHeight(field, ix, iy, mode) ? static_cast<const sHField*>(tpw::gTpiTunnelFloorSource) : field;
+}
 }  // namespace
 
 // The terrain height at (x, z): 0.0f outside the field (and where the cell fraction falls outside it); with flag 0 a cell whose flag
 // word has bit 1 answers FLT_MAX (the largest float: no ground there). The fraction (x - origin) / cell size picks the cell with the
 // unsigned truncation __cvt_fp2unsigned. Bit 4 of the cell's flags is the cell's other diagonal.
 float DetermineHFieldHeight(float x, float z, int32_t flag) {
-    const sHField* const hf = gHeightfieldHeader->mHField.get();
+    // TPW_PORT_FIX mods DetermineHFieldHeight | Mac: the live height field | Port: TpiWalkingField selects the original floor source for the fixed tunnel route | Why: TPW_MOD_HOOK tpi_worlds, raising the roof must not lift walkers underneath
+    const sHField* const hf = TpiWalkingField(gHeightfieldHeader->mHField.get(), x, z);
     if (!InsideField(hf, x, z)) return 0.0f;
     const float width = CountToFloat(hf->mF18[0]);
     const float depth = CountToFloat(hf->mF18[1]);
@@ -1279,7 +1300,8 @@ float DetermineHFieldHeight(float x, float z, int32_t flag) {
 // The quick lookup: no origin, no flag word test for "no ground", the cell index is the fctiwz truncation (a signed word), and a cell
 // without bit 0x800 is flat along its first diagonal whatever its bit 4 says (the full lookup never reads 0x800).
 float DetermineHFieldHeightQuick(float x, float z) {
-    const sHField* const hf = gHeightfieldHeader->mHField.get();
+    // TPW_PORT_FIX mods DetermineHFieldHeightQuick | Mac: the live height field | Port: TpiWalkingField selects the original floor source for the fixed tunnel route | Why: TPW_MOD_HOOK tpi_worlds, sprites walking through the tunnel must remain at its original floor height
+    const sHField* const hf = TpiWalkingField(gHeightfieldHeader->mHField.get(), x, z);
     if (!InsideField(hf, x, z)) return 0.0f;
     double wholeX = 0.0;
     double wholeZ = 0.0;
@@ -1319,6 +1341,14 @@ float DetermineHFieldHeightQuick(float x, float z) {
     const float base = fracX * h[v11];
     const float lower = ppc_fmadds(1.0f - fracX, h[v01], base);
     return ppc_fmadds(1.0f - fracZ, -(h[v01] - h[v00]), lower);
+}
+
+// TPW_PORT_FIX mods TpiTunnelFloorHeightQuick | Mac: no such function | Port: TPW_MOD_HOOK tpi_worlds, DetermineHFieldHeightQuick on the Arabian tunnel's floor (the level copy) wherever the top is cleared | Why: a guest walking the route under the top's ground stands on the floor (CPeep::UpdatePositionInEngine)
+float TpiTunnelFloorHeightQuick(float x, float z) {
+    sTpiForceFloor = true;
+    const float height = DetermineHFieldHeightQuick(x, z);
+    sTpiForceFloor = false;
+    return height;
 }
 
 // Unit v5901: the AI-world cell helpers of the level code (Destroy3DObjectFromAIWorld, Assign3DObjectToAIWorld,

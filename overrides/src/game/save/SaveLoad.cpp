@@ -59,6 +59,8 @@
 #include "TpiGateBuild.h"
 #include "TpiGateFlow.h"
 #include "TpiObstacleShut.h"
+#include "TpiTunnelTop.h"
+#include "tb_hfield.h"
 #include "TpiOutside.h"
 #include "TpiSaveRepair.h"
 #include "UI_Base.h"
@@ -612,6 +614,26 @@ void CloseTpiShutCells() {
     const uint32_t width = level->mF18[0], height = level->mF18[1];
     tag_sNode* nodes = gHeightfieldHeader->mNodes.get();
     for (uint16_t i = 0; nodes != nullptr && i < gHeightfieldHeader->mNodeCount; ++i) {
+        tpw::TpiTunnelTop top;
+        if (tpw::TpiParseTunnelTop(nodes[i].mName.get(), top)) {
+            // RestoreHFieldDataFromCopy restores quads only. Restore the live roof heights here too, before the
+            // map, saved objects and walkers are reconstructed for a second park in this same level.
+            if (gHeightfieldHeader->mHField.get() != nullptr) {
+                auto* live = gHeightfieldHeader->mHField.get();
+                if (tpw::TpiTunnelTopHeights(top, false, width, height, live->mHeights.get(), level->mHeights.get()))
+                    DetermineHFieldFlatness(gHeightfieldHeader);
+                if (gei_HField != nullptr && gei_HField->mF00 == live && gei_HField->mF12970 != nullptr)
+                    tpw::TpiTunnelTopHeights(top, false, width, height, static_cast<float*>(gei_HField->mF12970), level->mHeights.get());
+            }
+            tpw::gTpiTunnelTopField = nullptr;
+            tpw::gTpiTunnelTopOpen = false;
+            tpw::gTpiTunnelTopPrepared = false;
+            for (int y = top.ty; y < top.ty + top.th && uint32_t(y) < height; ++y)
+                for (int x = top.tx; x < top.tx + top.tw && uint32_t(x) < width; ++x) {
+                    auto& quad = level->mQuads.get()[x + uint32_t(y) * width];
+                    quad.mF00 = uint16_t((quad.mF00 & ~1u) | (tpw::TpiTunnelTopWasHidden(top, x, y) ? 1u : 0u));
+                }
+        }
         tpw::TpiShut shut;
         if (!tpw::TpiParseShut(nodes[i].mName.get(), shut) || !shut.masked) continue;
         for (int32_t y = shut.y; y < shut.y + shut.h; ++y)
@@ -905,7 +927,7 @@ void RepairTpiHiddenCells() {
 }  // namespace
 
 namespace {
-// TPW_PORT_FIX mods RepairTpiWalkways | Mac: no such pass | Port: TPW_MOD_HOOK tpi_worlds (include/TpiSaveRepair.h): in one of the mod's worlds, the level's attribute map is read again (LoadLevelAttributeMap, into the cells' attribute bytes, which are then put back as saved), and each map cell whose level attribute is 0x80 alone over a quad the level hides (gHeightfieldCopy), a bridge's walkway since converter 16 or a tunnel's since 17, that belongs to nothing and holds land, a path or a hidden quad's mode 2, 5 or 7, becomes a footbridge cell as in a new park: a path is deleted first (CMapCell::Delete, its links cut both ways), the quad is the level's again (SetHeightfieldTexture's copy tile 0x37), the cell takes the level's attribute and is reset (CMapCell::Reset: mode 0x1e), keeping its saved flag 0x40, and its track cell, when it belongs to nothing and is no hoarding post (a post, type 0x19, stays: tpw::TpiWalkwayTrackToReset), too (mode 7) | Why: see CSaveLoad::PostLoadOperations, below
+// TPW_PORT_FIX mods RepairTpiWalkways | Mac: no such pass | Port: TPW_MOD_HOOK tpi_worlds (include/TpiSaveRepair.h): in one of the mod's worlds, the level's attribute map is read again (LoadLevelAttributeMap, into the cells' attribute bytes, which are then put back as saved), and each map cell whose level attribute is 0x80 alone over a quad the level hides (gHeightfieldCopy), a bridge's walkway since converter 16 or a tunnel's since 17, that belongs to nothing and holds land, a path or a hidden quad's mode 2, 5 or 7, becomes a footbridge cell as in a new park (except the Arabian tunnel's route cells under its cleared top, which are the top's ground): a path is deleted first (CMapCell::Delete, its links cut both ways), the quad is the level's again (SetHeightfieldTexture's copy tile 0x37), the cell takes the level's attribute and is reset (CMapCell::Reset: mode 0x1e), keeping its saved flag 0x40, and its track cell, when it belongs to nothing and is no hoarding post (a post, type 0x19, stays: tpw::TpiWalkwayTrackToReset), too (mode 7) | Why: see CSaveLoad::PostLoadOperations, below
 // Each cell it changes gets a new time stamp, as the cell system's own changes do; the count goes to the log.
 void RepairTpiWalkways() {
     if (!tpw::TpiWorldInPlay()) return;
@@ -927,6 +949,8 @@ void RepairTpiWalkways() {
         if (static_cast<uint32_t>(x) >= width || static_cast<uint32_t>(y) >= height) continue;
         const bool levelHides = (levelField->mQuads.get()[static_cast<uint32_t>(x) + static_cast<uint32_t>(y) * width].mF00 & 1) != 0;
         CMapCell* cell = &gGameWorld->mMapCells[index];
+        // The Arabian tunnel's route under its cleared top is the top's ground, the route kept apart (include/TpiTunnelTop.h).
+        if (tpw::TpiTunnelCovered(static_cast<uint16_t>(index + 1u))) continue;
         if (!tpw::TpiWalkwayToFootbridge(static_cast<int32_t>(cell->mType), level[index], cell->mParentID, levelHides)) continue;
         const uint16_t saved = cell->mFlags;
         if (static_cast<int32_t>(cell->mType) == 1) {
@@ -1293,6 +1317,8 @@ void RepairTpiSpecialRides() {
 
 // Rebuilds what the engine holds after a park is read. The particle system is low spec when the current detail is 0.
 void CSaveLoad::PostLoadOperations() {
+    // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: no such pass | Port: TPW_MOD_HOOK tpi_worlds, establish a purchased tunnel roof's live heights before saved rides and features rebuild, without changing the original quad mask used by the walkway repair; open its cells after that repair below | Why: a feature saved on the new roof must rebuild at roof height, while old floor paths must still be recognised as footbridge cells
+    TpiPrepareTunnelTop();
     InitialiseWeather();
     InitialiseBlobShadow();
     FLY_RestoreMeshes();
@@ -1308,6 +1334,7 @@ void CSaveLoad::PostLoadOperations() {
     RepairTpiShops();
     // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park's cells are as it saved them) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, the bridges' walkway cells a park saved as land, path or a hidden quad's mode become footbridge cells as in a new park (RepairTpiWalkways, include/TpiSaveRepair.h); anything built there is kept | Why: the mod's converter 16 makes the walkways footbridge cells like Lost Kingdom's (mode 0x1e), since the deck hides a path built under it and parks were left with gaps no guest crosses (the maintainer's Land of Invention park on 0.5.3), but a park keeps each saved cell's attribute byte and mode; off, or an original world, a park loads as it was saved
     RepairTpiWalkways();
+    TpiRepairTunnelTop();
     // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park's cells are as it saved them) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, after the walkways are footbridge cells, each hoarding post of the park's fence that a 0.5.5 load reset there (its block cells still naming it) is a post again, linked to its neighbours (RepairTpiLostHoardingPosts, include/TpiSaveRepair.h) | Why: 0.5.5's walkway repair reset the posts of a fence crossing a tunnel's or bridge's walkway, so the fence had a hole: buying land froze the game (LLCC_BuildHoardingDB walked to the hole and never left, a player's Arabian Nights park) and the context help crashed on the post's block cells (a player's Polar Zone park); off, or an original world, a park loads as it was saved
     RepairTpiLostHoardingPosts();
     // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park keeps each ride's script as it saved it) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, each placed ride whose animation set has an O group and whose saved script has SPECIAL still 0 gets it, as a ride placed now starts with it (RepairTpiRideScripts, include/TpiSaveRepair.h) | Why: the mod's 0.5.2 sets SPECIAL only when a ride is placed (CObject::CreateRideScript), and a park keeps each script with its variables, so Golden Ticket rides placed before it (the maintainer's Diving Bell Drop in Polar Zone) still looped their O animation: crane and bell hidden, no riders, the queue stuck; off, or an original world, a park loads as it was saved

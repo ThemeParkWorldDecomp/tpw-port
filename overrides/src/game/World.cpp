@@ -417,10 +417,11 @@ bool CWorld::SetupNewLevel(char* levelFolder) {
                 tpw::TpiParsePeeps(text.data(), text.size(), tpw::gTpiPeeps);
         }
     }
-    // TPW_PORT_FIX mods CWorld::SetupNewLevel | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiUmbrellas.h): with the mod on, reads the level's TpiUmbrellas.sam (its umbrella shops and Theme Park Inc's umbrella values, which the converter writes into each of the mod's worlds only) into tpw::gTpiUmbrellas, and points tpw::gTpiUmbrellaSpawn at the umbrella's script maker and tpw::gTpiCameraAt at the camera; a level without the file leaves it not loaded | Why: tpw-mods tpi-worlds umbrellas | Off: the table stays not loaded, no file is read
+    // TPW_PORT_FIX mods CWorld::SetupNewLevel | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiUmbrellas.h): with the mod on, reads the level's TpiUmbrellas.sam (its umbrella shops and Theme Park Inc's umbrella values, which the converter writes into each of the mod's worlds only) into tpw::gTpiUmbrellas, and points tpw::gTpiUmbrellaSpawn at the umbrella's script maker, tpw::gTpiCameraAt at the camera and tpw::gTpiThirdPersonAt at gESPThirdPerson; a level without the file leaves it not loaded | Why: tpw-mods tpi-worlds umbrellas | Off: the table stays not loaded, no file is read
     tpw::gTpiUmbrellas = tpw::TpiUmbrellaTable{};
     tpw::gTpiUmbrellaSpawn = tpw::TpiSpawnUmbrella;
     tpw::gTpiCameraAt = gCameraPosition;
+    tpw::gTpiThirdPersonAt = &gESPThirdPerson;
     if (gModTpiWorlds) {
         std::sprintf(buffer, "%s:%s", levelFolder, tpw::kTpiUmbrellasFile);
         const int32_t length = LbFile_GetLength(buffer);

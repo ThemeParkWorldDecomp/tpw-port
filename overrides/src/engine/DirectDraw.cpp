@@ -33,6 +33,8 @@
 #include <cstdio>
 #include <cstring>
 #include <utility>
+// TPW_PORT_FIX mods ConvertSquareFrom32 | Mac: the procedural ground's ARGB colours are truncated to RGBA4444 | Port: TPW_MOD_HOOK tpi_worlds (include/TpiGateFlow.h), in a mod world and texture format 4 only, round RGB over a repeating 4 by 4 threshold pattern to the cache's seventeen-level channel steps, keeping alpha's original high nibble | Why: the Arabian tunnel's newly exposed sand has smooth colours near the green and blue nibble boundaries, so truncation makes light rectangular patches; preserve its mean colour and fine variation, as the surrounding textured sand does | Off: the Mac's conversion in original worlds, mods off and other formats
+#include "TpiGateFlow.h"
 
 // Unit v5953: ConvertSquareFrom32 (0x10003454), PT_Load (0x1000bed0), CSwitch::Do (0x100328ac),
 // COpenGLPrintf::Close (0x10046c64).
@@ -40,6 +42,20 @@
 // Converts a size x size block of 32-bit ARGB pixels at `source` into the texture format of the
 // settings (format 5: 10, format 4: 4, any other: 13) at `dest`.
 void ConvertSquareFrom32(void* dest, void* source, int32_t size) {
+    if (gei_TextureSettings.mFormat == 4 && tpw::TpiWorldInPlay()) {
+        const auto* in = static_cast<const uint8_t*>(source);
+        auto* out = static_cast<uint16_t*>(dest);
+        // The renderer expands a nibble by 17. Spread rounding across sixteen midpoint thresholds within that step,
+        // rather than rounding a whole smooth region to one colour. Tile sizes 16, 32 and 64 share the same phase.
+        for (int32_t y = 0; y < size; ++y)
+            for (int32_t x = 0; x < size; ++x, in += 4) {
+                const int32_t rank = ((x ^ y) & 1) * 8 + (y & 1) * 4 + ((x ^ y) & 2) + ((y & 2) >> 1);
+                const int32_t threshold = (2 * rank + 1) * 17;
+                const auto channel = [threshold](uint8_t value) { return (int32_t(value) * 32 + threshold) / (17 * 32); };
+                *out++ = uint16_t((channel(in[1]) << 12) | (channel(in[2]) << 8) | (channel(in[3]) << 4) | (in[0] >> 4));
+            }
+        return;
+    }
     int32_t format;
     switch (gei_TextureSettings.mFormat) {
         case 5: format = 10; break;

@@ -13,6 +13,8 @@
 #include <cstring>
 #include <new>
 #include <type_traits>
+// TPW_PORT_FIX mods TpiTunnelTop | Mac: no such header | Port: the Arabian tunnel's top and route layers (tpw::TpiStepRoof, tpw::kTpiRoofNavBit, tpw::kTpiTunnelNavBit) for the walker helpers below | Why: paths on the cleared top carry guests over the tunnel while others walk its route underneath (TPW_MOD_HOOK tpi_worlds)
+#include "TpiTunnelTop.h"
 
 // vehicle.cpp, unit w230: save/load and __sinit_vehicle_cpp. Native runtime boundaries below are support glue.
 
@@ -58,6 +60,77 @@ template<class Type> void InitializeBehaviour(Type& object, const char* name, Ve
     VehicleRuntimeRegister(&object, destructor, &gObjectNodes[index]);
 }
 } // namespace
+
+// TPW_PORT_FIX mods TpiWalkMode | Mac: no such functions | Port: TPW_MOD_HOOK tpi_worlds, the Arabian tunnel's two walker layers (include/TpiTunnelTop.h) for Vehicle's plan, steps, wall avoidance and save; mPad61[0], which the Mac never reads or writes, keeps the layer of a walker on the route's cells under the cleared top (1 on the top, 0 on the route) | Why: paths on the cleared top carry guests over the tunnel while others walk its route underneath, and the two never mix (the maintainer, 0.6.2) | Off: never called
+namespace tpw {
+namespace {
+uint16_t SquareOf(const Vector2d& p) {
+    return static_cast<uint16_t>(1u + ((static_cast<uint32_t>(p.x) >> 16) & 0x7fu) + (((static_cast<uint32_t>(p.y) >> 16) & 0x7fu) << 7));
+}
+bool Layered() { return TpiTunnelOpen() && gGameWorld != nullptr; }
+int RoofOf(const Vehicle& v) {
+    if (!Layered()) return 1;
+    return TpiWalkerRoof(v.mPad61[0], SquareOf(v.mPos));
+}
+// A walker that is not on the top (on the ground, or on the route under it) is checked with tpw::kTpiTunnelNavBit, which
+// MAP_wall_in_way takes off before the Mac's rules; a walker on the top in its own mode, as every other caller is.
+NavMode WithRoof(NavMode mode, int roof) {
+    return Layered() && roof == 0 ? static_cast<NavMode>(static_cast<int32_t>(mode) | kTpiTunnelNavBit) : mode;
+}
+// The planned route's length in square steps (a diagonal step counts one and a half).
+int32_t RouteLength(int sx, int sy, const wallhug_path& path) {
+    int32_t length = 0;
+    for (int i = 0; i < path.mCount; ++i) {
+        const int dx = std::abs(path.mPoints[i].mX - sx), dy = std::abs(path.mPoints[i].mY - sy);
+        length += 2 * (dx > dy ? dx : dy) + (dx > dy ? dy : dx);
+        sx = path.mPoints[i].mX;
+        sy = path.mPoints[i].mY;
+    }
+    return length;
+}
+}  // namespace
+
+NavMode TpiWalkMode(const Vehicle& v) { return WithRoof(v.mNavMode, RoofOf(v)); }
+
+NavMode TpiSaveRoofMode(const Vehicle& v) {
+    if (v.mPad61[0] == 0 || !Layered()) return v.mNavMode;
+    return TpiTunnelCovered(SquareOf(v.mPos)) ? static_cast<NavMode>(static_cast<int32_t>(v.mNavMode) | kTpiRoofNavBit)
+                                              : v.mNavMode;
+}
+
+void TpiStepWalker(Vehicle& v, const Vector2d& next) {
+    if (!Layered()) return;
+    const uint16_t from = SquareOf(v.mPos), to = SquareOf(next);
+    if (from != to) v.mPad61[0] = static_cast<uint8_t>(TpiStepRoof(v.mPad61[0], from, to));
+}
+
+// The wall hugger in the walker's layer. Off the covered cells, while the top is cleared, a failed plan or one between
+// the two sides of the top near it is made again in the other layer and the shorter kept: each plan stays in one layer,
+// and the walker's own layer agrees with it wherever it matters, on the covered cells it reaches.
+uint32_t TpiPlanWalk(const Vehicle& v, wallhug_path& path) {
+    const int roof = RoofOf(v);
+    const int sx = path.mStartX, sy = path.mStartY, ex = path.mEndX, ey = path.mEndY;
+    const uint32_t first = wallhug_tricky(&path, WithRoof(v.mNavMode, roof));
+    if (gTpiTunnelCovered == 0 || !Layered()) return first;
+    if (TpiTunnelCovered(SquareOf(v.mPos))) return first;
+    const TpiTunnelTop& top = gTpiTunnelTop;
+    const int north = top.ty, south = top.ty + top.th - 1, margin = 16;
+    const bool across = ((sy <= north && ey >= south) || (ey <= north && sy >= south)) &&
+                        (sx < ex ? sx : ex) - margin < top.tx + top.tw && (sx > ex ? sx : ex) + margin >= top.tx;
+    if (first != 0x70000000u && !across) return first;
+    const wallhug_path kept = path;
+    path.mStartX = static_cast<uint8_t>(sx);
+    path.mStartY = static_cast<uint8_t>(sy);
+    path.mEndX = static_cast<uint8_t>(ex);
+    path.mEndY = static_cast<uint8_t>(ey);
+    const uint32_t second = wallhug_tricky(&path, WithRoof(v.mNavMode, roof ^ 1));
+    if (second == 0x70000000u || (first != 0x70000000u && RouteLength(sx, sy, kept) <= RouteLength(sx, sy, path))) {
+        path = kept;
+        return first;
+    }
+    return second;
+}
+}  // namespace tpw
 
 // 0x10134a74, 268 B and 0x10134bc0, 252 B. Each Fixed is converted separately.
 template<> int32_t SAVEVARSTRUCT<Vector2d>(void* file, Vector2d* value, const char* name, int32_t noLog) {
@@ -105,7 +178,17 @@ int32_t Vehicle::Serialise(void* file, int32_t save, int32_t version, uint32_t u
     if (Scalar<MacLong>(file, mMaxForce, "max_force", save)) return 1;
     if (Scalar<MacLong>(file, mMaxSpeed, "max_speed", save)) return 1;
     if (Scalar<int32_t>(file, mUnreachable, "mCantReachDest", save)) return 1;
-    if (Scalar<NavMode>(file, mNavMode, "nav_mode", save)) return 1;
+    // TPW_PORT_FIX mods Vehicle::Serialise | Mac: nav_mode is the mode as it is | Port: TPW_MOD_HOOK tpi_worlds, a walker on the top of the Arabian tunnel over its route with the mod on saves the mode with tpw::kTpiRoofNavBit, and a load takes the bit back off into mPad61[0] (the original's modes are 0 to 2, so other parks and older saves never carry it) | Why: a guest saved on the top loads on the top, not in the tunnel beneath (the maintainer, 0.6.2) | Off: the Mac's word
+    if (!gModTpiWorlds) {
+        if (Scalar<NavMode>(file, mNavMode, "nav_mode", save)) return 1;
+    } else {
+        NavMode navMode = save ? tpw::TpiSaveRoofMode(*this) : mNavMode;
+        if (Scalar<NavMode>(file, navMode, "nav_mode", save)) return 1;
+        if (!save) {
+            mPad61[0] = (static_cast<int32_t>(navMode) & tpw::kTpiRoofNavBit) != 0 ? 1 : 0;
+            mNavMode = static_cast<NavMode>(static_cast<int32_t>(navMode) & ~tpw::kTpiRoofNavBit);
+        }
+    }
     if (Scalar<int32_t>(file, mNumLoaded, "path_buffer_count", save)) return 1;
     if (Scalar<int32_t>(file, mWaypoint, "path_count", save)) return 1;
     if (Scalar<bool>(file, mPathFlag, "path_finished", save)) return 1;
@@ -354,7 +437,8 @@ namespace {
 // MAP_wall_in_way for the map square (x, y) of the vehicle's map and the side `dir` (0 = -y, 1 = +x, 2 = +y, 3 = -x) in the vehicle's mode (read afresh for
 // every call); any answer but 0 is a wall. The coordinates are bytes: the squares beside the vehicle's wrap in a byte.
 bool Wall(const Vehicle& vehicle, uint32_t x, uint32_t y, uint8_t dir) {
-    return MAP_wall_in_way(static_cast<uint8_t>(x), static_cast<uint8_t>(y), dir, vehicle.mNavMode) != 0;
+    // TPW_PORT_FIX mods Avoid_Walls::calculate | Mac: the vehicle's mode | Port: TPW_MOD_HOOK tpi_worlds, with the walker's tunnel layer (tpw::TpiWalkMode) | Why: see Vehicle::next_step | Off: the Mac's mode
+    return MAP_wall_in_way(static_cast<uint8_t>(x), static_cast<uint8_t>(y), dir, tpw::TpiWalkMode(vehicle)) != 0;
 }
 
 // The push away from a corner: the line of the step (from the vehicle's position along d) must pass within the radius of it, at a distance along the step
@@ -587,6 +671,7 @@ Vector2d Vehicle::vec_to_global(const Vector2d& v) const {
 // new square's number is looked up first); a refused step shifts a 1 into mStuckHistory. Then the forward and side axes follow the velocity and a step that made no
 // progress (the progress did not grow) shifts a 1 in.
 void Vehicle::next_step() {
+    // TPW_PORT_FIX mods Vehicle::next_step | Mac: the step is checked in the vehicle's mode | Port: TPW_MOD_HOOK tpi_worlds, in the Arabian tunnel's walker layer: the mode carries tpw::kTpiTunnelNavBit while the walker walks the route under the cleared top (tpw::TpiWalkMode), and a step onto the route's covered cells keeps the layer of the cell it came from (mPad61[0], tpw::TpiStepRoof) | Why: paths on the cleared top carry guests over the tunnel while others walk its route underneath, and the two never mix (the maintainer, 0.6.2) | Off: the Mac's step
     Vector2d sum;
     for (BehaviourEntry* entry = gVehBehaviours.mData; entry != gVehBehaviours.mTop; entry++) {
         const Vector2d force = entry->mBehaviour->calculate(*this);
@@ -604,10 +689,11 @@ void Vehicle::next_step() {
     const Vector2d there = map_global_to_local(static_cast<uint32_t>(next.x), static_cast<uint32_t>(next.y));
     const int32_t toSquare = map_fn(there.x, there.y, gVehMapData);
     const int32_t fromSquare = map_fn(here.x, here.y, gVehMapData);
-    if (gVehNavRules(fromSquare, toSquare, mNavMode) == 0) {
+    if (gVehNavRules(fromSquare, toSquare, tpw::TpiWalkMode(*this)) == 0) {
         mStuckHistory <<= 1;
         mStuckHistory |= 1;
     } else {
+        tpw::TpiStepWalker(*this, next);
         mPos = next;
     }
 
@@ -672,7 +758,8 @@ int32_t Vehicle::recalc_path(const Vector2d& target, RecalcPathMode mode) {
     path.mStartY = static_cast<uint8_t>(mPos.y >> 16);
     path.mEndX = static_cast<uint8_t>(target.x >> 16);
     path.mEndY = static_cast<uint8_t>(target.y >> 16);
-    if (wallhug_tricky(&path, mNavMode) == 0x70000000u) {
+    // TPW_PORT_FIX mods Vehicle::recalc_path | Mac: one plan in the vehicle's mode | Port: TPW_MOD_HOOK tpi_worlds, the plan is in the walker's tunnel layer (tpw::TpiWalkMode); while the Arabian tunnel's top is cleared and the walker is not on the route's covered cells, a failed plan, or one whose ends lie on both sides of the top, is made again in the other layer and the shorter one kept, so every route stays on one layer through the crossing | Why: guests reach the top's paths and the tunnel alike, and never step between the top and the route beneath (the maintainer, 0.6.2) | Off: the Mac's plan
+    if (tpw::TpiPlanWalk(*this, path) == 0x70000000u) {
         mDestination.x = target.x;
         mDestination.y = target.y;
         mNumWaypoints = 0;
@@ -769,6 +856,7 @@ Pilot::Pilot() {
     mStuckHistory = 0;
     mNavMode = static_cast<NavMode>(0);
     mUnreachable = 0;
+    if (gModTpiWorlds) mPad61[0] = 0; // TPW_PORT_FIX mods Pilot::Pilot | Mac: mPad61 stays as it was | Port: TPW_MOD_HOOK tpi_worlds, with the mod on the tunnel layer starts at the floor (see Vehicle::next_step) | Why: the layer is read from it | Off: unused, as on the Mac
     mRadius = 0x3333;
     mF00 = gVehOne;
     mPos = Vector2d(0, 0);
@@ -777,6 +865,7 @@ Pilot::Pilot() {
 
 // 0x101347b0 (20 bytes): position and velocity.
 void Pilot::reset(int32_t x, int32_t y, int32_t vx, int32_t vy) {
+    if (gModTpiWorlds) mPad61[0] = 1; // TPW_PORT_FIX mods Pilot::reset | Mac: mPad61 is never written | Port: TPW_MOD_HOOK tpi_worlds, with the mod on a walker put down anywhere (a new guest, one the player drops) stands on the surface, the top over the Arabian tunnel's route (see Vehicle::next_step) | Why: the route's layer comes only from walking in at a mouth | Off: unused, as on the Mac
     mPos.x = x;
     mPos.y = y;
     mVelocity.x = vx;

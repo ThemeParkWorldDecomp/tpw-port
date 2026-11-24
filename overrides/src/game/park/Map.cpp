@@ -409,6 +409,9 @@ int32_t MAP_wall_in_way(uint8_t x, uint8_t z, uint8_t dir, NavMode mode) {
     if (z == 0 && dir == 0) return 1;
     if (x == 0x7f && dir == 1) return 1;
     if (z == 0x7f && dir == 2) return 1;
+    // TPW_PORT_FIX mods MAP_wall_in_way | Mac: the mode is 0, 1 or 2 | Port: TPW_MOD_HOOK tpi_worlds, the walkers' callers (Vehicle's plan, steps and wall avoidance) add tpw::kTpiTunnelNavBit, while the Arabian tunnel's top is cleared, for a walker that is not on the top (on the ground, or on the tunnel's route under the top; include/TpiTunnelTop.h); it picks how the covered cells are seen below and is taken off, with the saved tpw::kTpiRoofNavBit, before the Mac's rules | Why: the top is ordinary ground with paths on it while guests walk the fixed route underneath, and the two never mix (the maintainer, 0.6.2) | Off: never set
+    const int32_t roofWalker = (static_cast<int32_t>(mode) & tpw::kTpiTunnelNavBit) != 0 ? 0 : 1;
+    mode = static_cast<NavMode>(static_cast<int32_t>(mode) & ~(tpw::kTpiRoofNavBit | tpw::kTpiTunnelNavBit));
     const int32_t m = static_cast<int32_t>(mode);
 
     const uint16_t thisId = static_cast<uint16_t>(x + z * 128 + 1);
@@ -424,7 +427,10 @@ int32_t MAP_wall_in_way(uint8_t x, uint8_t z, uint8_t dir, NavMode mode) {
     const CMapCell* const here = MapCellAt(thisId);
     const CMapCell* const that = MapCellAt(thatId);
     // TPW_PORT_FIX mods MAP_wall_in_way | Mac: a walker on any cell that is not a path or a queue (a footbridge too) may step onto any open neighbour | Port: TPW_MOD_HOOK tpi_worlds, while tpw::TpiWorldInPlay() a footbridge's sides are walls except toward a path or another mode 0x1e cell (tpw::TpiFootbridgeWall); first person keeps the Mac's rule | Why: a TPI tunnel's floor is a two-cell footbridge strip with open land beside it at the mouths and along the hill's foot, and guests walked out onto it (the maintainer, 0.6.0) | Off: the Mac's walls
-    if (tpw::TpiFootbridgeWall({static_cast<int32_t>(here->mType), here->mFlags}, {static_cast<int32_t>(that->mType), that->mFlags}, m)) return 1;
+    if (tpw::TpiFootbridgeWall(tpw::TpiWalkerCell(static_cast<int32_t>(here->mType), here->mFlags, thisId, roofWalker),
+                             tpw::TpiWalkerCell(static_cast<int32_t>(that->mType), that->mFlags, thatId, roofWalker), m)) return 1;
+    // The route under the cleared top walks on beneath whatever the top holds over it (tpw::TpiWalkerCell).
+    if (roofWalker == 0 && (tpw::TpiTunnelCovered(thisId) || tpw::TpiTunnelCovered(thatId))) return 0;
 
     if (that->IsPath() != 0) {
         if (here->IsQueue() == 0) return 0;
