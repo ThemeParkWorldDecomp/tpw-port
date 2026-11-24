@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstdint>
 #include <mutex>
+#include <optional>
 
 #include "ESP_sprites.h"
 #include "FS_OnlineLoginPanel.h"
@@ -43,11 +44,11 @@ bool gRestartKeyboardOnHide = false;
 InterfaceWindow* gTouchSliderThumb = nullptr;
 bool gSliderMouseHeld = false;
 
-enum class FlightCommand { None, Enter, Exit };
+enum class CameraMode : jint { Off, Flight, Orbit };
 struct FlightInput {
     std::array<float, kPortFreePadAxisCount> axes{};
     float lookX = 0, lookY = 0;
-    FlightCommand command = FlightCommand::None;
+    std::optional<CameraMode> mode;
     bool reset = false;
 };
 std::mutex gFlightInputLock;
@@ -60,6 +61,7 @@ struct CameraBookmark {
 };
 CameraBookmark gBeforeFlight{};
 const InterfaceWindow* gFlightPark = nullptr;
+CameraMode gCameraMode = CameraMode::Off;
 
 bool Editing() {
     return gUIKeyboardWindow != nullptr && gUIKeyboardWindow->WhatAmI() == kUIKindEditBox;
@@ -96,7 +98,7 @@ bool NotifyActivity(const char* method, bool value) {
     return true;
 }
 
-void EnterFlight() {
+void EnterFreeCamera(CameraMode mode) {
     auto& before = gBeforeFlight;
     std::copy_n(gCameraPosition, 3, before.position);
     std::copy_n(gCameraTarget, 3, before.target);
@@ -110,23 +112,26 @@ void EnterFlight() {
     before.padOn = gPortFreePadOn;
     gFlightPark = gGameWindow;
     gPortFreeCamera = gPortFreePadOn = true;
-    gPortFree.flyWanted = true;
-    tpw::Log("free camera: Android flight started");
+    gCameraMode = mode;
+    gPortFree.flyWanted = mode == CameraMode::Flight;
+    tpw::Log("free camera: Android %s started", mode == CameraMode::Flight ? "flight" : "orbit");
 }
 
-void ExitFlight(bool walking) {
+void RestoreCameraBookmark() {
+    const auto& before = gBeforeFlight;
+    std::copy_n(before.position, 3, gCameraPosition);
+    std::copy_n(before.target, 3, gCameraTarget);
+    gCameraYaw = before.yaw;
+    gCameraPitch = before.pitch;
+    gCameraF5BF4 = before.keyYaw;
+    gCameraF68 = before.zoom;
+    gCameraGroundHeight = before.ground;
+}
+
+void ExitFreeCamera(bool walking) {
     if (gFlightPark == gGameWindow && !walking) {
         // The game's camera load already supplied a view if it ended the flight.
-        if (gPortFree.flyWanted) {
-            const auto& before = gBeforeFlight;
-            std::copy_n(before.position, 3, gCameraPosition);
-            std::copy_n(before.target, 3, gCameraTarget);
-            gCameraYaw = before.yaw;
-            gCameraPitch = before.pitch;
-            gCameraF5BF4 = before.keyYaw;
-            gCameraF68 = before.zoom;
-            gCameraGroundHeight = before.ground;
-        }
+        if (gCameraMode == CameraMode::Orbit || gPortFree.flyWanted) RestoreCameraBookmark();
         if (gPortFreeLowView) ESP_SwitchToThirdPersonSprites();
     }
     gFlightPark = nullptr;
@@ -136,7 +141,8 @@ void ExitFlight(bool walking) {
     gPortFree = {};
     gPortFreeCamera = gBeforeFlight.freeCamera;
     gPortFreePadOn = gBeforeFlight.padOn;
-    tpw::Log("free camera: Android flight ended");
+    tpw::Log("free camera: Android %s ended", gCameraMode == CameraMode::Flight ? "flight" : "orbit");
+    gCameraMode = CameraMode::Off;
 }
 
 void UpdateFlight(bool available, bool walking) {
@@ -148,33 +154,55 @@ void UpdateFlight(bool available, bool walking) {
         std::lock_guard<std::mutex> hold(gFlightInputLock);
         input = gFlightInput;
         gFlightInput.lookX = gFlightInput.lookY = 0;
-        gFlightInput.command = FlightCommand::None;
+        gFlightInput.mode.reset();
         gFlightInput.reset = false;
     }
-    if (gFlightPark != nullptr &&
-        (!available || gFlightPark != gGameWindow || !gPortFree.flyWanted || input.command == FlightCommand::Exit)) {
-        ExitFlight(walking);
-        if (input.command != FlightCommand::Exit) NotifyActivity("freeCameraEnded", true);
+    if (gFlightPark != nullptr && (!available || gFlightPark != gGameWindow ||
+        (gCameraMode == CameraMode::Flight && !gPortFree.flyWanted))) {
+        ExitFreeCamera(walking);
+        if (!input.mode) NotifyActivity("freeCameraEnded", true);
     }
-    if (input.command == FlightCommand::Enter && gFlightPark == nullptr) {
-        if (available) EnterFlight();
-        else NotifyActivity("freeCameraEnded", true);
+    if (input.mode && *input.mode != gCameraMode) {
+        if (*input.mode == CameraMode::Off) {
+            ExitFreeCamera(walking);
+        } else if (!available) {
+            NotifyActivity("freeCameraEnded", true);
+        } else if (gFlightPark == nullptr) {
+            EnterFreeCamera(*input.mode);
+        } else {
+            // Keep the original bookmark while switching between orbit and flight.
+            gCameraMode = *input.mode;
+            gPortFree.flyWanted = gCameraMode == CameraMode::Flight;
+            tpw::Log("free camera: Android %s started", gPortFree.flyWanted ? "flight" : "orbit");
+        }
     }
     if (gFlightPark == nullptr) return;
+    if (!input.mode && gCameraMode == CameraMode::Orbit && gPortFree.flyWanted) {
+        // The shared camera also accepts Tab from a physical keyboard.
+        gCameraMode = CameraMode::Flight;
+        NotifyActivity("freeCameraFlightSelected", true);
+    }
 
     for (int i = 0; i < kPortFreePadAxisCount; ++i) {
         PortFreePadAxis(i, static_cast<int16_t>(std::clamp(input.axes[i], -1.0f, 1.0f) * 32767));
     }
-    if (input.reset && gPortFree.fly) {
-        std::copy_n(gBeforeFlight.eye, 3, gPortFree.eye);
-        gPortFree.flyYaw = gPortFree.flyYawTarget = gBeforeFlight.yaw;
-        gPortFree.flyPitch = gPortFree.flyPitchTarget = gBeforeFlight.pitch;
-        std::fill_n(gPortFree.flyVelocity, 3, 0.0f);
+    if (input.reset) {
+        if (gPortFree.fly) {
+            std::copy_n(gBeforeFlight.eye, 3, gPortFree.eye);
+            gPortFree.flyYaw = gPortFree.flyYawTarget = gBeforeFlight.yaw;
+            gPortFree.flyPitch = gPortFree.flyPitchTarget = gBeforeFlight.pitch;
+            std::fill_n(gPortFree.flyVelocity, 3, 0.0f);
+            gPortFree.flyAhead = 0.0f;
+        } else {
+            RestoreCameraBookmark();
+            gPortFree.pitchTarget = gBeforeFlight.pitch;
+        }
         PortFreeClearPending();
-        tpw::Log("free camera: Android flight view reset");
+        tpw::Log("free camera: Android %s view reset", gCameraMode == CameraMode::Flight ? "flight" : "orbit");
     } else {
-        gPortFree.dYaw += input.lookX * kPortFreeDragTurn;
-        gPortFree.dPitch += input.lookY * kPortFreeDragTurn;
+        const float sense = kPortFreeDragTurn * gPortFreeLookSensitivity;
+        gPortFree.dYaw += input.lookX * sense;
+        gPortFree.dPitch += input.lookY * sense * (gPortFreeInvertLook ? -1.0f : 1.0f);
     }
 }
 }
@@ -184,10 +212,11 @@ extern "C" JNIEXPORT void JNICALL Java_org_tpwport_android_ThemeParkActivity_nat
     gStick.store(static_cast<uint32_t>(pack(x)) | (static_cast<uint32_t>(pack(y)) << 16), std::memory_order_relaxed);
 }
 
-extern "C" JNIEXPORT void JNICALL Java_org_tpwport_android_ThemeParkActivity_nativeFlightMode(JNIEnv*, jclass, jboolean flight) {
+extern "C" JNIEXPORT void JNICALL Java_org_tpwport_android_ThemeParkActivity_nativeCameraMode(JNIEnv*, jclass, jint mode) {
+    if (mode < static_cast<jint>(CameraMode::Off) || mode > static_cast<jint>(CameraMode::Orbit)) return;
     std::lock_guard<std::mutex> hold(gFlightInputLock);
     gFlightInput = {};
-    gFlightInput.command = flight ? FlightCommand::Enter : FlightCommand::Exit;
+    gFlightInput.mode = static_cast<CameraMode>(mode);
 }
 
 extern "C" JNIEXPORT void JNICALL Java_org_tpwport_android_ThemeParkActivity_nativeFlightAxes(

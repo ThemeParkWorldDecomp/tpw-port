@@ -24,6 +24,7 @@ extern "C" SDL_DECLSPEC int SDLCALL SDL_main(int argc, char** argv) {
     SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
     if (argc > 5) tpw::mobile::SetInterfaceScale(std::atoi(argv[5]));
     std::vector<std::string> args = {"Theme Park World", "--data", storage, "--play", edition, "--no-preload"};
+    if (argc > 6 && std::string(argv[6]) == "0") args.emplace_back("--windowed");
     if (*language != '\0') {
         args.emplace_back("--language");
         args.emplace_back(language);

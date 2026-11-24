@@ -22,6 +22,7 @@ import android.provider.OpenableColumns;
 import android.text.InputType;
 import android.util.Log;
 import android.view.Gravity;
+import android.view.Display;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
@@ -31,6 +32,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.Switch;
 import android.widget.TextView;
 
@@ -52,7 +54,11 @@ public final class SetupActivity extends Activity {
     static final String EDITION = "edition";
     static final String LANGUAGE = "language";
     static final String INTERFACE_SCALE = "interface_scale";
-    private static final int[] INTERFACE_SCALES = {100, 115, 125};
+    static final String IMMERSIVE = "immersive_full_screen";
+    static final String FILL_CUTOUT = "fill_display_cutout";
+    static final String RETURN_TO_LAUNCHER = "return_to_launcher";
+    private static final String AUTO_UPDATES = "check_for_updates";
+    private static final int[] INTERFACE_SCALES = {70, 85, 100, 115, 125};
     private static final int PICK_FILES = 1;
     private static final int PICK_FOLDER = 2;
     private static final int PICK_PACK = 3;
@@ -84,11 +90,13 @@ public final class SetupActivity extends Activity {
 
     private final ExecutorService work = Executors.newSingleThreadExecutor();
     private Button play, files, folder, manageFiles, edition, language, options, mods;
+    private Button update;
     private Switch goldRides;
     private TextView gameTitle, status;
     private LinearLayout body, header, quickActions, panels, gamePanel, dataPanel;
     private ProgressBar progress;
     private boolean busy;
+    private boolean checkingUpdates;
     private Runnable pendingDocument;
     private String[] editions = {}, europeanLanguages = {}, americanLanguages = {};
     private String[] europeanLabels = {}, americanLabels = {};
@@ -100,8 +108,11 @@ public final class SetupActivity extends Activity {
     private static native String[] nativeTranslationLanguages();
     private static native boolean nativeNameTranslation(String dataFolder, String id, String language);
     private static native String[] nativeOptions(String dataFolder, boolean mods, String changedKey, boolean enabled);
-    private static native String[] nativeGraphicsOptions(String dataFolder, String changedKey, int selection);
+    private static native String[] nativeChoiceOptions(String dataFolder, boolean camera, String changedKey, int selection,
+                                                       int maxFrameRate);
     private static native String[] nativeOnlineServer(String dataFolder, String host);
+    private static native String[] nativeGameOptions(String dataFolder, String edition, String profile, int option, int value,
+                                                       int screenWidth, int screenHeight);
 
     @Override
     protected void onCreate(Bundle previous) {
@@ -111,6 +122,7 @@ public final class SetupActivity extends Activity {
         migrateLanguagePreference();
         createScreen();
         runImport(new ArrayList<>(), false);
+        checkForUpdates();
     }
 
     private void createScreen() {
@@ -133,6 +145,9 @@ public final class SetupActivity extends Activity {
         quickActions.addView(mods);
         header.addView(quickActions);
         body.addView(header);
+        update = launcherButton(R.string.check_updates, ButtonStyle.NAVIGATION);
+        update.setVisibility(View.GONE);
+        addRow(body, update, 8);
 
         gamePanel = panel(0xFF3E7050, 0xFF24483B, 0xFF79A177);
         gameTitle = heading(getString(R.string.select_edition), 30);
@@ -209,7 +224,10 @@ public final class SetupActivity extends Activity {
         if (usEdition()) game.setClassName(getPackageName(), "org.tpwport.android.SimThemePark");
         startActivity(game.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             .putExtra(EDITION, chosenEdition).putExtra(LANGUAGE, chosenLanguage)
-            .putExtra(INTERFACE_SCALE, interfaceScale()));
+            .putExtra(INTERFACE_SCALE, interfaceScale())
+            .putExtra(IMMERSIVE, getPreferences(MODE_PRIVATE).getBoolean(IMMERSIVE, true))
+            .putExtra(FILL_CUTOUT, getPreferences(MODE_PRIVATE).getBoolean(FILL_CUTOUT, true))
+            .putExtra(RETURN_TO_LAUNCHER, getPreferences(MODE_PRIVATE).getBoolean(RETURN_TO_LAUNCHER, false)));
         Log.i("TPWLauncher", "play: handed to game task (" + chosenEdition + ")");
     }
 
@@ -355,9 +373,17 @@ public final class SetupActivity extends Activity {
             scale.setOnClickListener(view -> chooseInterfaceScale(scale));
             alignStart(scale);
             addRow(fields, scale, 8);
-            Button graphics = launcherButton(R.string.graphics_settings, ButtonStyle.NAVIGATION, () -> showGraphicsOptions(root));
+            Button graphics = launcherButton(R.string.graphics_settings, ButtonStyle.NAVIGATION, () -> showChoiceOptions(root, false));
             alignStart(graphics);
             addRow(fields, graphics, 8);
+            Button gameOptions = launcherButton(R.string.game_options, ButtonStyle.NAVIGATION,
+                () -> showGameOptions(root, chosenEdition));
+            gameOptions.setEnabled(!chosenEdition.isEmpty());
+            alignStart(gameOptions);
+            addRow(fields, gameOptions, 8);
+            Button camera = launcherButton(R.string.camera_settings, ButtonStyle.NAVIGATION, () -> showChoiceOptions(root, true));
+            alignStart(camera);
+            addRow(fields, camera, 8);
             String[] server = nativeOnlineServer(root, null);
             if (server != null) {
                 Button online = launcherButton(R.string.online_server, ButtonStyle.CHOICE);
@@ -366,22 +392,23 @@ public final class SetupActivity extends Activity {
                 alignStart(online);
                 addRow(fields, online, 8);
             }
+            addPreference(fields, R.string.immersive_full_screen, IMMERSIVE, true, null);
+            addPreference(fields, R.string.fill_display_cutout, FILL_CUTOUT, true, null);
+            addPreference(fields, R.string.return_to_launcher, RETURN_TO_LAUNCHER, false, null);
+            addPreference(fields, R.string.auto_updates, AUTO_UPDATES, true, () -> {
+                if (getPreferences(MODE_PRIVATE).getBoolean(AUTO_UPDATES, true)) checkForUpdates();
+                else update.setVisibility(View.GONE);
+            });
         }
         for (int i = 0; i + 4 < rows.length; i += 5) {
             final String key = rows[i];
             LinearLayout option = column();
             option.setBackground(gradient(0xFF234842, 0xFF1B3838, 0xFF496D65, 12, 1));
             option.setPadding(dp(12), 0, dp(12), 0);
-            Switch toggle = new Switch(this);
+            Switch toggle = optionSwitch();
             toggle.setText(showMods ? rows[i + 1] : settingLabel(key));
-            toggle.setTextColor(new ColorStateList(new int[][] {{-android.R.attr.state_enabled}, {}},
-                new int[] {MUTED, PAPER}));
-            toggle.setTextSize(16);
             toggle.setChecked(rows[i + 2].equals("1"));
             toggle.setEnabled(rows[i + 3].equals("1"));
-            toggle.setMinHeight(dp(48));
-            toggle.setPadding(0, dp(8), 0, dp(8));
-            toggle.setSwitchPadding(dp(12));
             toggle.setOnClickListener(view -> {
                 if (nativeOptions(root, showMods, key, toggle.isChecked()) != null) return;
                 toggle.setChecked(!toggle.isChecked());
@@ -400,6 +427,51 @@ public final class SetupActivity extends Activity {
             addRow(fields, option, 8);
         }
         dialog.show();
+    }
+
+    private Switch optionSwitch() {
+        Switch toggle = new Switch(this);
+        toggle.setTextColor(new ColorStateList(new int[][] {{-android.R.attr.state_enabled}, {}},
+            new int[] {MUTED, PAPER}));
+        toggle.setTextSize(16);
+        toggle.setMinHeight(dp(48));
+        toggle.setPadding(0, dp(8), 0, dp(8));
+        toggle.setSwitchPadding(dp(12));
+        return toggle;
+    }
+
+    private void addPreference(LinearLayout fields, int title, String key, boolean defaultOn, Runnable changed) {
+        SharedPreferences preferences = getPreferences(MODE_PRIVATE);
+        Switch toggle = optionSwitch();
+        toggle.setText(title);
+        toggle.setChecked(preferences.getBoolean(key, defaultOn));
+        toggle.setOnCheckedChangeListener((view, checked) -> {
+            preferences.edit().putBoolean(key, checked).apply();
+            if (changed != null) changed.run();
+        });
+        addRow(fields, toggle, 8);
+    }
+
+    private void checkForUpdates() {
+        if (checkingUpdates || !getPreferences(MODE_PRIVATE).getBoolean(AUTO_UPDATES, true)) return;
+        checkingUpdates = true;
+        final String installedVersion = versionName();
+        new Thread(() -> {
+            String found = AndroidUpdates.newest(installedVersion);
+            runOnUiThread(() -> {
+                checkingUpdates = false;
+                if (isFinishing() || isDestroyed() || found == null ||
+                    !getPreferences(MODE_PRIVATE).getBoolean(AUTO_UPDATES, true)) return;
+                update.setText(getString(R.string.update_available, found));
+                update.setOnClickListener(view -> openReleases(AndroidUpdates.RELEASES + "/tag/v" + found));
+                update.setVisibility(View.VISIBLE);
+            });
+        }, "Launcher update check").start();
+    }
+
+    private void openReleases(String url) {
+        try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); }
+        catch (ActivityNotFoundException error) { status.setText(R.string.browser_unavailable); }
     }
 
     private void updateOnlineServerLabel(Button button, String[] server) {
@@ -446,8 +518,17 @@ public final class SetupActivity extends Activity {
         });
     }
 
-    private void showGraphicsOptions(String root) {
-        String[] rows = nativeGraphicsOptions(root, "", -1);
+    private void showChoiceOptions(String root, boolean camera) {
+        int maxFrameRate = 60;
+        Display display = getDisplay();
+        if (display != null) {
+            for (Display.Mode mode : display.getSupportedModes()) {
+                maxFrameRate = Math.max(maxFrameRate, Math.round(mode.getRefreshRate()));
+            }
+        }
+        final int top = maxFrameRate;
+        int heading = camera ? R.string.camera_settings : R.string.graphics_settings;
+        String[] rows = nativeChoiceOptions(root, camera, "", -1, top);
         if (rows == null) {
             android.widget.Toast.makeText(this, R.string.options_unavailable, android.widget.Toast.LENGTH_SHORT).show();
             return;
@@ -463,22 +544,30 @@ public final class SetupActivity extends Activity {
             String[] values = splitLines(rows[i + 2]);
             String[] choices = new String[values.length];
             for (int j = 0; j < values.length; ++j) choices[j] = graphicsValueLabel(values[j]);
-            Button button = launcherButton(R.string.graphics_settings, ButtonStyle.CHOICE);
+            Button button = launcherButton(heading, ButtonStyle.CHOICE);
             updateGraphicsChoice(button, title, rows[i + 1]);
             alignStart(button);
-            button.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle(title)
-                .setSingleChoiceItems(choices, Arrays.asList(values).indexOf(button.getTag()), (picker, index) -> {
-                    if (nativeGraphicsOptions(root, key, index) != null) {
-                        updateGraphicsChoice(button, title, values[index]);
+            java.util.function.IntConsumer save = index -> {
+                if (nativeChoiceOptions(root, camera, key, index, top) != null) {
+                    updateGraphicsChoice(button, title, values[index]);
+                } else {
+                    android.widget.Toast.makeText(this, R.string.option_save_failed, android.widget.Toast.LENGTH_SHORT).show();
+                }
+            };
+            button.setOnClickListener(view -> {
+                int current = Arrays.asList(values).indexOf(button.getTag());
+                if (key.equals("frame_rate_limit")) {
+                    chooseRange(title, Math.max(current, 0), choices.length - 1, index -> choices[index], save);
+                } else {
+                    new AlertDialog.Builder(this).setTitle(title).setSingleChoiceItems(choices, current, (picker, index) -> {
                         picker.dismiss();
-                    } else {
-                        android.widget.Toast.makeText(this, R.string.option_save_failed, android.widget.Toast.LENGTH_SHORT).show();
-                        picker.dismiss();
-                    }
-                }).setNegativeButton(R.string.cancel, null).show());
+                        save.accept(index);
+                    }).setNegativeButton(R.string.cancel, null).show();
+                }
+            });
             addRow(fields, button, 8);
         }
-        new AlertDialog.Builder(this).setTitle(R.string.graphics_settings).setView(scroll)
+        new AlertDialog.Builder(this).setTitle(heading).setView(scroll)
             .setPositiveButton(R.string.done, null).show();
     }
 
@@ -502,12 +591,169 @@ public final class SetupActivity extends Activity {
             case "On": return getString(R.string.graphics_on);
             case "Low": return getString(R.string.graphics_low);
             case "High": return getString(R.string.graphics_high);
+            case "Moves the camera": return getString(R.string.free_swipe_move);
+            case "Zooms and rotates": return getString(R.string.free_swipe_zoom);
             default: return value;
         }
     }
 
+    private void showGameOptions(String root, String editionCode) {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout fields = column();
+        fields.setPadding(dp(18), dp(4), dp(18), dp(12));
+        scroll.addView(fields);
+        if (!renderGameOptions(root, editionCode, "", -1, 0, scroll, fields)) return;
+        new AlertDialog.Builder(this).setTitle(R.string.game_options).setView(scroll)
+            .setPositiveButton(R.string.done, null).show();
+    }
+
+    private boolean renderGameOptions(String root, String editionCode, String profile, int option, int value,
+                                      ScrollView scroll, LinearLayout fields) {
+        Display display = getDisplay();
+        Display.Mode mode = display == null ? null : display.getMode();
+        int width = mode == null ? 1920 : mode.getPhysicalWidth();
+        int height = mode == null ? 1080 : mode.getPhysicalHeight();
+        if (option >= 0 && !canChangeFiles()) return false;
+        String[] rows = nativeGameOptions(root, editionCode, profile, option, value, width, height);
+        if (rows == null) {
+            android.widget.Toast.makeText(this, option < 0 ? R.string.options_unavailable : R.string.option_save_failed,
+                android.widget.Toast.LENGTH_SHORT).show();
+            return false;
+        }
+
+        int scrollY = scroll.getScrollY();
+        fields.removeAllViews();
+        int count = Integer.parseInt(rows[0]);
+        int current = Integer.parseInt(rows[1]);
+        String[] profiles = Arrays.copyOfRange(rows, 3, 3 + count);
+        String selected = current < 0 ? "" : profiles[current];
+        int hint = rows[2].equals("running") ? R.string.quit_before_files :
+            rows[2].equals("unavailable") ? R.string.options_unavailable : R.string.game_options_saved;
+        addRow(fields, label(getString(hint), 14, MUTED), 4);
+        Button player = launcherButton(R.string.game_option_profile, ButtonStyle.CHOICE);
+        player.setText(getString(R.string.graphics_setting_value, getString(R.string.game_option_profile),
+            current < 0 ? getString(R.string.game_option_no_profile) : selected));
+        player.setEnabled(count > 1);
+        alignStart(player);
+        player.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle(R.string.game_option_profile)
+            .setSingleChoiceItems(profiles, current, (picker, index) -> {
+                picker.dismiss();
+                renderGameOptions(root, editionCode, profiles[index], -1, 0, scroll, fields);
+            }).setNegativeButton(R.string.cancel, null).show());
+        addRow(fields, player, 8);
+
+        for (int i = 3 + count; i + 4 < rows.length; i += 5) {
+            int id = Integer.parseInt(rows[i]);
+            String title = getString(gameOptionLabel(rows[i + 1]));
+            int currentValue = Integer.parseInt(rows[i + 2]);
+            String kind = rows[i + 4];
+            Button field = launcherButton(R.string.game_options, ButtonStyle.CHOICE);
+            alignStart(field);
+            field.setEnabled(rows[i + 3].equals("1"));
+            if (kind.equals("percent")) {
+                field.setText(getString(R.string.graphics_setting_value, title,
+                    getString(R.string.interface_scale_percent, currentValue)));
+                field.setOnClickListener(view -> chooseRange(title, currentValue, 100,
+                    next -> getString(R.string.interface_scale_percent, next),
+                    next -> renderGameOptions(root, editionCode, selected, id, next, scroll, fields)));
+            } else {
+                String[] choices;
+                int[] values;
+                if (rows[i + 1].equals("resolution")) {
+                    String[] sizes = splitLines(kind);
+                    choices = new String[sizes.length];
+                    values = new int[sizes.length];
+                    for (int j = 0; j < sizes.length; ++j) {
+                        int divider = sizes[j].indexOf(':');
+                        values[j] = Integer.parseInt(sizes[j].substring(0, divider));
+                        choices[j] = sizes[j].substring(divider + 1);
+                    }
+                } else {
+                    int[] labels = gameOptionChoices(kind);
+                    values = new int[labels.length];
+                    choices = new String[labels.length];
+                    for (int j = 0; j < labels.length; ++j) {
+                        values[j] = j;
+                        choices[j] = getString(labels[j]);
+                    }
+                }
+                int picked = -1;
+                for (int j = 0; j < values.length; ++j) if (currentValue == values[j]) picked = j;
+                final int initial = picked;
+                field.setText(initial < 0 ? title : getString(R.string.graphics_setting_value, title, choices[initial]));
+                field.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle(title)
+                    .setSingleChoiceItems(choices, initial, (picker, index) -> {
+                        picker.dismiss();
+                        renderGameOptions(root, editionCode, selected, id, values[index], scroll, fields);
+                    }).setNegativeButton(R.string.cancel, null).show());
+            }
+            addRow(fields, field, 8);
+        }
+        scroll.post(() -> scroll.scrollTo(0, scrollY));
+        return true;
+    }
+
+    private void chooseRange(String title, int value, int maximum, java.util.function.IntFunction<String> format,
+                             java.util.function.IntConsumer save) {
+        LinearLayout fields = column();
+        fields.setPadding(dp(16), dp(4), dp(16), dp(8));
+        TextView number = label(format.apply(value), 15, PAPER);
+        addRow(fields, number, 4);
+        SeekBar slider = new SeekBar(this);
+        slider.setContentDescription(title);
+        slider.setMax(maximum);
+        slider.setProgress(value);
+        slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+                number.setText(format.apply(progress));
+            }
+            @Override public void onStartTrackingTouch(SeekBar bar) { }
+            @Override public void onStopTrackingTouch(SeekBar bar) { }
+        });
+        addRow(fields, slider, 6);
+        new AlertDialog.Builder(this).setTitle(title).setView(fields)
+            .setPositiveButton(R.string.online_server_save, (dialog, which) -> save.accept(slider.getProgress()))
+            .setNegativeButton(R.string.cancel, null).show();
+    }
+
+    private static int[] gameOptionChoices(String kind) {
+        switch (kind) {
+            case "detail": return new int[] {R.string.graphics_low, R.string.graphics_medium, R.string.graphics_high};
+            case "software_detail": return new int[] {R.string.graphics_low, R.string.graphics_medium};
+            case "rendering": return new int[] {R.string.game_option_software, R.string.game_option_3d};
+            case "rotation": return new int[] {R.string.game_option_smooth, R.string.game_option_quarter_turns};
+            case "scroll": return new int[] {R.string.game_option_edge_scroll, R.string.right_mouse};
+            default: return new int[] {R.string.graphics_off, R.string.graphics_on};
+        }
+    }
+
+    private static int gameOptionLabel(String key) {
+        switch (key) {
+            case "resolution": return R.string.game_option_resolution;
+            case "detail": return R.string.game_option_detail;
+            case "rendering": return R.string.game_option_rendering;
+            case "audio_quality": return R.string.game_option_audio_quality;
+            case "movies": return R.string.game_option_movies;
+            case "movie_volume": return R.string.game_option_movie_volume;
+            case "sfx": return R.string.game_option_sfx;
+            case "sfx_volume": return R.string.game_option_sfx_volume;
+            case "music": return R.string.game_option_music;
+            case "music_volume": return R.string.game_option_music_volume;
+            case "speech": return R.string.game_option_speech;
+            case "speech_volume": return R.string.game_option_speech_volume;
+            case "advisor": return R.string.game_option_advisor;
+            case "tutorial": return R.string.game_option_tutorial;
+            case "popup_help": return R.string.game_option_popup_help;
+            case "confirmations": return R.string.game_option_confirmations;
+            case "rmb_cancel": return R.string.game_option_rmb_cancel;
+            case "rotation": return R.string.game_option_rotation;
+            case "scroll": return R.string.game_option_scroll;
+            default: return R.string.game_options;
+        }
+    }
+
     private int interfaceScale() {
-        return getPreferences(MODE_PRIVATE).getInt(INTERFACE_SCALE, INTERFACE_SCALES[0]);
+        return getPreferences(MODE_PRIVATE).getInt(INTERFACE_SCALE, 100);
     }
 
     private String interfaceScaleLabel(int percent) {
@@ -538,6 +784,14 @@ public final class SetupActivity extends Activity {
             case "pc_sound_picks": return getString(R.string.sound_variation);
             case "sound_panning": return getString(R.string.sound_pan);
             case "ride_badges": return getString(R.string.ride_badges);
+            case "wasd_camera": return getString(R.string.wasd_camera);
+            case "several_keys": return getString(R.string.several_keys);
+            case "free_camera_look_sensitivity": return getString(R.string.free_look_sensitivity);
+            case "free_camera_fly_speed": return getString(R.string.free_fly_speed);
+            case "free_camera_invert_look": return getString(R.string.free_invert_look);
+            case "free_camera_smoothing": return getString(R.string.free_smoothing);
+            case "free_camera_through_ground": return getString(R.string.free_through_ground);
+            case "free_camera_swipe": return getString(R.string.free_swipe);
             case "skip_intro": return getString(R.string.skip_intro);
             case "frame_rate_limit": return getString(R.string.graphics_frame_rate);
             case "draw_distance": return getString(R.string.graphics_draw_distance);
@@ -931,22 +1185,20 @@ public final class SetupActivity extends Activity {
         });
     }
 
+    private String versionName() {
+        try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
+        catch (PackageManager.NameNotFoundException ignored) { return ""; }
+    }
+
     private void showDiagnostics() {
-        String version = "";
-        try { version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
-        catch (PackageManager.NameNotFoundException ignored) { }
         int[] actions = {R.string.show_log, R.string.export_log, R.string.licenses, R.string.check_updates};
         String[] titles = Arrays.stream(actions).mapToObj(this::getString).toArray(String[]::new);
-        new AlertDialog.Builder(this).setTitle(getString(R.string.diagnostics_version, version)).setItems(titles, (dialog, i) -> {
+        new AlertDialog.Builder(this).setTitle(getString(R.string.diagnostics_version, versionName())).setItems(titles, (dialog, i) -> {
             switch (actions[i]) {
                 case R.string.show_log: showLog(); break;
                 case R.string.export_log: createDocument(EXPORT_LOG, "text/plain", "STP-TPW Launcher logs.txt"); break;
                 case R.string.licenses: showLicenses(); break;
-                case R.string.check_updates:
-                    Uri releases = Uri.parse("https://github.com/ThemeParkWorldDecomp/tpw-port/releases");
-                    try { startActivity(new Intent(Intent.ACTION_VIEW, releases)); }
-                    catch (ActivityNotFoundException error) { status.setText(R.string.browser_unavailable); }
-                    break;
+                case R.string.check_updates: openReleases(AndroidUpdates.RELEASES); break;
                 default: break;
             }
         }).setNegativeButton(R.string.done, null).show();

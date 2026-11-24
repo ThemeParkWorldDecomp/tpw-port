@@ -52,15 +52,21 @@ void ApplyScale(float scale) {
 }
 
 void SetInterfaceScale(int percent) {
-    gPreferredScale = percent == 115 || percent == 125 ? static_cast<float>(percent) / 100.0f : 1.0f;
+    switch (percent) {
+        case 70:
+        case 85:
+        case 115:
+        case 125: gPreferredScale = static_cast<float>(percent) / 100.0f; break;
+        default: gPreferredScale = 1.0f; break;
+    }
 }
 
 void FitInterfaceForMenu() {
-    if (gPreferredScale > 1.0f) ApplyScale(1.0f);
+    if (gPreferredScale != 1.0f) ApplyScale(1.0f);
 }
 
 void PrepareInterfaceForBuild(const InterfaceWindow* parent, const int16_t* script) {
-    if (gPreferredScale <= 1.0f || gGameWindow == nullptr) return;
+    if (gPreferredScale == 1.0f || gGameWindow == nullptr) return;
     // Full-screen screens such as the map and Options cache geometry during construction.
     if (gGame.mF3C != 1) {
         ApplyScale(1.0f);
@@ -72,7 +78,7 @@ void PrepareInterfaceForBuild(const InterfaceWindow* parent, const int16_t* scri
     const int32_t width = script[8] - script[6];
     const int32_t height = script[9] - script[7];
     if (width < 0x400 || height <= 0) return;
-    ApplyScale(std::clamp(PanelScale(width, height, parent), 1.0f, gPreferredScale));
+    ApplyScale(std::clamp(PanelScale(width, height, parent), std::min(1.0f, gPreferredScale), gPreferredScale));
 }
 
 bool InterfaceNeedsControlSpace() {
@@ -80,7 +86,7 @@ bool InterfaceNeedsControlSpace() {
 }
 
 void UpdateInterfaceScale() {
-    if (gPreferredScale <= 1.0f || gGameWindow == nullptr || !gUIInterfaceSizeOn) return;
+    if (gPreferredScale == 1.0f || gGameWindow == nullptr || !gUIInterfaceSizeOn) return;
     if (gGame.mF3C != 1) {
         ApplyScale(1.0f);
         return;
@@ -92,6 +98,6 @@ void UpdateInterfaceScale() {
         const CoolRect& rect = gUIPanelWindow->mRect;
         scale = std::min(scale, PanelScale(rect.mRight - rect.mLeft, rect.mBottom - rect.mTop, gUIPanelWindow->mParent));
     }
-    ApplyScale(std::max(1.0f, scale));
+    ApplyScale(std::max(std::min(1.0f, gPreferredScale), scale));
 }
 }

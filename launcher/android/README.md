@@ -34,26 +34,31 @@ Open the on-screen gear in the top-left corner of the player lobby or the top-ri
 
 ### Free camera
 
-In a park, hold **Select** or tap **↗** in the camera panel to enter or leave free camera. A short Select press toggles the overlay. Bind **Free camera** or **Reset camera view** to another button under **Button mapping**.
+In a park, hold **Select** or tap **↗** in the camera panel to enter or leave flight. Tap **◉** for orbit mode. A short Select press toggles the overlay. Bind **Free camera**, **Orbit camera** or **Reset camera view** to another button under **Button mapping**.
 
 | Action | Controller | Touch |
 | --- | --- | --- |
 | Fly around the park | Left stick | Left **Move** stick |
 | Turn and tilt | Right stick | Drag in the right **Look** panel |
 | Rise or descend | R2 or L2 | Hold **↑** or **↓** |
+| Zoom in orbit mode | L2 / R2 | − / + |
 | Go back to the starting view | **Reset camera view** binding | **Reset** |
 
-You can switch between touch and controller while flying. Both **Direct touch** and **Touchpad** let you use the cursor outside the camera controls. Exiting flight restores the pre-flight view. Held controller inputs resume their park actions after you release them.
+You can switch between touch and controller in either camera mode. Both **Direct touch** and **Touchpad** let you use the cursor outside the camera controls. Exiting free camera restores the view from before you enabled it. Held controller inputs resume their park actions after you release them. **Free camera settings** in the launcher controls look sensitivity, flight speed, vertical look, smoothing, terrain collision in flight and the two-finger gesture on a physical trackpad.
 
 ### Display and graphics
 
-The launcher's **Game interface size** setting offers 100%, 115% and 125%. Larger sizes increase the panels, text and hit areas in a park. The map, pause menu and other full-screen panels fit at 100%. The camera overlay and shortcuts tuck away when a large park interface would overlap them.
+The launcher's **Game interface size** setting offers 70%, 85%, 100% (default), 115% and 125%. Smaller sizes leave more room to see the park. Larger sizes increase the panels, text and hit areas. The map, pause menu and other full-screen panels fit at 100%. The camera overlay and shortcuts tuck away when a large park interface would overlap them.
 
 Android starts at 1920 × 1080 by default. Change the rendering resolution in the game's **Options** menu. The game restores the saved resolution on the next launch.
 
-Under **Settings → Graphics**, choose **Auto**, **30 FPS** or **60 FPS**. Auto follows the display refresh rate without an explicit frame rate cap. **Draw distance** controls how far the game renders while riding an attraction or walking with the camcorder. The menu also exposes the original game's graphics options, including texture quality, lighting and shadows. **Game default** follows the graphics detail level selected in the game. Changes apply the next time the game starts.
+Under **Settings → Graphics**, choose **Auto** or a limit from 30 FPS up to your display's reported maximum refresh rate, with 60 FPS always available. Auto follows the display refresh rate without an explicit frame rate cap. **Draw distance** controls how far the game renders while riding an attraction or walking with the camcorder. The menu also exposes the original game's graphics options, including texture quality, lighting and shadows. **Game default** follows the graphics detail level selected in the game. Changes apply the next time the game starts.
 
-The Android launcher exposes smooth wheel zoom, extended zoom, varied sounds, stereo panning and ride badges. The game starts in landscape with Vulkan. Builds with movie support play intro films from the imported game files. Use **Skip the intro films** in **Settings** to go straight to the player lobby. Desktop windowing and renderer choices, the Mac camera-notch option, and the desktop return-to-launcher switch have no Android control. The launcher also leaves out the desktop keyboard options. Android has its own controller and touch controls, interface-size choices and return to the launcher through Recents or the game's Quit action.
+The Android launcher exposes smooth wheel zoom, extended zoom, varied sounds, stereo panning, ride badges and the **WASD moves the camera** and **Several keys at once** settings for a physical keyboard. Open **Game options** for the selected edition to change resolution, graphics, audio and player settings before you start the game. The launcher reads and writes the same files as the game's Options panel.
+
+The game starts in landscape with Vulkan. **Immersive full screen** hides the system bars, **Fill around the display cutout** lets the game use the screen beside a cutout, and **Return to launcher after playing** opens the launcher task when the game quits. Android manages split-screen and freeform windows on supported devices. Builds with movie support play intro films from the imported game files. Use **Skip the intro films** to go straight to the player lobby.
+
+**Check for Android updates** asks GitHub at launcher startup. The launcher shows a link when a newer official release includes an APK. A failed check leaves the launcher usable offline. **Diagnostics** always provides the releases link.
 
 ## Manage files and diagnostics
 

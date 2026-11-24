@@ -121,6 +121,7 @@ def package(args):
         if not java:
             raise ValueError(f"SDL Android Java sources missing from {sdl}")
         java.extend(sorted(ANDROID.glob("*.java")))
+        java.append(ANDROID.parent / "net" / "AndroidUpdates.java")
         java.append(generated / "org/tpwport/android/R.java")
         run(jdk_tool("javac"), "--release", "8", "-encoding", "UTF-8", "-classpath", platform, "-d", classes, *java)
         jar, dex = work / "classes.jar", work / "dex.zip"

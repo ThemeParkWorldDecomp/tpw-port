@@ -1,6 +1,7 @@
 package org.tpwport.android;
 
 import android.app.ActivityManager;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.hardware.input.InputManager;
@@ -14,6 +15,7 @@ import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
+import android.view.WindowManager;
 
 import org.libsdl.app.SDLActivity;
 import java.io.File;
@@ -54,7 +56,9 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     private final Runnable clearControlFocus = () -> showingControls = false;
     private float pointerX = 0.5f, pointerY = 0.5f;
     private float padX, padY;
-    private boolean flying, flightAvailable, selectDidFly;
+    static final int CAMERA_OFF = 0, CAMERA_FLIGHT = 1, CAMERA_ORBIT = 2;
+    private int freeCameraMode = CAMERA_OFF;
+    private boolean flightAvailable, selectDidFly;
     private boolean leftNeedsCenter, rightNeedsCenter;
     private float flightX, flightY, leftTrigger, rightTrigger;
     private int heightButtons;
@@ -64,7 +68,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     private long pointerTick;
 
     private static native void nativeCamera(float x, float y);
-    private static native void nativeFlightMode(boolean enabled);
+    private static native void nativeCameraMode(int mode);
     private static native void nativeFlightAxes(float x, float y, float lookX, float lookY, float left, float right);
     private static native void nativeFlightLook(float x, float y);
     private static native void nativeFlightReset();
@@ -85,7 +89,8 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
         String language = getIntent().getStringExtra(SetupActivity.LANGUAGE);
         int scale = getIntent().getIntExtra(SetupActivity.INTERFACE_SCALE, 100);
         return new String[] { edition == null ? "eur-pc" : edition, language == null ? "" : language,
-            getString(R.string.storage_unavailable), getString(R.string.game_start_failed), Integer.toString(scale) };
+            getString(R.string.storage_unavailable), getString(R.string.game_start_failed), Integer.toString(scale),
+            getIntent().getBooleanExtra(SetupActivity.IMMERSIVE, true) ? "1" : "0" };
     }
 
     @Override
@@ -144,11 +149,38 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     }
 
     private void immersive() {
-        getWindow().setDecorFitsSystemWindows(false);
+        boolean fullScreen = getIntent().getBooleanExtra(SetupActivity.IMMERSIVE, true) && !isInMultiWindowMode();
+        boolean fillCutout = getIntent().getBooleanExtra(SetupActivity.FILL_CUTOUT, true);
+        WindowManager.LayoutParams attributes = getWindow().getAttributes();
+        int cutoutMode = fillCutout ? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS :
+            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER;
+        if (attributes.layoutInDisplayCutoutMode != cutoutMode) {
+            attributes.layoutInDisplayCutoutMode = cutoutMode;
+            getWindow().setAttributes(attributes);
+        }
+        getWindow().setDecorFitsSystemWindows(!fullScreen);
         WindowInsetsController insets = getWindow().getInsetsController();
         if (insets == null) return;
-        insets.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-        insets.hide(WindowInsets.Type.systemBars());
+        if (fullScreen) {
+            insets.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            insets.hide(WindowInsets.Type.systemBars());
+        } else {
+            insets.show(WindowInsets.Type.systemBars());
+        }
+    }
+
+    @Override
+    public void finish() {
+        if (mSDLMainFinished && getIntent().getBooleanExtra(SetupActivity.RETURN_TO_LAUNCHER, false)) {
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                Intent launcher = new Intent(this, SetupActivity.class);
+                startActivity(launcher.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP));
+                super.finish();
+            });
+        } else {
+            super.finish();
+        }
     }
 
     @Override
@@ -257,7 +289,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
             return;
         }
         refreshHeldActions();
-        if (!down || blocked || (flying && !availableInFlight(binding))) return;
+        if (!down || blocked || (freeCameraActive() && !availableInFreeCamera(binding))) return;
         switch (binding) {
             case ZOOM_IN: zoom(1); break;
             case ZOOM_OUT: zoom(-1); break;
@@ -272,15 +304,16 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
             case HOME: press(KeyEvent.KEYCODE_MOVE_HOME); break;
             case BACKSPACE: backspace(); break;
             case FREE_CAMERA: toggleFreeCamera(); break;
+            case ORBIT_CAMERA: toggleOrbitCamera(); break;
             case RESET_CAMERA: resetFreeCamera(); break;
             default: break;
         }
     }
 
-    private static boolean availableInFlight(ControlSettings.Action action) {
+    private static boolean availableInFreeCamera(ControlSettings.Action action) {
         return action == ControlSettings.Action.MENU || action == ControlSettings.Action.OVERLAY ||
                action == ControlSettings.Action.SETTINGS || action == ControlSettings.Action.FREE_CAMERA ||
-               action == ControlSettings.Action.RESET_CAMERA;
+               action == ControlSettings.Action.RESET_CAMERA || action == ControlSettings.Action.ORBIT_CAMERA;
     }
 
     private void refreshHeldActions() {
@@ -288,7 +321,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
         for (int i = 0; i < padKeys.size(); ++i) {
             int key = padKeys.keyAt(i);
             ControlSettings.Action action = settings.binding(key);
-            if (!waitForPadRelease.get(key) && (!flying || availableInFlight(action))) actions.add(action);
+            if (!waitForPadRelease.get(key) && (!freeCameraActive() || availableInFreeCamera(action))) actions.add(action);
         }
         int arrows = (actions.contains(ControlSettings.Action.UP) ? 1 : 0) |
                      (actions.contains(ControlSettings.Action.ARROW_LEFT) ? 2 : 0) |
@@ -325,7 +358,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
         else rightTrigger = travel;
         if (travel < TRIGGER_RELEASE) waitForPadRelease.delete(key);
         setPadKey(key, travel >= (padKeys.get(key) ? TRIGGER_RELEASE : TRIGGER_PRESS));
-        if (flying) updateFlightAxes();
+        if (freeCameraActive()) updateFlightAxes();
     }
 
     @Override
@@ -485,7 +518,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     }
 
     private void updateCamera() {
-        if (flying) {
+        if (freeCameraActive()) {
             nativeCamera(0, 0);
             updateFlightAxes();
             return;
@@ -499,46 +532,57 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     }
 
     boolean toggleFreeCamera() {
-        if (!flying && !flightAvailable) return false;
-        nativeFlightMode(!flying);
-        setFlying(!flying);
+        return toggleCameraMode(CAMERA_FLIGHT);
+    }
+
+    boolean toggleOrbitCamera() {
+        return toggleCameraMode(CAMERA_ORBIT);
+    }
+
+    private boolean freeCameraActive() { return freeCameraMode != CAMERA_OFF; }
+
+    private boolean toggleCameraMode(int mode) {
+        if (!flightAvailable) return false;
+        int next = freeCameraMode == mode ? CAMERA_OFF : mode;
+        nativeCameraMode(next);
+        setFreeCameraMode(next);
         return true;
     }
 
-    private void setFlying(boolean enabled) {
-        if (enabled == flying) return;
-        flying = enabled;
+    private void setFreeCameraMode(int mode) {
+        if (mode == freeCameraMode) return;
+        freeCameraMode = mode;
         leftNeedsCenter = Math.hypot(padX, padY) > 0.16f;
         rightNeedsCenter = Math.hypot(stickCameraX, stickCameraY) > 0.18f;
         for (int i = 0; i < padKeys.size(); ++i) {
             int key = padKeys.keyAt(i);
-            if (!availableInFlight(settings.binding(key))) waitForPadRelease.put(key, true);
+            if (!availableInFreeCamera(settings.binding(key))) waitForPadRelease.put(key, true);
         }
         if (leftTrigger >= TRIGGER_RELEASE) waitForPadRelease.put(KeyEvent.KEYCODE_BUTTON_L2, true);
         if (rightTrigger >= TRIGGER_RELEASE) waitForPadRelease.put(KeyEvent.KEYCODE_BUTTON_R2, true);
         cancelTouchPointer();
         controls.clearModifiers();
-        controls.setFlying(enabled);
+        controls.setFreeCameraMode(mode);
         refreshHeldActions();
         updatePointerStick();
         updateCamera();
     }
 
-    void resetFreeCamera() { if (flying) nativeFlightReset(); }
+    void resetFreeCamera() { if (freeCameraActive()) nativeFlightReset(); }
 
     void moveFreeCamera(float x, float y) {
         flightX = x;
         flightY = y;
-        if (flying) updateFlightAxes();
+        if (freeCameraActive()) updateFlightAxes();
     }
 
     void lookFreeCamera(float dx, float dy) {
-        if (flying) nativeFlightLook(dx * settings.cameraScale(), dy * settings.cameraScale());
+        if (freeCameraActive()) nativeFlightLook(dx * settings.cameraScale(), dy * settings.cameraScale());
     }
 
     void holdFlightHeight(int bit, boolean held) {
         heightButtons = bitState(heightButtons, bit, held);
-        if (flying) updateFlightAxes();
+        if (freeCameraActive()) updateFlightAxes();
     }
 
     private void updateFlightAxes() {
@@ -554,7 +598,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
 
     private float flightTrigger(int key, int touchBit, float travel) {
         if ((heightButtons & touchBit) != 0) return 1;
-        return waitForPadRelease.get(key) || availableInFlight(settings.binding(key)) ? 0 : travel;
+        return waitForPadRelease.get(key) || availableInFreeCamera(settings.binding(key)) ? 0 : travel;
     }
 
     private void setArrowSources(int keys, int hat) {
@@ -633,7 +677,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     private static float clamp(float value) { return Math.max(0, Math.min(1, value)); }
 
     private void updatePointerStick() {
-        if (flying || leftNeedsCenter) setStick(0, 0);
+        if (freeCameraActive() || leftNeedsCenter) setStick(0, 0);
         else setStick(padX, padY);
     }
 
@@ -678,7 +722,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     };
 
     void showControlSettings() {
-        flyingWhenControlsOpened = flying;
+        flyingWhenControlsOpened = freeCameraActive();
         releaseInputs();
         showingControls = true;
         mLayout.removeCallbacks(clearControlFocus);
@@ -713,7 +757,13 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
 
     void freeCameraEnded(boolean ended) {
         runOnUiThread(() -> {
-            if (controls != null && !isFinishing()) setFlying(false);
+            if (controls != null && !isFinishing()) setFreeCameraMode(CAMERA_OFF);
+        });
+    }
+
+    void freeCameraFlightSelected(boolean selected) {
+        runOnUiThread(() -> {
+            if (controls != null && !isFinishing() && freeCameraMode == CAMERA_ORBIT) setFreeCameraMode(CAMERA_FLIGHT);
         });
     }
 

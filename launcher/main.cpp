@@ -1328,7 +1328,13 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
     // camera. With it the run loop gives the camera its wheel, drags and pinch (platform/platform.h), and keeps its keys
     // down together as the W A S D keys are.
     gPortFreeCamera = backend.Setting(tpw::ui::kFreeCameraKey) == "1";
-    if (gPortFreeCamera) {
+#ifdef __ANDROID__
+    // The Android overlay turns the camera on per park. Set up its options and physical pointer hooks at launch.
+    const bool configureFreeCamera = true;
+#else
+    const bool configureFreeCamera = gPortFreeCamera;
+#endif
+    if (configureFreeCamera) {
         gPortFreeSwipeZooms = tpw::ui::FreeSwipeZooms(backend.Setting(tpw::ui::kFreeSwipeKey));
         gPortFreeInvertLook = backend.Setting(tpw::ui::kFreeInvertKey) == "1";
         gPortFreeLookSensitivity = static_cast<float>(tpw::ui::FreeQuarters(backend.Setting(tpw::ui::kFreeSensitivityKey))) / 4.0f;
@@ -1346,15 +1352,18 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
         tpw::gPortDragGoing = PortFreeHookDragGoing;
         tpw::gPortDragEnd = PortFreeHookDragEnd;
         tpw::gPortPinch = PortFreeHookPinch;
-        tpw::gPortKeyTogether = PortKeyTogether;   // and none while an edit box has the keyboard (typing-order)
-        tpw::gPortStrayKeyUp = PortWasdStrayKeyUp;
-        tpw::gPortReleaseKeyA = true;   // A, one of the flight keys, is released before the next key, as W A S D release it
+        if (gPortFreeCamera) {
+            tpw::gPortKeyTogether = PortKeyTogether;   // and none while an edit box has the keyboard (typing-order)
+            tpw::gPortStrayKeyUp = PortWasdStrayKeyUp;
+            tpw::gPortReleaseKeyA = true;   // A, one of the flight keys, is released before the next key, as W A S D release it
+        }
         tpw::Log("free camera (the launcher's Settings): swipe %s, invert %d, sensitivity %.2f, fly speed %.2f, smoothing %d, "
                  "through the ground %d",
                  gPortFreeSwipeZooms ? "zooms" : "moves", gPortFreeInvertLook ? 1 : 0, gPortFreeLookSensitivity,
                  gPortFreeFlySpeed, gPortFreeSmoothing ? 1 : 0, gPortFreeThroughGround ? 1 : 0);
         // Its "Gamepad" (TPW_PORT_FIX gamepad, include/PortFreeCamera.h), on unless launcher.ini says 0: the run loop opens
         // SDL's gamepads and gives the camera their sticks, triggers and buttons. Off, the game opens no gamepad.
+#ifndef __ANDROID__
         static_assert(kPortFreePadLeftX == int{SDL_GAMEPAD_AXIS_LEFTX} && kPortFreePadRightY == int{SDL_GAMEPAD_AXIS_RIGHTY} &&
                           kPortFreePadLeftTrigger == int{SDL_GAMEPAD_AXIS_LEFT_TRIGGER} &&
                           kPortFreePadRightTrigger == int{SDL_GAMEPAD_AXIS_RIGHT_TRIGGER} &&
@@ -1371,6 +1380,7 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
             tpw::gPortPadGone = PortFreeHookPadGone;
         }
         tpw::Log("free camera gamepad: %s", gPortFreePadOn ? "on" : "off");
+#endif
     }
     gOnlineServerSetting = backend.Setting(tpw::ui::kOnlineServerKey);
     gOnlineServerFound = backend.Setting(tpw::ui::kOnlineServerFoundKey);

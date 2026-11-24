@@ -19,6 +19,10 @@
 #include "ui/texts.h"
 #include "ui/updater.h"
 
+#ifdef TPW_PORT_FIX
+#include "game_size_rules.h"
+#endif
+
 namespace {
 jobjectArray StringArray(JNIEnv* env, const std::vector<std::string>& strings);
 
@@ -78,6 +82,8 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
             row(ui::kPcSoundPicksKey, "", true, true, "");
             row(ui::kSoundPanKey, "", false, true, "");
             row(ui::kRideBadgesKey, "", true, true, "");
+            row(ui::kWasdCameraKey, "", false, true, "");
+            row(ui::kSeveralKeysKey, "", false, true, "");
 #ifdef TPW_ANDROID_MOVIES
             row(ui::kSkipIntroKey, "", false, true, "");
 #endif
@@ -89,8 +95,8 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
     }
 }
 
-extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity_nativeGraphicsOptions(
-    JNIEnv* env, jclass, jstring dataFolder, jstring changedKey, jint selection) {
+extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity_nativeChoiceOptions(
+    JNIEnv* env, jclass, jstring dataFolder, jboolean camera, jstring changedKey, jint selection, jint maxFrameRate) {
     using namespace tpw;
     try {
         const auto root = std::filesystem::u8path(Path(env, dataFolder));
@@ -124,19 +130,47 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
             // Each row has a setting ID, its current label and a newline-delimited list of choices.
             rows.insert(rows.end(), {id, current, choices});
         };
-        const int fps = ui::FrameRateSetting(value(ui::kFrameRateKey));
-        row(ui::kFrameRateKey, {"Auto", "30 FPS", "60 FPS"}, {"0", "30", "60"},
-            fps == 0 ? "Auto" : std::to_string(fps) + " FPS");
+        if (camera) {
+            std::vector<std::string> multipliers, labels;
+            for (int quarter = 1; quarter <= 16; ++quarter) {
+                multipliers.push_back(ui::FreeQuartersText(quarter));
+                labels.push_back(multipliers.back() + "x");
+            }
+            for (const auto* id : {ui::kFreeSensitivityKey, ui::kFreeFlySpeedKey}) {
+                row(id, labels, multipliers, labels[ui::FreeQuarters(value(id)) - 1]);
+            }
+            auto toggle = [&](const char* id, bool on) {
+                row(id, {"Off", "On"}, {"0", "1"}, on ? "On" : "Off");
+            };
+            toggle(ui::kFreeInvertKey, value(ui::kFreeInvertKey) == "1");
+            toggle(ui::kFreeSmoothingKey, value(ui::kFreeSmoothingKey) != "0");
+            toggle(ui::kFreeThroughGroundKey, value(ui::kFreeThroughGroundKey) == "1");
+            row(ui::kFreeSwipeKey, {"Moves the camera", "Zooms and rotates"}, {"move", "zoom"},
+                ui::FreeSwipeZooms(value(ui::kFreeSwipeKey)) ? "Zooms and rotates" : "Moves the camera");
+        } else {
+            const int fps = ui::FrameRateSetting(value(ui::kFrameRateKey));
+            std::vector<std::string> fpsLabels{"Auto"}, fpsValues{"0"};
+            const int top = std::clamp(maxFrameRate, 60, 1000);
+            for (int limit = ui::kFrameRateLowest; limit <= top; ++limit) {
+                fpsValues.push_back(std::to_string(limit));
+                fpsLabels.push_back(fpsValues.back() + " FPS");
+            }
+            if (fps > top) {
+                fpsValues.push_back(std::to_string(fps));
+                fpsLabels.push_back(fpsValues.back() + " FPS");
+            }
+            row(ui::kFrameRateKey, fpsLabels, fpsValues, fps == 0 ? "Auto" : std::to_string(fps) + " FPS");
 
-        const std::vector<std::string> distanceLabels{"Original", "Farther", "Whole world"};
-        const int distance = ui::DrawDistanceSetting(value(ui::kDrawDistanceKey));
-        row(ui::kDrawDistanceKey, distanceLabels,
-            {std::begin(ui::kDrawDistanceValues), std::end(ui::kDrawDistanceValues)}, distanceLabels[distance]);
-        for (const auto& option : ui::SamOptions()) {
-            std::vector<std::string> labels{"Default"}, values{"default"};
-            labels.insert(labels.end(), option.shown.begin(), option.shown.end());
-            for (const int entry : option.values) values.push_back(std::to_string(entry));
-            row(option.key, labels, values, labels[ui::SamChoice(option, value(option.key)) + 1]);
+            const std::vector<std::string> distanceLabels{"Original", "Farther", "Whole world"};
+            const int distance = ui::DrawDistanceSetting(value(ui::kDrawDistanceKey));
+            row(ui::kDrawDistanceKey, distanceLabels,
+                {std::begin(ui::kDrawDistanceValues), std::end(ui::kDrawDistanceValues)}, distanceLabels[distance]);
+            for (const auto& option : ui::SamOptions()) {
+                std::vector<std::string> labels{"Default"}, values{"default"};
+                labels.insert(labels.end(), option.shown.begin(), option.shown.end());
+                for (const int entry : option.values) values.push_back(std::to_string(entry));
+                row(option.key, labels, values, labels[ui::SamChoice(option, value(option.key)) + 1]);
+            }
         }
 
         if (!key.empty() && (!changed || !assets::SaveLauncherIni(iniPath, ini, error))) return nullptr;
@@ -175,6 +209,102 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
     } catch (...) {
         return nullptr;
     }
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity_nativeGameOptions(
+    JNIEnv* env, jclass, jstring dataFolder, jstring editionCode, jstring profile, jint option, jint selected,
+    jint screenWidth, jint screenHeight) {
+#ifdef TPW_PORT_FIX
+    using namespace tpw;
+    using ui::GameOption;
+    try {
+        const auto root = std::filesystem::u8path(Path(env, dataFolder));
+        const std::string code = Path(env, editionCode);
+        const std::string name = Path(env, profile);
+        assets::Edition edition;
+        if (env->ExceptionCheck() || !assets::EditionFromName(code.c_str(), edition) ||
+            edition == assets::kEditionGold || edition == assets::kEditionLanguages) return nullptr;
+        assets::ImporterConfig config;
+        config.dataRoot = root.u8string();
+        assets::Importer importer(config);
+        const auto user = root / "saves" / (assets::IsUsGame(edition) ? "us" : "eur");
+        auto sam = user / "data" / "sound.sam";
+        if (!std::filesystem::is_regular_file(sam))
+            sam = std::filesystem::u8path(importer.GameFolder(edition)) / "data" / "sound.sam";
+        ui::GameSettingsView view = ui::ReadGameSettings(user, sam, name);
+        if (option >= 0) {
+            if (option >= static_cast<int>(GameOption::Count) || view.running) return nullptr;
+            auto setting = static_cast<GameOption>(option);
+            if (!name.empty() && ui::OptionInPlayer(setting) &&
+                (view.player < 0 || view.players[view.player].name != name)) return nullptr;
+            std::string error;
+            if (!ui::WriteGameOption(user, sam, name, setting, selected, error)) return nullptr;
+            view = ui::ReadGameSettings(user, sam, name);
+        }
+
+        const bool configOk = !view.running && (view.configState == ui::GameFileState::Ok ||
+            (view.configState == ui::GameFileState::Missing && view.defaultsKnown));
+        const bool playerOk = !view.running && view.playerState == ui::GameFileState::Ok;
+        const bool hasPlayer = view.player >= 0;
+        std::vector<std::string> rows{std::to_string(view.players.size()), std::to_string(view.player),
+                                     view.running ? "running" : !configOk ? "unavailable" : ""};
+        for (const auto& player : view.players) rows.push_back(player.name);
+        auto row = [&](GameOption id, const char* label, int value, bool enabled, const char* control = "toggle") {
+            rows.insert(rows.end(), {std::to_string(static_cast<int>(id)), label, std::to_string(value), enabled ? "1" : "0",
+                                     control});
+        };
+
+        const ui::GameSize screen{std::max(screenWidth, screenHeight), std::min(screenWidth, screenHeight)};
+        const auto sizeRules = PortGameSizeRules(5, [screen] { return UI_NearestShape(screen.width, screen.height); },
+                                                [screen] { return screen; });
+        int shape = 0;
+        const auto& cf = view.config;
+        int32_t exactWidth = 0, exactHeight = 0;
+        const bool hasSavedSize = PortResolutionPreset(cf.resolution, 0) != 0 ||
+            PortResolutionSize(cf.resolution, exactWidth, exactHeight);
+        const ui::GameSize chosen = hasSavedSize ? sizeRules.chosen(cf.resolution, shape) : ui::GameSize{1920, 1080};
+        std::string sizes;
+        std::vector<ui::GameSize> seen;
+        for (size_t i = 0; i < sizeRules.shapes.size(); ++i) {
+            for (const auto& size : sizeRules.stops(static_cast<int>(i), chosen)) {
+                if (std::find(seen.begin(), seen.end(), size) != seen.end()) continue;
+                seen.push_back(size);
+                if (!sizes.empty()) sizes += '\n';
+                sizes += std::to_string(sizeRules.setting(size)) + ":" + std::to_string(size.width) + " × " +
+                    std::to_string(size.height);
+            }
+        }
+        row(GameOption::Resolution, "resolution", sizeRules.setting(chosen), configOk);
+        rows.back() = std::move(sizes);
+        row(GameOption::GraphicsQuality, "detail", cf.detail, configOk, cf.renderer == 0 ? "software_detail" : "detail");
+        row(GameOption::Rendering, "rendering", cf.renderer, configOk, "rendering");
+        row(GameOption::AudioQuality, "audio_quality", cf.soundQuality, configOk, "percent");
+
+        auto volume = [&](GameOption on, GameOption level, const char* name, const char* volumeLabel,
+                          const ui::GameVolume& choice, bool enabled) {
+            row(on, name, choice.on, enabled);
+            row(level, volumeLabel, choice.volume, enabled, "percent");
+        };
+        const auto& options = view.options;
+        volume(GameOption::MovieOn, GameOption::MovieVolume, "movies", "movie_volume", hasPlayer ? options.movie : cf.movie,
+               configOk && (!hasPlayer || playerOk));
+        volume(GameOption::SfxOn, GameOption::SfxVolume, "sfx", "sfx_volume", options.sfx, playerOk);
+        volume(GameOption::MusicOn, GameOption::MusicVolume, "music", "music_volume", options.music, playerOk);
+        volume(GameOption::SpeechOn, GameOption::SpeechVolume, "speech", "speech_volume", options.speech, playerOk);
+        row(GameOption::Advisor, "advisor", options.advisor, playerOk);
+        row(GameOption::Tutorial, "tutorial", options.tutorial, playerOk);
+        row(GameOption::PopupHelp, "popup_help", options.tooltips, playerOk);
+        row(GameOption::Confirmations, "confirmations", options.confirmDelete, playerOk);
+        row(GameOption::RmbCancel, "rmb_cancel", options.rmbCancel, playerOk);
+        row(GameOption::Rotation, "rotation", options.isometric, playerOk, "rotation");
+        row(GameOption::Scroll, "scroll", options.rmbScroll, playerOk, "scroll");
+        return StringArray(env, rows);
+    } catch (...) {
+        return nullptr;
+    }
+#else
+    return nullptr;
+#endif
 }
 
 namespace {

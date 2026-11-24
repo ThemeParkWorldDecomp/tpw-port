@@ -27,7 +27,8 @@ final class ControlSettings {
         CTRL(R.string.binding_ctrl), SHIFT(R.string.binding_shift), MENU(R.string.game_menu), ENTER(R.string.enter),
         KEYBOARD(R.string.show_keyboard), OVERLAY(R.string.toggle_overlay),
         SETTINGS(R.string.control_settings), BUY(R.string.buy_rides), MAP(R.string.map), PAUSE(R.string.pause), HOME(R.string.entrance_view),
-        BACKSPACE(R.string.backspace), FREE_CAMERA(R.string.free_camera), RESET_CAMERA(R.string.free_camera_reset);
+        BACKSPACE(R.string.backspace), FREE_CAMERA(R.string.free_camera), RESET_CAMERA(R.string.free_camera_reset),
+        ORBIT_CAMERA(R.string.orbit_camera);
 
         final int label;
         Action(int label) { this.label = label; }
