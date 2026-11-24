@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.3 (not released yet)
+## 0.6.3 (2026-11-24)
 
 ### Bug Fixes
 
