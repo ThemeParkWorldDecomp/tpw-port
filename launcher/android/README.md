@@ -4,7 +4,7 @@ The APK requires Android 13 or newer and Vulkan. The ARM64 build is for phones a
 
 ## First launch
 
-Open **STP/TPW Launcher** and select **Import files** for disc images or archives of your own copy of the game, or **Import folder** for unpacked files. You can select several related files together and add language packs later. The launcher verifies the imported data before enabling **Play**. Imports need temporary space for a copy of the selected files.
+Open **STP/TPW Launcher** and select **Import files** for disc images or archives of your own copy of the game, or **Import folder** for unpacked files. You can select several related files together and add language packs or [your own translations](../../README.md#your-own-translation) later. The launcher verifies the imported data before enabling **Play**. Imports need temporary space for a copy of the selected files.
 
 The launcher lists Sim Theme Park before Theme Park World. Import the Gold bonus CD alongside either base game to unlock **Gold Edition rides**. The switch is on by default once the bonus data is verified and is saved separately for each game. The PlayStation and SimCoaster content mods require their own game data.
 
@@ -39,6 +39,13 @@ Android starts at 1920 × 1080 by default. Change the rendering resolution in th
 Under **Settings → Graphics**, choose **Auto**, **30 FPS** or **60 FPS**. Auto follows the display refresh rate without an explicit frame rate cap. **Draw distance** controls how far the game renders while riding an attraction or walking with the camcorder. The menu also exposes the original game's graphics options, including texture quality, lighting and shadows. **Game default** follows the graphics detail level selected in the game. Changes apply the next time the game starts.
 
 The Android launcher exposes smooth wheel zoom, extended zoom, varied sounds, stereo panning and ride badges. The game starts in landscape with Vulkan. Builds with movie support play intro films from the imported game files. Use **Skip the intro films** in **Settings** to go straight to the player lobby. Desktop windowing and renderer choices, the Mac camera-notch option, and the desktop return-to-launcher switch have no Android control. The launcher also leaves out the desktop free-camera and keyboard options. Android has its own controller and touch controls, interface-size choices and return to the launcher through Recents or the game's Quit action.
+
+## Manage files and diagnostics
+
+- **Installed editions** shows how many required files each edition has. **Check again** rehashes the imported files. **Remove game data** deletes the chosen edition's imported files while keeping its saves.
+- **Asset packs** imports and removes [replacement asset ZIPs](../../README.md#asset-packs). Add the ZIP with **Import pack ZIP**. Its replacement files must be at their game paths under `data/`. A pack with the same filename replaces the installed copy. The game applies packs in filename order at the next start.
+- **Export saves** stores the chosen game's profiles and parks in a ZIP with `save/` at its root. On desktop, ZIP the `save` folder from `saves/us` for Sim Theme Park or `saves/eur` for Theme Park World. **Import saves** restores that ZIP for the game you select, replacing its existing profiles and parks. Close the game before importing or exporting saves. A park that uses Gold or a content mod needs the same content enabled on the destination.
+- **Diagnostics** shows the APK version, a preview of recent logs and third-party licenses. Export the scrubbed logs to a location you choose. The releases button opens GitHub in your browser.
 
 ## Build
 

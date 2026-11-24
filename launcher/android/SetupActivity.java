@@ -4,8 +4,10 @@ import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.content.ClipData;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.database.Cursor;
@@ -29,8 +31,10 @@ import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -48,6 +52,11 @@ public final class SetupActivity extends Activity {
     private static final int[] INTERFACE_SCALES = {100, 115, 125};
     private static final int PICK_FILES = 1;
     private static final int PICK_FOLDER = 2;
+    private static final int PICK_PACK = 3;
+    private static final int PICK_SAVES_US = 4, PICK_SAVES_EUR = 5;
+    private static final int EXPORT_SAVES_US = 6, EXPORT_SAVES_EUR = 7;
+    private static final int EXPORT_LOG = 8;
+    private static final int READ_DATA = 0, VERIFY_DATA = 1, REMOVE_DATA = 2;
     private static final int NAVY = 0xFF0C2032;
     private static final int PAPER = 0xFFF3F9E9;
     private static final int MUTED = 0xFFB7D4CD;
@@ -71,18 +80,22 @@ public final class SetupActivity extends Activity {
     }
 
     private final ExecutorService work = Executors.newSingleThreadExecutor();
-    private Button play, files, folder, edition, language, options, mods;
+    private Button play, files, folder, manageFiles, edition, language, options, mods;
     private Switch goldRides;
     private TextView gameTitle, status;
     private LinearLayout body, header, quickActions, panels, gamePanel, dataPanel;
     private ProgressBar progress;
     private boolean busy;
+    private Runnable pendingDocument;
     private String[] editions = {}, europeanLanguages = {}, americanLanguages = {};
     private String[] europeanLabels = {}, americanLabels = {};
+    private String[] installed = {};
     private String chosenEdition = "", chosenLanguage = "";
     private boolean goldAvailable, goldUs, goldEur;
 
-    private static native String[] nativeImport(String dataFolder, String[] inputs);
+    private static native String[] nativeImport(String dataFolder, String[] inputs, int operation, String edition);
+    private static native String[] nativeTranslationLanguages();
+    private static native boolean nativeNameTranslation(String dataFolder, String id, String language);
     private static native String[] nativeOptions(String dataFolder, boolean mods, String changedKey, boolean enabled);
     private static native String[] nativeGraphicsOptions(String dataFolder, String changedKey, int selection);
 
@@ -156,6 +169,8 @@ public final class SetupActivity extends Activity {
         folder = launcherButton(R.string.import_folder, ButtonStyle.IMPORT, () -> launchPicker(true));
         addRow(dataPanel, files, 12);
         addRow(dataPanel, folder, 8);
+        manageFiles = launcherButton(R.string.manage_files, ButtonStyle.NAVIGATION, this::showFileTools);
+        addRow(dataPanel, manageFiles, 8);
 
         panels = new LinearLayout(this);
         panels.addView(gamePanel);
@@ -481,20 +496,28 @@ public final class SetupActivity extends Activity {
     }
 
     private void launchPicker(boolean tree) {
-        if (busy) return;
+        if (!canChangeFiles()) return;
         Intent intent = new Intent(tree ? Intent.ACTION_OPEN_DOCUMENT_TREE : Intent.ACTION_OPEN_DOCUMENT);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         if (!tree) intent.setType("*/*").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-        try { startActivityForResult(intent, tree ? PICK_FOLDER : PICK_FILES); }
-        catch (android.content.ActivityNotFoundException error) {
-            status.setText(R.string.picker_unavailable);
-        }
+        launchDocument(intent, tree ? PICK_FOLDER : PICK_FILES);
     }
 
     @Override
     protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
-        if (result != RESULT_OK || data == null || (request != PICK_FILES && request != PICK_FOLDER)) return;
+        if (result != RESULT_OK || data == null) return;
+        // Android can recreate the launcher while the picker is open. Wait for the initial scan in that case.
+        if (busy) pendingDocument = () -> handleDocument(request, data);
+        else handleDocument(request, data);
+    }
+
+    private void handleDocument(int request, Intent data) {
+        if (request >= PICK_PACK && request <= EXPORT_LOG) {
+            if (data.getData() != null) runFileTool(request, data.getData());
+            return;
+        }
+        if ((request != PICK_FILES && request != PICK_FOLDER) || !canChangeFiles()) return;
         List<Uri> sources = new ArrayList<>();
         ClipData clip = data.getClipData();
         if (clip != null) {
@@ -529,7 +552,11 @@ public final class SetupActivity extends Activity {
                     }
                     runOnUiThread(() -> status.setText(R.string.import_verifying));
                 }
-                result = nativeImport(getFilesDir().getAbsolutePath(), paths.toArray(new String[0]));
+                if (!gameRunning()) {
+                    SaveArchive.recoverSaves(saveFolder(true));
+                    SaveArchive.recoverSaves(saveFolder(false));
+                }
+                result = nativeImport(getFilesDir().getAbsolutePath(), paths.toArray(new String[0]), READ_DATA, "");
             } catch (IOException | RuntimeException | LinkageError error) {
                 android.util.Log.e("TPWImport", "Import failed", error);
                 result = null;
@@ -594,6 +621,7 @@ public final class SetupActivity extends Activity {
         progress.setVisibility(running ? View.VISIBLE : View.GONE);
         files.setEnabled(!running);
         folder.setEnabled(!running);
+        manageFiles.setEnabled(!running);
         options.setEnabled(!running);
         mods.setEnabled(!running);
         play.setEnabled(!running && !chosenEdition.isEmpty());
@@ -613,6 +641,7 @@ public final class SetupActivity extends Activity {
             goldAvailable = !result[7].isEmpty();
             goldUs = result[7].equals("1");
             goldEur = result[8].equals("1");
+            installed = splitLines(result[9]);
             String oldEdition = getPreferences(MODE_PRIVATE).getString(EDITION, "");
             chosenEdition = contains(editions, oldEdition) ? oldEdition : editions.length == 0 ? "" : editions[0];
             chooseSavedLanguage();
@@ -628,6 +657,286 @@ public final class SetupActivity extends Activity {
         } else {
             status.setText(imported ? getString(R.string.data_ready_import, result[3]) : getString(R.string.data_ready));
         }
+        Runnable document = pendingDocument;
+        pendingDocument = null;
+        if (document != null) document.run();
+        else if (imported && result != null) nameTranslations(splitLines(result[10]), 0);
+    }
+
+    private void nameTranslations(String[] translations, int index) {
+        if (index >= translations.length || !canChangeFiles()) return;
+        String[] names = nativeTranslationLanguages();
+        if (names == null || names.length == 0) return;
+        new AlertDialog.Builder(this).setTitle(R.string.name_translation).setItems(names, (dialog, choice) -> {
+            if (!canChangeFiles()) return;
+            setBusy(true);
+            work.execute(() -> {
+                boolean named = nativeNameTranslation(getFilesDir().getAbsolutePath(), translations[index], names[choice]);
+                String[] updated = nativeImport(getFilesDir().getAbsolutePath(), new String[0], READ_DATA, "");
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    showResult(updated, false);
+                    if (!named) status.setText(R.string.name_translation_failed);
+                    nameTranslations(translations, index + 1);
+                });
+            });
+        }).setNegativeButton(R.string.cancel, null).show();
+    }
+
+    private boolean gameRunning() {
+        List<ActivityManager.RunningAppProcessInfo> processes = getSystemService(ActivityManager.class).getRunningAppProcesses();
+        if (processes == null) return false;
+        String game = getPackageName() + ":game";
+        for (ActivityManager.RunningAppProcessInfo process : processes) {
+            if (game.equals(process.processName)) return true;
+        }
+        return false;
+    }
+
+    private boolean canChangeFiles() {
+        if (busy) return false;
+        if (!gameRunning()) return true;
+        status.setText(R.string.quit_before_files);
+        return false;
+    }
+
+    private void showFileTools() {
+        int[] actions = { R.string.installed_editions, R.string.asset_packs, R.string.import_saves,
+            R.string.export_saves, R.string.diagnostics };
+        String[] labels = Arrays.stream(actions).mapToObj(this::getString).toArray(String[]::new);
+        new AlertDialog.Builder(this).setTitle(R.string.manage_files).setItems(labels, (dialog, index) -> {
+            switch (actions[index]) {
+                case R.string.installed_editions: showInstalledEditions(); break;
+                case R.string.asset_packs: showAssetPacks(); break;
+                case R.string.import_saves: chooseSaveEdition(true); break;
+                case R.string.export_saves: chooseSaveEdition(false); break;
+                case R.string.diagnostics: showDiagnostics(); break;
+                default: break;
+            }
+        }).setNegativeButton(R.string.done, null).show();
+    }
+
+    private void showInstalledEditions() {
+        AlertDialog.Builder dialog = new AlertDialog.Builder(this).setTitle(R.string.installed_editions)
+            .setNegativeButton(R.string.done, null);
+        if (installed.length == 0) {
+            dialog.setMessage(R.string.no_installed_editions).show();
+            return;
+        }
+        String[] labels = new String[installed.length];
+        for (int i = 0; i < installed.length; ++i) {
+            String[] row = installed[i].split(":");
+            labels[i] = getString(R.string.installed_edition_summary, editionLabel(row[0]), row[1], row[2]);
+        }
+        dialog.setItems(labels, (list, index) -> {
+            if (!canChangeFiles()) return;
+            String code = installed[index].split(":")[0];
+            String title = editionLabel(code);
+            new AlertDialog.Builder(this).setTitle(title).setItems(new String[]{getString(R.string.verify_edition),
+                getString(R.string.remove_edition)}, (options, action) -> {
+                if (action == 0) changeEditionData(VERIFY_DATA, code);
+                else new AlertDialog.Builder(this).setTitle(R.string.remove_edition)
+                    .setMessage(getString(R.string.remove_edition_confirm, title))
+                    .setNegativeButton(R.string.cancel, null)
+                    .setPositiveButton(R.string.remove_edition, (confirm, button) -> changeEditionData(REMOVE_DATA, code)).show();
+            }).setNegativeButton(R.string.cancel, null).show();
+        }).show();
+    }
+
+    private void changeEditionData(int operation, String code) {
+        if (!canChangeFiles()) return;
+        setBusy(true);
+        status.setText(R.string.file_operation_progress);
+        work.execute(() -> {
+            String[] result = nativeImport(getFilesDir().getAbsolutePath(), new String[0], operation, code);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                showResult(result, false);
+                if (result == null || !result[0].equals("ok")) status.setText(R.string.file_operation_failed);
+                else status.setText(operation == VERIFY_DATA ? getString(R.string.edition_verified, result[3])
+                    : getString(R.string.edition_removed));
+            });
+        });
+    }
+
+    private void showAssetPacks() {
+        if (!canChangeFiles()) return;
+        try {
+            List<String> names = AndroidFiles.assetPacks(getFilesDir().toPath());
+            AlertDialog.Builder dialog = new AlertDialog.Builder(this).setTitle(R.string.asset_packs)
+                .setPositiveButton(R.string.import_asset_pack, (picker, button) -> openZip(PICK_PACK))
+                .setNegativeButton(R.string.done, null);
+            if (names.isEmpty()) dialog.setMessage(R.string.no_asset_packs);
+            else dialog.setItems(names.toArray(new String[0]), (picker, index) -> {
+                String name = names.get(index);
+                new AlertDialog.Builder(this).setTitle(R.string.remove_asset_pack).setMessage(name)
+                    .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.remove_asset_pack, (confirm, button) -> {
+                        if (!canChangeFiles()) return;
+                        try {
+                            Files.deleteIfExists(getFilesDir().toPath().resolve("packs").resolve(name));
+                            status.setText(R.string.asset_pack_removed);
+                        } catch (IOException error) {
+                            Log.e("TPWFiles", "Could not remove asset pack", error);
+                            status.setText(R.string.file_operation_failed);
+                        }
+                    }).show();
+            });
+            dialog.show();
+        } catch (IOException error) {
+            Log.e("TPWFiles", "Could not list asset packs", error);
+            status.setText(R.string.file_operation_failed);
+        }
+    }
+
+    private Path saveFolder(boolean us) {
+        return getFilesDir().toPath().resolve("saves").resolve(us ? "us" : "eur");
+    }
+
+    private void chooseSaveEdition(boolean restore) {
+        if (!canChangeFiles()) return;
+        int title = restore ? R.string.import_saves : R.string.export_saves;
+        String[] names = {getString(R.string.game_name_us), getString(R.string.game_name_europe)};
+        new AlertDialog.Builder(this).setTitle(title).setItems(names, (dialog, index) -> {
+            boolean us = index == 0;
+            if (restore) {
+                new AlertDialog.Builder(this).setTitle(title).setMessage(getString(R.string.restore_saves_confirm, names[index]))
+                    .setNegativeButton(R.string.cancel, null)
+                    .setPositiveButton(title, (confirm, button) -> openZip(us ? PICK_SAVES_US : PICK_SAVES_EUR)).show();
+            } else if (Files.isDirectory(saveFolder(us).resolve("save"))) {
+                createDocument(us ? EXPORT_SAVES_US : EXPORT_SAVES_EUR, "application/zip", names[index] + " - saves.zip");
+            } else status.setText(R.string.no_saves);
+        }).setNegativeButton(R.string.cancel, null).show();
+    }
+
+    private void openZip(int request) {
+        if (!canChangeFiles()) return;
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
+        launchDocument(intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), request);
+    }
+
+    private void createDocument(int request, String type, String name) {
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT).setType(type).addCategory(Intent.CATEGORY_OPENABLE)
+            .putExtra(Intent.EXTRA_TITLE, name).addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        launchDocument(intent, request);
+    }
+
+    private void launchDocument(Intent intent, int request) {
+        try { startActivityForResult(intent, request); }
+        catch (ActivityNotFoundException error) { status.setText(R.string.picker_unavailable); }
+    }
+
+    private void runFileTool(int request, Uri document) {
+        if (busy || (request != EXPORT_LOG && !canChangeFiles())) return;
+        setBusy(true);
+        status.setText(R.string.file_operation_progress);
+        work.execute(() -> {
+            Path stage = null;
+            int message = R.string.file_operation_failed;
+            try {
+                stage = Files.createTempDirectory(getCacheDir().toPath(), "files-");
+                if (request == PICK_PACK) {
+                    Path zip = stage.resolve(safeName(displayName(document)));
+                    copyFile(document, zip);
+                    AndroidFiles.installPack(getFilesDir().toPath(), zip, stage);
+                    message = R.string.asset_pack_added;
+                } else if (request == PICK_SAVES_US || request == PICK_SAVES_EUR) {
+                    Path zip = stage.resolve("saves.zip");
+                    copyFile(document, zip);
+                    SaveArchive.restoreSaves(saveFolder(request == PICK_SAVES_US), zip, stage);
+                    message = R.string.saves_imported;
+                } else if (request == EXPORT_LOG) {
+                    AndroidFiles.copyToDocument(this, AndroidFiles.exportLog(this, stage), document);
+                    message = R.string.log_exported;
+                } else {
+                    Path zip = stage.resolve("saves.zip");
+                    SaveArchive.exportSaves(saveFolder(request == EXPORT_SAVES_US), zip);
+                    AndroidFiles.copyToDocument(this, zip, document);
+                    message = R.string.saves_exported;
+                }
+            } catch (IOException | RuntimeException error) {
+                Log.e("TPWFiles", "File operation failed", error);
+                if (request == PICK_PACK) message = R.string.asset_pack_failed;
+                else if (request == PICK_SAVES_US || request == PICK_SAVES_EUR) message = R.string.saves_import_failed;
+            } finally {
+                deleteStage(stage);
+            }
+            int outcome = message;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                setBusy(false);
+                status.setText(outcome);
+            });
+        });
+    }
+
+    private void showDiagnostics() {
+        String version = "";
+        try { version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
+        catch (PackageManager.NameNotFoundException ignored) { }
+        int[] actions = {R.string.show_log, R.string.export_log, R.string.licenses, R.string.check_updates};
+        String[] titles = Arrays.stream(actions).mapToObj(this::getString).toArray(String[]::new);
+        new AlertDialog.Builder(this).setTitle(getString(R.string.diagnostics_version, version)).setItems(titles, (dialog, i) -> {
+            switch (actions[i]) {
+                case R.string.show_log: showLog(); break;
+                case R.string.export_log: createDocument(EXPORT_LOG, "text/plain", "STP-TPW Launcher logs.txt"); break;
+                case R.string.licenses: showLicenses(); break;
+                case R.string.check_updates:
+                    Uri releases = Uri.parse("https://github.com/ThemeParkWorldDecomp/tpw-port/releases");
+                    try { startActivity(new Intent(Intent.ACTION_VIEW, releases)); }
+                    catch (ActivityNotFoundException error) { status.setText(R.string.browser_unavailable); }
+                    break;
+                default: break;
+            }
+        }).setNegativeButton(R.string.done, null).show();
+    }
+
+    private void showLog() {
+        setBusy(true);
+        work.execute(() -> {
+            Path stage = null;
+            String preview = null;
+            try {
+                stage = Files.createTempDirectory(getCacheDir().toPath(), "log-");
+                preview = AndroidFiles.previewLog(this, stage);
+            } catch (IOException | RuntimeException error) {
+                Log.e("TPWFiles", "Could not read log", error);
+            } finally {
+                deleteStage(stage);
+            }
+            String log = preview;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                setBusy(false);
+                if (log == null) status.setText(R.string.log_unavailable);
+                else showFileText(getString(R.string.show_log), log);
+            });
+        });
+    }
+
+    private void showLicenses() {
+        try {
+            String[] names = getAssets().list("licenses");
+            if (names == null) return;
+            new AlertDialog.Builder(this).setTitle(R.string.licenses).setItems(names, (dialog, index) -> {
+                try (InputStream in = getAssets().open("licenses/" + names[index])) {
+                    ByteArrayOutputStream contents = new ByteArrayOutputStream();
+                    byte[] buffer = new byte[4096];
+                    for (int read; (read = in.read(buffer)) != -1;) contents.write(buffer, 0, read);
+                    showFileText(names[index], new String(contents.toByteArray(), StandardCharsets.UTF_8));
+                } catch (IOException error) { status.setText(R.string.file_operation_failed); }
+            }).setNegativeButton(R.string.done, null).show();
+        } catch (IOException error) { status.setText(R.string.file_operation_failed); }
+    }
+
+    private void showFileText(String title, String content) {
+        ScrollView view = new ScrollView(this);
+        TextView text = new TextView(this);
+        text.setText(content);
+        text.setTextSize(13);
+        text.setPadding(dp(16), dp(10), dp(16), dp(12));
+        text.setTextIsSelectable(true);
+        view.addView(text);
+        new AlertDialog.Builder(this).setTitle(title).setView(view).setPositiveButton(R.string.done, null).show();
     }
 
     private void choose(boolean voice) {
@@ -698,12 +1007,13 @@ public final class SetupActivity extends Activity {
         }
     }
 
-    private static String editionLabel(String code) {
+    private String editionLabel(String code) {
         switch (code) {
             case "us": return "Sim Theme Park";
             case "us-pc": return "Sim Theme Park (PC)";
             case "eur": return "Theme Park World";
             case "eur-pc": return "Theme Park World (PC)";
+            case "gold": return getString(R.string.gold_rides);
             default: return code;
         }
     }

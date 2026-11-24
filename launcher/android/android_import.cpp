@@ -6,11 +6,15 @@
 #include <string>
 #include <vector>
 
+#include "asset_packs.h"
 #include "importer.h"
 #include "content_overlay.h"
 #include "mods.h"
+#include "log_export.h"
 #include "tpi_content.h"
 #include "ui/launcher_ui.h"
+#include "ui/unofficial_language.h"
+#include "ui/texts.h"
 
 namespace {
 jobjectArray StringArray(JNIEnv* env, const std::vector<std::string>& strings);
@@ -145,7 +149,8 @@ jobjectArray StringArray(JNIEnv* env, const std::vector<std::string>& strings) {
     jobjectArray array = env->NewObjectArray(static_cast<jsize>(strings.size()), type, nullptr);
     if (array == nullptr) return nullptr;
     for (size_t i = 0; i < strings.size(); ++i) {
-        jstring value = env->NewStringUTF(strings[i].c_str());
+        const std::u16string utf16 = std::filesystem::u8path(strings[i]).u16string();
+        jstring value = env->NewString(reinterpret_cast<const jchar*>(utf16.data()), static_cast<jsize>(utf16.size()));
         if (value == nullptr) return nullptr;
         env->SetObjectArrayElement(array, static_cast<jsize>(i), value);
         env->DeleteLocalRef(value);
@@ -155,15 +160,28 @@ jobjectArray StringArray(JNIEnv* env, const std::vector<std::string>& strings) {
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity_nativeImport(
-    JNIEnv* env, jclass, jstring dataFolder, jobjectArray inputs) {
+    JNIEnv* env, jclass, jstring dataFolder, jobjectArray inputs, jint operation, jstring editionCode) {
     using namespace tpw::assets;
     try {
         ImporterConfig config;
         config.dataRoot = Path(env, dataFolder);
+        const std::string code = Path(env, editionCode);
         if (env->ExceptionCheck()) return nullptr;
+#ifdef TPW_PORT_FIX
+        ConfigureUnofficialLanguages(config);
+#endif
         Importer importer(config);
         std::string error;
-        if (!importer.Open(error)) return StringArray(env, {"open_error", "", "", "0", "", "", "", "", ""});
+        if (!importer.Open(error)) return nullptr;
+
+        long affected = 0;
+        if (operation != 0) {
+            Edition edition;
+            if (!EditionFromName(code.c_str(), edition) || edition == kEditionLanguages) return nullptr;
+            if (operation == 1) affected = importer.VerifyEdition(edition, error);
+            else if (operation == 2) affected = importer.RemoveEdition(edition, error) ? 0 : -1;
+            else return nullptr;
+        }
 
         std::vector<std::string> paths;
         for (jsize i = 0; i < env->GetArrayLength(inputs); ++i) {
@@ -175,9 +193,15 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
         const ImportReport report = paths.empty() ? ImportReport{} : importer.Import(paths);
 
         std::string editions;
-        for (const Edition edition : {kEditionUs, kEditionUsPc, kEditionEur, kEditionEurPc}) {
+        std::string installed;
+        for (const Edition edition : {kEditionUs, kEditionUsPc, kEditionEur, kEditionEurPc, kEditionGold}) {
             const EditionStatus status = importer.Status(edition);
-            if (status.unlocked) {
+            if (status.present > 0) {
+                if (!installed.empty()) installed += '\n';
+                installed += std::string(EditionName(edition)) + ":" + std::to_string(status.requiredPresent) + ":" +
+                             std::to_string(status.required);
+            }
+            if (status.unlocked && edition != kEditionGold) {
                 if (!editions.empty()) editions += ',';
                 editions += EditionName(edition);
             }
@@ -205,13 +229,80 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
             }
             return "1";
         };
-        const bool recognized = report.matched != 0 || report.playStationConverted || report.themeParkIncConverted;
-        const char* result = report.aborted || !report.errors.empty() ? "import_error" :
+        std::string unnamed;
+        if (!report.translations.empty()) {
+            for (const auto& item : languages) {
+                if (item.state == LanguageStatus::State::Available && item.unofficial &&
+                    item.description == tpw::ui::kUnofficialUnknown) {
+                    if (!unnamed.empty()) unnamed += '\n';
+                    unnamed += item.name;
+                }
+            }
+        }
+        const bool recognized = report.matched != 0 || report.playStationConverted || report.themeParkIncConverted ||
+                                !report.translations.empty() || report.themeParkIncAddOnAdded || report.themeParkIncAddOnAlready;
+        const char* result = affected < 0 || report.aborted || !report.errors.empty() ? "import_error" :
                              !paths.empty() && !recognized ? "unrecognized" : "ok";
-        return StringArray(env, {result, editions, europeanNames, std::to_string(report.written),
+        return StringArray(env, {result, editions, europeanNames, std::to_string(operation == 0 ? report.written : affected),
                                  americanNames, europeanLabels, americanLabels,
-                                 gold(tpw::ui::kGoldUsKey), gold(tpw::ui::kGoldEurKey)});
+                                 gold(tpw::ui::kGoldUsKey), gold(tpw::ui::kGoldEurKey), installed, unnamed});
     } catch (...) {
         return StringArray(env, {"import_error", "", "", "0", "", "", "", "", ""});
+    }
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity_nativeTranslationLanguages(
+    JNIEnv* env, jclass) {
+    try {
+        std::vector<std::string> names;
+#ifdef TPW_PORT_FIX
+        for (const auto& language : tpw::assets::TranslationLanguages()) names.emplace_back(language.name);
+#endif
+        return StringArray(env, names);
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+extern "C" JNIEXPORT jboolean JNICALL Java_org_tpwport_android_SetupActivity_nativeNameTranslation(
+    JNIEnv* env, jclass, jstring dataFolder, jstring id, jstring language) {
+    try {
+#ifdef TPW_PORT_FIX
+        const std::string assets = Path(env, dataFolder) + "/assets";
+        const std::string oldId = Path(env, id), name = Path(env, language);
+        std::string newId, error;
+        return !env->ExceptionCheck() && tpw::assets::NameUnofficialLanguage(assets, oldId, name, newId, error);
+#else
+        return false;
+#endif
+    } catch (...) {
+        return false;
+    }
+}
+
+extern "C" JNIEXPORT jstring JNICALL Java_org_tpwport_android_AndroidFiles_nativeExportLog(
+    JNIEnv* env, jclass, jstring dataFolder, jstring tempFolder) {
+    try {
+        const auto root = std::filesystem::u8path(Path(env, dataFolder));
+        const auto temp = std::filesystem::u8path(Path(env, tempFolder));
+        if (env->ExceptionCheck()) return nullptr;
+        const tpw::ExportProgram program{TPW_LAUNCHER_VERSION,
+            std::string(tpw::ui::kProductNameWithVersion) + " (build: " + TPW_LAUNCHER_BUILD + ")"};
+        const auto exported = tpw::ExportLogs(root / "logs" / "launcher.log", temp, std::time(nullptr), program);
+        return exported.ok ? env->NewStringUTF(exported.file.filename().u8string().c_str()) : nullptr;
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+extern "C" JNIEXPORT jboolean JNICALL Java_org_tpwport_android_AndroidFiles_nativeValidateAssetPack(
+    JNIEnv* env, jclass, jstring archive, jstring tempFolder) {
+    try {
+        const auto zip = std::filesystem::u8path(Path(env, archive));
+        const auto temp = std::filesystem::u8path(Path(env, tempFolder));
+        std::string error;
+        return !env->ExceptionCheck() && tpw::launcher::ValidateAssetPack(zip, temp, error);
+    } catch (...) {
+        return false;
     }
 }
