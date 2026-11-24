@@ -2,6 +2,10 @@
 
 ## 0.6.3 (not released yet)
 
+### Bug Fixes
+
+- In the SimCoaster/TPI mod's worlds, a visitor's umbrella seen in first person (walking around the park, or on a ride that shows the visitors up close) is now held in their hand, off to one side, as in the original, instead of floating over the middle of their head (Thanks slappyhead)
+
 ## 0.6.2 (2026-11-22)
 
 ### New Features

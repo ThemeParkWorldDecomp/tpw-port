@@ -678,11 +678,15 @@ void CPeep::UpdatePositionInEngine(float step) {
         q = gPeepBalloonBase - q;
         const float base = 0.0f + q;
         const float sc = gPeepBalloonScale;
-        // TPW_PORT_FIX mods CPeep::UpdatePositionInEngine | Mac: the balloon is drawn where the visitor was, lagged behind it (CPerson::DrawBalloon), above its head and bobbing | Port: TPW_MOD_HOOK tpi_worlds (include/TpiUmbrellas.h): a visitor holding an umbrella (tpw::TpiHoldsUmbrella, only in one of the mod's worlds) has it drawn at its own place, at its look's height (Theme Park Inc's PersonSpriteUmbrellaModifiers Y, tpw::TpiUmbrellaHeight), moved toward the camera by Theme Park Inc's GenericUmbrellaModifiers (tpw::TpiUmbrellaPlace), not lagged and not bobbing; the balloons' bob steps on as for a balloon | Why: tpw-mods tpi-worlds umbrellas: an umbrella is held over the head, not flown on a string
+        // TPW_PORT_FIX mods CPeep::UpdatePositionInEngine | Mac: the balloon is drawn where the visitor was, lagged behind it (CPerson::DrawBalloon), above its head and bobbing | Port: TPW_MOD_HOOK tpi_worlds (include/TpiUmbrellas.h): a visitor holding an umbrella (tpw::TpiHoldsUmbrella, only in one of the mod's worlds) has it drawn at its own place, at its look's height (Theme Park Inc's PersonSpriteUmbrellaModifiers Y, tpw::TpiUmbrellaHeight), moved toward the camera by Theme Park Inc's GenericUmbrellaModifiers (tpw::TpiUmbrellaPlace), not lagged and not bobbing; while first-person sprites are drawn (gESPThirdPerson 0, through tpw::gTpiThirdPersonAt: walking, or a ride with its first-person sprites) it is held in the hand, to one side, by Theme Park Inc's PersonSpriteUmbrellaModifiers FP fields for the visitor's facing (tpw::TpiUmbrellaHandPlace), not moved toward the camera, and placed as in third person when the world's file has no FP fields; the balloons' bob steps on as for a balloon | Why: tpw-mods tpi-worlds umbrellas: an umbrella is held over the head, not flown on a string, and in first person in the hand, as Theme Park Inc does (Discord report, Nov 22: centred on the visitor in POV)
         if (tpw::TpiHoldsUmbrella(this)) {
             float at[3];
-            tpw::TpiUmbrellaPlace(f27, tpw::TpiUmbrellaHeight(tpw::TpiUmbrellaLookOf(this), tpw::gTpiUmbrellaRow, tpw::gTpiLookCount, tpw::gTpiUmbrellas),
-                                  f26, tpw::gTpiCameraAt, tpw::gTpiUmbrellas, at);
+            const int32_t look = tpw::TpiUmbrellaLookOf(this);
+            const bool firstPerson = tpw::gTpiThirdPersonAt != nullptr && *tpw::gTpiThirdPersonAt == 0;
+            if (!firstPerson || !tpw::TpiUmbrellaHandPlace(f27, f26, look, tpw::TpiUmbrellaFacing(At_2<uint32_t>(this, 0x1c)), tpw::gTpiUmbrellaRow,
+                                                            tpw::gTpiLookCount, tpw::gTpiUmbrellas, at))
+                tpw::TpiUmbrellaPlace(f27, tpw::TpiUmbrellaHeight(look, tpw::gTpiUmbrellaRow, tpw::gTpiLookCount, tpw::gTpiUmbrellas),
+                                      f26, tpw::gTpiCameraAt, tpw::gTpiUmbrellas, at);
             SCR_SetScriptPosition(At_2<int32_t>(this, 0x210), at[0], at[1], at[2], 0);
             At_2<float>(this, 0x218) = f27;
             At_2<float>(this, 0x21c) = f26;

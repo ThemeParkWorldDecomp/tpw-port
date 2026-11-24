@@ -4,7 +4,7 @@
 // ride database takes only 0 (nothing), 1 (a balloon) and 2 (a costume), so the converted shop's 3 is dropped and the
 // shop gives nothing. The converter writes the ids of the shops that said 3, with Theme Park Inc's umbrella lines of its
 // levels/Standard.sam (PeepInfo.UmbrellaModifier and DiscardBalloonPctModifier, GenericUmbrellaModifiers.*,
-// PersonSpriteUmbrellaModifiers[i].Y), into each of the mod's worlds as TpiUmbrellas.sam (assets/tpi_convert.cpp,
+// PersonSpriteUmbrellaModifiers[i].Y and .FP*), into each of the mod's worlds as TpiUmbrellas.sam (assets/tpi_convert.cpp,
 // TpiUmbrellasSam), and Theme Park Inc's Generic\Umbrellas\Spr_um sprite as the world's own umbrellas group;
 // CWorld::SetupNewLevel reads the file (TpiParseUmbrellas) into gTpiUmbrellas and ESP_LoadSprites loads the sprite after
 // the balloons, outside their count (gTpiUmbrellaSprites), so a random balloon is never an umbrella.
@@ -40,6 +40,16 @@ inline constexpr uint32_t kTpiUmbrellaLife = 0x100;
 // the visitor's head, so the canopy is over the head, fitted from close-ups of the converted Polar Zone (0.25 and 0.35
 // put the canopy behind the face), as Theme Park Inc measures the height otherwise than Theme Park World places a sprite.
 inline constexpr float kTpiUmbrellaHeightUnit = 0.45f;
+// Theme Park World's units per unit of the first-person fields (FPY, FPCentreOffsetX/Z, FPHandPosDistance): one, fitted
+// from first-person views of the converted Polar Zone. FPY 3.0 puts the woman's handle foot at her hand by her hip and
+// the canopy over her head, with the handle beside her seen from the front; at kTpiUmbrellaHeightUnit (FPY 3.0 is 1.35)
+// the canopy sat on the head like a hat and the hand was hardly off the middle.
+inline constexpr float kTpiUmbrellaFpUnit = 1.0f;
+// The PersonSpriteUmbrellaModifiers first-person fields of a row (TpiUmbrellaTable::fpSet): all five are needed.
+inline constexpr uint32_t kTpiUmbrellaFpY = 1, kTpiUmbrellaFpCentreX = 2, kTpiUmbrellaFpCentreZ = 4, kTpiUmbrellaFpAngle = 8,
+                          kTpiUmbrellaFpDistance = 16, kTpiUmbrellaFpAll = 31;
+// The facings Theme Park Inc works a first-person hand place out for: 0, 45, ... 315 degrees, as a visitor's sprite.
+inline constexpr int32_t kTpiUmbrellaFacings = 8;
 
 struct TpiUmbrellaTable {
     bool loaded = false;                  // one shop at least (TpiParseUmbrellas)
@@ -51,9 +61,19 @@ struct TpiUmbrellaTable {
     float adjust[3] = {0.0f, 0.0f, 0.0f};   // GenericUmbrellaModifiers.X/Y/ZAdjustCamera
     float y[kTpiUmbrellaRows] = {};       // PersonSpriteUmbrellaModifiers[i].Y
     uint32_t ySet = 0;                    // bit i: row i given
+    // PersonSpriteUmbrellaModifiers[i].FPY, .FPCentreOffsetX, .FPCentreOffsetZ, .FPHandPosAngle (degrees) and
+    // .FPHandPosDistance: the umbrella held in the hand, to one side, while first-person sprites are drawn.
+    float fpY[kTpiUmbrellaRows] = {};
+    float fpCentre[kTpiUmbrellaRows][2] = {};
+    float fpAngle[kTpiUmbrellaRows] = {};
+    float fpDistance[kTpiUmbrellaRows] = {};
+    uint8_t fpSet[kTpiUmbrellaRows] = {};   // row i's fields given (kTpiUmbrellaFp*)
+    // The hand's place from the visitor, X and Z in Theme Park Inc's units, by row and facing (TpiUmbrellaHands), as
+    // Theme Park Inc works it out when it makes a visitor; set only for a row with all five fields.
+    float hand[kTpiUmbrellaRows][kTpiUmbrellaFacings][2] = {};
 };
 
-// TPW_PORT_FIX mods gTpiUmbrellas | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiWorlds.h): the umbrella state of the world being played, gTpiUmbrellas, gTpiUmbrellaSprites, gTpiUmbrellaRow and gTpiCameraAt below, set in one of the mod's worlds and cleared in any other | Why: tpw-mods tpi-worlds umbrellas | Off: not loaded, 0, unread
+// TPW_PORT_FIX mods gTpiUmbrellas | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiWorlds.h): the umbrella state of the world being played, gTpiUmbrellas, gTpiUmbrellaSprites, gTpiUmbrellaRow, gTpiCameraAt and gTpiThirdPersonAt below, set in one of the mod's worlds and cleared in any other | Why: tpw-mods tpi-worlds umbrellas | Off: not loaded, 0, unread
 // The umbrella shops and Theme Park Inc's umbrella values, read by CWorld::SetupNewLevel from the world's TpiUmbrellas.sam
 // in one of the mod's worlds (TpiParseUmbrellas) and cleared in any other.
 inline TpiUmbrellaTable gTpiUmbrellas;
@@ -65,6 +85,9 @@ inline int8_t gTpiUmbrellaRow[kTpiMaxLooks] = {};
 // The camera's position (gCameraPosition), set by CWorld::SetupNewLevel, so the umbrella is moved toward it
 // (GenericUmbrellaModifiers.*AdjustCamera) without CPeep::UpdatePositionInEngine linking more than the Mac's; nullptr before.
 inline const float* gTpiCameraAt = nullptr;
+// Whether third-person sprites are drawn (gESPThirdPerson; 0 while the first-person ones are), set by
+// CWorld::SetupNewLevel for the same reason, so the umbrella is held in the hand in first person; nullptr before.
+inline const int32_t* gTpiThirdPersonAt = nullptr;
 
 // The umbrella step CPerson::SetState calls through this when a visitor holding an umbrella comes out with no script
 // for it (src/game/World.cpp, TpiSpawnUmbrella: the umbrella's script, made from the balloon's script block): its handle,
@@ -103,6 +126,7 @@ inline void TpiSetUmbrellaRows(const char* const* bodies, int32_t count) {
 // Reads `length` bytes of a TpiUmbrellas.sam into `t`, from nothing: "UmbrellaShop <id>" lines (each id once, 1 to 65534)
 // and Theme Park Inc's lines as its .sam has them ("Group.Field value", "Group[i].Field value", words after the value
 // and '#' to the end of a line a remark); other lines and values out of range are passed over. True, and loaded, with one shop at least.
+inline void TpiUmbrellaHands(TpiUmbrellaTable& t);
 inline bool TpiParseUmbrellas(const char* text, size_t length, TpiUmbrellaTable& t) {
     t = TpiUmbrellaTable{};
     const char* p = text;
@@ -145,17 +169,45 @@ inline bool TpiParseUmbrellas(const char* text, size_t length, TpiUmbrellaTable&
             if (std::fabs(v) <= 10.0) t.adjust[2] = static_cast<float>(v);
         } else {
             static constexpr char kRow[] = "PersonSpriteUmbrellaModifiers[";
-            static constexpr char kField[] = "].Y";
-            const size_t rn = sizeof kRow - 1, fn = sizeof kField - 1;
-            if (n <= rn + fn || std::memcmp(name, kRow, rn) != 0 || std::memcmp(nameEnd - fn, kField, fn) != 0) continue;
+            const size_t rn = sizeof kRow - 1;
+            if (n <= rn || std::memcmp(name, kRow, rn) != 0) continue;
+            const char* close = static_cast<const char*>(std::memchr(name + rn, ']', static_cast<size_t>(nameEnd - name) - rn));
+            if (close == nullptr || close + 1 >= nameEnd || close[1] != '.') continue;
             const char* digits = name + rn;
             double row = 0.0;
-            if (!detail::PeepNumber(digits, nameEnd - fn, row) || digits != nameEnd - fn) continue;
-            if (row < 0.0 || row >= kTpiUmbrellaRows || row != std::floor(row) || v <= 0.0 || v > 100.0) continue;
-            t.y[static_cast<int32_t>(row)] = static_cast<float>(v);
-            t.ySet |= 1u << static_cast<int32_t>(row);
+            if (!detail::PeepNumber(digits, close, row) || digits != close) continue;
+            if (row < 0.0 || row >= kTpiUmbrellaRows || row != std::floor(row)) continue;
+            const int32_t r = static_cast<int32_t>(row);
+            const char* field = close + 2;
+            const size_t fn = static_cast<size_t>(nameEnd - field);
+            if (detail::PeepEqual(field, fn, "Y")) {
+                if (v <= 0.0 || v > 100.0) continue;
+                t.y[r] = static_cast<float>(v);
+                t.ySet |= 1u << r;
+            } else if (detail::PeepEqual(field, fn, "FPY")) {
+                if (std::fabs(v) > 100.0) continue;
+                t.fpY[r] = static_cast<float>(v);
+                t.fpSet[r] |= kTpiUmbrellaFpY;
+            } else if (detail::PeepEqual(field, fn, "FPCentreOffsetX")) {
+                if (std::fabs(v) > 100.0) continue;
+                t.fpCentre[r][0] = static_cast<float>(v);
+                t.fpSet[r] |= kTpiUmbrellaFpCentreX;
+            } else if (detail::PeepEqual(field, fn, "FPCentreOffsetZ")) {
+                if (std::fabs(v) > 100.0) continue;
+                t.fpCentre[r][1] = static_cast<float>(v);
+                t.fpSet[r] |= kTpiUmbrellaFpCentreZ;
+            } else if (detail::PeepEqual(field, fn, "FPHandPosAngle")) {
+                if (std::fabs(v) > 3600.0) continue;
+                t.fpAngle[r] = static_cast<float>(v);
+                t.fpSet[r] |= kTpiUmbrellaFpAngle;
+            } else if (detail::PeepEqual(field, fn, "FPHandPosDistance")) {
+                if (v < 0.0 || v > 100.0) continue;
+                t.fpDistance[r] = static_cast<float>(v);
+                t.fpSet[r] |= kTpiUmbrellaFpDistance;
+            }
         }
     }
+    TpiUmbrellaHands(t);
     t.loaded = t.shopCount > 0;
     return t.loaded;
 }
@@ -215,6 +267,51 @@ inline float TpiUmbrellaHeight(int32_t look, const int8_t* rows, int32_t lookCou
     if (row < 0 || row >= kTpiUmbrellaRows || (t.ySet & (1u << row)) == 0) row = 0;
     const float y = (t.ySet & (1u << row)) != 0 ? t.y[row] : 5.7f;
     return y * kTpiUmbrellaHeightUnit;
+}
+
+// The hand's place from a visitor facing `degrees` (0 ahead, as the facing's sprite is drawn) for the first-person fields
+// of a row: FPCentreOffsetX + sin(a) * FPHandPosDistance and FPCentreOffsetZ + cos(a) * FPHandPosDistance, X and Z, where
+// a is the facing plus FPHandPosAngle, in degrees, taken modulo 360. Theme Park Inc turns a into radians and then cuts
+// it to a whole number of radians before sin and cos (an int of the radians), which puts the hand at one of only seven
+// angles whatever the facing; that looks like a slip, so this takes the true radians.
+inline void TpiUmbrellaHandAt(float degrees, float centreX, float centreZ, float angle, float distance, float out[2]) {
+    double a = std::fmod(static_cast<double>(degrees) + static_cast<double>(angle), 360.0);
+    if (a < 0.0) a += 360.0;
+    const double radians = a * 3.14159265358979323846 / 180.0;
+    out[0] = centreX + static_cast<float>(std::sin(radians)) * distance;
+    out[1] = centreZ + static_cast<float>(std::cos(radians)) * distance;
+}
+
+// Works out `t`'s hand places for each row with all five first-person fields and each of the eight facings
+// (TpiParseUmbrellas, as Theme Park Inc does for a new visitor); the other rows' are 0.
+inline void TpiUmbrellaHands(TpiUmbrellaTable& t) {
+    for (int32_t r = 0; r < kTpiUmbrellaRows; ++r)
+        for (int32_t f = 0; f < kTpiUmbrellaFacings; ++f) {
+            t.hand[r][f][0] = t.hand[r][f][1] = 0.0f;
+            if (t.fpSet[r] == kTpiUmbrellaFpAll)
+                TpiUmbrellaHandAt(45.0f * static_cast<float>(f), t.fpCentre[r][0], t.fpCentre[r][1], t.fpAngle[r], t.fpDistance[r], t.hand[r][f]);
+        }
+}
+
+// The facing, 0 to 7 (eighths of a turn), of a visitor's facing word (CPeep +0x1c, 2048 to a turn), as its sprite's
+// direction is taken from it: ((angle + 0x480) >> 8) & 7. Facing f is drawn going (sin, cos) of f * 45 degrees in X, Z.
+inline int32_t TpiUmbrellaFacing(uint32_t angle) { return static_cast<int32_t>(((angle + 0x480u) >> 8) & 7u); }
+
+// Where the umbrella of a visitor at `x`, `z` with look `look` and facing `facing` (TpiUmbrellaFacing) is drawn while
+// first-person sprites are: in the hand, at the visitor's place plus its row's hand place for that facing and at its
+// row's FPY over the ground (Theme Park Inc's units, kTpiUmbrellaFpUnit each), not moved toward the camera; row 0's
+// for a look not known or a row without all five first-person fields. False, and `out` not set, when neither has them
+// (a TpiUmbrellas.sam from before the first-person lines): the umbrella is then placed as in third person.
+inline bool TpiUmbrellaHandPlace(float x, float z, int32_t look, int32_t facing, const int8_t* rows, int32_t lookCount,
+                                 const TpiUmbrellaTable& t, float out[3]) {
+    int32_t row = look >= 0 && look < lookCount && look < kTpiMaxLooks ? rows[look] : 0;
+    if (row < 0 || row >= kTpiUmbrellaRows || t.fpSet[row] != kTpiUmbrellaFpAll) row = 0;
+    if (t.fpSet[row] != kTpiUmbrellaFpAll) return false;
+    const float* hand = t.hand[row][facing & (kTpiUmbrellaFacings - 1)];
+    out[0] = x + hand[0] * kTpiUmbrellaFpUnit;
+    out[1] = t.fpY[row] * kTpiUmbrellaFpUnit;
+    out[2] = z + hand[1] * kTpiUmbrellaFpUnit;
+    return true;
 }
 
 // Where the umbrella of a visitor at `x`, `z` (its sprite's place) is drawn, height `y`: moved toward the camera at
