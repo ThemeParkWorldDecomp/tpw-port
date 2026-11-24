@@ -171,4 +171,15 @@
     <string name="online_password_hint">The original protocol sends passwords without encryption. Use a password unique to this game.</string>
     <string name="online_server_save">Save</string>
     <string name="online_server_invalid">Enter a host name or IP address without a URL or port.</string>
+    <string name="free_camera">Free camera</string>
+    <string name="free_camera_exit">Exit free camera</string>
+    <string name="free_camera_move">Move the free camera</string>
+    <string name="free_camera_move_short">Move</string>
+    <string name="free_camera_look">Drag to turn and tilt the free camera</string>
+    <string name="free_camera_look_short">Look</string>
+    <string name="free_camera_rise">Raise the free camera</string>
+    <string name="free_camera_descend">Lower the free camera</string>
+    <string name="free_camera_reset">Reset camera view</string>
+    <string name="free_camera_reset_short">Reset</string>
+    <string name="free_camera_select_hint">Hold Select to enter or leave free camera in a park.</string>
 </resources>

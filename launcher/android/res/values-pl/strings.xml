@@ -166,4 +166,15 @@
     <string name="online_password_hint">Oryginalny protokół przesyła hasła bez szyfrowania. Użyj hasła przeznaczonego tylko do tej gry.</string>
     <string name="online_server_save">Zapisz</string>
     <string name="online_server_invalid">Wpisz nazwę hosta lub adres IP bez adresu URL i numeru portu.</string>
+    <string name="free_camera">Swobodna kamera</string>
+    <string name="free_camera_exit">Wyjdź ze swobodnej kamery</string>
+    <string name="free_camera_move">Przesuwaj swobodną kamerę</string>
+    <string name="free_camera_move_short">Ruch</string>
+    <string name="free_camera_look">Przeciągaj, aby obracać i pochylać kamerę</string>
+    <string name="free_camera_look_short">Widok</string>
+    <string name="free_camera_rise">Podnieś swobodną kamerę</string>
+    <string name="free_camera_descend">Opuść swobodną kamerę</string>
+    <string name="free_camera_reset">Przywróć widok kamery</string>
+    <string name="free_camera_reset_short">Przywróć</string>
+    <string name="free_camera_select_hint">Przytrzymaj Select w parku, aby włączyć lub wyłączyć swobodną kamerę.</string>
 </resources>

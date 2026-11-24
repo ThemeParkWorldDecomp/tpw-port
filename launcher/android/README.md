@@ -32,13 +32,28 @@ Open the on-screen gear in the top-left corner of the player lobby or the top-ri
 
 **Move controls** lets you drag on-screen controls and save their positions with **Done**. The controller settings save stick sensitivity, button mappings and mouse mode. You can also bind an action to open the keyboard. If Android put the park on pause while the app was away, **Resume game** appears on return.
 
+### Free camera
+
+In a park, hold **Select** or tap **↗** in the camera panel to enter or leave free camera. A short Select press toggles the overlay. Bind **Free camera** or **Reset camera view** to another button under **Button mapping**.
+
+| Action | Controller | Touch |
+| --- | --- | --- |
+| Fly around the park | Left stick | Left **Move** stick |
+| Turn and tilt | Right stick | Drag in the right **Look** panel |
+| Rise or descend | R2 or L2 | Hold **↑** or **↓** |
+| Go back to the starting view | **Reset camera view** binding | **Reset** |
+
+You can switch between touch and controller while flying. Both **Direct touch** and **Touchpad** let you use the cursor outside the camera controls. Exiting flight restores the pre-flight view. Held controller inputs resume their park actions after you release them.
+
+### Display and graphics
+
 The launcher's **Game interface size** setting offers 100%, 115% and 125%. Larger sizes increase the panels, text and hit areas in a park. The map, pause menu and other full-screen panels fit at 100%. The camera overlay and shortcuts tuck away when a large park interface would overlap them.
 
 Android starts at 1920 × 1080 by default. Change the rendering resolution in the game's **Options** menu. The game restores the saved resolution on the next launch.
 
 Under **Settings → Graphics**, choose **Auto**, **30 FPS** or **60 FPS**. Auto follows the display refresh rate without an explicit frame rate cap. **Draw distance** controls how far the game renders while riding an attraction or walking with the camcorder. The menu also exposes the original game's graphics options, including texture quality, lighting and shadows. **Game default** follows the graphics detail level selected in the game. Changes apply the next time the game starts.
 
-The Android launcher exposes smooth wheel zoom, extended zoom, varied sounds, stereo panning and ride badges. The game starts in landscape with Vulkan. Builds with movie support play intro films from the imported game files. Use **Skip the intro films** in **Settings** to go straight to the player lobby. Desktop windowing and renderer choices, the Mac camera-notch option, and the desktop return-to-launcher switch have no Android control. The launcher also leaves out the desktop free-camera and keyboard options. Android has its own controller and touch controls, interface-size choices and return to the launcher through Recents or the game's Quit action.
+The Android launcher exposes smooth wheel zoom, extended zoom, varied sounds, stereo panning and ride badges. The game starts in landscape with Vulkan. Builds with movie support play intro films from the imported game files. Use **Skip the intro films** in **Settings** to go straight to the player lobby. Desktop windowing and renderer choices, the Mac camera-notch option, and the desktop return-to-launcher switch have no Android control. The launcher also leaves out the desktop keyboard options. Android has its own controller and touch controls, interface-size choices and return to the launcher through Recents or the game's Quit action.
 
 ## Manage files and diagnostics
 

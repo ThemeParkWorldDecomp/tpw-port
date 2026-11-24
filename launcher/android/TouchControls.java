@@ -25,8 +25,10 @@ final class TouchControls extends FrameLayout {
     private final List<View> toolbar = new ArrayList<>(), editingShortcuts = new ArrayList<>(), building = new ArrayList<>();
     private final Button ctrl, shift;
     private final Button gear, resetLayout, resumePark;
-    private final CameraStick stick;
-    private boolean editing, parkLoaded, parkActive, canResumePark;
+    private final Button fly, rise, descend, resetFlight;
+    private final CameraStick stick, flightMove;
+    private boolean editing, editingFlight, parkLoaded, parkActive, canResumePark;
+    private boolean flightAvailable, flying, flightControlsVisible;
     private int modifiers;
     private View dragging;
     private int dragFinger = -1;
@@ -38,6 +40,7 @@ final class TouchControls extends FrameLayout {
         this.settings = settings;
         this.largerInterface = largerInterface;
         setClipChildren(false);
+        setMotionEventSplittingEnabled(true);
 
         button(building, "buy", game.getString(R.string.buy), game.getString(R.string.buy_rides), () -> game.press(KeyEvent.KEYCODE_B));
         button(building, "rotate_left", "↺", game.getString(R.string.rotate_left), () -> game.rotate(-1));
@@ -48,12 +51,20 @@ final class TouchControls extends FrameLayout {
 
         button(toolbar, "zoom_out", "−", game.getString(R.string.zoom_out), () -> game.zoom(-1));
         button(toolbar, "zoom_in", "+", game.getString(R.string.zoom_in), () -> game.zoom(1));
+        descend = heightButton("flight_descend", "↓", R.string.free_camera_descend, 1);
+        rise = heightButton("flight_rise", "↑", R.string.free_camera_rise, 2);
+        fly = button(toolbar, "free_camera", "↗", game.getString(R.string.free_camera), game::toggleFreeCamera);
         button(editingShortcuts, "right_click", game.getString(R.string.right_mouse_short), game.getString(R.string.right_mouse), game::rightClick);
         button(editingShortcuts, "backspace", "⌫", game.getString(R.string.backspace), game::backspace);
+        resetFlight = button(editingShortcuts, "flight_reset", game.getString(R.string.free_camera_reset_short),
+            game.getString(R.string.free_camera_reset), game::resetFreeCamera);
 
-        stick = new CameraStick();
+        stick = new CameraStick(false);
         stick.setTag("stick");
         addView(stick, new LayoutParams(dp(120), dp(120)));
+        flightMove = new CameraStick(true);
+        flightMove.setTag("flight_move");
+        addView(flightMove, new LayoutParams(dp(120), dp(120)));
         gear = button(null, null, "⚙", game.getString(R.string.control_settings), () -> {
             if (editing) finishLayoutEdit();
             else game.showControlSettings();
@@ -65,6 +76,20 @@ final class TouchControls extends FrameLayout {
         String resumeLabel = game.getString(R.string.resume_park);
         resumePark = button(null, null, resumeLabel, resumeLabel, game::resumePark);
         updateVisibility();
+    }
+
+    private Button heightButton(String tag, String arrow, int label, int bit) {
+        Button height = button(toolbar, tag, arrow, game.getString(label), () -> {});
+        height.setOnTouchListener((view, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN: game.holdFlightHeight(bit, true); break;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL: game.holdFlightHeight(bit, false); break;
+                default: break;
+            }
+            return false;
+        });
+        return height;
     }
 
     private int dp(float size) { return Math.round(size * getResources().getDisplayMetrics().density); }
@@ -127,6 +152,7 @@ final class TouchControls extends FrameLayout {
         WindowInsets insets = getRootWindowInsets();
         Insets cutout = insets == null ? Insets.NONE
             : insets.getInsetsIgnoringVisibility(WindowInsets.Type.displayCutout());
+        if (flightMove.getVisibility() == VISIBLE) place(flightMove, dp(20) + cutout.left, stickY, flightMove.getMeasuredWidth());
         // The player list is on the right in the lobby. The park's cash is on the left.
         int gearX = editing || parkLoaded ? width - gearWidth - dp(12) - cutout.right : dp(12) + cutout.left;
         place(gear, gearX, dp(10) + cutout.top, gearWidth);
@@ -165,14 +191,37 @@ final class TouchControls extends FrameLayout {
     private static int clamp(int n, int end) { return Math.max(0, Math.min(n, end)); }
 
     void updateVisibility() {
-        boolean camera = editing || (settings.cameraVisible() && parkActive);
-        for (View view : toolbar) view.setVisibility(camera ? VISIBLE : GONE);
-        for (View view : editingShortcuts) view.setVisibility(camera ? VISIBLE : GONE);
-        for (View view : building) view.setVisibility(editing || (camera && settings.buildingVisible()) ? VISIBLE : GONE);
-        stick.setVisibility(camera ? VISIBLE : GONE);
+        boolean flightLayout = editing ? editingFlight : flying;
+        boolean camera = !flightLayout && (editing || settings.cameraVisible() && parkActive);
+        boolean showFlight = flightLayout && (editing || flightControlsVisible && parkActive);
+        for (View view : toolbar) {
+            boolean show = view == fly ? editing || flying || (camera && flightAvailable)
+                : view == rise || view == descend ? showFlight : camera;
+            view.setVisibility(show ? VISIBLE : GONE);
+        }
+        for (View view : editingShortcuts) view.setVisibility((view == resetFlight ? showFlight : camera) ? VISIBLE : GONE);
+        for (View view : building) view.setVisibility(camera && (editing || settings.buildingVisible()) ? VISIBLE : GONE);
+        stick.setVisibility(camera || showFlight ? VISIBLE : GONE);
+        stick.setContentDescription(game.getString(flightLayout ? R.string.free_camera_look : R.string.camera_stick));
+        flightMove.setVisibility(showFlight ? VISIBLE : GONE);
         resetLayout.setVisibility(editing ? VISIBLE : GONE);
         resumePark.setVisibility(canResumePark && !editing ? VISIBLE : GONE);
         requestLayout();
+    }
+
+    void setFlightAvailable(boolean available) {
+        flightAvailable = available;
+        updateVisibility();
+    }
+
+    void setFlying(boolean enabled) {
+        flying = enabled;
+        flightControlsVisible = enabled;
+        fly.setSelected(enabled);
+        fly.setText(enabled ? "×" : "↗");
+        fly.setContentDescription(game.getString(enabled ? R.string.free_camera_exit : R.string.free_camera));
+        cancelStick();
+        updateVisibility();
     }
 
     void setParkActive(boolean active) {
@@ -197,6 +246,12 @@ final class TouchControls extends FrameLayout {
     }
 
     void toggle() {
+        if (flying) {
+            flightControlsVisible = !flightControlsVisible;
+            if (!flightControlsVisible) cancelStick();
+            updateVisibility();
+            return;
+        }
         boolean visible = !settings.cameraVisible();
         settings.setCameraVisible(visible);
         updateVisibility();
@@ -224,7 +279,12 @@ final class TouchControls extends FrameLayout {
         game.setOverlayModifiers(modifiers);
     }
 
-    void cancelStick() { stick.reset(); }
+    void cancelStick() {
+        stick.reset();
+        flightMove.reset();
+        game.holdFlightHeight(1, false);
+        game.holdFlightHeight(2, false);
+    }
 
     boolean ownsPoint(float x, float y) {
         for (int i = getChildCount() - 1; i >= 0; --i) if (inside(getChildAt(i), x, y)) return true;
@@ -233,8 +293,9 @@ final class TouchControls extends FrameLayout {
 
     boolean editingLayout() { return editing; }
 
-    void beginLayoutEdit() {
+    void beginLayoutEdit(boolean flightLayout) {
         editing = true;
+        editingFlight = flightLayout;
         gear.setText(game.getString(R.string.done));
         gear.setContentDescription(game.getString(R.string.finish_move_controls));
         updateVisibility();
@@ -303,13 +364,14 @@ final class TouchControls extends FrameLayout {
 
     private final class CameraStick extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final String label = game.getString(R.string.camera);
+        private final boolean movement;
         private int finger = -1;
-        private float x, y;
+        private float x, y, lastX, lastY;
 
-        CameraStick() {
+        CameraStick(boolean movement) {
             super(game);
-            setContentDescription(game.getString(R.string.camera_stick));
+            this.movement = movement;
+            setContentDescription(game.getString(movement ? R.string.free_camera_move : R.string.camera_stick));
         }
 
         @Override
@@ -330,13 +392,19 @@ final class TouchControls extends FrameLayout {
             paint.setColor(0xFFF4FAFF);
             paint.setTextSize(dp(10));
             paint.setTextAlign(Paint.Align.CENTER);
+            String label = game.getString(movement ? R.string.free_camera_move_short
+                : (editing ? editingFlight : flying) ? R.string.free_camera_look_short : R.string.camera);
             canvas.drawText(label, center, center + dp(49), paint);
         }
 
         @Override
         public boolean onTouchEvent(MotionEvent event) {
             int action = event.getActionMasked();
-            if (action == MotionEvent.ACTION_DOWN) finger = event.getPointerId(0);
+            if (action == MotionEvent.ACTION_DOWN) {
+                finger = event.getPointerId(0);
+                lastX = event.getX(0);
+                lastY = event.getY(0);
+            }
             if (action == MotionEvent.ACTION_CANCEL ||
                 ((action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP) &&
                  event.getPointerId(event.getActionIndex()) == finger)) {
@@ -350,7 +418,14 @@ final class TouchControls extends FrameLayout {
             float length = Math.max(1, (float) Math.hypot(x, y));
             x /= length;
             y /= length;
-            game.setOnScreenStick(x, y);
+            if (movement) game.moveFreeCamera(x, y);
+            else if (flying) {
+                float nextX = event.getX(pointer), nextY = event.getY(pointer);
+                float density = getResources().getDisplayMetrics().density;
+                game.lookFreeCamera((nextX - lastX) / density, (nextY - lastY) / density);
+                lastX = nextX;
+                lastY = nextY;
+            } else game.setOnScreenStick(x, y);
             invalidate();
             return true;
         }
@@ -358,7 +433,8 @@ final class TouchControls extends FrameLayout {
         void reset() {
             finger = -1;
             x = y = 0;
-            game.setOnScreenStick(0, 0);
+            if (movement) game.moveFreeCamera(0, 0);
+            else game.setOnScreenStick(0, 0);
             invalidate();
         }
     }

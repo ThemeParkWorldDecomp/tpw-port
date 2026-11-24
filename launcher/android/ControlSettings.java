@@ -27,7 +27,7 @@ final class ControlSettings {
         CTRL(R.string.binding_ctrl), SHIFT(R.string.binding_shift), MENU(R.string.game_menu), ENTER(R.string.enter),
         KEYBOARD(R.string.show_keyboard), OVERLAY(R.string.toggle_overlay),
         SETTINGS(R.string.control_settings), BUY(R.string.buy_rides), MAP(R.string.map), PAUSE(R.string.pause), HOME(R.string.entrance_view),
-        BACKSPACE(R.string.backspace);
+        BACKSPACE(R.string.backspace), FREE_CAMERA(R.string.free_camera), RESET_CAMERA(R.string.free_camera_reset);
 
         final int label;
         Action(int label) { this.label = label; }
@@ -101,6 +101,12 @@ final class ControlSettings {
         return null;
     }
 
+    boolean selectHoldsForCamera() {
+        if (binding(KeyEvent.KEYCODE_BUTTON_SELECT) != Action.OVERLAY) return false;
+        for (Action binding : bindings) if (binding == Action.FREE_CAMERA) return false;
+        return true;
+    }
+
     PointF position(String name) {
         String key = POSITION + name;
         if (!preferences.containsKey(key + "_x")) return null;
@@ -154,6 +160,11 @@ final class ControlSettings {
         TextView dragHint = new TextView(owner);
         dragHint.setText(R.string.touch_drag_hint);
         fields.addView(dragHint);
+        if (selectHoldsForCamera()) {
+            TextView cameraHint = new TextView(owner);
+            cameraHint.setText(R.string.free_camera_select_hint);
+            fields.addView(cameraHint);
+        }
         button(owner, fields, R.string.button_mapping, () -> showBindings(owner));
         if (game != null) {
             button(owner, fields, R.string.move_controls, () -> {

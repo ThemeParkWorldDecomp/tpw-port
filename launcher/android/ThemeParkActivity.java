@@ -33,6 +33,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     private TouchControls controls;
     private ControlSettings settings;
     private final SparseBooleanArray padKeys = new SparseBooleanArray();
+    private final SparseBooleanArray waitForPadRelease = new SparseBooleanArray();
     private int sentArrows;
     private int controller = -1;
     private int pressedArrows, hatArrows, mouseButtons;
@@ -49,15 +50,24 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
         setTouchButton(LEFT);
     };
     private boolean menuDown, enterDown, menuWhenFocused;
-    private boolean showingControls;
+    private boolean showingControls, flyingWhenControlsOpened;
     private final Runnable clearControlFocus = () -> showingControls = false;
     private float pointerX = 0.5f, pointerY = 0.5f;
     private float padX, padY;
+    private boolean flying, flightAvailable, selectDidFly;
+    private boolean leftNeedsCenter, rightNeedsCenter;
+    private float flightX, flightY, leftTrigger, rightTrigger;
+    private int heightButtons;
+    private final Runnable holdSelect = () -> selectDidFly = toggleFreeCamera();
     private float stickX, stickY;
     private final int[] surfaceOffset = new int[2];
     private long pointerTick;
 
     private static native void nativeCamera(float x, float y);
+    private static native void nativeFlightMode(boolean enabled);
+    private static native void nativeFlightAxes(float x, float y, float lookX, float lookY, float left, float right);
+    private static native void nativeFlightLook(float x, float y);
+    private static native void nativeFlightReset();
     private static native void nativeKeyboard();
     private static native void nativeRotate(int direction);
     private static native void nativeControlDialog(boolean opening);
@@ -175,13 +185,17 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     }
 
     private void releaseController() {
+        mLayout.removeCallbacks(holdSelect);
+        selectDidFly = leftNeedsCenter = rightNeedsCenter = false;
         controller = -1;
         padX = padY = 0;
-        updatePointerStick();
         stickCameraX = stickCameraY = 0;
+        leftTrigger = rightTrigger = 0;
+        updatePointerStick();
         updateCamera();
         pressedArrows = hatArrows = 0;
         padKeys.clear();
+        waitForPadRelease.clear();
         refreshHeldActions();
     }
 
@@ -218,17 +232,33 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
             setArrowSources(bitState(pressedArrows, 1 << i, down), hatArrows);
             return true;
         }
-        setPadKey(key, down);
+        if (key == KeyEvent.KEYCODE_BUTTON_L2 || key == KeyEvent.KEYCODE_BUTTON_R2) setTrigger(key, down ? 1 : 0);
+        else setPadKey(key, down);
         return true;
     }
 
     private void setPadKey(int key, boolean down) {
         if (padKeys.get(key) == down) return;
+        ControlSettings.Action binding = settings.binding(key);
+        boolean blocked = waitForPadRelease.get(key);
         if (down) padKeys.put(key, true);
-        else padKeys.delete(key);
+        else {
+            padKeys.delete(key);
+            waitForPadRelease.delete(key);
+        }
+        if (key == KeyEvent.KEYCODE_BUTTON_SELECT && settings.selectHoldsForCamera()) {
+            if (down) {
+                selectDidFly = false;
+                mLayout.postDelayed(holdSelect, ViewConfiguration.getLongPressTimeout());
+            } else {
+                mLayout.removeCallbacks(holdSelect);
+                if (!selectDidFly) controls.toggle();
+            }
+            return;
+        }
         refreshHeldActions();
-        if (!down) return;
-        switch (settings.binding(key)) {
+        if (!down || blocked || (flying && !availableInFlight(binding))) return;
+        switch (binding) {
             case ZOOM_IN: zoom(1); break;
             case ZOOM_OUT: zoom(-1); break;
             case ROTATE_LEFT: rotate(-1); break;
@@ -241,13 +271,25 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
             case PAUSE: press(KeyEvent.KEYCODE_P); break;
             case HOME: press(KeyEvent.KEYCODE_MOVE_HOME); break;
             case BACKSPACE: backspace(); break;
+            case FREE_CAMERA: toggleFreeCamera(); break;
+            case RESET_CAMERA: resetFreeCamera(); break;
             default: break;
         }
     }
 
+    private static boolean availableInFlight(ControlSettings.Action action) {
+        return action == ControlSettings.Action.MENU || action == ControlSettings.Action.OVERLAY ||
+               action == ControlSettings.Action.SETTINGS || action == ControlSettings.Action.FREE_CAMERA ||
+               action == ControlSettings.Action.RESET_CAMERA;
+    }
+
     private void refreshHeldActions() {
         EnumSet<ControlSettings.Action> actions = EnumSet.noneOf(ControlSettings.Action.class);
-        for (int i = 0; i < padKeys.size(); ++i) actions.add(settings.binding(padKeys.keyAt(i)));
+        for (int i = 0; i < padKeys.size(); ++i) {
+            int key = padKeys.keyAt(i);
+            ControlSettings.Action action = settings.binding(key);
+            if (!waitForPadRelease.get(key) && (!flying || availableInFlight(action))) actions.add(action);
+        }
         int arrows = (actions.contains(ControlSettings.Action.UP) ? 1 : 0) |
                      (actions.contains(ControlSettings.Action.ARROW_LEFT) ? 2 : 0) |
                      (actions.contains(ControlSettings.Action.DOWN) ? 4 : 0) |
@@ -275,8 +317,15 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
         if (range == null || controller != event.getDeviceId()) return;
         int axis = range.getAxis();
         float value = sample < event.getHistorySize() ? event.getHistoricalAxisValue(axis, sample) : event.getAxisValue(axis);
-        float travel = (value - range.getMin()) / range.getRange();
+        setTrigger(key, clamp((value - range.getMin()) / range.getRange()));
+    }
+
+    private void setTrigger(int key, float travel) {
+        if (key == KeyEvent.KEYCODE_BUTTON_L2) leftTrigger = travel;
+        else rightTrigger = travel;
+        if (travel < TRIGGER_RELEASE) waitForPadRelease.delete(key);
         setPadKey(key, travel >= (padKeys.get(key) ? TRIGGER_RELEASE : TRIGGER_PRESS));
+        if (flying) updateFlightAxes();
     }
 
     @Override
@@ -289,12 +338,14 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
             }
             padX = event.getAxisValue(MotionEvent.AXIS_X);
             padY = event.getAxisValue(MotionEvent.AXIS_Y);
+            if (Math.hypot(padX, padY) <= 0.16f) leftNeedsCenter = false;
             updatePointerStick();
             InputDevice device = event.getDevice();
             boolean useZ = device != null && device.getMotionRange(MotionEvent.AXIS_Z, event.getSource()) != null &&
                            device.getMotionRange(MotionEvent.AXIS_RZ, event.getSource()) != null;
             stickCameraX = event.getAxisValue(useZ ? MotionEvent.AXIS_Z : MotionEvent.AXIS_RX);
             stickCameraY = event.getAxisValue(useZ ? MotionEvent.AXIS_RZ : MotionEvent.AXIS_RY);
+            if (Math.hypot(stickCameraX, stickCameraY) <= 0.18f) rightNeedsCenter = false;
             updateCamera();
             setArrowSources(pressedArrows, directions(event.getAxisValue(MotionEvent.AXIS_HAT_X), event.getAxisValue(MotionEvent.AXIS_HAT_Y)));
             InputDevice.MotionRange leftTrigger = triggerRange(device, KeyEvent.KEYCODE_BUTTON_L2);
@@ -434,12 +485,76 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     }
 
     private void updateCamera() {
+        if (flying) {
+            nativeCamera(0, 0);
+            updateFlightAxes();
+            return;
+        }
         boolean touch = touchCameraX != 0 || touchCameraY != 0;
-        float x = touch ? touchCameraX : stickCameraX;
-        float y = touch ? touchCameraY : stickCameraY;
+        float x = touch ? touchCameraX : rightNeedsCenter ? 0 : stickCameraX;
+        float y = touch ? touchCameraY : rightNeedsCenter ? 0 : stickCameraY;
         float length = (float) Math.hypot(x, y);
         float strength = length <= 0.18f ? 0 : clamp((length - 0.18f) / 0.82f) * settings.cameraScale() / length;
         nativeCamera(x * strength, y * strength);
+    }
+
+    boolean toggleFreeCamera() {
+        if (!flying && !flightAvailable) return false;
+        nativeFlightMode(!flying);
+        setFlying(!flying);
+        return true;
+    }
+
+    private void setFlying(boolean enabled) {
+        if (enabled == flying) return;
+        flying = enabled;
+        leftNeedsCenter = Math.hypot(padX, padY) > 0.16f;
+        rightNeedsCenter = Math.hypot(stickCameraX, stickCameraY) > 0.18f;
+        for (int i = 0; i < padKeys.size(); ++i) {
+            int key = padKeys.keyAt(i);
+            if (!availableInFlight(settings.binding(key))) waitForPadRelease.put(key, true);
+        }
+        if (leftTrigger >= TRIGGER_RELEASE) waitForPadRelease.put(KeyEvent.KEYCODE_BUTTON_L2, true);
+        if (rightTrigger >= TRIGGER_RELEASE) waitForPadRelease.put(KeyEvent.KEYCODE_BUTTON_R2, true);
+        cancelTouchPointer();
+        controls.clearModifiers();
+        controls.setFlying(enabled);
+        refreshHeldActions();
+        updatePointerStick();
+        updateCamera();
+    }
+
+    void resetFreeCamera() { if (flying) nativeFlightReset(); }
+
+    void moveFreeCamera(float x, float y) {
+        flightX = x;
+        flightY = y;
+        if (flying) updateFlightAxes();
+    }
+
+    void lookFreeCamera(float dx, float dy) {
+        if (flying) nativeFlightLook(dx * settings.cameraScale(), dy * settings.cameraScale());
+    }
+
+    void holdFlightHeight(int bit, boolean held) {
+        heightButtons = bitState(heightButtons, bit, held);
+        if (flying) updateFlightAxes();
+    }
+
+    private void updateFlightAxes() {
+        boolean touch = flightX != 0 || flightY != 0;
+        float x = touch ? flightX : leftNeedsCenter ? 0 : padX;
+        float y = touch ? flightY : leftNeedsCenter ? 0 : padY;
+        float left = flightTrigger(KeyEvent.KEYCODE_BUTTON_L2, 1, leftTrigger);
+        float right = flightTrigger(KeyEvent.KEYCODE_BUTTON_R2, 2, rightTrigger);
+        float scale = settings.cameraScale();
+        nativeFlightAxes(x * scale, y * scale, rightNeedsCenter ? 0 : stickCameraX * scale,
+            rightNeedsCenter ? 0 : stickCameraY * scale, left, right);
+    }
+
+    private float flightTrigger(int key, int touchBit, float travel) {
+        if ((heightButtons & touchBit) != 0) return 1;
+        return waitForPadRelease.get(key) || availableInFlight(settings.binding(key)) ? 0 : travel;
     }
 
     private void setArrowSources(int keys, int hat) {
@@ -518,7 +633,8 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     private static float clamp(float value) { return Math.max(0, Math.min(1, value)); }
 
     private void updatePointerStick() {
-        setStick(padX, padY);
+        if (flying || leftNeedsCenter) setStick(0, 0);
+        else setStick(padX, padY);
     }
 
     private void setStick(float x, float y) {
@@ -562,13 +678,14 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     };
 
     void showControlSettings() {
+        flyingWhenControlsOpened = flying;
         releaseInputs();
         showingControls = true;
         mLayout.removeCallbacks(clearControlFocus);
         settings.show(this);
     }
 
-    void editTouchLayout() { controls.beginLayoutEdit(); }
+    void editTouchLayout() { controls.beginLayoutEdit(flyingWhenControlsOpened); }
 
     void toggleBuildControls() { controls.toggleBuilding(); }
 
@@ -583,6 +700,20 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     void cameraAvailable(boolean active) {
         runOnUiThread(() -> {
             if (controls != null && !isFinishing()) controls.setParkActive(active);
+        });
+    }
+
+    void freeCameraAvailable(boolean available) {
+        runOnUiThread(() -> {
+            if (controls == null || isFinishing()) return;
+            flightAvailable = available;
+            controls.setFlightAvailable(available);
+        });
+    }
+
+    void freeCameraEnded(boolean ended) {
+        runOnUiThread(() -> {
+            if (controls != null && !isFinishing()) setFlying(false);
         });
     }
 
