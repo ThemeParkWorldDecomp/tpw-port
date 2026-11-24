@@ -231,6 +231,12 @@
     <string name="free_camera_reset">Reset camera view</string>
     <string name="free_camera_reset_short">Reset</string>
     <string name="free_camera_select_hint">Hold Select to enter or leave free camera in a park.</string>
+    <string name="download_update">Download APK</string>
+    <string name="update_install_prompt">Download version %1$s in your browser, then open the APK to install it over the current app.</string>
+    <string name="chat_short">Chat</string>
+    <string name="chat_toggle">Show or hide online chat</string>
+    <string name="chat_write">Write in online chat</string>
+    <string name="chat_send">Send chat message</string>
     <string name="data_file_details">Missing files and customized settings</string>
     <string name="no_data_file_problems">All checked files are present. There are no customized settings files.</string>
     <string name="data_file_required">Required file missing or damaged</string>
@@ -250,6 +256,4 @@
     <string name="refresh_previous">Use previously imported files</string>
     <string name="mod_refresh_done">Mod data refreshed.</string>
     <string name="mod_refresh_failed">Could not refresh the mod. Select the source disc or installation again.</string>
-    <string name="download_update">Download APK</string>
-    <string name="update_install_prompt">Download version %1$s in your browser, then open the APK to install it over the current app.</string>
 </resources>

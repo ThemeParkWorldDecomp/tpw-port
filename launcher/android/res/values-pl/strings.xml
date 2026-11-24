@@ -226,6 +226,12 @@
     <string name="immersive_full_screen">Ukryj paski systemowe w grze</string>
     <string name="fill_display_cutout">Wypełnij ekran wokół wcięcia</string>
     <string name="return_to_launcher">Wróć do launchera po wyjściu z gry</string>
+    <string name="download_update">Pobierz APK</string>
+    <string name="update_install_prompt">Pobierz wersję %1$s w przeglądarce, a potem otwórz APK, aby zaktualizować aplikację.</string>
+    <string name="chat_short">Czat</string>
+    <string name="chat_toggle">Pokaż lub ukryj czat online</string>
+    <string name="chat_write">Napisz na czacie online</string>
+    <string name="chat_send">Wyślij wiadomość na czacie</string>
     <string name="data_file_details">Brakujące pliki i zmienione ustawienia</string>
     <string name="no_data_file_problems">Wszystkie sprawdzane pliki są dostępne. Brak zmodyfikowanych plików ustawień.</string>
     <string name="data_file_required">Brakujący lub uszkodzony plik wymagany</string>
@@ -245,6 +251,4 @@
     <string name="refresh_previous">Użyj poprzednio importowanych plików</string>
     <string name="mod_refresh_done">Odświeżono dane moda.</string>
     <string name="mod_refresh_failed">Nie udało się odświeżyć moda. Wybierz ponownie płytę lub folder instalacji.</string>
-    <string name="download_update">Pobierz APK</string>
-    <string name="update_install_prompt">Pobierz wersję %1$s w przeglądarce, a potem otwórz APK, aby zaktualizować aplikację.</string>
 </resources>

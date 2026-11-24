@@ -23,12 +23,15 @@ final class TouchControls extends FrameLayout {
     private final ControlSettings settings;
     private final boolean largerInterface;
     private final List<View> toolbar = new ArrayList<>(), editingShortcuts = new ArrayList<>(), building = new ArrayList<>();
+    private final List<View> chat = new ArrayList<>();
     private final Button ctrl, shift;
     private final Button gear, resetLayout, resumePark;
     private final Button fly, orbit, rise, descend, resetFlight;
+    private final Button sendChat;
     private final CameraStick stick, flightMove;
     private boolean editing, editingFlight, parkLoaded, parkActive, canResumePark;
     private boolean flightAvailable, freeCameraActive, flightControlsVisible;
+    private boolean chatAvailable, chatSendEnabled;
     private int modifiers;
     private View dragging;
     private int dragFinger = -1;
@@ -70,6 +73,10 @@ final class TouchControls extends FrameLayout {
             if (editing) finishLayoutEdit();
             else game.showControlSettings();
         });
+        button(chat, "chat_toggle", game.getString(R.string.chat_short), game.getString(R.string.chat_toggle),
+            () -> game.chat(ThemeParkActivity.CHAT_TOGGLE));
+        button(chat, "chat_write", "✎", game.getString(R.string.chat_write), () -> game.chat(ThemeParkActivity.CHAT_WRITE));
+        sendChat = button(chat, "chat_send", "↵", game.getString(R.string.chat_send), () -> game.chat(ThemeParkActivity.CHAT_SEND));
         resetLayout = button(null, null, game.getString(R.string.reset_layout), game.getString(R.string.restore_layout), () -> {
             settings.resetPositions();
             requestLayout();
@@ -157,6 +164,7 @@ final class TouchControls extends FrameLayout {
         // The player list is on the right in the lobby. The park's cash is on the left.
         int gearX = editing || parkLoaded ? width - gearWidth - dp(12) - cutout.right : dp(12) + cutout.left;
         place(gear, gearX, dp(10) + cutout.top, gearWidth);
+        layoutRow(chat, width, width / 2, dp(10) + cutout.top, editing || !parkLoaded ? gearWidth + dp(24) + cutout.left : 0);
         if (editing) place(resetLayout, dp(12), dp(10), resetLayout.getMeasuredWidth());
         if (resumePark.getVisibility() == VISIBLE) {
             int buttonWidth = resumePark.getMeasuredWidth();
@@ -202,12 +210,24 @@ final class TouchControls extends FrameLayout {
         }
         for (View view : editingShortcuts) view.setVisibility((view == resetFlight ? showFlight : camera) ? VISIBLE : GONE);
         for (View view : building) view.setVisibility(camera && (editing || settings.buildingVisible()) ? VISIBLE : GONE);
+        for (View view : chat) view.setVisibility(chatAvailable || (editing && !editingFlight) ? VISIBLE : GONE);
+        sendChat.setEnabled(chatSendEnabled || editing);
         stick.setVisibility(camera || showFlight ? VISIBLE : GONE);
         stick.setContentDescription(game.getString(flightLayout ? R.string.free_camera_look : R.string.camera_stick));
         flightMove.setVisibility(showFlight ? VISIBLE : GONE);
         resetLayout.setVisibility(editing ? VISIBLE : GONE);
         resumePark.setVisibility(canResumePark && !editing ? VISIBLE : GONE);
         requestLayout();
+    }
+
+    void setChatAvailable(boolean available) {
+        chatAvailable = available;
+        updateVisibility();
+    }
+
+    void setChatSendEnabled(boolean enabled) {
+        chatSendEnabled = enabled;
+        updateVisibility();
     }
 
     void setFlightAvailable(boolean available) {

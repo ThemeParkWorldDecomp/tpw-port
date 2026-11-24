@@ -71,7 +71,9 @@ The game starts in landscape with Vulkan. **Immersive full screen** hides the sy
 
 ## Online play
 
-Open **Settings → Online server** to choose a host name or IP address. Leave it blank to use the default server. The new address applies the next time the game starts. Select the globe in the player lobby to connect. Starting the launcher, single-player play and saves work offline.
+Open **Settings → Online server** to choose a host name or IP address. Leaving it blank uses the last valid address discovered from upstream's `online.txt`, or the built-in address on a fresh install. The launcher refreshes discovery when **Check for Android updates** is on. The new address applies the next time the game starts. Select the globe in the player lobby to connect. Starting the launcher, single-player play and saves work offline.
+
+In an online park, the overlay offers **Chat**, **Write** and **Send**. **Write** opens and focuses the game's chat field and brings up the Android keyboard. Map **Show or hide online chat**, **Write in online chat** and **Send chat message** under **Button mapping** to use these actions on a controller.
 
 The original online protocol sends passwords without encryption. Use a password unique to this game.
 

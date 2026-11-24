@@ -11,13 +11,16 @@ import android.util.SparseBooleanArray;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
+import android.widget.RelativeLayout;
 
 import org.libsdl.app.SDLActivity;
+import org.libsdl.app.TpwTextEdit;
 import java.io.File;
 import java.util.EnumSet;
 
@@ -27,6 +30,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     };
     static final int LEFT = MotionEvent.BUTTON_PRIMARY;
     static final int RIGHT = MotionEvent.BUTTON_SECONDARY;
+    static final int CHAT_TOGGLE = 1, CHAT_WRITE = 2, CHAT_SEND = 3;
     private static final int[] MOUSE_BUTTONS = {LEFT, RIGHT};
     private static final int[] MODIFIER_KEYS = {KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_SHIFT_LEFT};
     private static final float TRIGGER_PRESS = 0.55f;
@@ -73,6 +77,7 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     private static native void nativeFlightLook(float x, float y);
     private static native void nativeFlightReset();
     private static native void nativeKeyboard();
+    private static native void nativeChat(int action);
     private static native void nativeRotate(int direction);
     private static native void nativeControlDialog(boolean opening);
     private static native void nativeResumePark();
@@ -87,10 +92,12 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     protected String[] getArguments() {
         String edition = getIntent().getStringExtra(SetupActivity.EDITION);
         String language = getIntent().getStringExtra(SetupActivity.LANGUAGE);
+        String discovered = getIntent().getStringExtra(SetupActivity.DISCOVERED_SERVER);
         int scale = getIntent().getIntExtra(SetupActivity.INTERFACE_SCALE, 100);
         return new String[] { edition == null ? "eur-pc" : edition, language == null ? "" : language,
             getString(R.string.storage_unavailable), getString(R.string.game_start_failed), Integer.toString(scale),
-            getIntent().getBooleanExtra(SetupActivity.IMMERSIVE, true) ? "1" : "0" };
+            getIntent().getBooleanExtra(SetupActivity.IMMERSIVE, true) ? "1" : "0",
+            discovered == null ? "" : discovered };
     }
 
     @Override
@@ -99,6 +106,11 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
         if (mLayout == null) return;
         describeGameTask();
         settings = new ControlSettings(this);
+        // SDL reuses the editor when it shows its keyboard.
+        mTextEdit = new TpwTextEdit(this, event -> isChatAction(settings.binding(event.getKeyCode())) &&
+                                                  dispatchControllerKey(event));
+        mTextEdit.setVisibility(View.GONE);
+        mLayout.addView(mTextEdit, new RelativeLayout.LayoutParams(0, 0));
         controls = new TouchControls(this, settings, getIntent().getIntExtra(SetupActivity.INTERFACE_SCALE, 100) > 100);
         mLayout.setMotionEventSplittingEnabled(true);
         mLayout.addView(controls, new ViewGroup.LayoutParams(-1, -1));
@@ -242,16 +254,20 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        return dispatchControllerKey(event) || super.dispatchKeyEvent(event);
+    }
+
+    private boolean dispatchControllerKey(KeyEvent event) {
         InputDevice device = event.getDevice();
         boolean pad = event.isFromSource(InputDevice.SOURCE_GAMEPAD) || event.isFromSource(InputDevice.SOURCE_DPAD) ||
                       (device != null && device.supportsSource(InputDevice.SOURCE_GAMEPAD));
         int action = event.getAction();
         if (controls == null || !pad || (action != KeyEvent.ACTION_DOWN && action != KeyEvent.ACTION_UP)) {
-            return super.dispatchKeyEvent(event);
+            return false;
         }
         if (controls.editingLayout()) return true;
         int key = event.getKeyCode();
-        if (settings.binding(key) == null) return super.dispatchKeyEvent(event);
+        if (settings.binding(key) == null) return false;
         // Use one source per trigger. Some pads also send button events at full travel.
         if (triggerRange(device, key) != null) return true;
         if (controller != event.getDeviceId()) {
@@ -296,6 +312,9 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
             case ROTATE_LEFT: rotate(-1); break;
             case ROTATE_RIGHT: rotate(1); break;
             case KEYBOARD: openKeyboard(); break;
+            case CHAT_TOGGLE: chat(CHAT_TOGGLE); break;
+            case CHAT_WRITE: chat(CHAT_WRITE); break;
+            case CHAT_SEND: chat(CHAT_SEND); break;
             case OVERLAY: controls.toggle(); break;
             case SETTINGS: showControlSettings(); break;
             case BUY: press(KeyEvent.KEYCODE_B); break;
@@ -313,7 +332,13 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     private static boolean availableInFreeCamera(ControlSettings.Action action) {
         return action == ControlSettings.Action.MENU || action == ControlSettings.Action.OVERLAY ||
                action == ControlSettings.Action.SETTINGS || action == ControlSettings.Action.FREE_CAMERA ||
-               action == ControlSettings.Action.RESET_CAMERA || action == ControlSettings.Action.ORBIT_CAMERA;
+               action == ControlSettings.Action.RESET_CAMERA || action == ControlSettings.Action.ORBIT_CAMERA ||
+               isChatAction(action);
+    }
+
+    private static boolean isChatAction(ControlSettings.Action action) {
+        return action == ControlSettings.Action.CHAT_TOGGLE || action == ControlSettings.Action.CHAT_WRITE ||
+               action == ControlSettings.Action.CHAT_SEND;
     }
 
     private void refreshHeldActions() {
@@ -630,6 +655,20 @@ public final class ThemeParkActivity extends SDLActivity implements InputManager
     }
 
     void openKeyboard() { nativeKeyboard(); }
+
+    void chat(int action) { nativeChat(action); }
+
+    void chatAvailable(boolean available) {
+        runOnUiThread(() -> {
+            if (controls != null && !isFinishing()) controls.setChatAvailable(available);
+        });
+    }
+
+    void chatSendEnabled(boolean enabled) {
+        runOnUiThread(() -> {
+            if (controls != null && !isFinishing()) controls.setChatSendEnabled(enabled);
+        });
+    }
 
     void rotate(int direction) { nativeRotate(direction); }
 

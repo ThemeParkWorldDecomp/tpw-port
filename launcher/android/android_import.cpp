@@ -189,11 +189,12 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity_nativeOnlineServer(
-    JNIEnv* env, jclass, jstring dataFolder, jstring host) {
+    JNIEnv* env, jclass, jstring dataFolder, jstring host, jstring cachedHost) {
     using namespace tpw;
     try {
         const auto root = std::filesystem::u8path(Path(env, dataFolder));
         const std::string wanted = host == nullptr ? std::string() : Path(env, host);
+        const std::string discovered = Path(env, cachedHost);
         if (env->ExceptionCheck()) return nullptr;
         assets::LauncherIni ini;
         std::string error;
@@ -201,7 +202,8 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
         if (!assets::LoadLauncherIni(iniPath, ini, error)) return nullptr;
 
         const auto found = FindOption(ini, ui::kOnlineServerFoundKey);
-        const auto automatic = ui::ChooseOnlineServer("", "", found == ini.extra.end() ? "" : found->second);
+        const std::string last = found == ini.extra.end() ? "" : found->second;
+        const auto automatic = ui::ChooseOnlineServer("", "", net::ValidHost(discovered) ? discovered : last);
         const auto setting = FindOption(ini, ui::kOnlineServerKey);
         std::string saved = setting == ini.extra.end() ? "" : setting->second;
         if (host != nullptr && !wanted.empty() && !net::ValidHost(wanted)) {
@@ -214,6 +216,22 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_org_tpwport_android_SetupActivity
             saved = wanted;
         }
         return StringArray(env, {"ok", saved, automatic.host});
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+extern "C" JNIEXPORT jstring JNICALL Java_org_tpwport_android_SetupActivity_nativeParseOnlinePointer(
+    JNIEnv* env, jclass, jbyteArray body) {
+    if (body == nullptr) return nullptr;
+    try {
+        const jsize length = env->GetArrayLength(body);
+        if (length > static_cast<jsize>(tpw::net::kOnlinePointerMax)) return nullptr;
+        std::string text(static_cast<size_t>(length), '\0');
+        env->GetByteArrayRegion(body, 0, length, reinterpret_cast<jbyte*>(text.data()));
+        if (env->ExceptionCheck()) return nullptr;
+        const auto pointer = tpw::net::ParseOnlinePointer(text);
+        return pointer.ok ? env->NewStringUTF(pointer.server.c_str()) : nullptr;
     } catch (...) {
         return nullptr;
     }

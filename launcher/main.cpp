@@ -132,6 +132,9 @@ std::string gGameIconFolder;    // the data folder whose icon.png the game's win
 bool gGameUs = true;            // the edition playing is the US one (DressGameWindow)
 bool gTraceStubs = false;
 std::string gOnlineServer;      // --online-server HOST: the online server the game connects to (updater.h ChooseOnlineServer)
+#ifdef __ANDROID__
+std::string gAndroidOnlineServerFound;   // validated pointer cached by the Android launcher
+#endif
 std::string gOnlineServerSetting, gOnlineServerFound;   // launcher.ini's online_server (the player's) and online_server_found
 long gStubCalls = 0;
 const char* volatile gLastStub = nullptr;
@@ -1384,6 +1387,9 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
     }
     gOnlineServerSetting = backend.Setting(tpw::ui::kOnlineServerKey);
     gOnlineServerFound = backend.Setting(tpw::ui::kOnlineServerFoundKey);
+#ifdef __ANDROID__
+    if (!gAndroidOnlineServerFound.empty()) gOnlineServerFound = gAndroidOnlineServerFound;
+#endif
     // The Settings box's Graphics section: the original's options files' values the player chose (EngineStartup_OptionsFile).
     for (const tpw::ui::SamOption& option : tpw::ui::SamOptions()) {
         const std::string value = backend.Setting(option.key);
@@ -2303,6 +2309,10 @@ int LauncherMain(int argc, char** argv) {
 }  // namespace
 
 #ifdef __ANDROID__
+void SetAndroidOnlineServerFound(const char* host) {
+    if (tpw::net::ValidHost(host)) gAndroidOnlineServerFound = host;
+}
+
 void InitAndroidSamTables() {
     static const bool registered = [] { RegisterSamTables(); return true; }();
     (void)registered;

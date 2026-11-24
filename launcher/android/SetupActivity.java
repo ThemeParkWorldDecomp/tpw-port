@@ -58,6 +58,7 @@ public final class SetupActivity extends Activity {
     static final String IMMERSIVE = "immersive_full_screen";
     static final String FILL_CUTOUT = "fill_display_cutout";
     static final String RETURN_TO_LAUNCHER = "return_to_launcher";
+    static final String DISCOVERED_SERVER = "discovered_online_server";
     private static final String AUTO_UPDATES = "check_for_updates";
     private static final int[] INTERFACE_SCALES = {70, 85, 100, 115, 125};
     private static final int PICK_FILES = 1;
@@ -113,7 +114,8 @@ public final class SetupActivity extends Activity {
     private static native String[] nativeOptions(String dataFolder, boolean mods, String changedKey, boolean enabled);
     private static native String[] nativeChoiceOptions(String dataFolder, boolean camera, String changedKey, int selection,
                                                        int maxFrameRate);
-    private static native String[] nativeOnlineServer(String dataFolder, String host);
+    private static native String[] nativeOnlineServer(String dataFolder, String host, String discovered);
+    private static native String nativeParseOnlinePointer(byte[] body);
     private static native String[] nativeEditionDetails(String dataFolder, String edition, String restore);
     private static native String[] nativeGameOptions(String dataFolder, String edition, String profile, int option, int value,
                                                        int screenWidth, int screenHeight);
@@ -228,6 +230,7 @@ public final class SetupActivity extends Activity {
         if (usEdition()) game.setClassName(getPackageName(), "org.tpwport.android.SimThemePark");
         startActivity(game.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             .putExtra(EDITION, chosenEdition).putExtra(LANGUAGE, chosenLanguage)
+            .putExtra(DISCOVERED_SERVER, discoveredServer())
             .putExtra(INTERFACE_SCALE, interfaceScale())
             .putExtra(IMMERSIVE, getPreferences(MODE_PRIVATE).getBoolean(IMMERSIVE, true))
             .putExtra(FILL_CUTOUT, getPreferences(MODE_PRIVATE).getBoolean(FILL_CUTOUT, true))
@@ -388,7 +391,7 @@ public final class SetupActivity extends Activity {
             Button camera = launcherButton(R.string.camera_settings, ButtonStyle.NAVIGATION, () -> showChoiceOptions(root, true));
             alignStart(camera);
             addRow(fields, camera, 8);
-            String[] server = nativeOnlineServer(root, null);
+            String[] server = nativeOnlineServer(root, null, discoveredServer());
             if (server != null) {
                 Button online = launcherButton(R.string.online_server, ButtonStyle.CHOICE);
                 updateOnlineServerLabel(online, server);
@@ -470,6 +473,17 @@ public final class SetupActivity extends Activity {
         checkingUpdates = true;
         final String installedVersion = versionName();
         new Thread(() -> {
+            byte[] pointer = AndroidUpdates.onlinePointer();
+            if (pointer != null) {
+                try {
+                    System.loadLibrary("tpw_launcher");
+                    String host = nativeParseOnlinePointer(pointer);
+                    if (host != null && getPreferences(MODE_PRIVATE).getBoolean(AUTO_UPDATES, true))
+                        getPreferences(MODE_PRIVATE).edit().putString(DISCOVERED_SERVER, host).apply();
+                } catch (LinkageError error) {
+                    Log.w("TPWLauncher", "Could not read online server pointer", error);
+                }
+            }
             AndroidUpdates.Release found = AndroidUpdates.newest(installedVersion, Build.SUPPORTED_ABIS);
             runOnUiThread(() -> {
                 checkingUpdates = false;
@@ -485,6 +499,8 @@ public final class SetupActivity extends Activity {
         }, "Launcher update check").start();
     }
 
+    private String discoveredServer() { return getPreferences(MODE_PRIVATE).getString(DISCOVERED_SERVER, ""); }
+
     private void openReleases(String url) {
         try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); }
         catch (ActivityNotFoundException error) { status.setText(R.string.browser_unavailable); }
@@ -496,7 +512,7 @@ public final class SetupActivity extends Activity {
     }
 
     private void showOnlineServer(String root, Button button) {
-        String[] current = nativeOnlineServer(root, null);
+        String[] current = nativeOnlineServer(root, null, discoveredServer());
         if (current == null) {
             status.setText(R.string.options_unavailable);
             return;
@@ -524,7 +540,7 @@ public final class SetupActivity extends Activity {
             dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         }
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
-            String[] updated = nativeOnlineServer(root, host.getText().toString().trim());
+            String[] updated = nativeOnlineServer(root, host.getText().toString().trim(), discoveredServer());
             if (updated == null) host.setError(getString(R.string.option_save_failed));
             else if (updated[0].equals("invalid")) host.setError(getString(R.string.online_server_invalid));
             else {

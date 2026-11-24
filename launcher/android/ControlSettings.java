@@ -28,7 +28,8 @@ final class ControlSettings {
         KEYBOARD(R.string.show_keyboard), OVERLAY(R.string.toggle_overlay),
         SETTINGS(R.string.control_settings), BUY(R.string.buy_rides), MAP(R.string.map), PAUSE(R.string.pause), HOME(R.string.entrance_view),
         BACKSPACE(R.string.backspace), FREE_CAMERA(R.string.free_camera), RESET_CAMERA(R.string.free_camera_reset),
-        ORBIT_CAMERA(R.string.orbit_camera);
+        ORBIT_CAMERA(R.string.orbit_camera), CHAT_TOGGLE(R.string.chat_toggle), CHAT_WRITE(R.string.chat_write),
+        CHAT_SEND(R.string.chat_send);
 
         final int label;
         Action(int label) { this.label = label; }

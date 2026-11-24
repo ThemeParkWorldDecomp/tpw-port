@@ -30,6 +30,7 @@ void Log(const char* format, ...) __attribute__((format(printf, 1, 2)));   // pl
 
 namespace {
 enum class SliderDrag : Sint32 { Finish, StartOnThumb, StartOnTrack };
+enum class ChatAction : jint { None, Toggle, Focus, Send };
 
 // Written by Android's UI thread and read by the SDL game thread.
 std::atomic<uint32_t> gStick{0};
@@ -38,6 +39,7 @@ std::atomic<bool> gControlDialogOpen{false};
 std::atomic<bool> gResumeParkRequested{false};
 std::atomic<Uint32> gSliderDragEvent{0};
 std::atomic<int> gTurns{0};
+std::atomic<ChatAction> gChatAction{ChatAction::None};
 float gCameraX = 0, gCameraY = 0;
 bool gParkPausedByFocus = false;
 bool gRestartKeyboardOnHide = false;
@@ -96,6 +98,41 @@ bool NotifyActivity(const char* method, bool value) {
     env->DeleteLocalRef(type);
     env->DeleteLocalRef(activity);
     return true;
+}
+
+void UpdateChat(SDL_Window* window) {
+    const ChatAction action = gChatAction.exchange(ChatAction::None, std::memory_order_relaxed);
+    InterfaceWindow* subpanel = gOnlinePanel == nullptr ? nullptr : gOnlinePanel->GetWindow(0xc3123);
+    InterfaceWindow* messages = subpanel == nullptr ? nullptr : subpanel->GetWindow(0xc312b);
+    InterfaceWindow* editor = messages == nullptr ? nullptr : messages->GetWindow(0xc312c);
+    InterfaceWindow* active = gUIKeyboardWindow;
+    const bool available = window != nullptr && gOnlineWindow != nullptr && gOnlinePanel != nullptr && active != nullptr &&
+        (active == gOnlineWindow || active == gOnlinePanel || active == editor);
+    const bool visibleEditor = editor != nullptr && gOnlinePanelShown != 0;
+    constexpr int32_t keyUp = 0x1000b, f4 = 0x73;   // OnlinePanelMsg and OnlineEditMsg
+    if (available) {
+        switch (action) {
+        case ChatAction::Toggle:
+            UI_SendMessage(active, keyUp, f4, 0);
+            break;
+        case ChatAction::Focus:
+            if (gOnlinePanelShown == 0) UI_SendMessage(active, keyUp, f4, 0);
+            if (gOnlinePanelShown != 0 && gUIKeyboardWindow == gOnlinePanel) UI_SendMessage(gOnlinePanel, keyUp, 9, 0);
+            if (gUIKeyboardWindow == editor) gKeyboardRequested.store(true, std::memory_order_relaxed);
+            break;
+        case ChatAction::Send:
+            // Tapping the overlay or dismissing the IME can return focus to the panel while a draft is still visible.
+            if (visibleEditor && gOnlineEditText[0] != 0) UI_SendMessage(editor, keyUp, 0x0d, 0);
+            break;
+        case ChatAction::None:
+            break;
+        }
+    }
+    static bool wasAvailable = false, wasSendEnabled = false;
+    const bool sendEnabled = available && editor != nullptr && gOnlinePanelShown != 0 &&
+        (gUIKeyboardWindow == editor || gOnlineEditText[0] != 0);
+    if (wasAvailable != available && NotifyActivity("chatAvailable", available)) wasAvailable = available;
+    if (wasSendEnabled != sendEnabled && NotifyActivity("chatSendEnabled", sendEnabled)) wasSendEnabled = sendEnabled;
 }
 
 void EnterFreeCamera(CameraMode mode) {
@@ -210,6 +247,12 @@ void UpdateFlight(bool available, bool walking) {
 extern "C" JNIEXPORT void JNICALL Java_org_tpwport_android_ThemeParkActivity_nativeCamera(JNIEnv*, jclass, jfloat x, jfloat y) {
     const auto pack = [](float axis) { return static_cast<uint16_t>(static_cast<int16_t>(axis * 4096)); };
     gStick.store(static_cast<uint32_t>(pack(x)) | (static_cast<uint32_t>(pack(y)) << 16), std::memory_order_relaxed);
+}
+
+extern "C" JNIEXPORT void JNICALL Java_org_tpwport_android_ThemeParkActivity_nativeChat(
+    JNIEnv*, jclass, jint action) {
+    if (action >= static_cast<jint>(ChatAction::Toggle) && action <= static_cast<jint>(ChatAction::Send))
+        gChatAction.store(static_cast<ChatAction>(action), std::memory_order_relaxed);
 }
 
 extern "C" JNIEXPORT void JNICALL Java_org_tpwport_android_ThemeParkActivity_nativeCameraMode(JNIEnv*, jclass, jint mode) {
@@ -360,6 +403,7 @@ void UpdateControls() {
         for (int i = 0; i < (turns > 0 ? turns : -turns); ++i) rotate();
     }
 
+    UpdateChat(window);
     static const InterfaceWindow* previousEditor = nullptr;
     static bool previousPassword = false;
     const InterfaceWindow* editor = window != nullptr && Editing() ? gUIKeyboardWindow : nullptr;

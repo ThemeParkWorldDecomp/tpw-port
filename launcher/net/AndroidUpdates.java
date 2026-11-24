@@ -17,6 +17,7 @@ import javax.net.ssl.HttpsURLConnection;
 final class AndroidUpdates {
     static final String RELEASES = "https://github.com/ThemeParkWorldDecomp/tpw-port/releases";
     private static final String API = "https://api.github.com/repos/ThemeParkWorldDecomp/tpw-port/releases";
+    private static final String ONLINE = "https://raw.githubusercontent.com/ThemeParkWorldDecomp/tpw-port/main/online.txt";
     private static final Pattern VERSION = Pattern.compile("(\\d{1,6})\\.(\\d{1,6})\\.(\\d{1,6})(-.+)?");
     private static final Pattern APK_NAME = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]*\\.apk");
     private static final int PAGE_SIZE = 10, PAGE_LIMIT = 8, MAX_BYTES = 512 * 1024;
@@ -26,6 +27,14 @@ final class AndroidUpdates {
         Release(String version, String download) {
             this.version = version;
             this.download = download;
+        }
+    }
+
+    static byte[] onlinePointer() {
+        try {
+            return read(ONLINE, "text/plain", 4096, System.nanoTime() + 4_000_000_000L);
+        } catch (IOException ignored) {
+            return null;
         }
     }
 
