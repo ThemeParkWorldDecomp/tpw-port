@@ -47,10 +47,12 @@
 #include "TpiObstacleGate.h"
 #include "TpiObstacleShut.h"
 #include "TpiSaveRepair.h"
+#include "TpiTunnelTop.h"
 #include "TrackCell.h"
 #include "World.h"
 #include <string>
 #include <vector>
+#include <algorithm>
 
 // The engine start-up glue of the main app (0x10059c70..0x10068d90 in part; the inventory
 // files the range under TPRide.cpp, and the original file name is unknown): the options
@@ -724,7 +726,112 @@ void TpiShowShutObstacles() {
     }
 }
 
+// Converter 31's separate roof drawing covers only the fixed walkway cells. Once the park owns land around the obstacle
+// the whole top is ordinary ground at the top's height, the route's cells under it too (CMapCell::Reset: mode 0), where
+// paths are drawn, and the route through them is a table rebuilt here from the level's attribute 0x80
+// (tpw::gTpiTunnelCovered), walked at the floor's heights (the untouched level copy). Reapply on every load from what
+// is in the park, rather than remembering a converter version or changing the original save format.
+void TpiOpenTunnelTop(bool prepareOnly = false) {
+    sHField* field = gHeightfieldHeader->mHField.get();
+    sHField* floor = gHeightfieldCopy;
+    tpw::gTpiTunnelTopField = nullptr;
+    tpw::gTpiTunnelTopOpen = false;
+    tpw::gTpiTunnelCovered = 0;
+    if (field == nullptr || floor == nullptr || gHeightfieldHeader->mNodes.get() == nullptr) return;
+    const uint32_t width = field->mF18[0], height = field->mF18[1];
+    if (floor->mF18[0] != width || floor->mF18[1] != height) return;
+    const tpw::TpiStartFence fence = TpiLevelStartFence();
+    const auto start = [&fence](int32_t x, int32_t y) { return tpw::TpiStartLand(fence, x, y); };
+    for (uint16_t n = 0; n < gHeightfieldHeader->mNodeCount; ++n) {
+        tag_sNode& node = gHeightfieldHeader->mNodes.get()[n];
+        tpw::TpiTunnelTop top;
+        if (!tpw::TpiParseTunnelTop(node.mName.get(), top) || uint32_t(top.tx + top.tw) > width ||
+            uint32_t(top.ty + top.th) > height) continue;
+        tpw::gTpiTunnelTopField = field;
+        tpw::gTpiTunnelFloorSource = floor;
+        tpw::gTpiTunnelFloorMode = [](int x, int y) { return int(gGameWorld->mMapCells[x + (y << 7)].mType); };
+        tpw::gTpiTunnelTop = top;
+        tpw::TpiShut shut;
+        shut.x = top.x; shut.y = top.y; shut.w = top.w; shut.h = top.h;
+        const bool gone = tpw::TpiShutCleared(shut, TpiParkOwns, start);
+        tpw::gTpiTunnelTopOpen = gone;
+        tpw::gTpiTunnelCovered = gone ? tpw::TpiTunnelCoveredCells(top, [](int x, int y) {
+            return gGameWorld->mMapCells[x + (y << 7)].mStatusFlags == 0x80; }) : 0;
+        // The height field draws the cleared top itself, so the node folds whenever the top is cleared.
+        for (int r = 0; r < 3; ++r)
+            for (int c = 0; c < 3; ++c) node.mMatrix.m[r][c] = r == c ? (gone ? tpw::kTpiShutFold : 1.0f) : 0.0f;
+        const bool changed = tpw::TpiTunnelTopHeights(top, gone, width, height, field->mHeights.get(), floor->mHeights.get()) ||
+                             (!prepareOnly && tpw::gTpiTunnelTopPrepared);
+        if (gei_HField != nullptr && gei_HField->mF00 == field && gei_HField->mF12970 != nullptr)
+            tpw::TpiTunnelTopHeights(top, gone, width, height, static_cast<float*>(gei_HField->mF12970), floor->mHeights.get());
+        if (prepareOnly) {
+            // Object reconstruction must already see the top height, but the level's original quad mask must remain
+            // intact until RepairTpiWalkways has repaired old floor cells. Cells and their meshes are handled later.
+            if (changed) {
+                for (int y = std::max(0, top.ty - 1); y <= std::min(int(height) - 1, top.ty + top.th); ++y)
+                    for (int x = std::max(0, top.tx - 1); x <= std::min(int(width) - 1, top.tx + top.tw); ++x)
+                        field->mQuads.get()[x + uint32_t(y) * width].mF00 &= uint16_t(~0x800u);
+                DetermineHFieldFlatness(gHeightfieldHeader);
+            }
+            tpw::gTpiTunnelTopPrepared = true;
+            continue;
+        }
+        tpw::gTpiTunnelTopPrepared = false;
+        int32_t made = 0;
+        // Redraw the surrounding ring too: it shares the changed edge vertices. No track or hoarding is removed.
+        for (int y = std::max(0, top.ty - 1); y <= std::min(int(height) - 1, top.ty + top.th); ++y)
+            for (int x = std::max(0, top.tx - 1); x <= std::min(int(width) - 1, top.tx + top.tw); ++x) {
+                const uint32_t q = uint32_t(y) * width + uint32_t(x);
+                CMapCell& cell = gGameWorld->mMapCells[x + (y << 7)];
+                const bool onTop = tpw::TpiOnTunnelTop(top, x, y);
+                sHFieldQuad& quad = field->mQuads.get()[q];
+                const bool open = gone && onTop;
+                if (onTop) {
+                    sHFieldQuad& copy = floor->mQuads.get()[q];
+                    copy.mF00 = uint16_t((copy.mF00 & ~1u) |
+                        ((!gone && tpw::TpiTunnelTopWasHidden(top, x, y)) ? 1u : 0u));
+                }
+                const uint16_t wanted = open ? uint16_t(quad.mF00 & ~1u) : quad.mF00;
+                const bool showing = quad.mF00 != wanted;
+                if (showing) quad.mF00 = wanted;
+                // A route cell under the top is the top's ground from now on (mode 0x1e only while the top stands).
+                const bool route = open && cell.mParentID == 0 && cell.mType == 0x1e;
+                if (!changed && !showing && !route) continue;
+                if (open && cell.mParentID == 0 && (cell.mType == 0 || cell.mType == 7 || cell.mType == 2 || cell.mType == 0x1e)) {
+                    const uint16_t saved = cell.mFlags;
+                    cell.Reset(true);
+                    cell.mFlags = tpw::TpiRepairedFlags(saved, cell.mFlags);
+                    if (route) ++made;
+                } else if (cell.mType != 0x1e) {
+                    cell.SetHFieldTile(); // old invisible paths now draw at the top, with their saved links and cost
+                }
+                CTrackCell& track = gGameWorld->mTrackCells[x + (y << 7)];
+                if (open && track.mParentID == 0 && track.mType == 7) track.Reset();
+                if (changed) quad.mF00 &= uint16_t(~0x800u); // DetermineHFieldFlatness only adds bits
+                tag_IDX_TYPE<IDXTYPEUniqueNameMapId, uint16_t> id;
+                id.mIndex = uint16_t(1 + x + (y << 7));
+                CMap* map = gGameWorld->GetMap();
+                map->SetTimeStamp(map->MakeNewTimeStamp(), id);
+            }
+        if (made != 0)
+            SamsUtilities::UDebug("port: tpi-worlds: the tunnel top's %d route cells are its ground, the route kept under it",
+                                  static_cast<int>(made));
+        if (changed || made != 0) {
+            DetermineHFieldFlatness(gHeightfieldHeader);
+            TPForce3DRefresh(1);
+            gei_System.mFlags |= CSystem::kViewChanged;
+            if (changed) gei_System.UpdateLights(); // the ground's lighting follows the new heights (CHField::CalcFullLighting)
+        }
+    }
+}
+
 }  // namespace
+void TpiRepairTunnelTop() {
+    if (tpw::TpiWorldInPlay() && gHeightfieldHeader != nullptr && gGameWorld != nullptr) TpiOpenTunnelTop();
+}
+void TpiPrepareTunnelTop() {
+    if (tpw::TpiWorldInPlay() && gHeightfieldHeader != nullptr && gGameWorld != nullptr) TpiOpenTunnelTop(true);
+}
 
 void EngineTick1() {
     g3DRefreshFlags = 0;
@@ -736,7 +843,10 @@ void EngineTick1() {
 // 0x1005b540
 void EngineTick2() {
     // TPW_PORT_FIX mods EngineTick2 | Mac: the frame's render only | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiObstacleShut.h): in one of the mod's worlds the nodes the converter named "tpishut ..." (what closed a cleared tunnel, Arabian Nights' and Polar Zone's, Arabian Nights' rock and cliff and Polar Zone's swamp) are shown while the park owns none of the cells of the obstacle's footprint, or next to it, that a new park does not start with (the opening gate's rule), and folded to nothing at their place once it owns one, the closed cells (the rock's, the cliff's) then becoming land (their quads shown in the level's copy, TpiOpenShutCells) and closing again while it stands; a node whose matrix changed under it (a terrain just loaded) is posed at once, so the state is the park's land and saves hold nothing new; this runs before the render, as a quad shown between the height field's Prepare and its Execute (EngineTick1 runs in between, PostCullOperations) would have Execute read a procedural texture entry Prepare never listed; off, or an original world, the Mac's | Why: tpw-mods tpi-worlds; Theme Park Inc's missions (golden tickets, skilled staff) cleared these, and the maintainer wants the tunnels to look closed and the rock, the cliff and the swamp to stand until their land is bought (0.5.4)
-    if (tpw::TpiWorldInPlay() && gHeightfieldHeader != nullptr && gGameWorld != nullptr) TpiShowShutObstacles();
+    if (tpw::TpiWorldInPlay() && gHeightfieldHeader != nullptr && gGameWorld != nullptr) {
+        TpiShowShutObstacles();
+        TpiRepairTunnelTop();
+    }
     gei_MapWho->Render();
 }
 

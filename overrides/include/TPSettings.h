@@ -145,6 +145,10 @@ inline constexpr int32_t kPortSizeReadout = 0x1d4e4;
 // (0 x 0: the preset's), from --resolution or a saved setting.
 inline int32_t gPortScreenWide = 0;
 inline int32_t gPortScreenHigh = 0;
+// The screen's own shape when the game plays at it in place of the shape nearest to it (0:0: not): Fill Around Camera's full
+// screen (launcher/fill_notch.h; UI_AtScreenShape, UI_PlayedAspect and UI_SavedSize).
+inline int32_t gPortScreenShapeWide = 0;
+inline int32_t gPortScreenShapeHigh = 0;
 inline int32_t gPortStartWide = 0;
 inline int32_t gPortStartHigh = 0;
 inline bool PortSizeFits(int32_t width, int32_t height) {

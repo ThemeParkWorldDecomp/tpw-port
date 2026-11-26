@@ -18,7 +18,7 @@ namespace SamsUtilities {
 
 namespace {
 #if defined(__APPLE__)
-constexpr bool kApple = true;    // Cmd+Ctrl+F toggles full screen (MacFullScreenToggleKey); Alt+Enter is the game's
+constexpr bool kApple = true;    // Cmd+Ctrl+F and the green button toggle full screen (Cmd+Ctrl+F the game's own with Spaces off); Alt+Enter is the game's
 #else
 constexpr bool kApple = false;   // Alt+Enter toggles full screen (platform/window.cpp ToggleFullScreen)
 #endif
@@ -542,12 +542,11 @@ void UGamework::Run() {
                     tpw::ToggleFullScreen();
                     break;
                 }
-                // Cmd+Ctrl+F on a Mac, the same way (fit::MacFullScreenToggleKey): full screen has no Space of its own
-                // there, so the system's shortcut does nothing.
-                if (tpw::fit::MacFullScreenToggleKey(
-                        kApple, sdl.key.scancode == SDL_SCANCODE_F, (sdl.key.mod & SDL_KMOD_GUI) != 0,
-                        (sdl.key.mod & SDL_KMOD_CTRL) != 0, (sdl.key.mod & (SDL_KMOD_SHIFT | SDL_KMOD_ALT)) != 0,
-                        sdl.key.repeat)) {
+                // Cmd+Ctrl+F on a Mac whose full screen is not a Space (Fill Around Camera; fit::MacFullScreenKey): the same.
+                if (tpw::fit::MacFullScreenKey(
+                        kApple, !SDL_GetHintBoolean(SDL_HINT_VIDEO_MAC_FULLSCREEN_SPACES, true), sdl.key.scancode == SDL_SCANCODE_F,
+                        (sdl.key.mod & SDL_KMOD_GUI) != 0 && (sdl.key.mod & SDL_KMOD_CTRL) != 0,
+                        (sdl.key.mod & (SDL_KMOD_SHIFT | SDL_KMOD_ALT)) != 0, sdl.key.repeat)) {
                     tpw::ToggleFullScreen();
                     break;
                 }

@@ -593,6 +593,17 @@ static void TestContentRides(const fs::path& scratch) {
           "launcher to visit it.");
     for (int number = 201; number <= 256; ++number) need(number);
     CHECK(tpw::MissingRidesText(missing, tpw::MissingRidesPlace::kLoadedPark).size() < 500);
+    // A park whose ride records need a ride type no loaded ride carries: Theme Park Inc's by its number, with the Bonus
+    // Disk's rides as the likely ones; another by its number alone.
+    std::memset(missing, 0, sizeof missing);
+    CHECK(tpw::MissingRidesText(missing, tpw::MissingRidesPlace::kOwnPark, 6750) ==
+          "This park needs a Theme Park Inc ride this game hasn't got (ride number 6750), most likely one of the SimCoaster "
+          "Bonus Disk's: Depth Charge or Wilbur's Wind Rush. It has been kept as it was. Add the Bonus Disk in the "
+          "launcher, then play it again.");
+    CHECK(tpw::MissingRidesText(missing, tpw::MissingRidesPlace::kLoadedPark, 4999) ==
+          "This park needs a ride this game hasn't got (ride number 4999). Turn on or import the rides it was built with "
+          "in the launcher to load it.");
+    CHECK(tpw::MissingRidesText(missing, tpw::MissingRidesPlace::kOnlinePark, 7999).size() < 500);
 
     CHECK(tpw::UseContentRides({}) == 0);
     CHECK(tpw::ContentRides().empty());
@@ -930,6 +941,18 @@ static void TestLanguagePack(const fs::path& scratch) {
         }
     }
     CHECK(!tpw::UseLanguagePack(root, "Russian", "French"));
+    CHECK(!tpw::UseLanguagePack(root, ""));
+    // A translation named by its letters or by the player: Unofficial- and its language, its marker naming it so.
+    CHECK(tpw::LanguageName("unofficial-ukrainian") == "Unofficial-ukrainian");
+    CHECK(tpw::LanguageName("Unofficial-").empty() && tpw::LanguageName("Unofficial-Ukr ainian").empty() &&
+          tpw::LanguageName("Unofficial-../x").empty());
+    const fs::path named = root / "lang" / "Unofficial-Ukrainian";
+    Touch(named / "data" / "Language" / "English" / "uitext.str", "synthetic translation");
+    Touch(named / ".unofficial", "1\nUnofficial-Russian\n");
+    CHECK(!tpw::UseLanguagePack(root, "Unofficial-Ukrainian", "English"));
+    Touch(named / ".unofficial", "1\nUnofficial-Ukrainian\n");
+    CHECK(tpw::UseLanguagePack(root, "Unofficial-Ukrainian", "English") && tpw::LanguagePackName() == "English");
+    CHECK(Same(tpw::FindHostPath("data:Language:English:uitext.str"), named / "data/Language/English/uitext.str"));
     CHECK(!tpw::UseLanguagePack(root, ""));
 #endif
     config.gameDir = gameDir;
@@ -2885,6 +2908,81 @@ static void TestGdiForkFonts() {
     CHECK(tpw::GdiLiveHandles() == 0);
 }
 
+#ifdef TPW_PORT_FIX
+// The ink of the bytes drawn in Arial at 40 pixels in a font of the character set, into a 512 by 64 grey DIB.
+static std::vector<uint8_t> SignInk(const char* text, uint8_t charset) {
+    using namespace NS_MacDoze;
+    InternalHandle* window = GetDC(nullptr);
+    GreyInfo info = MakeGreyInfo(512, 64);
+    void* bits = nullptr;
+    InternalHandle* dib = CreateDIBSection(window, reinterpret_cast<tagBITMAPINFO*>(&info), 0, &bits, nullptr, 0);
+    InternalHandle* dc = CreateCompatibleDC(window);
+    InternalHandle* oldBitmap = SelectObject(dc, dib);
+    tagLOGFONTA logfont;
+    std::memset(&logfont, 0, sizeof logfont);
+    logfont.lfHeight = -40;
+    logfont.lfWeight = 400;
+    logfont.lfCharSet = charset;
+    std::strcpy(logfont.lfFaceName, "Arial");
+    InternalHandle* font = CreateFontIndirect(&logfont);
+    InternalHandle* oldFont = SelectObject(dc, font);
+    SetBkColor(dc, 0);
+    SetTextColor(dc, 0xffffff);
+    TextOut(dc, 8, 8, text, static_cast<int32_t>(std::strlen(text)));
+    std::vector<uint8_t> ink(static_cast<const uint8_t*>(bits), static_cast<const uint8_t*>(bits) + 512 * 64);
+    SelectObject(dc, oldFont);
+    DeleteObject(font);
+    SelectObject(dc, oldBitmap);
+    DeleteObject(dib);
+    DeleteDC(dc);
+    ReleaseDC(nullptr, window);
+    return ink;
+}
+
+// signcyrillic: a translation written in Cyrillic draws its signs in code page 1251 (language_pack.h, gdi_text.h,
+// src/game/rides/RideSign.cpp), from made-up language folders and the system's Arial.
+static void TestSignCyrillic(const fs::path& scratch) {
+    Touch(scratch / "lang" / "Russian" / ".unofficial", "1\nRussian\n");
+    Touch(scratch / "lang" / "Unofficial-English" / ".unofficial", "1\nUnofficial-English\n");
+    Touch(scratch / "lang" / "French" / "data" / "Language" / "French" / "uitext.str", "made up");
+    CHECK(!tpw::UseLanguagePack(scratch, "") && tpw::LanguagePackCodePage() == 0);
+    CHECK(tpw::UseLanguagePack(scratch, "Russian", "English") && tpw::LanguagePackCodePage() == 1251);
+    CHECK(tpw::UseLanguagePack(scratch, "russian", "American") && tpw::LanguagePackCodePage() == 1251);
+    CHECK(tpw::UseLanguagePack(scratch, "Unofficial-English", "English") && tpw::LanguagePackCodePage() == 0);
+    CHECK(tpw::UseLanguagePack(scratch, "French") && tpw::LanguagePackCodePage() == 0);
+    CHECK(!tpw::UseLanguagePack(scratch, "") && tpw::LanguagePackCodePage() == 0);
+
+    // Er, O and Es (0xd0, 0xce, 0xd1) of code page 1251 draw as Arial's P, O and C in a font of charset 204, and as other
+    // letters in any other (Mac Roman's en dash, OE and em dash); ASCII draws the same in both.
+    const std::vector<uint8_t> latin = SignInk("POC", 1);
+    const std::vector<uint8_t> cyrillic = SignInk("\xD0\xCE\xD1", 204);
+    const std::vector<uint8_t> roman = SignInk("\xD0\xCE\xD1", 1);
+    int inked = 0;
+    for (uint8_t value : latin) inked += value != 0;
+    std::printf("gdi: \"POC\" in Arial: %d inked pixels; the code page 1251 bytes in charset 204 %s, in charset 1 %s\n", inked,
+                cyrillic == latin ? "the same" : "DIFFERENT", roman == latin ? "the SAME" : "different");
+    CHECK(inked > 0);
+    CHECK(SignInk("POC", 204) == latin);
+    CHECK(roman != latin && roman != cyrillic);
+#ifdef __APPLE__
+    // The letters' outlines are the Latin ones in the Mac's Arial (the CoreText side; elsewhere the face may be a twin).
+    CHECK(cyrillic == latin);
+    // A face without the Cyrillic letters (the Mac's Futura) is drawn in Helvetica in charset 204 only.
+    tpw::gdi_text::Style style;
+    style.face = "Futura";
+    style.height = -40;
+    std::unique_ptr<tpw::gdi_text::Font> futura = tpw::gdi_text::Font::Create(style);
+    style.charset = 204;
+    std::unique_ptr<tpw::gdi_text::Font> fallback = tpw::gdi_text::Font::Create(style);
+    CHECK(futura != nullptr && futura->FamilyName() == "Futura");
+    CHECK(fallback != nullptr && fallback->FamilyName() == "Helvetica");
+#else
+    CHECK(cyrillic != roman);
+#endif
+    CHECK(tpw::GdiLiveHandles() == 0);
+}
+#endif
+
 // ---- The window fitted to the screen (platform/fit.h) ------------------------------------------------------------
 // The arithmetic only: the window and the framebuffer need a display, so the launcher's "fit:" log line and a frame dump
 // are the proof of those. Every case is a screen the maintainer has, with the usable bounds SDL gives (the menu bar and the dock
@@ -3364,14 +3462,14 @@ static void TestFitFullScreen() {
     CHECK(!tpw::fit::FullScreenToggleKey(false, true, false, false, false));  // Enter alone is the game's
     CHECK(!tpw::fit::FullScreenToggleKey(false, true, true, true, false));    // Ctrl+Alt+Enter, Shift+Alt+Enter: not it
     CHECK(!tpw::fit::FullScreenToggleKey(false, true, true, false, true));    // a held key's repeat does not toggle again
-    // Cmd+Ctrl+F toggles full screen on a Mac only: F with Cmd and Ctrl, nothing else, a first press.
-    CHECK(tpw::fit::MacFullScreenToggleKey(true, true, true, true, false, false));
-    CHECK(!tpw::fit::MacFullScreenToggleKey(false, true, true, true, false, false));  // Windows and Linux: F is the game's
-    CHECK(!tpw::fit::MacFullScreenToggleKey(true, true, true, false, false, false));  // Cmd+F alone is the game's
-    CHECK(!tpw::fit::MacFullScreenToggleKey(true, true, false, true, false, false));  // Ctrl+F alone is the game's
-    CHECK(!tpw::fit::MacFullScreenToggleKey(true, true, true, true, true, false));    // Shift or Option too: not it
-    CHECK(!tpw::fit::MacFullScreenToggleKey(true, false, true, true, false, false));  // another key
-    CHECK(!tpw::fit::MacFullScreenToggleKey(true, true, true, true, false, true));    // a repeat does not toggle again
+    // Cmd+Ctrl+F is the game's own only on a Mac with full screen Spaces off (Fill Around Camera): F with Cmd and Ctrl alone.
+    CHECK(tpw::fit::MacFullScreenKey(true, true, true, true, false, false));
+    CHECK(!tpw::fit::MacFullScreenKey(true, false, true, true, false, false));   // Spaces on: the system's menu does it
+    CHECK(!tpw::fit::MacFullScreenKey(false, true, true, true, false, false));   // Windows and Linux: Alt+Enter
+    CHECK(!tpw::fit::MacFullScreenKey(true, true, false, true, false, false));   // Cmd+Ctrl with another key
+    CHECK(!tpw::fit::MacFullScreenKey(true, true, true, false, false, false));   // F, Cmd+F or Ctrl+F: the game's
+    CHECK(!tpw::fit::MacFullScreenKey(true, true, true, true, true, false));     // Shift or Option as well: not it
+    CHECK(!tpw::fit::MacFullScreenKey(true, true, true, true, false, true));     // a held key's repeat does not toggle again
     // It acts only through the fit and never with --background; --windowed's document window toggles too.
     CHECK(tpw::fit::CanToggleFullScreen(true, false));
     CHECK(!tpw::fit::CanToggleFullScreen(false, false));
@@ -4556,6 +4654,17 @@ int main(int argc, char** argv) {
         std::printf("platform tests (fixed clock): %d checks passed\n", gChecks);
         return 0;
     }
+#ifdef TPW_PORT_FIX
+    if (argc > 1 && std::strcmp(argv[1], "--sign-cyrillic") == 0) {
+        const fs::path alone = fs::temp_directory_path() / ("tpw_platform_tests_sign_" + std::to_string(getpid()));
+        std::error_code old;
+        fs::remove_all(alone, old);
+        TestSignCyrillic(alone);
+        fs::remove_all(alone, old);
+        std::printf("platform tests (sign cyrillic): %d checks passed\n", gChecks);
+        return 0;
+    }
+#endif
     // One folder per process, emptied first: a run that failed leaves its folder behind.
     const fs::path scratch = fs::temp_directory_path() / ("tpw_platform_tests_" + std::to_string(getpid()));
     std::error_code stale;
@@ -4592,6 +4701,9 @@ int main(int argc, char** argv) {
     TestGdi();
     TestResourceFork();
     TestGdiForkFonts();
+#ifdef TPW_PORT_FIX
+    TestSignCyrillic(scratch / "signcyrillic");
+#endif
     TestFitArithmetic();
     TestFullScreenGrab();
     TestFitLetterbox();

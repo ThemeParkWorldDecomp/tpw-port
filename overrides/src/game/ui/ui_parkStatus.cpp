@@ -534,7 +534,7 @@ void DoScroll(int32_t id, int32_t value) {
     if (index > 11) return;
     switch (index) {
     case 0: {
-        // TPW_PORT_FIX resslider DoScroll | Mac: the slider picks one of the setting's three sizes and the row names it from the game's strings | Port: while gPortLiveResolution (TPSettings.h) is set, it picks one of gUISizeStops, the row names that size, and the game changes to it once the thumb stops (PortApplyGameSize); the setting goes back to what was saved when the slider is back on the size the panel opened at, so a look at the panel saves nothing | Why: the port's own sizes, chosen live
+        // TPW_PORT_FIX resslider DoScroll | Mac: the slider picks one of the setting's three sizes and the row names it from the game's strings | Port: while gPortLiveResolution (TPSettings.h) is set, it picks one of gUISizeStops, the row names that size, and the game changes to it once the thumb stops (PortApplyGameSize); the setting goes back to what was saved when the slider is back on the size the panel opened at, so a look at the panel saves nothing, and a size at the screen's own shape (Fill Around Camera) is saved at the shape nearest to it (UI_SavedSize) | Why: the port's own sizes, chosen live
         if (gPortLiveResolution) {
             const int32_t stop = value < 0 ? 0 : value >= gUISizeStopCount ? gUISizeStopCount - 1 : value;
             const UISizeStop& size = gUISizeStops[stop];
@@ -544,10 +544,13 @@ void DoScroll(int32_t id, int32_t value) {
                 options_callee::WindowSetValue(window, UI_ClosestStop(gUISizeStops, gUISizeStopCount, gScreenWidth, gScreenHeight, gPortLargestGameSize));
                 break;
             }
+            int32_t savedWide = size.mWidth;
+            int32_t savedHigh = size.mHeight;
+            UI_SavedSize(gPortScreenShapeWide, gPortScreenShapeHigh, gPortScreenWide, gPortScreenHigh, savedWide, savedHigh);
             if (size.mWidth == gPortPanelWide && size.mHeight == gPortPanelHigh)
                 gPlayerSettings.SetResolution(gPlayerSettings.mStored.mResolution);
             else
-                gPlayerSettings.SetResolution(static_cast<CPlayerSettings::eRESOLUTION>(PortResolutionExact(size.mWidth, size.mHeight)));
+                gPlayerSettings.SetResolution(static_cast<CPlayerSettings::eRESOLUTION>(PortResolutionExact(savedWide, savedHigh)));
             gPortWantedWide = size.mWidth;
             gPortWantedHigh = size.mHeight;
             char16_t text[32];

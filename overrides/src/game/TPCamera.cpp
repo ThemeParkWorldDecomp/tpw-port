@@ -46,6 +46,8 @@
 #include "UIInterface.h"
 #include "World.h"
 #include "PortFreeCamera.h"
+// TPW_PORT_FIX mods TpiTunnelTop | Mac: no such header | Port: the Arabian tunnel's walker layers (tpw::gTpiFirstPersonRoof, tpw::TpiFirstPersonNavMode) for first person's walk | Why: first person walks through the tunnel under its cleared top, or over it (TPW_MOD_HOOK tpi_worlds)
+#include "TpiTunnelTop.h"
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -689,6 +691,8 @@ void ToggleFirstPersonWalkAround() {
         gCameraPosition[0] = gPointerWorldPosn.x;
         gCameraPosition[1] = 0.0f;
         gCameraPosition[2] = gPointerWorldPosn.z;
+        // TPW_PORT_FIX mods ToggleFirstPersonWalkAround | Mac: (no layers) | Port: TPW_MOD_HOOK tpi_worlds, first person starts on the Arabian tunnel's top wherever the top is over the route (tpw::gTpiFirstPersonRoof) | Why: the walk's layer is the one it starts on, as a guest's is | Off: nothing
+        tpw::gTpiFirstPersonRoof = 1;
         ESP_SwitchToFirstPersonSprites();
     } else {
         std::memcpy(gCameraPosition, gCameraSavedPosition, sizeof gCameraPosition);
@@ -786,6 +790,13 @@ float TimeToEdge(float position, float step) {
 // is cleared, else it is pushed 0.001 over the edge. The other axis moves the same fraction and is snapped to its square when that
 // leaves it. A step that reaches no edge (both times 1.0 or more) is applied whole. Answers 1 while something remains to walk.
 // A tie (tx == tz) with both steps nonzero makes the x step 1.01 times smaller and its time 1.01 times larger, so the axes differ.
+// TPW_PORT_FIX mods GetNextGridsquare | Mac: the walls are checked in nav mode 2 | Port: TPW_MOD_HOOK tpi_worlds, mode 2 in first person's layer (tpw::TpiFirstPersonNavMode): with tpw::kTpiTunnelNavBit while it walks the Arabian tunnel's route under the cleared top, or the ground | Why: first person walks in at a mouth and through the tunnel, where the top's sides were walls, and still walks over the top from the plateaus | Off: mode 2
+namespace {
+NavMode WalkMode(uint32_t ix, uint32_t iz) {
+    return static_cast<NavMode>(ix < 128 && iz < 128 ? tpw::TpiFirstPersonNavMode(static_cast<uint16_t>(ix + (iz << 7) + 1)) : 2);
+}
+}  // namespace
+
 int32_t GetNextGridsquare(s3DPoint* from, s3DPoint* step, s3DPoint* out) {
     uint32_t ix = cw_cvt_fp2unsigned(static_cast<double>(from->x / kCell));
     uint32_t iz = cw_cvt_fp2unsigned(static_cast<double>(from->z / kCell));
@@ -813,7 +824,7 @@ int32_t GetNextGridsquare(s3DPoint* from, s3DPoint* step, s3DPoint* out) {
         // z reaches its edge first
         if (!(tz >= 1.0f)) {
             const uint8_t direction = step->z >= 0.0f ? 2 : 0;
-            if (MAP_wall_in_way(static_cast<uint8_t>(ix), static_cast<uint8_t>(iz), direction, static_cast<NavMode>(2)) != 0) {
+            if (MAP_wall_in_way(static_cast<uint8_t>(ix), static_cast<uint8_t>(iz), direction, WalkMode(ix, iz)) != 0) {
                 out->z = EdgeOf(step->z, iz);
                 step->z = 0.0f;
                 cz = cw_cvt_fp2unsigned(static_cast<double>(out->z / kCell));
@@ -839,7 +850,7 @@ int32_t GetNextGridsquare(s3DPoint* from, s3DPoint* step, s3DPoint* out) {
     } else if (!(tx >= 1.0f)) {
         // x reaches its edge first
         const uint8_t direction = step->x >= 0.0f ? 1 : 3;
-        if (MAP_wall_in_way(static_cast<uint8_t>(ix), static_cast<uint8_t>(iz), direction, static_cast<NavMode>(2)) != 0) {
+        if (MAP_wall_in_way(static_cast<uint8_t>(ix), static_cast<uint8_t>(iz), direction, WalkMode(ix, iz)) != 0) {
             out->x = EdgeOf(step->x, ix);
             step->x = 0.0f;
             cx = cw_cvt_fp2unsigned(static_cast<double>(out->x / kCell));
@@ -1438,6 +1449,8 @@ void HandleCamera() {
             do {
                 more = GetNextGridsquare(AsPoint(gCameraPosition), &step, &out);
                 if (RideRideIfRequired(&out) != 0) more = 0;
+                // TPW_PORT_FIX mods HandleCamera | Mac: (no layers) | Port: TPW_MOD_HOOK tpi_worlds, each square's step keeps first person's layer on the Arabian tunnel's covered cells (tpw::TpiFirstPersonStep, a guest's rule) | Why: see GetNextGridsquare | Off: nothing
+                tpw::TpiFirstPersonStep(gCameraPosition[0], gCameraPosition[2], out.x, out.z);
                 std::memcpy(gCameraPosition, &out, sizeof out);
             } while (more != 0);
         }
@@ -1491,6 +1504,10 @@ void HandleCamera() {
             f25 = gCameraTarget[2] + gCameraViewPoint.z;
         }
         if ((gFirstPersonFlags & 0x3c) == 0) {
+            // TPW_PORT_FIX mods HandleCamera | Mac: the eye 5 over the ground | Port: TPW_MOD_HOOK tpi_worlds, 5 over the tunnel floor (TpiTunnelFloorHeightQuick) while first person walks the Arabian tunnel's route under the cleared top | Why: the top's ground is over the route there, twenty units higher | Off: the ground
+            if (tpw::TpiFirstPersonUnderTop(f26, f25))
+                gCameraViewPoint.y = Bits(0x40a00000u) + TpiTunnelFloorHeightQuick(f26, f25);
+            else
             gCameraViewPoint.y = Bits(0x40a00000u) + DetermineHFieldHeight(f26, f25, 1);
         }
     } else {

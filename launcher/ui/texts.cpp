@@ -223,7 +223,9 @@ std::string DiscsNeeded(const EditionStatus& s) {
     return JoinAnd(discs);
 }
 
-std::string MissingText(const EditionStatus& s) {
+namespace {
+// MissingText with each disc's name after `copy` ("an untranslated copy of the US Windows CD").
+std::string MissingFrom(const EditionStatus& s, const std::string& copy) {
     uint64_t total = 0;
     std::vector<assets::DiscSource> from;
     for (assets::DiscSource source : kSourceOrder) {
@@ -233,12 +235,15 @@ std::string MissingText(const EditionStatus& s) {
     }
     if (total == 0) return {};
     std::string head = Files(total) + " still missing: ";
-    if (from.size() == 1) return head + (total == 1 ? "it is on " : "they are on ") + DiscName(s.edition, from[0]);
+    if (from.size() == 1) return head + (total == 1 ? "it is on " : "they are on ") + copy + DiscName(s.edition, from[0]);
     std::vector<std::string> parts;
     for (assets::DiscSource source : from)
-        parts.push_back(FormatCount(s.missingFiles[source]) + " on " + DiscName(s.edition, source));
+        parts.push_back(FormatCount(s.missingFiles[source]) + " on " + copy + DiscName(s.edition, source));
     return head + JoinAnd(parts);
 }
+}  // namespace
+
+std::string MissingText(const EditionStatus& s) { return MissingFrom(s, ""); }
 
 std::string WindowsEditionNote(assets::Edition edition) {
     if (!assets::IsWindowsEdition(edition)) return {};
@@ -362,20 +367,76 @@ size_t PressingDifferences(const ImportReport& report) {
     }
     return count;
 }
-}  // namespace
 
-bool LooksLikeFirstRelease(const ImportReport& report) {
-    const EditionStatus& us = report.status[StatusIndex(assets::kEditionUsPc)];
-    const EditionStatus& eur = report.status[StatusIndex(assets::kEditionEurPc)];
-    return !report.cancelled && !report.aborted && !us.unlocked && us.filesPresent > eur.filesPresent &&
-           report.firstRelease && us.missingFiles[assets::kSourcePcCd] > 0;
+// The files of an edition the drop confirmed (0 when it confirmed none, or the edition lost files).
+size_t Gained(const ImportReport& report, const EditionStatus before[6], assets::Edition edition) {
+    const int i = StatusIndex(edition);
+    return report.status[i].filesPresent > before[i].filesPresent ? report.status[i].filesPresent - before[i].filesPresent
+                                                                    : 0;
 }
 
-bool LooksLikeOlderPressing(const ImportReport& report) {
+// An edition's status without the files the drop holds only in a translation's version (ImportReport::translatedOnly):
+// they are the translation's, not missing ones. `translated` counts them by the disc they come from (DiscSource).
+EditionStatus WithoutTranslated(const EditionStatus& s, const ImportReport& report, size_t translated[3]) {
+    EditionStatus out = s;
+    for (const assets::FileGap& gap : s.gaps) {
+        if (!std::binary_search(report.translatedOnly.begin(), report.translatedOnly.end(), gap.dest)) continue;
+        const assets::ManifestRecord* r = assets::FindByDest(s.edition, gap.dest.c_str());
+        if (!r || r->source >= 3 || !out.missing[r->source]) continue;
+        --out.missing[r->source];
+        if (r->flags & (assets::kFlagRsrc | assets::kFlagFinfo)) continue;
+        --out.missingFiles[r->source];
+        ++translated[r->source];
+    }
+    return out;
+}
+
+// A base game (not the Gold rides alone) is ready to play.
+bool AnyBaseReady(const EditionStatus* status) {
+    for (assets::Edition e : {assets::kEditionUs, assets::kEditionEur, assets::kEditionUsPc, assets::kEditionEurPc})
+        if (status[StatusIndex(e)].unlocked) return true;
+    return false;
+}
+
+// The first error that refused a translation (unofficial_language.h), or null.
+const std::string* RefusedTranslation(const ImportReport& report) {
+    for (const std::string& error : report.errors)
+        if (error.find(kLanguagePackRefused) != std::string::npos) return &error;
+    return nullptr;
+}
+
+// What a disc's translated files are, when its translation was taken: not damage and not another pressing.
+const char kTranslatedLine[] =
+    "The translated files on it are not damage: the translation is added as a language of its own.";
+
+// The problems a result lists one by one; more are counted.
+constexpr size_t kShownProblems = 3;
+}  // namespace
+
+bool HoldsTranslation(const ImportReport& report) {
+    return !report.translations.empty() || RefusedTranslation(report);
+}
+
+bool LooksLikeDisc(const ImportReport& report) {
+    return report.matched * 2 >= report.status[StatusIndex(assets::kEditionUsPc)].files;
+}
+
+bool LooksLikeFirstRelease(const ImportReport& report, const EditionStatus before[6]) {
+    const EditionStatus& us = report.status[StatusIndex(assets::kEditionUsPc)];
+    return !report.cancelled && !report.aborted && !us.unlocked && report.firstRelease &&
+           Gained(report, before, assets::kEditionUsPc) > Gained(report, before, assets::kEditionEurPc) &&
+           us.missingFiles[assets::kSourcePcCd] > 0;
+}
+
+bool LooksLikeOlderPressing(const ImportReport& report, const EditionStatus before[6]) {
     const EditionStatus& eur = report.status[1];
+    const size_t european =
+        std::max(Gained(report, before, assets::kEditionEur), Gained(report, before, assets::kEditionEurPc));
     return !report.cancelled && !report.aborted && !eur.unlocked && eur.filesPresent > 0 &&
            PressingDifferences(report) > 0 && eur.missingFiles[assets::kSourcePcCd] > 0 &&
-           !report.status[StatusIndex(assets::kEditionEurPc)].unlocked && !LooksLikeFirstRelease(report);
+           !report.status[StatusIndex(assets::kEditionEurPc)].unlocked && report.translations.empty() &&
+           (LooksLikeDisc(report) || !RefusedTranslation(report)) &&
+           european > Gained(report, before, assets::kEditionUsPc) && !LooksLikeFirstRelease(report, before);
 }
 
 ResultText DescribeResult(const ImportReport& report, const EditionStatus before[6]) {
@@ -428,17 +489,22 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
                   ". Play skips them. The others still play. To fix them: drop a good copy of either Windows CD, US or "
                   "European.";
     bool damagedShown = false;
+    // A translation pack alone (not a disc that holds one): its own result, never a disc's.
+    const bool pack = HoldsTranslation(report) && !LooksLikeDisc(report);
+    const std::string* refused = RefusedTranslation(report);
+    const bool firstRelease = LooksLikeFirstRelease(report, before);
 
-    if (LooksLikeFirstRelease(report)) {
+    if (firstRelease) {
         const EditionStatus& us = after[StatusIndex(assets::kEditionUsPc)];
         r.headline = "First release, " + FormatCount(us.filesPresent) + " of " + FormatCount(us.files) + " confirmed";
         r.lines.push_back("This US Windows CD is the first release of the game (1.0). " +
                           Files(PressingDifferences(report)) + " on it are another version (not used).");
+        if (!report.translations.empty()) r.lines.push_back(kTranslatedLine);
         r.lines.push_back("Install it on Windows, apply EA's official v2.0 patch, then drag in the installed game folder "
                           "together with the CD (the music and films stay on the CD).");
         std::string missing = MissingText(us);
         if (!missing.empty()) r.lines.push_back(missing + ".");
-    } else if (LooksLikeOlderPressing(report)) {
+    } else if (LooksLikeOlderPressing(report, before)) {
         // The counts of the tile's edition (SlotStatus), as the tile shows them.
         const EditionStatus& eur = SlotStatus(after, 1);
         r.headline = "Older pressing, " + FormatCount(eur.filesPresent) + " of " + FormatCount(eur.files) + " confirmed";
@@ -459,6 +525,7 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
             r.headline = "Gold rides ready. They need a base game.";
             r.good = false;
         }
+        if (!report.translations.empty()) r.lines.push_back(kTranslatedLine);
     } else if (!report.playStation.empty()) {
         r.headline = report.playStationConverted ? "PlayStation rides ready" : "PlayStation disc recognised";
         r.good = report.playStationConverted;
@@ -473,21 +540,29 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
     } else if (!report.playStation2.empty()) {
         r.headline = report.playStation2Converted ? "PS2 Guest Models ready" : "PlayStation 2 disc recognised";
         r.good = report.playStation2Converted;
-    } else if (!report.translations.empty()) {
+    } else if (pack && !report.translations.empty()) {
         // A translation (unofficial_language.h): its own line says which and what it changes.
         r.headline = report.written ? "Language added" : "Nothing new: this language is already added";
         r.good = true;
+    } else if (pack) {
+        // A refused translation is said as such, its reason the line below.
+        r.headline = "Language not added";
+        r.lines.push_back(*refused);
+        errorShown = refused == &report.errors.front();
+    } else if (!report.installers.empty() && report.written == 0 && report.alreadyThere == 0) {
+        // An InstallShield setup of the game (ImportReport::installers): its files are inside the setup's cabinets.
+        r.headline = "The game is inside an installer the launcher cannot open";
+        r.lines.push_back(report.installers.front() + " is an InstallShield setup of the game (its SETUP.INI or DATA.TAG "
+                          "names it, and its data1.cab is InstallShield's). The launcher does not unpack installers.");
+        r.lines.push_back("Install it on Windows (or unpack it with an InstallShield unpacker), then drag in the installed "
+                          "game folder.");
     } else if (filmNeeded) {
         r.headline = damaged.size() == 1 ? "A damaged intro film on this disc" : FormatCount(damaged.size()) + " damaged intro films on this disc";
         r.lines.push_back(damagedLine);
         damagedShown = true;
     } else if (report.written == 0 && !report.errors.empty()) {
-        // A damaged or unreadable drop must not read as "nothing new": name the file and the reason first. A refused
-        // translation is said as such, its reason the line below.
-        const bool refused = report.errors.front().find(kLanguagePackRefused) != std::string::npos;
-        r.headline = refused                       ? "Language not added"
-                     : report.errors.size() == 1 ? "A file could not be read"
-                                                 : "Some files could not be read";
+        // A damaged or unreadable drop must not read as "nothing new": name the file and the reason first.
+        r.headline = report.errors.size() == 1 ? "A file could not be read" : "Some files could not be read";
         r.lines.push_back(report.errors.front());
         errorShown = true;
     } else if (report.written == 0 && report.alreadyThere > 0) {
@@ -499,11 +574,13 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
                                                     " looked at; none of them belongs to either game."
                                               : "The drop held no files.");
     } else {
-        // Progress without an unlock: name what the edition that moved most still needs.
+        // Progress without an unlock: name what the edition that moved most still needs. A Windows edition beside its
+        // ready Mac one is not named (its tile shows the ready one), so a disc's files that only fill it are no gap.
         int best = -1;
         size_t gain = 0;
         for (assets::Edition e : kResultEditions) {
             const int i = StatusIndex(e);
+            if (assets::IsWindowsEdition(e) && after[StatusIndex(kEditions[EditionIndex(e)])].unlocked) continue;
             if (after[i].unlocked || after[i].filesPresent < before[i].filesPresent) continue;
             size_t g = after[i].filesPresent - before[i].filesPresent;
             if (best < 0 || g > gain) {
@@ -511,8 +588,31 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
                 gain = g;
             }
         }
-        std::string missing = best >= 0 ? MissingText(after[best]) : std::string();
-        r.headline = missing.empty() ? Files(report.written) + " put in place" : missing;
+        // A disc translated in place lacks the game's own versions of its translated files: they are counted as the
+        // translation, and only what is really missing is named, on an untranslated copy of the disc just dropped.
+        size_t translated[3] = {};
+        const EditionStatus net = best >= 0 ? WithoutTranslated(after[best], report, translated) : EditionStatus();
+        const bool translatedDisc = !report.translations.empty() && LooksLikeDisc(report);
+        std::string missing = best >= 0 ? MissingFrom(net, translatedDisc ? "an untranslated copy of " : "") : std::string();
+        if (missing.empty() && !report.translations.empty()) {
+            // A translated disc: its translation is the news, playable once a base game is ready.
+            r.good = AnyBaseReady(after);
+            r.headline = r.good ? "Language added" : "Language added: no edition of the game is ready to play it yet";
+        } else {
+            r.headline = missing.empty() ? Files(report.written) + " put in place" : missing;
+        }
+        if (!report.translations.empty()) r.lines.push_back(kTranslatedLine);
+        std::vector<std::string> discs;
+        size_t translatedFiles = 0;
+        for (assets::DiscSource source : kSourceOrder) {
+            if (!translated[source]) continue;
+            translatedFiles += translated[source];
+            discs.push_back(DiscName(net.edition, source));
+        }
+        if (translatedFiles)
+            r.lines.push_back(EditionLabel(net.edition) + ": " + Files(translatedFiles) +
+                              (translatedFiles == 1 ? " is" : " are") + " here only in translation. An untranslated copy "
+                              "of " + JoinAnd(discs) + " has the game's own.");
     }
 
     // One line a tile, for the edition it shows (SlotStatus), when either of its editions moved.
@@ -539,15 +639,21 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
     if (report.alreadyThere) r.lines.push_back(Files(report.alreadyThere) + " already in place");
     if (filmNeeded && !damagedShown) r.lines.push_back(damagedLine);
     const size_t others = report.differentVersions.size() - (filmNeeded ? damaged.size() : 0);
-    if (others && !LooksLikeOlderPressing(report) && !LooksLikeFirstRelease(report))
+    if (others && !LooksLikeOlderPressing(report, before) && !firstRelease)
         r.lines.push_back(Files(others) + " of a different version (not used)");
     if (report.unknownFiles)
         r.lines.push_back(Files(report.unknownFiles) + " not part of either game (not used)");
-    if (errorShown) {
-        if (report.errors.size() > 1) r.lines.push_back(FormatCount(report.errors.size()) + " problems in all");
-    } else if (!report.errors.empty()) {
-        const char* joint = report.errors.size() == 1 ? " problem: " : " problems, the first: ";
-        r.lines.push_back(FormatCount(report.errors.size()) + joint + report.errors.front());
+    // Every problem up to kShownProblems, each a line of its own (the first may be a line above already), and the
+    // count of the rest.
+    const size_t problems = report.errors.size();
+    const size_t shownProblems = std::min(problems, kShownProblems);
+    if (problems == 1 && !errorShown) r.lines.push_back("1 problem: " + report.errors.front());
+    for (size_t k = errorShown ? 1 : 0; problems > 1 && k < shownProblems; ++k)
+        r.lines.push_back("Problem " + FormatCount(k + 1) + " of " + FormatCount(problems) + ": " + report.errors[k]);
+    if (problems > shownProblems) {
+        const size_t rest = problems - shownProblems;
+        r.lines.push_back(FormatCount(rest) + (rest == 1 ? " more problem" : " more problems") + " not shown (" +
+                          FormatCount(shownProblems) + " of " + FormatCount(problems) + " shown)");
     }
     r.lines.push_back(kDropMore);   // every result: the next drop fills what is still missing
     return r;

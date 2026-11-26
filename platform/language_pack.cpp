@@ -2,6 +2,7 @@
 #include "language_pack.h"
 #include "path_text.h"
 
+#include <algorithm>
 #include <cctype>
 #include <fstream>
 #include <system_error>
@@ -20,6 +21,7 @@ struct LanguageOverlay {
     std::string name;    // as the original spells it; empty when off
     fs::path folder;     // root/lang/<name>
     bool unofficial = false;
+    std::string id;      // a player-supplied translation's ID (Russian, Unofficial-<language>)
 };
 
 static LanguageOverlay& Overlay() {
@@ -36,10 +38,13 @@ std::string LanguageName(const std::string& name) {
     for (const char* known : kNames)
         if (lower == Lower(known)) return known;
 #ifdef TPW_PORT_FIX
-    // The IDs of validated player-supplied replacements. The game's own language name is used at run time so its
-    // missing resources fall back to that edition's files; these IDs never enter the original's language registry.
-    for (const char* supplied : {"Russian", "Unofficial-English", "Unofficial-American"})
-        if (lower == Lower(supplied)) return supplied;
+    // The IDs of validated player-supplied replacements: Russian, or Unofficial- and the translation's language in letters
+    // (launcher/ui/unofficial_language.h). The game's own language name is used at run time so its missing resources fall
+    // back to that edition's files; these IDs never enter the original's language registry.
+    if (lower == "russian") return "Russian";
+    if (lower.compare(0, 11, "unofficial-") == 0 && lower.size() > 11 && lower.size() <= 40 &&
+        std::all_of(lower.begin() + 11, lower.end(), [](char c) { return c >= 'a' && c <= 'z'; }))
+        return "Unofficial-" + name.substr(11);
 #endif
     return {};
 }
@@ -67,19 +72,31 @@ bool UseLanguagePack(const fs::path& root, const std::string& name, const std::s
         std::string version, key;
         std::getline(marker, version);
         std::getline(marker, key);
-        if (version != "1" || key != spelled || (own != "English" && own != "American")) return false;
-        overlay = {own, folder, true};
+        if (version != "1" || Lower(key) != Lower(spelled) || (own != "English" && own != "American")) return false;
+        overlay = {own, folder, true, spelled};
         return true;
     }
 #else
     (void)own;
 #endif
-    overlay = {spelled, folder, false};
+    overlay = {spelled, folder, false, {}};
     return true;
 }
 
 const std::string& LanguagePackName() { return Overlay().name; }
 const fs::path& LanguagePackFolder() { return Overlay().folder; }
+
+int LanguagePackCodePage() {
+#ifdef TPW_PORT_FIX
+    const LanguageOverlay& overlay = Overlay();
+    if (!overlay.unofficial) return 0;
+    std::string language = Lower(overlay.id);
+    if (language.compare(0, 11, "unofficial-") == 0) language = language.substr(11);
+    for (const char* cyrillic : {"russian", "ukrainian", "belarusian", "bulgarian", "serbian", "macedonian"})
+        if (language == cyrillic) return 1251;
+#endif
+    return 0;
+}
 
 bool LanguagePackCovers(const std::vector<std::string>& parts) {
     const LanguageOverlay& overlay = Overlay();

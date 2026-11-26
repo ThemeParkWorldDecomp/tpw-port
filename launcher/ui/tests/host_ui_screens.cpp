@@ -22,6 +22,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -1954,8 +1955,8 @@ void CheckWindowsTexts() {
     DropFirstRelease(f, first);
     f.AllStatuses(first.status);
     const EditionStatus& usPc = first.status[StatusIndex(assets::kEditionUsPc)];
-    Check(LooksLikeFirstRelease(first), "the first release is recognised");
-    Check(!LooksLikeOlderPressing(first), "the first release is not an older European pressing");
+    Check(LooksLikeFirstRelease(first, before), "the first release is recognised");
+    Check(!LooksLikeOlderPressing(first, before), "the first release is not an older European pressing");
     ResultText fr = DescribeResult(first, before);
     CheckEq(fr.headline, "First release, " + FormatCount(usPc.filesPresent) + " of " + FormatCount(usPc.files) +
                              " confirmed", "first release headline");
@@ -1995,8 +1996,8 @@ void CheckWindowsTexts() {
     CheckEq(DescribeTile(usFilm).detail, Files(usFilm.filesPresent) + " confirmed; 1 intro film missing, skipped; "
                                          "no Mac bonus rides. Drop more discs any time.", "a damaged film: the tile detail");
     Check(DamagedFilms(film) == std::vector<std::string>{"data/Movies/jug.tgq"}, "a damaged film is found");
-    Check(!LooksLikeFirstRelease(film), "a damaged film is not the first release");
-    Check(!LooksLikeOlderPressing(film), "a damaged film is not an older pressing");
+    Check(!LooksLikeFirstRelease(film, before), "a damaged film is not the first release");
+    Check(!LooksLikeOlderPressing(film, before), "a damaged film is not an older pressing");
     ResultText dr = DescribeResult(film, before);
     CheckEq(dr.headline, "Ready to play (files missing, minimal effect): the US edition (Windows disc)", "damaged film headline");
     const std::string filmLine = "1 intro film is damaged: jug.tgq. Play skips it. The others still play. To fix it: "
@@ -2028,7 +2029,7 @@ void CheckWindowsTexts() {
     Check(older.status[StatusIndex(assets::kEditionUsPc)].unlocked, "the European disc's film completes the US edition");
     const EditionStatus& eurTile = SlotStatus(older.status, 1);
     Check(eurTile.edition == assets::kEditionEurPc && !eurTile.unlocked, "the European tile shows its Windows edition");
-    Check(LooksLikeOlderPressing(older), "the older pressing after a damaged film is recognised");
+    Check(LooksLikeOlderPressing(older, before), "the older pressing after a damaged film is recognised");
     ResultText orr = DescribeResult(older, before);
     CheckEq(orr.headline, "Older pressing, " + FormatCount(eurTile.filesPresent) + " of " + FormatCount(eurTile.files) +
                               " confirmed", "older pressing headline: the European tile's counts");
@@ -2193,8 +2194,8 @@ void CheckTexts() {
     DropOlderPressing(b, report);
     b.AllStatuses(report.status);
     const EditionStatus& eur = report.status[1];
-    Check(LooksLikeOlderPressing(report), "an older pressing is recognised");
-    Check(!LooksLikeFirstRelease(report), "an older European pressing is not the US first release");
+    Check(LooksLikeOlderPressing(report, before), "an older pressing is recognised");
+    Check(!LooksLikeFirstRelease(report, before), "an older European pressing is not the US first release");
     ResultText r = DescribeResult(report, before);
     CheckEq(r.headline, "Older pressing, " + FormatCount(eur.filesPresent) + " of " + FormatCount(eur.files) + " confirmed",
             "older pressing headline");
@@ -2221,8 +2222,8 @@ void CheckTexts() {
     ResultText two = DescribeResult(damaged, before);
     CheckEq(two.headline, "Some files could not be read", "several damaged containers headline");
     bool counted = false;
-    for (const std::string& line : two.lines) counted = counted || line == "2 problems in all";
-    Check(counted, "the count of problems is shown");
+    for (const std::string& line : two.lines) counted = counted || line == "Problem 2 of 2: " + damaged.errors[1];
+    Check(counted, "the second problem is shown with the count");
 
     CheckWindowsTexts();
 
@@ -3069,6 +3070,292 @@ void CheckLanguages(SDL_Renderer* renderer) {
     }
 }
 
+// One drop on a new window (FakeBackend script `finish`, run through LauncherUi::FinishImport): the result screen's text.
+ResultText DropResult(SDL_Renderer* renderer, FakeBackend& b, std::function<void(FakeBackend&, ImportReport&)> finish) {
+    LauncherUi ui(renderer, b);
+    for (int i = 0; i < 2; ++i) ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+    FakeBackend::Script script;
+    script.finish = std::move(finish);
+    b.Queue(std::move(script));
+    ui.OfferPaths({"/home/player/drop"});
+    for (int i = 0; i < 4; ++i) ui.Frame(kDt, metric::kStartWidth, metric::kStartHeight, 1);
+    Check(ui.CurrentScreen() == LauncherUi::Screen::Result, "import headline: the drop ends on the result");
+    return ui.Result();
+}
+
+bool HasLine(const ResultText& r, const std::string& text) {
+    for (const std::string& line : r.lines)
+        if (line.find(text) != std::string::npos) return true;
+    return false;
+}
+
+// Drops that are not a disc, or not the disc they look like (0.6.2): the result after the window's own round, never a
+// disc headline for a translation pack, nor "older pressing" for a translated disc.
+void CheckImportHeadlines(SDL_Renderer* renderer) {
+    const std::string added = "Russian (unofficial translation) added: text, fonts, speech, interface pictures.";
+    const std::string translated = "The translated files on it are not damage: the translation is added as a language of "
+                                   "its own.";
+    // A pack's few files of the game: some of the US Windows CD's, fewer European ones, as Russian.zip has.
+    auto pack = [](FakeBackend& backend, ImportReport& report) {
+        backend.Fill(assets::kEditionUsPc, [](size_t i, const ManifestRecord&) { return i % 15 == 0; });
+        backend.Fill(assets::kEditionUs, [](size_t i, const ManifestRecord&) { return i % 20 == 0; });
+        for (Edition e : {assets::kEditionEur, assets::kEditionEurPc})
+            backend.Fill(e, [](size_t i, const ManifestRecord&) { return i % 50 == 0; });
+        report.matched = 40;
+        report.written = 250;
+    };
+    // A translated US Windows CD (the torr.ru disc): most files of both Windows editions, a few other versions.
+    auto translatedDisc = [](FakeBackend& backend, ImportReport& report) {
+        backend.Fill(assets::kEditionUsPc, [](size_t i, const ManifestRecord&) { return i % 10 != 0; });
+        backend.Fill(assets::kEditionUs, [](size_t i, const ManifestRecord&) { return i % 10 > 1; });
+        for (Edition e : {assets::kEditionEur, assets::kEditionEurPc})
+            backend.Fill(e, [](size_t i, const ManifestRecord&) { return i % 10 > 2; });
+        for (int k = 0; k < 15; ++k)
+            report.differentVersions.push_back("data/Generic/early" + std::to_string(k) + ".wad");
+        report.matched = 669;
+        report.written = 2783;
+        report.unknownFiles = 68;
+        report.translations = {"Russian (unofficial translation, 2000) added: text, fonts, speech, interface pictures."};
+    };
+
+    {
+        // a refused pack that still put some files in place (Russian.zip on 0.6.1: "Older pressing, 15 of 845")
+        FakeBackend b;
+        const std::string refused = std::string("Russian.zip: ") + kLanguagePackRefused + "datebig.bf4: damaged glyph";
+        ResultText r = DropResult(renderer, b, [&](FakeBackend& backend, ImportReport& report) {
+            pack(backend, report);
+            for (int k = 0; k < 60; ++k)
+                report.differentVersions.push_back("data/Language/English/t" + std::to_string(k) + ".str");
+            report.errors = {refused};
+        });
+        CheckEq(r.headline, "Language not added", "import headline: a refused pack alone");
+        Check(!r.lines.empty() && r.lines.front() == refused, "import headline: a refused pack says why first");
+        Check(!HasLine(r, "pressing") && !HasLine(r, "still missing"), "import headline: a refused pack is no disc");
+        std::printf("refused pack (scripted): %s\n", r.headline.c_str());
+    }
+    {
+        // a pack taken: the window's round keeps its translation line (fix/ru128 showed a partial US Windows disc)
+        FakeBackend b;
+        ResultText r = DropResult(renderer, b, [&](FakeBackend& backend, ImportReport& report) {
+            pack(backend, report);
+            report.translations = {added};
+        });
+        CheckEq(r.headline, "Language added", "import headline: a pack alone");
+        Check(r.good && HasLine(r, added) && !HasLine(r, "still missing"), "import headline: a pack alone is no disc");
+    }
+    {
+        // a translated first-release US Windows CD alone (as torr.ru, "Older pressing, 601 of 817" on 0.6.1)
+        FakeBackend b;
+        ResultText r = DropResult(renderer, b, [&](FakeBackend& backend, ImportReport& report) {
+            translatedDisc(backend, report);
+            report.firstRelease = true;
+        });
+        Check(r.headline.compare(0, 15, "First release, ") == 0,
+              "import headline: a translated first-release US disc: " + r.headline);
+        Check(HasLine(r, translated) && HasLine(r, "This US Windows CD is the first release") &&
+                  !HasLine(r, "older pressing"),
+              "import headline: a translated first-release US disc says its translation is not damage");
+        std::printf("translated first-release US disc (scripted): %s\n", r.headline.c_str());
+    }
+    {
+        // the same disc on a European edition already in place: still the US disc
+        FakeBackend b;
+        b.FillAll(assets::kEditionEur);
+        ResultText r = DropResult(renderer, b, [&](FakeBackend& backend, ImportReport& report) {
+            translatedDisc(backend, report);
+            report.firstRelease = true;
+        });
+        Check(r.headline.compare(0, 15, "First release, ") == 0,
+              "import headline: a translated first-release US disc on a European base: " + r.headline);
+    }
+    {
+        // a translated disc of no known release, partial: its missing files, never another pressing
+        FakeBackend b;
+        ResultText r = DropResult(renderer, b, translatedDisc);
+        Check(r.headline.find("still missing") != std::string::npos && r.headline.find("pressing") == std::string::npos &&
+                  HasLine(r, translated),
+              "import headline: a translated partial disc: " + r.headline);
+    }
+    {
+        // the older European pressing itself is still one, through the window too
+        FakeBackend b;
+        ResultText r = DropResult(renderer, b, DropOlderPressing);
+        Check(r.headline.compare(0, 16, "Older pressing, ") == 0, "import headline: an older pressing: " + r.headline);
+    }
+    // An English disc whose fonts a translation check refused (the EN-NL-IT-PL pressing, the US 1.0 and 1.1 CDs): a
+    // disc, never "Language not added", and nothing said of a translation it does not have.
+    const std::string fonts = std::string("SIMTHEM.iso: ") + kLanguagePackRefused + "cashbig.bf4: damaged compressed glyph";
+    {
+        FakeBackend b;
+        ResultText r = DropResult(renderer, b, [&](FakeBackend& backend, ImportReport& report) {
+            DropOlderPressing(backend, report);
+            report.errors = {fonts};
+        });
+        Check(r.headline.compare(0, 16, "Older pressing, ") == 0 && !HasLine(r, "translat"),
+              "import headline: an older pressing with refused fonts: " + r.headline);
+    }
+    {
+        FakeBackend b;
+        ResultText r = DropResult(renderer, b, [&](FakeBackend& backend, ImportReport& report) {
+            backend.Fill(assets::kEditionUsPc, [](size_t i, const ManifestRecord&) { return i % 30 != 0; });
+            backend.Fill(assets::kEditionUs, [](size_t i, const ManifestRecord&) { return i % 10 > 1; });
+            for (Edition e : {assets::kEditionEur, assets::kEditionEurPc})
+                backend.Fill(e, [](size_t i, const ManifestRecord&) { return i % 10 > 1; });
+            for (int k = 0; k < 27; ++k)
+                report.differentVersions.push_back("data/Generic/v1_" + std::to_string(k) + ".wad");
+            report.matched = 725;
+            report.written = 3131;
+            report.errors = {fonts};
+        });
+        Check(r.headline.find("still missing: they are on the US Windows CD") != std::string::npos &&
+                  !HasLine(r, "translat") && !HasLine(r, "pressing"),
+              "import headline: an early US disc with refused fonts: " + r.headline);
+    }
+    // A translated US Windows disc on a data folder whose US (Mac), European and Gold editions are ready (Мир SIM's
+    // unpacked cab: "125 files still missing: they are on the US Windows CD" before): it fills only the US Windows
+    // edition the US tile does not show, so nothing the player sees is missing.
+    auto readyBase = [](FakeBackend& backend) {
+        for (Edition e : {assets::kEditionUs, assets::kEditionEur, assets::kEditionGold}) backend.FillAll(e);
+    };
+    auto usWindowsPart = [](FakeBackend& backend, ImportReport& report) {
+        backend.Fill(assets::kEditionUsPc, [](size_t i, const ManifestRecord&) { return i % 6 != 0; });
+        report.matched = 700;
+        report.written = 1538;
+        report.alreadyThere = 1201;
+    };
+    {
+        FakeBackend b;
+        readyBase(b);
+        ResultText r = DropResult(renderer, b, [&](FakeBackend& backend, ImportReport& report) {
+            usWindowsPart(backend, report);
+            report.translations = {"Russian (unofficial translation, 2000) added: text, fonts, speech, interface pictures"};
+        });
+        Check(r.good && r.headline == "Language added" && HasLine(r, translated) && !HasLine(r, "still missing"),
+              "import headline: a translated disc on ready editions: " + r.headline);
+        std::printf("translated disc on ready editions (scripted): %s\n", r.headline.c_str());
+    }
+    {
+        // the same without a translation: what was put in place, not the hidden edition's gap
+        FakeBackend b;
+        readyBase(b);
+        ResultText r = DropResult(renderer, b, usWindowsPart);
+        CheckEq(r.headline, "1,538 files put in place", "import headline: a US Windows disc beside a ready US Mac edition");
+    }
+    {
+        // the US tile not ready (its Mac edition partial): the US Windows disc's gap is still said
+        FakeBackend b;
+        b.FillAll(assets::kEditionEur);
+        ResultText r = DropResult(renderer, b, usWindowsPart);
+        Check(r.headline.find("still missing: they are on the US Windows CD") != std::string::npos,
+              "import headline: a partial US Windows disc on a European base: " + r.headline);
+    }
+    // A US Windows disc translated in place (torr.ru's Tpworld.mdf: "111 files still missing: they are on the US
+    // Windows CD" before): it holds its text folder only in translation, so those files are the translation's and only
+    // what is really missing is said.
+    auto inPlace = [](const ManifestRecord& r) { return std::string(r.dest).rfind("data/Language/American/", 0) == 0; };
+    std::vector<std::string> inPlaceDests;
+    {
+        std::set<std::string> dests;
+        const ManifestRecord* records = assets::ManifestRecords();
+        for (size_t i = 0; i < assets::ManifestRecordCount(); ++i)
+            if ((records[i].editions & assets::kEditionUsPc) && inPlace(records[i])) dests.insert(records[i].dest);
+        inPlaceDests.assign(dests.begin(), dests.end());
+    }
+    auto translatedInPlace = [&](const std::string& alsoMissing) {
+        return [&, alsoMissing](FakeBackend& backend, ImportReport& report) {
+            backend.Fill(assets::kEditionUsPc, [&](size_t, const ManifestRecord& r) {
+                return !inPlace(r) && alsoMissing != r.dest;
+            });
+            report.matched = 637;
+            report.written = 2968;
+            report.translations = {"Russian (unofficial translation, 2000) added: text, fonts, speech, interface pictures"};
+            report.translatedOnly = inPlaceDests;
+        };
+    };
+    {
+        FakeBackend b;
+        ResultText r = DropResult(renderer, b, translatedInPlace(""));
+        CheckEq(r.headline, "Language added: no edition of the game is ready to play it yet",
+                "import headline: a disc translated in place on an empty data folder");
+        Check(!r.good && HasLine(r, translated) && HasLine(r, "here only in translation. An untranslated copy of the US "
+                                                             "Windows CD has the game's own") &&
+                  !HasLine(r, "still missing"),
+              "a disc translated in place: its translated files are the translation's, not missing ones");
+        std::printf("disc translated in place (scripted): %s\n", r.headline.c_str());
+    }
+    {
+        FakeBackend b;
+        b.FillAll(assets::kEditionEur);
+        ResultText r = DropResult(renderer, b, translatedInPlace(""));
+        Check(r.good && r.headline == "Language added",
+              "import headline: a disc translated in place on a ready European edition: " + r.headline);
+    }
+    {
+        // a file it really lacks is the headline, and only that one, on a copy that is not the one just dropped
+        FakeBackend b;
+        ResultText r = DropResult(renderer, b, translatedInPlace("data/ui.wad"));
+        CheckEq(r.headline, "1 file still missing: it is on an untranslated copy of the US Windows CD",
+                "import headline: a disc translated in place that lacks one more file");
+        Check(HasLine(r, "here only in translation"), "a disc translated in place lacking a file: the translation's line");
+    }
+}
+
+// The game inside an InstallShield setup (ImportReport::installers, the Мир SIM compilation): said as such, never the
+// other games' archive errors as the headline.
+void CheckInstallerHeadline(SDL_Renderer* renderer) {
+    FakeBackend b;
+    ResultText r = DropResult(renderer, b, [](FakeBackend&, ImportReport& report) {
+        report.installers = {"Mir SIM.iso/ThemeParkWorld"};
+        report.unknownFiles = 322;
+        report.containers = 4;
+        for (int k = 1; k <= 3; ++k)
+            report.errors.push_back("Mir SIM.iso/RCT/part" + std::to_string(k) + ".cab: cab: unsupported compression");
+    });
+    CheckEq(r.headline, "The game is inside an installer the launcher cannot open", "installer headline");
+    Check(!r.lines.empty() && r.lines[0].compare(0, 26, "Mir SIM.iso/ThemeParkWorld") == 0 &&
+              HasLine(r, "then drag in the installed game folder") &&
+              HasLine(r, "Problem 1 of 3: Mir SIM.iso/RCT/part1.cab") &&
+              HasLine(r, "Problem 3 of 3: Mir SIM.iso/RCT/part3.cab") && !HasLine(r, "not shown"),
+          "installer: the folder, what to do, and every one of the other games' errors below");
+    std::printf("installer (scripted): %s\n", r.headline.c_str());
+    // a disc that has its files besides a setup (the US 2.0 CD's USENGLIS/SETUP) is the disc
+    FakeBackend d;
+    ResultText disc = DropResult(renderer, d, [](FakeBackend& backend, ImportReport& report) {
+        backend.FillAll(assets::kEditionUsPc);
+        report.written = backend.CountFiles(assets::kEditionUsPc);
+        report.matched = report.written;
+        report.installers = {"TPWORLD.ISO/USENGLIS/SETUP"};
+    });
+    Check(disc.good && disc.headline.find("installer") == std::string::npos,
+          "installer: a disc with a setup is the disc");
+}
+
+// Problems on the result screen: each its own line up to three, and the count of the rest (ruplay: "3 problems in all"
+// with only one of them listed).
+void CheckProblemLines() {
+    EditionStatus before[6];
+    FakeBackend b;
+    b.AllStatuses(before);
+    ImportReport report;
+    b.AllStatuses(report.status);
+    for (int k = 1; k <= 5; ++k) report.errors.push_back("drop/part" + std::to_string(k) + ".zip: zip: bad deflate data");
+    ResultText r = DescribeResult(report, before);
+    CheckEq(r.headline, "Some files could not be read", "problems: nothing written");
+    Check(!r.lines.empty() && r.lines.front() == report.errors[0] &&
+              HasLine(r, "Problem 2 of 5: " + report.errors[1]) && HasLine(r, "Problem 3 of 5: " + report.errors[2]) &&
+              !HasLine(r, report.errors[3]) && HasLine(r, "2 more problems not shown (3 of 5 shown)"),
+          "problems: the first as the reason, two more listed, the rest counted");
+    report.written = 12;
+    report.errors.resize(4);
+    r = DescribeResult(report, before);
+    Check(HasLine(r, "Problem 1 of 4: " + report.errors[0]) && HasLine(r, "Problem 3 of 4: " + report.errors[2]) &&
+              HasLine(r, "1 more problem not shown (3 of 4 shown)"),
+          "problems: below a result, three listed and the rest counted");
+    report.errors.resize(1);
+    r = DescribeResult(report, before);
+    Check(HasLine(r, "1 problem: " + report.errors[0]) && !HasLine(r, "Problem 1 of"), "problems: a single one");
+}
+
 void CheckLanguageUnlocks(SDL_Renderer* renderer) {
     const float width = metric::kStartWidth, height = metric::kStartHeight;
     {
@@ -3854,6 +4141,54 @@ void CheckRendererRow(SDL_Renderer* renderer) {
     again.ShowSettings(true);
     again.Frame(kDt, width, height, 1);
     Check(again.RendererChoice() == 1, "renderer: a launcher.ini with vulkan shows Vulkan");
+}
+
+// The Settings box's Fill Around Camera row (tpw-port issue #131, djlongy): on a Mac only (kFillNotchRow; the test shows
+// it on every system), off when launcher.ini has no key (full screen below the notch, as it has always been), nothing
+// kept until the player chooses, a click keeps "1", a second "0", and a launcher.ini with "1" shows it on.
+void CheckFillNotchRow(SDL_Renderer* renderer) {
+    FakeBackend b;
+    const float width = 1100, height = 2400;   // tall enough for the whole box
+    {
+        LauncherUi plain(renderer, b);
+        plain.ShowSettings(true);
+        plain.Frame(kDt, width, height, 1);
+        Check((plain.FillNotchRect().w > 0) == kFillNotchRow, "fill notch: the row is in the Settings box on a Mac only");
+    }
+    LauncherUi ui(renderer, b);
+    ui.ShowFillNotchRow(true);
+    auto frames = [&](LauncherUi& u, int n) {
+        for (int i = 0; i < n; ++i) u.Frame(kDt, width, height, 1);
+    };
+    auto click = [&](LauncherUi& u) {
+        const Rect r = u.FillNotchRect();
+        const float x = r.CentreX(), y = r.CentreY();
+        u.HandleEvent(MotionEvent(x, y));
+        frames(u, 1);
+        u.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, x, y));
+        frames(u, 1);
+        u.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, x, y));
+        frames(u, 1);
+    };
+    ui.ShowSettings(true);
+    frames(ui, 1);
+    Check(ui.FillNotchRect().w > 0, "fill notch: the row is in the Settings box when shown");
+    Check(!ui.FillNotchOn(), "fill notch: off by default");
+    Check(ui.FillNotchRect().Bottom() <= ui.InterfaceSizeRect().y, "fill notch: the row sits above Interface size");
+    CheckEq(b.Setting(kFillNotchKey), "", "fill notch: nothing is kept until the player chooses");
+    click(ui);
+    CheckEq(b.Setting(kFillNotchKey), "1", "fill notch: a click turns it on");
+    click(ui);
+    CheckEq(b.Setting(kFillNotchKey), "0", "fill notch: a second click turns it off");
+    ui.ShowSettings(false);
+    frames(ui, 1);
+    Check(ui.FillNotchRect().w == 0, "fill notch: no switch while the box is closed");
+    b.settings[kFillNotchKey] = "1";
+    LauncherUi again(renderer, b);
+    again.ShowFillNotchRow(true);
+    again.ShowSettings(true);
+    frames(again, 1);
+    Check(again.FillNotchOn(), "fill notch: a launcher.ini with 1 shows it on");
 }
 
 // The Graphics section's Visitor looks row (tpw-port PR #31 by samueleagle91): the original's NUMKIDS, slot 24 of the
@@ -5181,13 +5516,14 @@ void CheckKeepSettings(const std::string& screens) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    bool languageOnly = false;
+    bool languageOnly = false, headlinesOnly = false;
     std::string dir;
     for (int i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == "--language-only") languageOnly = true;
+        else if (std::string(argv[i]) == "--headlines-only") headlinesOnly = true;
         else if (dir.empty()) dir = argv[i];
         else {
-            std::fprintf(stderr, "usage: %s [--language-only] [screens-directory]\n", argv[0]);
+            std::fprintf(stderr, "usage: %s [--language-only | --headlines-only] [screens-directory]\n", argv[0]);
             return 1;
         }
     }
@@ -5200,7 +5536,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    if (!languageOnly) {
+    if (!languageOnly && !headlinesOnly) {
         CheckTexts();
         CheckNoProgram(dir);
         CheckKeepSettings(dir);
@@ -5209,12 +5545,19 @@ int main(int argc, char** argv) {
     SDL_Surface* scratch = SDL_CreateSurface(320, 240, SDL_PIXELFORMAT_XRGB8888);
     SDL_Renderer* renderer = scratch ? SDL_CreateSoftwareRenderer(scratch) : nullptr;
     Check(renderer != nullptr, std::string("software renderer: ") + SDL_GetError());
-    if (renderer) {
+    if (renderer && headlinesOnly) {   // the import headlines alone, to run them many times by themselves
+        CheckImportHeadlines(renderer);
+        CheckInstallerHeadline(renderer);
+        CheckProblemLines();
+    } else if (renderer) {
         CheckLanguages(renderer);
         CheckLanguageUnlocks(renderer);
         if (!languageOnly) {
             CheckButton(renderer);
             CheckDrops(renderer);
+            CheckImportHeadlines(renderer);
+            CheckInstallerHeadline(renderer);
+            CheckProblemLines();
             CheckReady(renderer);
             CheckDropOverlay(renderer);
             CheckWindowsReady(renderer);
@@ -5232,6 +5575,7 @@ int main(int argc, char** argv) {
             CheckOnlineServerField(renderer);
             CheckFrameRateSlider(renderer);
             CheckRendererRow(renderer);
+            CheckFillNotchRow(renderer);
             CheckMods(renderer);
             CheckGameData(renderer);
             CheckVersionAndLogs(renderer);
@@ -5240,14 +5584,15 @@ int main(int argc, char** argv) {
             CheckUpdateBanner(renderer);
             CheckEdited(renderer);
         }
-        SDL_DestroyRenderer(renderer);
     }
+    if (renderer) SDL_DestroyRenderer(renderer);
     SDL_DestroySurface(scratch);
 
     // TPW_UI_SHOTS: draw only the pictures whose names hold one of its comma-separated parts (a quicker run while
     // working on a screen; the ctest draws them all).
     const char* only = std::getenv("TPW_UI_SHOTS");
     const auto wanted = [&](const std::string& name) {
+        if (headlinesOnly) return false;
         if (languageOnly) return name == "80-language-official-unlocked" || name == "81-language-unofficial-unlocked";
         if (only == nullptr || *only == 0) return true;
         std::string parts = only;

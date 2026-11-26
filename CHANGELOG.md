@@ -1,6 +1,38 @@
 # Changelog
 
-## 0.6.2 (not released yet)
+## 0.6.4 (not released yet)
+
+## 0.6.3 (2026-11-24)
+
+### Bug Fixes
+
+- In the SimCoaster/TPI mod's worlds, a visitor's umbrella seen in first person (walking around the park, or on a ride that shows the visitors up close) is now held in their hand, off to one side, as in the original, instead of floating over the middle of their head (Thanks slappyhead)
+- Fixed the boats of The Great Lake in the SimCoaster/TPI - New Worlds, Rides and Sprites mod's Land of Invention sailing under the lake's water, which showed most in first person: they now float on the water, and as in the original they stay out on the lake and their riders beam on and off, instead of the boats sailing back under the ride's building (the launcher converts the Theme Park Inc worlds again once) (Thanks Addable13 and slappyhead)
+
+### Changes
+
+- Arabian Nights' tunnel in the SimCoaster/TPI mod's worlds loses its rubble roof once its land is bought: paths can be built across its top from plateau to plateau while visitors still walk through the tunnel underneath, and in first person you can walk over the top without falling in, or through the tunnel both ways (Thanks slappyhead)
+
+## 0.6.2 (2026-11-22)
+
+### New Features
+
+- A new Mac setting, Fill Around Camera: full screen fills a MacBook's whole screen, the sides of the camera notch included, instead of leaving a black band above the game (Thanks @djlongy for the report and the fix, including the Cmd+Ctrl+F toggle, tpw-port #131 and #137)
+- Visitors who buy from the Umbrella Shop in the SimCoaster/TPI mod's worlds now walk around holding their umbrella, as in the original, and keep it through rides, shops and saves; an umbrella also keeps a little of the rain, storms and snow off their mood (the launcher converts the Theme Park Inc worlds again once)
+
+### Bug Fixes
+
+- Fixed the launcher refusing copies of the PlayStation disc that lack the small file naming the game's program: it now starts them the way a PlayStation does, and their rides convert like any other copy's
+- Fixed the launcher refusing an unofficial translation as having a "damaged compressed glyph" when its fonts end some letters early, as the game's own fonts do. A translation is now named by its language (from a known release, its own letters, or by asking you once) instead of "English (Unofficial)", a disc with the same text in two folders is listed once, a translation with a few letters its fonts do not draw is added and says which and where, one whose character tables are the other edition's than its fonts gets the right ones so the park's name no longer shows one letter off, the older US and European discs' own English text is no longer taken for a translation, and dropping a changed version replaces the one added before (Thanks @Nitablade)
+- The launcher no longer calls a translation pack, a translated US Windows CD or an early US Windows CD an "older pressing" of the European disc: a pack dropped alone says whether its language was added, a US disc is named as the US Windows CD, a translated disc no longer counts its own translated files as missing (dropped on editions that are already ready it says "Language added", otherwise it names only what is really missing, on an untranslated copy of that disc), a disc that holds the game only inside an installer now says so and asks you to install it and drop the installed folder, and the result lists up to three problems one by one and counts the rest
+- The park gate and ride signs in a Russian (or other Cyrillic) unofficial translation now show Russian letters instead of accented Latin letters and question marks
+- A park in the SimCoaster/TPI mod's worlds built with a SimCoaster Bonus Disk ride no longer crashes the game when it is opened without the Bonus Disk added: the park is kept as it was and the game says which ride it needs
+- Fixed rides, shops, paths and coasters being placeable right across the wooden fences at the edge of Polar Zone and Land of Invention in the SimCoaster/TPI - New Worlds, Rides and Sprites mod's worlds once the land on both sides was bought: the fence's squares now refuse building, and anything already built there stays
+- Fixed a white patch flickering in the entrances of the shops and rides in the SimCoaster/TPI - New Worlds, Rides and Sprites mod's worlds, such as Polar Zone's Umbrella Shop, when zoomed out and turning the camera: the ground under the doorway's shadow showed through it
+
+### Changes
+
+- The README explains what to do when files are missing: what each card's colour means and how to fill a gap
 
 ## 0.6.1 (2026-11-20)
 

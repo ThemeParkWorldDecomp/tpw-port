@@ -96,24 +96,31 @@ Redump id, the name of a game-download site, an item's title, or the address of 
 
 ## Playable offline
 
-The game is played offline, and the port keeps it that way:
+The game plays the same with or without an internet connection, and the port keeps it that way:
 
 - Nothing needs the internet to start, play, save or load. The launcher, the game and their tests run the same with no
   connection.
-- What does use the internet is optional and fails silently. Today that is the launcher's update check (README,
-  "Updates"): with no answer it says nothing and asks again at the next start. The Update button's script downloads
-  only when the player presses it.
-- All network code is in one place, launcher/net/. It asks with the system's own curl, a short time limit and a cap on
-  what it reads, and anything but an answer in the exact shape expected is no answer.
+- What does use the internet is optional, and without a connection the game goes on as before. Two things use it:
+  - The launcher's update check (README, "Updates"): with no answer it says nothing and asks again at the next start.
+    The Update button's script downloads only when the player presses it.
+  - Online play: the original game's online world, reached from the lobby's globe. Nothing connects until the player
+    picks the globe. With no connection, or a server that does not answer, the game says "Can't reach the online
+    server. Please check your internet connection and try again." and the player carries on offline.
+- Network code is in two places only:
+  - launcher/net/, for the update check. It asks with the system's own curl, a short time limit and a cap on what it
+    reads, and anything but an answer in the exact shape expected is no answer.
+  - platform/online_boss_socket.cpp, for online play. It is the one connection of the port's online server client, and
+    it connects only to the launcher's online server (Settings, "Online server") or a host that server names.
 
 CI checks this on every push and pull request (.github/workflows/build.yml):
 
 - `python3 -I devtools/check_offline.py` reads every C, C++ and Objective-C file and fails on a socket or HTTP header, a
-  network call, a web address in a string, or curl or wget started as a program, anywhere outside launcher/net/. Run it
-  before a pull request; it takes a few seconds. The original game's own online layer (the TPW Online world, its e-mail
-  and FTP client, and platform/winsock.cpp under them) is listed there by file and kept as the original had it: the port
-  never offers the online world, and its servers are gone. A vendored library's file is listed only with the reason it
-  never talks to the network (FFmpeg is built without its network code).
+  network call, a web address in a string, or curl or wget started as a program, anywhere outside launcher/net/ and the
+  files it lists. Run it before a pull request; it takes a few seconds. It lists platform/online_boss_socket.cpp, and
+  that list stays one file. The original game's own online layer (the TPW Online world, its e-mail and FTP client, and
+  platform/winsock.cpp under them) is listed there by file and kept as the original had it; its servers are long gone,
+  so its login goes through the port's online server client instead. A vendored library's file is listed only with
+  the reason it never talks to the network (FFmpeg is built without its network code).
 - On the Macs, the tests run a second time with the network blocked (sandbox-exec), and on Linux too (unshare -n), and
   `tpw_launcher --check-updates` must come back at once with no answer and exit 0. Windows has no simple way to block
   one program's network, so the Windows jobs do not repeat the tests offline.

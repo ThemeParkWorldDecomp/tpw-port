@@ -32,6 +32,7 @@
 #include "TpiGateFlow.h"
 #include "TpiGenerations.h"
 #include "TpiGuests.h"
+#include "TpiUmbrellas.h"
 #include "TPSound.h"
 #include "VehicleSteer.h"
 #include "World.h"
@@ -1328,6 +1329,9 @@ void CPerson::WinningMods(CObject* object) {
     } else if (kind != 0) {
         GAME_ASSERTMSG(0, kBalance);
     }
+    // TPW_PORT_FIX mods CPerson::WinningMods | Mac: a ride with appearance effect 0 changes nothing of the visitor's looks | Port: TPW_MOD_HOOK tpi_worlds (include/TpiUmbrellas.h): in one of the mod's worlds a visitor who buys from one of its umbrella shops (Theme Park Inc's UsageInfo.AppearanceEffect 3, which Theme Park World's ride database does not take, so the converted shop says 0) holds an umbrella: its balloon life becomes tpw::kTpiUmbrellaLife, a balloon it holds thrown away for it as often as Theme Park Inc's DiscardBalloonPctModifier says (tpw::TpiUmbrellaLifeAfter, no random number drawn; inside the shop the balloon has no script to pop, as the balloon stall above asserts), and the umbrella is drawn from when it comes out (CPerson::SetState, state 12) | Why: tpw-mods tpi-worlds umbrellas: guests went to the umbrella shop but nobody walked about with one (the maintainer, 2026-11-20)
+    if (kind == 0 && Wd(self, 0x210) == 0 && tpw::TpiIsUmbrellaShop(info->mId))
+        Wd(self, 0x214) = tpw::TpiUmbrellaLifeAfter(Wd(self, 0x214), selfThing->GetThingId().mIndex, tpw::gTpiUmbrellas.discardPct);
 
     if ((*reinterpret_cast<const uint16_t*>(reinterpret_cast<const uint8_t*>(object) + 0x2e) & 1u) != 0) {
         object->PersonUsedToilet(static_cast<uint32_t>(ppc_fctiwz(Fl(self, 0x1ac))) & 0xffu);
@@ -1408,6 +1412,12 @@ void CPerson::DrawBalloon(float x, float y, float z, int32_t mode) {
 // 0x1011b11c
 void CPerson::MakeBalloonPop() {
     int32_t* script = FieldAt<int32_t>(this, 0x210);
+    // TPW_PORT_FIX mods CPerson::MakeBalloonPop | Mac: the balloon's script rises and pops (0x1029fd84) and is let go | Port: TPW_MOD_HOOK tpi_worlds (include/TpiUmbrellas.h): a visitor holding an umbrella (tpw::TpiHoldsUmbrella) has its umbrella's script ended and keeps the umbrella (its balloon life), which is drawn again when it next comes out of a ride or shop (CPerson::SetState, state 12) | Why: tpw-mods tpi-worlds umbrellas: an umbrella does not fly off and pop when the visitor is hidden
+    if (*script != 0 && tpw::TpiHoldsUmbrella(this)) {
+        SCR_KillScript(*script);
+        *script = 0;
+        return;
+    }
     if (*script != 0) {
         // TPW_PORT_FIX balloonpop CPerson::MakeBalloonPop | Mac: the balloon's script goes to the command at 0x1029fd84, inside the script code (0x3c into the balloon's block at 0x1029fd48) | Port: while gPortScriptCode (include/analyser.h) is set, to that place in the script code (ScriptCodeAt) | Why: the host's copy (gBalloonPopTarget) lies outside the script code array, where ESP_ForceGoto restarts a script at no command, so a balloon a visitor lost (its life over, burst by a prankster, the visitor gone) stayed where it was last drawn, on the path; contributed by samueleagle91 (tpw-port PR #60)
         ESP_ForceGoto(*script, gPortScriptCode ? ScriptCodeAt(0x1029fd84u) : static_cast<void*>(&gBalloonPopTarget));

@@ -40,6 +40,12 @@ public:
     virtual bool SaveSetting(const std::string& key, const std::string& value, std::string& err) { return true; }
     // Every language pack's state (assets/importer.h Languages()): available, partial with what is missing, or absent.
     virtual std::vector<assets::LanguageStatus> Languages() const { return {}; }
+    // Names the unofficial translation `id` whose language is not known (unofficial_language.h NameUnofficialLanguage):
+    // its new ID in `newId`.
+    virtual bool NameLanguage(const std::string& id, const std::string& language, std::string& newId, std::string& err) {
+        err = "translations cannot be named here";
+        return false;
+    }
     // The edition's .sam files kept as the player's edit, each with its read check (assets/importer.h EditedFiles), and
     // putting the kept original back over one (RestoreOriginal); the tile's "Customized settings" badge.
     virtual std::vector<assets::EditedFile> EditedFiles(assets::Edition edition) const { return {}; }
@@ -83,6 +89,7 @@ public:
     std::string Setting(const std::string& key) const override;
     bool SaveSetting(const std::string& key, const std::string& value, std::string& err) override;
     std::vector<assets::LanguageStatus> Languages() const override;
+    bool NameLanguage(const std::string& id, const std::string& language, std::string& newId, std::string& err) override;
     std::vector<assets::EditedFile> EditedFiles(assets::Edition edition) const override;
     bool RestoreOriginal(assets::Edition edition, const std::string& dest, std::string& err) override;
 

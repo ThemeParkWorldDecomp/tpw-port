@@ -82,6 +82,9 @@ struct FontHandle : Handle {
             style.weight = logfont.lfWeight;
             style.italic = logfont.lfItalic != 0;
             style.underline = logfont.lfUnderline != 0;
+#ifdef TPW_PORT_FIX
+            style.charset = logfont.lfCharSet;   // signcyrillic (src/game/rides/RideSign.cpp)
+#endif
             font = tpw::gdi_text::Font::Create(style);
         }
         return font.get();

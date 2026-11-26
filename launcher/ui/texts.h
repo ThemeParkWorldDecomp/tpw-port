@@ -19,7 +19,17 @@ std::string DropKinds(bool sentence);
 
 inline constexpr const char* kLanguageHeading = "Language";
 inline constexpr const char* kUnofficialSuffix = " (Unofficial)";
-inline constexpr const char* kUnofficialWarning = "Not a known official release";
+// The heading over every unofficial translation's offer, whatever its line below says it is (unofficial_language.h).
+inline constexpr const char* kUnofficialWarning = "Not an official release";
+// An unofficial translation's description (LanguageStatus::description) when neither a known release's hashes nor its
+// own letters name its language, until the player names it (the launcher's question, kLanguageAskTitle).
+inline constexpr const char* kUnofficialUnknown = "Its language is not known";
+inline constexpr const char* kLanguageAskTitle = "Which language is this translation?";
+inline constexpr const char* kLanguageAskLine =
+    "Its text does not say. The name you choose is kept with it and shown in Settings.";
+inline constexpr const char* kLanguageAskChoose = "Choose a language";
+inline constexpr const char* kLanguageAskName = "Name it";
+inline constexpr const char* kLanguageNameError = "Cannot name the translation: ";
 inline constexpr const char* kLanguageSwitchNow = "Switch now";
 inline constexpr const char* kLanguageNotNow = "Not now";
 inline constexpr const char* kLanguageSwitchError = "Cannot keep the language setting: ";
@@ -107,15 +117,24 @@ TileText DescribeSlot(const assets::EditionStatus all[6], int slot);
 // it and says a good copy of either Windows CD fills it. The two checks below do not count these.
 std::vector<std::string> DamagedFilms(const assets::ImportReport& report);
 
+// A drop that holds a translation (unofficial_language.h): one taken (ImportReport::translations) or one refused (an
+// error with kLanguagePackRefused; an English disc whose fonts differ can be refused too). Without LooksLikeDisc it is a
+// translation pack alone, which gets no disc headline.
+bool HoldsTranslation(const assets::ImportReport& report);
+// A drop with as many game files as half the US Windows CD's: a disc or an installed game, not a translation pack
+// (whose few files of the game are the ones it left untranslated).
+bool LooksLikeDisc(const assets::ImportReport& report);
 // A European folder that a drop left partial, with files of another content where the manifest expects its own: the
-// older pressing of the PC CD. Reported as "Older pressing, <n> of <files> confirmed" with the Status counts of the
-// edition the European tile shows (SlotStatus). Not the US Windows CD's first release (LooksLikeFirstRelease), which
-// leaves the European folders partial too.
-bool LooksLikeOlderPressing(const assets::ImportReport& report);
-// The US Windows CD's first release (1.0): the US Windows folder is left partial, with files of another version, and
-// more of its files were found than of the European Windows folder's. The game is played from the 2.0 files: the
-// result says to install it on Windows, apply EA's official v2.0 patch and drop the installed folder with the CD.
-bool LooksLikeFirstRelease(const assets::ImportReport& report);
+// older pressing of the PC CD. The drop confirmed more European files than US Windows ones (`before`: the six
+// statuses from before it), and it is neither a translated disc nor a translation pack alone. Reported as "Older
+// pressing, <n> of <files> confirmed" with the Status counts of the edition the European tile shows (SlotStatus). Not
+// the US Windows CD's first release (LooksLikeFirstRelease), which leaves the European folders partial too.
+bool LooksLikeOlderPressing(const assets::ImportReport& report, const assets::EditionStatus before[6]);
+// The US Windows CD's first release (1.0, ImportReport::firstRelease): the US Windows folder is left partial, with
+// files of another version, and the drop confirmed more of its files than of the European Windows folder's. The game
+// is played from the 2.0 files: the result says to install it on Windows, apply EA's official v2.0 patch and drop the
+// installed folder with the CD.
+bool LooksLikeFirstRelease(const assets::ImportReport& report, const assets::EditionStatus before[6]);
 
 struct ResultText {
     std::string headline;

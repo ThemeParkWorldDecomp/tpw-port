@@ -37,6 +37,7 @@
 #include <cstdint>
 #include <cstdlib>
 
+#include "TpiFenceBuild.h"
 #include "TpiGateBuild.h"
 // TPW_PORT_FIX v5L51 LLCC_SystemGetPointedPeepThing | Mac: no UI header | Port: UI_Base.h for gUIUnitWidth and UI_UnitToViewX | Why: the widescreen hot point below
 #include "UI_Base.h"
@@ -640,6 +641,8 @@ int32_t CMapCell::ConnectionType(CELL_MODES modeIn, int32_t flag) {
         return 0xb;
     }
     if (IsFlag(0x40) != 0) return 1;
+    // TPW_PORT_FIX mods CMapCell::ConnectionType | Mac: Base.map attribute bit 1 is never read for building; such a cell refuses only what unowned or hidden ground refuses | Port: TPW_MOD_HOOK tpi_worlds (tpw::TpiFenceRefuses, include/TpiFenceBuild.h): in one of the mod's worlds such a cell, under or beside the level's own fence, wall or bank, refuses every placement that builds, as unowned land does; demolishing, queue editing and the land tools keep the Mac's answer | Why: a ride or path could stand right across Polar Zone's wooden fence once Buy Land owned both sides (the maintainer, 0.6.1); off, or an original world, the Mac's
+    if (tpw::TpiFenceRefuses(mode, mStatusFlags)) return 1;
     type = static_cast<int32_t>(mType);
     if (type == 4 || type == 9 || type == 10) {
         if (gLLCCDE0B8 > gLLCCDE0B4 && mode != 0x15 && mode != 0x16) {
@@ -859,10 +862,11 @@ uint32_t CMapCell::GetTile(int32_t* rotation) {
     uint8_t neighbours = GetNeighbours();
     const int32_t type = static_cast<int32_t>(mType);
     if (type == 1) {
-        neighbours |= tpw::TpiFootbridgeLinks({type, mFlags}, [this](uint8_t direction) {
+        // A path on the Arabian tunnel's cleared top is on the top (include/TpiTunnelTop.h): it joins no footbridge of the route beneath.
+        neighbours |= tpw::TpiFootbridgeLinks(tpw::TpiWalkerCell(type, mFlags, mCellId, 1), [this](uint8_t direction) {
             const CMapCell* cell = GetNeighbouringCell(direction);
             return cell == nullptr ? tpw::TpiFootbridgeCell{-1, 0}
-                                   : tpw::TpiFootbridgeCell{static_cast<int32_t>(cell->mType), cell->mFlags};
+                                   : tpw::TpiWalkerCell(static_cast<int32_t>(cell->mType), cell->mFlags, cell->mCellId, 1);
         });
     }
     const uint8_t direction = GetDirection();

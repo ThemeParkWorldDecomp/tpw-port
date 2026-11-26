@@ -32,6 +32,7 @@
 #include "RideDB.h"
 #include "rsse.h"
 #include "SaveLoad.h"
+#include "SavedRideTypes.h"
 #include "tb_ddraw.h"
 #include "tb_hfield.h"
 #include "tb_init.h"
@@ -1310,21 +1311,7 @@ uint16_t Half_2(const uint8_t* p) {
     return v;
 }
 
-// TPW_PORT_FIX rideloadskip LoadRides | Mac: no reading ahead in the block | Port: the readers of a word and a half as the file holds them (the block is swapped in place as the records are restored, so the ones ahead are the file's) and the walk that measures a record that cannot be restored | Why: the number of time controls of a record is not in the file, it is the instance's, and there is no instance when the type is gone; reported by Piro and Addable13 on Discord
-uint32_t FileWord(const uint8_t* p) {
-    uint32_t v;
-    std::memcpy(&v, p, 4);
-    if (kSwapFileWords) v = __builtin_bswap32(v);
-    return v;
-}
-
-uint32_t FileHalf(const uint8_t* p) {
-    uint16_t v;
-    std::memcpy(&v, p, 2);
-    if (kSwapFileWords) v = __builtin_bswap16(v);
-    return v;
-}
-
+// TPW_PORT_FIX rideloadskip LoadRides | Mac: no reading ahead in the block | Port: the walk that measures a record that cannot be restored, reading the words ahead as the file holds them (the block is swapped in place as the records are restored, so the ones ahead are the file's; include/SavedRideTypes.h) | Why: the number of time controls of a record is not in the file, it is the instance's, and there is no instance when the type is gone; reported by Piro and Addable13 on Discord
 // The loaded ride type that carries a record's type number (LoadRides' lookup), null when none.
 const tag_sRideAnimSet* RideTypeOfNumber(uint32_t typeNumber) {
     for (uint32_t type = gRideTypeCount; type != 0; --type)
@@ -1332,38 +1319,27 @@ const tag_sRideAnimSet* RideTypeOfNumber(uint32_t typeNumber) {
     return nullptr;
 }
 
-// Whether the records of slots `slot` to `slots` - 1 run from `cursor` to exactly `end`, every one of them a loaded type's (with its
-// type's time controls) or an empty slot. Strict on purpose: a wrong start reads garbage, which a looser walk could take for records.
-bool RideRecordsFit(const uint8_t* cursor, const uint8_t* end, uint32_t slot, uint32_t slots) {
-    for (; slot < slots; ++slot) {
-        if (cursor >= end) return false;
-        const uint8_t marker = *cursor++;
-        if (marker == 0) continue;
-        if (marker != 1) return false;
-        if (static_cast<size_t>(end - cursor) < 0x36) return false;
-        const uint32_t typeNumber = FileWord(cursor);
-        const size_t fixed = 0x36 + static_cast<size_t>(FileHalf(cursor + 0x26 + 6)) * 8 + static_cast<size_t>(FileHalf(cursor + 0x26 + 4)) * 4;
-        if (static_cast<size_t>(end - cursor) < fixed) return false;
-        cursor += fixed;
-        const tag_sRideAnimSet* type = RideTypeOfNumber(typeNumber);
-        if (type == nullptr) return false;
-        const size_t controls = static_cast<size_t>(type->mTimeCount) * 0x2c;
-        if (static_cast<size_t>(end - cursor) < controls) return false;
-        cursor += controls;
-    }
-    return cursor == end;
+// The number of time controls of a loaded type's records, -1 when no loaded type carries the number.
+int32_t TypeTimeControls(uint32_t typeNumber) {
+    const tag_sRideAnimSet* type = RideTypeOfNumber(typeNumber);
+    return type == nullptr ? -1 : static_cast<int32_t>(type->mTimeCount);
 }
 
 // The number of time controls after `cursor` (the end of the node words of a record that could not be restored) that lets the records
-// of the slots after it fill the block to `end`; -1 when no count does.
+// of the slots after it fill the block to `end`; -1 when no count does (savedrides::SkippedTimeControls, include/SavedRideTypes.h).
 int32_t SkippedRideTimeControls(const uint8_t* cursor, const uint8_t* end, uint32_t slot, uint32_t slots) {
-    if (cursor > end) return -1;
-    for (size_t skip = 0; skip <= static_cast<size_t>(end - cursor); skip += 0x2c)
-        if (RideRecordsFit(cursor + skip, end, slot, slots)) return static_cast<int32_t>(skip / 0x2c);
-    return -1;
+    return savedrides::SkippedTimeControls(cursor, end, slot, slots, kSwapFileWords, TypeTimeControls);
 }
 
 }  // namespace
+
+// TPW_PORT_FIX heldpark PortMissingSavedRideType | Mac: no such walk | Port: the first ride record of a park's unpacked modules whose type no loaded type carries (savedrides::MissingSavedRideType, include/SavedRideTypes.h) | Why: see gPortMissingRideType in SaveLoad.h
+savedrides::Missing PortMissingSavedRideType(const uint8_t* modules, uint32_t size) {
+    const uint8_t* block = nullptr;
+    size_t blockSize = 0;
+    if (!savedrides::FindRidesBlock(modules, size, kSwapFileWords, block, blockSize)) return {};
+    return savedrides::MissingSavedRideType(block, blockSize, kSwapFileWords, TypeTimeControls);
+}
 
 int32_t LoadRides(void* file) {
     uint32_t sizeWord = 0;

@@ -619,6 +619,14 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_ps1_pick_rotation PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME ps1_pick_rotation COMMAND tpw_host_ps1_pick_rotation)
   endif()
+  # The walk over a park's ride records before its modules are read (fix heldpark, include/SavedRideTypes.h): a ride type
+  # no loaded type carries is found, alone or followed by another, past an old autosave's ride preview, on made-up modules
+  # read both ways round. The original has no such walk, so it is made only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_saved_ride_types ${TPW_DECOMP_DIR}/tests/host_saved_ride_types.cpp)
+    target_include_directories(tpw_host_saved_ride_types PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME saved_ride_types COMMAND tpw_host_saved_ride_types)
+  endif()
   # The PS2 Guest Models mod's pure helpers (TPW_MOD_HOOK ps2_characters, include/Ps2Characters.h): the sprite sets'
   # models, the actions' clips, the render side's hash, a model's anchor and facing, the sprite's edges lifted onto the
   # view's up axis and the TGA reader, on synthetic packs. The original has no such mod, so it is made only with the
@@ -641,6 +649,14 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     add_executable(tpw_host_tpi_footbridge ${TPW_DECOMP_DIR}/tests/host_tpi_footbridge.cpp)
     target_include_directories(tpw_host_tpi_footbridge PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_footbridge COMMAND tpw_host_tpi_footbridge)
+    # Cleared tunnel ground beside the unchanged floor route: heights, ownership, reload and movement separation.
+    add_executable(tpw_host_tpi_tunnel_top ${TPW_DECOMP_DIR}/tests/host_tpi_tunnel_top.cpp)
+    target_include_directories(tpw_host_tpi_tunnel_top PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_tunnel_top COMMAND tpw_host_tpi_tunnel_top)
+    # A path crossing over the tunnel's fixed floor: its columns, the two walker layers, lifts and shadows.
+    add_executable(tpw_host_tpi_tunnel_cross ${TPW_DECOMP_DIR}/tests/host_tpi_tunnel_cross.cpp)
+    target_include_directories(tpw_host_tpi_tunnel_cross PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_tunnel_cross COMMAND tpw_host_tpi_tunnel_cross)
   endif()
   # TPW_MOD_HOOK tpi_worlds: a footbridge's sides are walls (MAP_wall_in_way), so a guest's walk through a made-up tunnel
   # reaches exactly its floor and the paths at both mouths.
@@ -702,6 +718,16 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_tpi_generations PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_generations COMMAND tpw_host_tpi_generations)
   endif()
+  # The TPI Worlds and Rides mod's umbrellas (TPW_MOD_HOOK tpi_worlds, include/TpiUmbrellas.h): the converter's
+  # TpiUmbrellas.sam read back, the umbrella shops only in the mod's worlds, a visitor holding one by its balloon life,
+  # the balloon thrown away for it, its colour, each look's height and its place toward the camera, the bad weather it
+  # keeps off, and that nothing changes elsewhere, without game data. The original has no such mod, so it is made only
+  # with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_tpi_umbrellas ${TPW_DECOMP_DIR}/tests/host_tpi_umbrellas.cpp)
+    target_include_directories(tpw_host_tpi_umbrellas PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_umbrellas COMMAND tpw_host_tpi_umbrellas)
+  endif()
   # The TPI Worlds and Rides mod's opening gate (TPW_MOD_HOOK tpi_worlds, include/TpiObstacleGate.h): a leaf's node name
   # read back as the converter writes it, the rule that opens it (the park owns a cell of its footprint or one next to
   # it) and its swing, without game data. The original has no such mod, so it is made only with the port's fixes.
@@ -722,6 +748,15 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     add_executable(tpw_host_tpi_outside ${TPW_DECOMP_DIR}/tests/host_tpi_outside.cpp)
     target_include_directories(tpw_host_tpi_outside PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_outside COMMAND tpw_host_tpi_outside)
+  endif()
+  # The TPI Worlds and Rides mod's doorway floors (TPW_MOD_HOOK tpi_worlds, include/TpiDoorway.h): which face sets are
+  # marked, on a made-up mesh, and the umbrella shop's entrance floor against its base through the port's depth math as
+  # the camera turns at four zooms, without game data. The original has no such mod, so it is made only with the port's
+  # fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_tpi_doorway ${TPW_DECOMP_DIR}/tests/host_tpi_doorway.cpp)
+    target_include_directories(tpw_host_tpi_doorway PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME tpi_doorway COMMAND tpw_host_tpi_doorway)
   endif()
   # The TPI Worlds and Rides mod's start of a ride script (TPW_MOD_HOOK tpi_worlds, include/TpiRideScript.h): which scripts
   # start with SPECIAL set (a ride with an O animation), on made-up flags, without game data. The original has no such mod,
@@ -1088,6 +1123,45 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
       target_link_options(tpw_host_tpi_gate_build PRIVATE -Wl,--export-all-symbols)
     endif()
     add_test(NAME tpi_gate_build COMMAND tpw_host_tpi_gate_build)
+    if(TPW_PORT_FIX)
+      add_library(tpw_host_tpi_tunnel_top_engine_objects OBJECT ${TPW_DECOMP_DIR}/tests/host_tpi_tunnel_top_engine.cpp ${TPW_DECOMP_DIR}/tests/host_tpi_ground_colour.cpp launcher/pending_manual.cpp)
+      target_include_directories(tpw_host_tpi_tunnel_top_engine_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
+      target_link_libraries(tpw_host_tpi_tunnel_top_engine_objects PRIVATE SDL3::SDL3)
+      set(TPW_TPI_TUNNEL_TOP_STUBS ${CMAKE_CURRENT_BINARY_DIR}/stubs_tpi_tunnel_top_engine.cpp)
+      tpw_gen_stubs(${TPW_TPI_TUNNEL_TOP_STUBS} tpw_host_tpi_tunnel_top_engine_objects "Generating stand-ins for the tunnel top engine test")
+      add_executable(tpw_host_tpi_tunnel_top_engine $<TARGET_OBJECTS:tpw_host_tpi_tunnel_top_engine_objects> ${TPW_TPI_TUNNEL_TOP_STUBS})
+      target_include_directories(tpw_host_tpi_tunnel_top_engine PRIVATE ${TPW_INCLUDE_DIR} launcher)
+      target_link_libraries(tpw_host_tpi_tunnel_top_engine PRIVATE tpw tpw_platform tpw_launcher_ui)
+      if(TPW_LINUX)
+        target_link_libraries(tpw_host_tpi_tunnel_top_engine PRIVATE $<TARGET_FILE:tpw>)
+      endif()
+      if(WIN32)
+        target_link_options(tpw_host_tpi_tunnel_top_engine PRIVATE -Wl,--export-all-symbols)
+      endif()
+      add_test(NAME tpi_tunnel_top_engine COMMAND tpw_host_tpi_tunnel_top_engine)
+      add_test(NAME tpi_ground_colour COMMAND tpw_host_tpi_tunnel_top_engine --ground-colour)
+    endif()
+  endif()
+  # Building on the TPI mod's worlds' own fences, walls and banks (Base.map attribute bit 1, include/TpiFenceBuild.h),
+  # using the real map and track cells, with no game data or window. Linked as the launcher is, so this also runs on
+  # Windows and checks the Mac's answers with the fixes OFF.
+  if(TARGET tpw_launcher)
+    add_library(tpw_host_tpi_fence_build_objects OBJECT ${TPW_DECOMP_DIR}/tests/host_tpi_fence_build.cpp launcher/pending_manual.cpp)
+    target_include_directories(tpw_host_tpi_fence_build_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
+    target_link_libraries(tpw_host_tpi_fence_build_objects PRIVATE SDL3::SDL3)
+    target_compile_definitions(tpw_host_tpi_fence_build_objects PRIVATE TPW_HOST_TPI_FENCE_BUILD_FIXED=$<BOOL:${TPW_PORT_FIX}>)
+    set(TPW_TPI_FENCE_BUILD_STUBS ${CMAKE_CURRENT_BINARY_DIR}/stubs_tpi_fence_build.cpp)
+    tpw_gen_stubs(${TPW_TPI_FENCE_BUILD_STUBS} tpw_host_tpi_fence_build_objects "Generating stand-ins for the TPI fence building test")
+    add_executable(tpw_host_tpi_fence_build $<TARGET_OBJECTS:tpw_host_tpi_fence_build_objects> ${TPW_TPI_FENCE_BUILD_STUBS})
+    target_include_directories(tpw_host_tpi_fence_build PRIVATE ${TPW_INCLUDE_DIR} launcher)
+    target_link_libraries(tpw_host_tpi_fence_build PRIVATE tpw tpw_platform tpw_launcher_ui)
+    if(TPW_LINUX)
+      target_link_libraries(tpw_host_tpi_fence_build PRIVATE $<TARGET_FILE:tpw>)
+    endif()
+    if(WIN32)
+      target_link_options(tpw_host_tpi_fence_build PRIVATE -Wl,--export-all-symbols)
+    endif()
+    add_test(NAME tpi_fence_build COMMAND tpw_host_tpi_fence_build)
   endif()
   # The keys each build gets (tests/host_pc_keys.cpp, the port's fix pc-keys): the seven real key tables and the keys SDL
   # gives them. Windows and Linux with the port's fixes have the PC original's Key Command Card, the Mac and a build without
@@ -1490,6 +1564,12 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   target_include_directories(tpw_game_app_tests PRIVATE launcher)
   target_link_libraries(tpw_game_app_tests PRIVATE tpw_assets)
   add_test(NAME game_app COMMAND tpw_game_app_tests)
+  # The Settings switch Fill Around Camera (launcher/fill_notch.h, tpw-port issue #131): SDL's full-screen Spaces hint is
+  # set only when launcher.ini's fill_notch is 1, and a full-screen start with it takes the screen's own shape.
+  add_executable(tpw_fill_notch_tests launcher/tests/fill_notch_tests.cpp)
+  target_include_directories(tpw_fill_notch_tests PRIVATE launcher ${TPW_INCLUDE_DIR})
+  target_link_libraries(tpw_fill_notch_tests PRIVATE SDL3::SDL3)
+  add_test(NAME fill_notch COMMAND tpw_fill_notch_tests)
   # The launcher's icon where the installer put it (launcher/installed_icon.h): which application in Applications is the
   # installer's for this launcher, the Start menu shortcut's icon file, and the icon written again only when it changed.
   add_executable(tpw_installed_icon_tests launcher/tests/installed_icon_tests.cpp launcher/installed_icon.cpp launcher/game_app.cpp)

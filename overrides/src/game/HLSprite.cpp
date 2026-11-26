@@ -51,6 +51,7 @@
 #include "TPEngine.h"
 #include "TPGlobals.h"
 #include "TpiGuests.h"
+#include "TpiUmbrellas.h"
 #include "TPMain.h"
 #include "TPOptions.h"
 #include "TPResource.h"
@@ -740,6 +741,12 @@ bool ESP_LoadSprites(bool particlesOnly) {
                 for (int32_t s = 0; s < group.mCount + tpw::gTpiExtraGuests[1] && headCount < tpw::kTpiMaxLooks; ++s)
                     heads[headCount++] = gESPSprites[group.mFirst + s]->mName;
                 tpw::TpiSetLooks(bodies, tpw::TpiWorldInPlay() ? bodyCount : 0, heads, headCount);
+                tpw::TpiSetUmbrellaRows(bodies, tpw::TpiWorldInPlay() ? bodyCount : 0);
+            }
+            // TPW_PORT_FIX mods ESP_LoadSprites | Mac: none | Port: TPW_MOD_HOOK tpi_worlds (include/TpiUmbrellas.h): in one of the mod's worlds the theme's own umbrellas (Theme Park Inc's Spr_um, written by the converter) are loaded after the balloons group, outside its count (ESP_FindTpiExtraGuests), and their number kept in tpw::gTpiUmbrellaSprites; elsewhere it is 0, and each look's umbrella row is taken from its name (tpw::TpiSetUmbrellaRows) | Why: tpw-mods tpi-worlds umbrellas: a random balloon is never an umbrella, and the balloons keep their numbers
+            if (i == 10) {
+                const TbDynamicStringTemplate<char> umbrellas("umbrellas");
+                tpw::gTpiUmbrellaSprites = tpw::TpiWorldInPlay() ? ESP_FindTpiExtraGuests(resource, umbrellas) : 0;
             }
         }
     }
