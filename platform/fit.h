@@ -82,6 +82,7 @@ inline bool FullScreenToggleKey(bool apple, bool enterKey, bool altHeld, bool ot
 // (`spacesOff`: Fill Around Camera, launcher/fill_notch.h), where the Window menu's Enter Full Screen is greyed out and
 // the keys would reach the game as F. F with Cmd and Ctrl held and no other modifier, a first press, as Alt+Enter is
 // elsewhere: the press is the host's and never reaches the game. With Spaces on, the system's menu does it as always.
+// Contributed by djlongy (tpw-port PR #137).
 inline bool MacFullScreenKey(bool apple, bool spacesOff, bool fKey, bool cmdAndCtrlHeld, bool otherModifierHeld, bool repeat) {
     return apple && spacesOff && fKey && cmdAndCtrlHeld && !otherModifierHeld && !repeat;
 }

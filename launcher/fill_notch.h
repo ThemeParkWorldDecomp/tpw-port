@@ -2,7 +2,8 @@
 // kFillNotchKey; a Mac's only). On a MacBook with a camera notch the game's full screen is a Space of its own, which macOS
 // keeps below the notch, with a black band above the game. With the switch on, SDL makes full screen without a Space
 // (SDL_HINT_VIDEO_MAC_FULLSCREEN_SPACES "0"), a borderless window over the whole screen, the strips beside the notch
-// included; the notch then hides a strip at the top centre. Found by djlongy (tpw-port issue #131).
+// included; the notch then hides a strip at the top centre. Found by djlongy (tpw-port issue #131), with the hint and
+// the Cmd+Ctrl+F toggle (fit::MacFullScreenKey) in tpw-port PR #137.
 //
 // SDL's Cocoa video reads the hint once, when video starts (Cocoa_VideoInit), not at each switch to full screen, so it is
 // set before the game's video starts. The window's Play starts the game as a process of its own (launcher/game_app.h),

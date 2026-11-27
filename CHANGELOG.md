@@ -17,7 +17,7 @@
 
 ### New Features
 
-- A new Mac setting, Fill Around Camera: full screen fills a MacBook's whole screen, the sides of the camera notch included, instead of leaving a black band above the game (Thanks @djlongy for the report and the hint, tpw-port #131)
+- A new Mac setting, Fill Around Camera: full screen fills a MacBook's whole screen, the sides of the camera notch included, instead of leaving a black band above the game (Thanks @djlongy for the report and the fix, including the Cmd+Ctrl+F toggle, tpw-port #131 and #137)
 - Visitors who buy from the Umbrella Shop in the SimCoaster/TPI mod's worlds now walk around holding their umbrella, as in the original, and keep it through rides, shops and saves; an umbrella also keeps a little of the rain, storms and snow off their mood (the launcher converts the Theme Park Inc worlds again once)
 
 ### Bug Fixes
