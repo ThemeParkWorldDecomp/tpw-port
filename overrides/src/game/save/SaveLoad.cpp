@@ -75,6 +75,8 @@
 #include <iterator>
 #include <new>
 #include <vector>
+// TPW_PORT_FIX flyzoneload CSaveLoad::PostLoadOperations | Mac: no fence extents header | Port: include/HoardingExtents.h for tpw::RecalculateHoardingExtents | Why: the fence extents a loaded park gets in CSaveLoad::PostLoadOperations below
+#include "HoardingExtents.h"
 
 // RideDB.cpp range of the main app (SimTheme Park 2.04b3): the ride types' names. The name database (CRideNameDB, which the
 // inventory files under SaveLoad.cpp) builds a ride type's name from two strings of the object names string table; the ride
@@ -1352,6 +1354,8 @@ void CSaveLoad::PostLoadOperations() {
     RepairTpiSpecialRides();
     // TPW_PORT_FIX mods CSaveLoad::PostLoadOperations | Mac: (none: a park keeps the land it saved) | Port: TPW_MOD_HOOK tpi_worlds: in one of the mod's worlds, the gate ground a new park now owns (tpw::TpiOwnGateGround, include/TpiGateBuild.h) is the park's: only flag 0x40 is cleared, only on those cells, so a second load changes nothing | Why: a park saved before this fix kept that ground unowned beside Theme Park Inc's gate (Piro, Discord, 0.6.0); off, or an original world, a park loads as it was saved
     tpw::TpiOwnGateGround(gGameWorld->mMapCells, gHoardingLeft, gHoardingRight, gHoardingBottom);
+    // TPW_PORT_FIX flyzoneload CSaveLoad::PostLoadOperations | Mac: (none: the fence extents stay the level's start fence's, LLCC_BuildHoardingDB being their only writer, and GAMESYSTEM_Tick's FLY_SetFlyZone overwrites the saved fly zone with them every 32 ticks) | Port: once the fence's cells are back (after the TPI Worlds mod's fence repair), its extents are those of a read-only walk of the loaded fence, or, when it does not close, of the saved fly zone (tpw::RecalculateHoardingExtents, src/game/park/LLCellRide.cpp); a new park and a land purchase are as before | Why: a flying tour (Jurassic Tours, the SimCoaster/TPI mod's Flying Pelican) based on land bought after the level's start was outside the fly zone after a load and flew diagonally off the map for its ride time, then as long again back (Addable13); Theme Park World and the TPI Worlds mod's worlds alike
+    tpw::RecalculateHoardingExtents();
     RecalculateParkDarkening();
     gRestartParkClocks = 1;
     gClock.PostLoad();

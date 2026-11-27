@@ -60,7 +60,7 @@ file(GLOB_RECURSE TPW_DECOMP_HEADERS CONFIGURE_DEPENDS RELATIVE ${TPW_DECOMP_DIR
 file(GLOB_RECURSE TPW_OVERRIDE_HEADERS CONFIGURE_DEPENDS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}/overrides
      ${CMAKE_CURRENT_SOURCE_DIR}/overrides/include/* ${CMAKE_CURRENT_SOURCE_DIR}/overrides/platform/*.h)
 # The port's own headers, which tpw-decomp has no copy of (export_split.py's PORT_ONLY): their override is the header.
-set(TPW_PORT_ONLY_HEADERS )
+set(TPW_PORT_ONLY_HEADERS include/HoardingExtents.h)
 foreach(header ${TPW_OVERRIDE_HEADERS})
   if(NOT header IN_LIST TPW_DECOMP_HEADERS AND NOT header IN_LIST TPW_PORT_ONLY_HEADERS)
     message(FATAL_ERROR "overrides/${header} has no file in tpw-decomp to replace")
@@ -806,6 +806,15 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     add_executable(tpw_host_fly_zone ${TPW_DECOMP_DIR}/tests/host_fly_zone.cpp)
     target_include_directories(tpw_host_fly_zone PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME fly_zone COMMAND tpw_host_fly_zone)
+  endif()
+  # The fence extents a loaded park gets (include/HoardingExtents.h): the read-only walk of the loaded fence records what
+  # LLCC_BuildHoardingDB's walk records, on a start fence and on land bought beyond it, changing no cell, and a fence with
+  # a hole falls back on the saved fly zone's extents, without game data. The original needs no such helper, so it is made
+  # only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_hoarding_extents ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_hoarding_extents.cpp)
+    target_include_directories(tpw_host_hoarding_extents PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME hoarding_extents COMMAND tpw_host_hoarding_extents)
   endif()
   # The TPI Worlds and Rides mod's repair of parks saved before a converter showed more ground (TPW_MOD_HOOK tpi_worlds,
   # include/TpiSaveRepair.h): which saved map and track cells are reset as land on loading, without game data. The

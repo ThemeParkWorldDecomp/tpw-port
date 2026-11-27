@@ -2,6 +2,10 @@
 
 ## 0.6.4 (not released yet)
 
+### Bug Fixes
+
+- Fixed flying tours (such as Jurassic Tours, or the Flying Pelican in the SimCoaster/TPI mod's worlds) built on land bought after the park opened flying off the map once the park was saved and loaded again: they now stay over the park and land when their ride time is up (Thanks Addable13)
+
 ## 0.6.3 (2026-11-24)
 
 ### Bug Fixes

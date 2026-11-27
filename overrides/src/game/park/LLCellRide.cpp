@@ -34,6 +34,9 @@
 #include <cstdint>
 #include <cstring>
 #include <new>
+// TPW_PORT_FIX flyzoneload tpw::RecalculateHoardingExtents | Mac: no fence extents header | Port: include/HoardingExtents.h for tpw::HoardingWalkExtents and tpw::HoardingExtentsFromFlyZone, platform/samsutils.h for its log lines | Why: tpw::RecalculateHoardingExtents below
+#include "HoardingExtents.h"
+#include "platform/samsutils.h"
 
 // LLCR_OverRide 0x10089210 (140 bytes): answers the halfword of the world at +0x1da732 when (x, y) lies in the entrance A column range
 // of the balance (x from EntranceAPosX - 1 to the slot after it, 0x584, plus 1) and y equals EntranceAPosY (+0x580); otherwise it asks the
@@ -1890,6 +1893,31 @@ void LLCR_GetHoardingExtents(int32_t* a, int32_t* b, int32_t* c, int32_t* d) {
     *b = gLLCCHoardMinY;
     *c = gLLCCHoardMaxX;
     *d = gLLCCHoardMaxY;
+}
+
+// TPW_PORT_FIX flyzoneload tpw::RecalculateHoardingExtents | Mac: no such pass | Port: the loaded fence is walked read only from the gate as LLCC_BuildHoardingDB walks it (tpw::HoardingWalkExtents, include/HoardingExtents.h) and its extents recorded; a walk that does not close keeps the extents the saved fly zone was made from (tpw::HoardingExtentsFromFlyZone), or the level's when the park saved none; the fly zone is then made again | Why: see CSaveLoad::PostLoadOperations (src/game/save/SaveLoad.cpp)
+void tpw::RecalculateHoardingExtents() {
+    const auto post = [](int32_t x, int32_t y) {
+        const CTrackCell& track = gGameWorld->mTrackCells[x + (y << 7)];
+        return tpw::HoardingPost{static_cast<int32_t>(track.mType), track.mKind == 2 ? track.mHoardingNeighbours : track.mNeighbours};
+    };
+    tpw::HoardingExtents extents{};
+    const char* how = "the loaded fence";
+    if (!tpw::HoardingWalkExtents(gHoardingRight, gHoardingBottom, gHoardingLeft, gHoardingTop, post, &extents)) {
+        if (gFlyInitialised == 0 || !tpw::HoardingExtentsFromFlyZone(gFlyZoneB, gFlyZoneC, gFlyZoneD, gFlyZoneA, &extents)) {
+            SamsUtilities::UDebug("port: flyzoneload: the fence from %d,%d does not close and the park saved no fly zone: extents %d,%d..%d,%d kept",
+                                  gHoardingRight, gHoardingBottom, gLLCCHoardMinX, gLLCCHoardMinY, gLLCCHoardMaxX, gLLCCHoardMaxY);
+            return;
+        }
+        how = "the saved fly zone (the fence does not close)";
+    }
+    gLLCCHoardMinX = extents.minX;
+    gLLCCHoardMinY = extents.minY;
+    gLLCCHoardMaxX = extents.maxX;
+    gLLCCHoardMaxY = extents.maxY;
+    FLY_SetFlyZone();
+    SamsUtilities::UDebug("port: flyzoneload: hoarding extents %d,%d..%d,%d from %s", extents.minX, extents.minY, extents.maxX, extents.maxY,
+                          how);
 }
 
 namespace {
