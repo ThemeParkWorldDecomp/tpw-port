@@ -9,6 +9,7 @@
 #include "CVariableTime.h"
 #include "Debug.h"
 #include "ESP_sprites.h"
+// TPW_PORT_FIX flyzone FlyZoneOffset | Mac: no such header | Port: include/FlyZone.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "FlyZone.h"
 #include "FS_Online.h"
 #include "HLSprite.h"

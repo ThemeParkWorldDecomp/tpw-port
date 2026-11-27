@@ -13,6 +13,7 @@
 #include "TbSoundPipeChannel.h"
 #include "TbSoundSampleCallback.h"
 #include "TbSoundSampleMPEG2.h"
+// TPW_PORT_FIX mods gTpiThemeIsMod | Mac: no such header | Port: include/TpiGateFlow.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "TpiGateFlow.h"
 #include <cmath>
 #include <cstring>

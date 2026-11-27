@@ -59,8 +59,47 @@ file(GLOB_RECURSE TPW_DECOMP_HEADERS CONFIGURE_DEPENDS RELATIVE ${TPW_DECOMP_DIR
      ${TPW_DECOMP_DIR}/include/* ${TPW_DECOMP_DIR}/platform/*.h)
 file(GLOB_RECURSE TPW_OVERRIDE_HEADERS CONFIGURE_DEPENDS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}/overrides
      ${CMAKE_CURRENT_SOURCE_DIR}/overrides/include/* ${CMAKE_CURRENT_SOURCE_DIR}/overrides/platform/*.h)
-# The port's own headers, which tpw-decomp has no copy of (export_split.py's PORT_ONLY): their override is the header.
-set(TPW_PORT_ONLY_HEADERS include/HoardingExtents.h include/PortGlErrors.h include/PortGroundPad.h include/PortLightningFlash.h)
+# The fixes' own headers, which tpw-decomp has no copy of (export_split.py's port_only_header): their override is the header.
+set(TPW_PORT_ONLY_HEADERS
+    include/CellIdLookup.h
+    include/EntertainerSecondActs.h
+    include/FlyZone.h
+    include/HoardingExtents.h
+    include/PortFreeCamera.h
+    include/PortGlErrors.h
+    include/PortGroundPad.h
+    include/PortGroundPool.h
+    include/PortLightningFlash.h
+    include/PortSpriteFringe.h
+    include/Ps1PickRotation.h
+    include/Ps1SaveRepair.h
+    include/Ps2Characters.h
+    include/RideBadges.h
+    include/SavedRideTypes.h
+    include/TpiBumperKind.h
+    include/TpiDoorway.h
+    include/TpiFenceBuild.h
+    include/TpiFootbridge.h
+    include/TpiGateBuild.h
+    include/TpiGateFlow.h
+    include/TpiGenerations.h
+    include/TpiGreatLake.h
+    include/TpiGuests.h
+    include/TpiLandBuy.h
+    include/TpiObstacleGate.h
+    include/TpiObstacleShut.h
+    include/TpiOutside.h
+    include/TpiParkEdge.h
+    include/TpiRideCamera.h
+    include/TpiRideScript.h
+    include/TpiSaveRepair.h
+    include/TpiSoundStandIns.h
+    include/TpiToilets.h
+    include/TpiTunnelTop.h
+    include/TpiUmbrellas.h
+    include/helpers/SoundPoolLock.h
+    include/port_wasd.h
+    include/tpi_island_ring.h)
 foreach(header ${TPW_OVERRIDE_HEADERS})
   if(NOT header IN_LIST TPW_DECOMP_HEADERS AND NOT header IN_LIST TPW_PORT_ONLY_HEADERS)
     message(FATAL_ERROR "overrides/${header} has no file in tpw-decomp to replace")
@@ -142,7 +181,7 @@ endif()
 # Synthetic overlapping sprites through the same pass state and depth ordering as the world draw.
 if(TPW_BUILD_ASSETS_TESTS)
   enable_testing()
-  add_executable(tpw_spritefringe_tests ${TPW_DECOMP_DIR}/tests/host_spritefringe.cpp)
+  add_executable(tpw_spritefringe_tests ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_spritefringe.cpp)
   target_include_directories(tpw_spritefringe_tests PRIVATE ${TPW_INCLUDE_DIR})
   target_compile_definitions(tpw_spritefringe_tests PRIVATE TPW_HOST_SPRITEFRINGE_FIXED=$<BOOL:${TPW_PORT_FIX}>)
   add_test(NAME spritefringe COMMAND tpw_spritefringe_tests)
@@ -150,11 +189,11 @@ endif()
 # The PS2 converter reads include/Ps2Pack.h through TPW_INCLUDE_DIR, so tpw-port builds it from the same overlay copy as
 # the game (include/Ps2Characters.h), never the submodule's raw one.
 target_include_directories(tpw_assets PUBLIC ${TPW_INCLUDE_DIR})
-# The sea test checks the sea against the second ring's places (include/tpi_island_ring.h, port fixes only). The test names
-# its own macro: only the translation's sources may name the fixes' one (devtools/split/export_split.py).
+# With the fixes the sea test also checks the sea against the second ring's places (include/tpi_island_ring.h, a fix's own
+# header): tpw-port builds the test from its override (overrides/assets/tests/), which finds its fixture beside the
+# submodule's copy (devtools/split/export_split.py).
 if(TPW_BUILD_ASSETS_TESTS AND TPW_PORT_FIX)
-  target_include_directories(tpw_tpi_lobby_sea_tests PRIVATE ${TPW_INCLUDE_DIR})
-  target_compile_definitions(tpw_tpi_lobby_sea_tests PRIVATE TPI_SEA_RING_TWO)
+  target_include_directories(tpw_tpi_lobby_sea_tests PRIVATE ${TPW_INCLUDE_DIR} ${TPW_DECOMP_DIR}/assets/tests)
 endif()
 if(TPW_BUILD_LAUNCHER)
   if(NOT TPW_LINUX)   # Linux: the OpenGL calls are the platform layer's own (platform/gl_entry.cpp), nothing is linked
@@ -459,8 +498,8 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # cut by the same slicer as the platform tests, so it is made where they are. The original's pools are not locked (their
   # give-back ran at interrupt time), so ctest runs it only with the port's fixes; a build without them makes it, and it fails.
   find_package(Threads REQUIRED)
-  add_executable(tpw_host_sound_pools ${TPW_DECOMP_DIR}/tests/host_sound_pools.cpp)
-  include(${TPW_DECOMP_DIR}/tests/host_sound_pools_keep.cmake)
+  add_executable(tpw_host_sound_pools ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_sound_pools.cpp)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/tests/host_sound_pools_keep.cmake)
   list(TRANSFORM TPW_SOUND_POOLS_SOURCES PREPEND ${TPW_DECOMP_DIR}/src/)
   target_sources(tpw_host_sound_pools PRIVATE ${TPW_SOUND_POOLS_SOURCES})
   target_include_directories(tpw_host_sound_pools PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
@@ -476,8 +515,8 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # Invention): each sample's own bytes, no read past the pull buffer, the chain of one pull bounded. The program builds only
   # the pipes' and codecs' functions of their src files (tests/host_sound_wavfile_keep.cmake). The original reads from the
   # wrong place and chains without end, so ctest runs it only with the port's fixes; a build without them makes it, and it fails.
-  add_executable(tpw_host_sound_wavfile ${TPW_DECOMP_DIR}/tests/host_sound_wavfile.cpp)
-  include(${TPW_DECOMP_DIR}/tests/host_sound_wavfile_keep.cmake)
+  add_executable(tpw_host_sound_wavfile ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_sound_wavfile.cpp)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/tests/host_sound_wavfile_keep.cmake)
   list(TRANSFORM TPW_SOUND_WAVFILE_SOURCES PREPEND ${TPW_DECOMP_DIR}/src/)
   target_sources(tpw_host_sound_wavfile PRIVATE ${TPW_SOUND_WAVFILE_SOURCES})
   target_include_directories(tpw_host_sound_wavfile PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
@@ -491,7 +530,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # sample's cache at most 0x2000 bytes, no new[] of 2 to 4 GB. The program builds only the streaming bank's functions of
   # src/sound/TbMMFileBank.cpp (the file, the bank's base and new[] are the test's). The original asks new[] for the
   # negative sizes taken as unsigned, so ctest runs it only with the port's fixes; a build without them makes it, and it fails.
-  add_executable(tpw_host_sound_mmbank ${TPW_DECOMP_DIR}/tests/host_sound_mmbank.cpp ${TPW_DECOMP_DIR}/src/sound/TbMMFileBank.cpp
+  add_executable(tpw_host_sound_mmbank ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_sound_mmbank.cpp ${TPW_DECOMP_DIR}/src/sound/TbMMFileBank.cpp
                  ${TPW_DECOMP_DIR}/src/bullfrog/TbRefRelease.cpp)
   target_include_directories(tpw_host_sound_mmbank PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
   tpw_slice(TARGET tpw_host_sound_mmbank NAME sound_mmbank SOURCES sound/TbMMFileBank.cpp KEEP
@@ -512,7 +551,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # not released under itself, its pool holds each block once, and the channel ends once. The program builds the same
   # functions as tpw_host_sound_wavfile and _TbSoundSampleCallback::CallsBackIn. The original deletes the running pipe twice,
   # so ctest runs it only with the port's fixes; a build without them makes it, and it fails.
-  add_executable(tpw_host_sound_callback_release ${TPW_DECOMP_DIR}/tests/host_sound_callback_release.cpp)
+  add_executable(tpw_host_sound_callback_release ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_sound_callback_release.cpp)
   target_sources(tpw_host_sound_callback_release PRIVATE ${TPW_SOUND_WAVFILE_SOURCES})
   target_include_directories(tpw_host_sound_callback_release PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
   # the test's own switch for the fixed path: the export takes TPW_PORT_FIX out of tests/, so the test cannot use it
@@ -529,7 +568,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # Quitting with the park map open: the map's destroy message cancels its advisor message after the world is deleted. The
   # program builds only UIMain_CancelAdvisorMessage of src/game/ui/ui_main.cpp (the world and the advisor are the test's
   # stand-ins). The original asks the null world, so ctest runs it only with the port's fixes; a build without them fails.
-  add_executable(tpw_host_map_quit ${TPW_DECOMP_DIR}/tests/host_map_quit.cpp ${TPW_DECOMP_DIR}/src/game/ui/ui_main.cpp)
+  add_executable(tpw_host_map_quit ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_map_quit.cpp ${TPW_DECOMP_DIR}/src/game/ui/ui_main.cpp)
   target_include_directories(tpw_host_map_quit PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
   if(WIN32)
     # ui_main.cpp includes dlfcn.h, which MinGW has no copy of: platform/win's, as the game library gets it (the slicer
@@ -548,7 +587,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # A sound bank's reference count raised by the game and lowered by SDL's audio thread at once: no change lost. The program
   # builds src/bullfrog/TbRefRelease.cpp whole (it holds only the count). The original counts with a plain load and store, so
   # ctest runs it only with the port's fixes; a build without them makes it, and it fails.
-  add_executable(tpw_host_ref_count ${TPW_DECOMP_DIR}/tests/host_ref_count.cpp ${TPW_DECOMP_DIR}/src/bullfrog/TbRefRelease.cpp)
+  add_executable(tpw_host_ref_count ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_ref_count.cpp ${TPW_DECOMP_DIR}/src/bullfrog/TbRefRelease.cpp)
   target_include_directories(tpw_host_ref_count PRIVATE ${TPW_INCLUDE_DIR})
   target_link_libraries(tpw_host_ref_count PRIVATE Threads::Threads)
   if(TPW_PORT_FIX)
@@ -558,25 +597,25 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # presses, over the park and in first person, on another layout and with a modifier. The original has no such function, so
   # the program is made only with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_wasd_camera ${TPW_DECOMP_DIR}/tests/host_wasd_camera.cpp)
+    add_executable(tpw_host_wasd_camera ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_wasd_camera.cpp)
     target_include_directories(tpw_host_wasd_camera PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
     add_test(NAME wasd_camera COMMAND tpw_host_wasd_camera)
     # The same through the real run loop (platform/gamework.cpp, the port's fix wasd-stuck): a held A with another key
     # pressed and let go before it, as --hold and the host's key events send them, leaves no camera key down.
-    add_executable(tpw_host_wasd_keys ${TPW_DECOMP_DIR}/tests/host_wasd_keys.cpp)
+    add_executable(tpw_host_wasd_keys ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_wasd_keys.cpp)
     target_include_directories(tpw_host_wasd_keys PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
     target_link_libraries(tpw_host_wasd_keys PRIVATE tpw_platform)
     add_test(NAME wasd_keys COMMAND tpw_host_wasd_keys)
     # The pointer after a trip to another window (the port's fix focuspointer, tpw-port PR #133 by samueleagle91): the real
     # run loop with the host's pointer and focus events, the game dropping moves while inactive as its UI does.
-    add_executable(tpw_host_focus_pointer ${TPW_DECOMP_DIR}/tests/host_focus_pointer.cpp)
+    add_executable(tpw_host_focus_pointer ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_focus_pointer.cpp)
     target_include_directories(tpw_host_focus_pointer PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
     target_link_libraries(tpw_host_focus_pointer PRIVATE tpw_platform)
     add_test(NAME focus_pointer COMMAND tpw_host_focus_pointer)
     # Letters typed into an edit box keep their order (the port's fix typing-order, tpw-port PR #132 by samueleagle91): the
     # real run loop with the launcher's choice of keys that stay down together (PortKeyTogetherFor, include/port_wasd.h) and
     # an edit box that has the keyboard or takes it while keys are held, with Free camera, W A S D or Several keys at once.
-    add_executable(tpw_host_typing_order ${TPW_DECOMP_DIR}/tests/host_typing_order.cpp)
+    add_executable(tpw_host_typing_order ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_typing_order.cpp)
     target_include_directories(tpw_host_typing_order PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
     target_link_libraries(tpw_host_typing_order PRIVATE tpw_platform)
     add_test(NAME typing_order COMMAND tpw_host_typing_order)
@@ -585,7 +624,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # trackpad's swipes and pinch, the drags, the tilt for a zoom, the easing and the ground floor. The original has no such
   # functions, so the program is made only with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_free_camera ${TPW_DECOMP_DIR}/tests/host_free_camera.cpp)
+    add_executable(tpw_host_free_camera ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_free_camera.cpp)
     target_include_directories(tpw_host_free_camera PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
     add_test(NAME free_camera COMMAND tpw_host_free_camera)
   endif()
@@ -593,7 +632,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # and buttons fed in, and the deltas, fly shares and camera table keys they give checked (the dead zone, the curve, the
   # frame's ms, the settings). Made only with the port's fixes, as free_camera is.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_gamepad ${TPW_DECOMP_DIR}/tests/host_gamepad.cpp)
+    add_executable(tpw_host_gamepad ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_gamepad.cpp)
     target_include_directories(tpw_host_gamepad PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
     add_test(NAME gamepad COMMAND tpw_host_gamepad)
   endif()
@@ -601,7 +640,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # world is in, where the arrows go inside a ring, where Tab lands, and that ring two stands out of ring one's fog. The original
   # has one ring, so the program is made only with the port's fixes. No game data.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_tpi_island_ring ${TPW_DECOMP_DIR}/tests/host_tpi_island_ring.cpp)
+    add_executable(tpw_host_tpi_island_ring ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_island_ring.cpp)
     target_include_directories(tpw_host_tpi_island_ring PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
     add_test(NAME tpi_island_ring COMMAND tpw_host_tpi_island_ring)
   endif()
@@ -609,7 +648,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # on a stand-in for the map's cells: each way a door moved, a door with nothing to join, and a second run that changes
   # nothing. The original has no such repair, so it is made only with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_ps1_save_repair ${TPW_DECOMP_DIR}/tests/host_ps1_save_repair.cpp)
+    add_executable(tpw_host_ps1_save_repair ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_ps1_save_repair.cpp)
     target_include_directories(tpw_host_ps1_save_repair PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME ps1_save_repair COMMAND tpw_host_ps1_save_repair)
   endif()
@@ -617,7 +656,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # include/Ps1PickRotation.h): each rotation with no ride held and with a PC or a PlayStation ride held, and the
   # player's steps (pick, turn, pick again, place). The original has no such turn, so it is made only with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_ps1_pick_rotation ${TPW_DECOMP_DIR}/tests/host_ps1_pick_rotation.cpp)
+    add_executable(tpw_host_ps1_pick_rotation ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_ps1_pick_rotation.cpp)
     target_include_directories(tpw_host_ps1_pick_rotation PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME ps1_pick_rotation COMMAND tpw_host_ps1_pick_rotation)
   endif()
@@ -625,7 +664,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # no loaded type carries is found, alone or followed by another, past an old autosave's ride preview, on made-up modules
   # read both ways round. The original has no such walk, so it is made only with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_saved_ride_types ${TPW_DECOMP_DIR}/tests/host_saved_ride_types.cpp)
+    add_executable(tpw_host_saved_ride_types ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_saved_ride_types.cpp)
     target_include_directories(tpw_host_saved_ride_types PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME saved_ride_types COMMAND tpw_host_saved_ride_types)
   endif()
@@ -634,7 +673,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # view's up axis and the TGA reader, on synthetic packs. The original has no such mod, so it is made only with the
   # port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_ps2_characters ${TPW_DECOMP_DIR}/tests/host_ps2_characters.cpp)
+    add_executable(tpw_host_ps2_characters ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_ps2_characters.cpp)
     target_include_directories(tpw_host_ps2_characters PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME ps2_characters COMMAND tpw_host_ps2_characters)
   endif()
@@ -642,28 +681,28 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # lookups, each title's gate words, the settings file's theme numbers, and the wide-text helpers the hooks answer with,
   # without game data. The original has no such mod, so it is made only with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_tpi_worlds ${TPW_DECOMP_DIR}/tests/host_tpi_worlds.cpp)
+    add_executable(tpw_host_tpi_worlds ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_worlds.cpp)
     target_include_directories(tpw_host_tpi_worlds PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_worlds COMMAND tpw_host_tpi_worlds)
   endif()
   # TPW_MOD_HOOK tpi_worlds: synthetic footbridge floors, path joins at both mouths, and guest walks without saved links.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_tpi_footbridge ${TPW_DECOMP_DIR}/tests/host_tpi_footbridge.cpp)
+    add_executable(tpw_host_tpi_footbridge ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_footbridge.cpp)
     target_include_directories(tpw_host_tpi_footbridge PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_footbridge COMMAND tpw_host_tpi_footbridge)
     # Cleared tunnel ground beside the unchanged floor route: heights, ownership, reload and movement separation.
-    add_executable(tpw_host_tpi_tunnel_top ${TPW_DECOMP_DIR}/tests/host_tpi_tunnel_top.cpp)
+    add_executable(tpw_host_tpi_tunnel_top ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_tunnel_top.cpp)
     target_include_directories(tpw_host_tpi_tunnel_top PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_tunnel_top COMMAND tpw_host_tpi_tunnel_top)
     # A path crossing over the tunnel's fixed floor: its columns, the two walker layers, lifts and shadows.
-    add_executable(tpw_host_tpi_tunnel_cross ${TPW_DECOMP_DIR}/tests/host_tpi_tunnel_cross.cpp)
+    add_executable(tpw_host_tpi_tunnel_cross ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_tunnel_cross.cpp)
     target_include_directories(tpw_host_tpi_tunnel_cross PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_tunnel_cross COMMAND tpw_host_tpi_tunnel_cross)
   endif()
   # TPW_MOD_HOOK tpi_worlds: a footbridge's sides are walls (MAP_wall_in_way), so a guest's walk through a made-up tunnel
   # reaches exactly its floor and the paths at both mouths.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_tpi_footbridge_walls ${TPW_DECOMP_DIR}/tests/host_tpi_footbridge_walls.cpp)
+    add_executable(tpw_host_tpi_footbridge_walls ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_footbridge_walls.cpp)
     target_include_directories(tpw_host_tpi_footbridge_walls PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_footbridge_walls COMMAND tpw_host_tpi_footbridge_walls)
   endif()
@@ -672,7 +711,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # Arabian Nights' and Polar Zone's park music), without game data. The original has no such mod, so it is made only
   # with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_tpi_sound_stand_ins ${TPW_DECOMP_DIR}/tests/host_tpi_sound_stand_ins.cpp)
+    add_executable(tpw_host_tpi_sound_stand_ins ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_sound_stand_ins.cpp)
     target_include_directories(tpw_host_tpi_sound_stand_ins PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_sound_stand_ins COMMAND tpw_host_tpi_sound_stand_ins)
   endif()
@@ -680,7 +719,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # worlds a line of the world's own speech is said as the game's welcome that names no world, on made-up rows, without game
   # data. The original has no such mod, so it is made only with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_tpi_advisor ${TPW_DECOMP_DIR}/tests/host_tpi_advisor.cpp)
+    add_executable(tpw_host_tpi_advisor ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_advisor.cpp)
     target_include_directories(tpw_host_tpi_advisor PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_advisor COMMAND tpw_host_tpi_advisor)
   endif()
@@ -689,7 +728,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # flags are drawn, without game data.
   # The original has no such mod, so it is made only with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_tpi_gate_flow ${TPW_DECOMP_DIR}/tests/host_tpi_gate_flow.cpp)
+    add_executable(tpw_host_tpi_gate_flow ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_gate_flow.cpp)
     target_include_directories(tpw_host_tpi_gate_flow PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_gate_flow COMMAND tpw_host_tpi_gate_flow)
   endif()
@@ -698,7 +737,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # looks evenly), the body and the head alike, and that nothing changes elsewhere, without game data. The original has
   # no such mod, so it is made only with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_tpi_guests ${TPW_DECOMP_DIR}/tests/host_tpi_guests.cpp)
+    add_executable(tpw_host_tpi_guests ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_guests.cpp)
     target_include_directories(tpw_host_tpi_guests PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_guests COMMAND tpw_host_tpi_guests)
   endif()
@@ -707,7 +746,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # both, everyone either while it has one), without game data. The original has no such mod, so it is made only with
   # the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_tpi_toilets ${TPW_DECOMP_DIR}/tests/host_tpi_toilets.cpp)
+    add_executable(tpw_host_tpi_toilets ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_toilets.cpp)
     target_include_directories(tpw_host_tpi_toilets PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_toilets COMMAND tpw_host_tpi_toilets)
   endif()
@@ -716,7 +755,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # cash, speed and preferred excitement, the weather's kind, days and effect, and that nothing changes elsewhere,
   # without game data. The original has no such mod, so it is made only with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_tpi_generations ${TPW_DECOMP_DIR}/tests/host_tpi_generations.cpp)
+    add_executable(tpw_host_tpi_generations ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_generations.cpp)
     target_include_directories(tpw_host_tpi_generations PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_generations COMMAND tpw_host_tpi_generations)
   endif()
@@ -726,7 +765,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # keeps off, and that nothing changes elsewhere, without game data. The original has no such mod, so it is made only
   # with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_tpi_umbrellas ${TPW_DECOMP_DIR}/tests/host_tpi_umbrellas.cpp)
+    add_executable(tpw_host_tpi_umbrellas ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_umbrellas.cpp)
     target_include_directories(tpw_host_tpi_umbrellas PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_umbrellas COMMAND tpw_host_tpi_umbrellas)
   endif()
@@ -734,7 +773,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # read back as the converter writes it, the rule that opens it (the park owns a cell of its footprint or one next to
   # it) and its swing, without game data. The original has no such mod, so it is made only with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_tpi_obstacle_gate ${TPW_DECOMP_DIR}/tests/host_tpi_obstacle_gate.cpp)
+    add_executable(tpw_host_tpi_obstacle_gate ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_obstacle_gate.cpp)
     target_include_directories(tpw_host_tpi_obstacle_gate PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_obstacle_gate COMMAND tpw_host_tpi_obstacle_gate)
   endif()
@@ -743,11 +782,11 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # folded node and what its closed cells get, without game data. The original has no such mod, so it is made only with
   # the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_tpi_obstacle_shut ${TPW_DECOMP_DIR}/tests/host_tpi_obstacle_shut.cpp)
+    add_executable(tpw_host_tpi_obstacle_shut ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_obstacle_shut.cpp)
     target_include_directories(tpw_host_tpi_obstacle_shut PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_obstacle_shut COMMAND tpw_host_tpi_obstacle_shut)
     # The mod's outside features (include/TpiOutside.h): TpiOutside.sam's lines and which a loaded park lacks.
-    add_executable(tpw_host_tpi_outside ${TPW_DECOMP_DIR}/tests/host_tpi_outside.cpp)
+    add_executable(tpw_host_tpi_outside ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_outside.cpp)
     target_include_directories(tpw_host_tpi_outside PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_outside COMMAND tpw_host_tpi_outside)
   endif()
@@ -756,7 +795,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # the camera turns at four zooms, without game data. The original has no such mod, so it is made only with the port's
   # fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_tpi_doorway ${TPW_DECOMP_DIR}/tests/host_tpi_doorway.cpp)
+    add_executable(tpw_host_tpi_doorway ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_doorway.cpp)
     target_include_directories(tpw_host_tpi_doorway PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_doorway COMMAND tpw_host_tpi_doorway)
   endif()
@@ -776,7 +815,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # start with SPECIAL set (a ride with an O animation), on made-up flags, without game data. The original has no such mod,
   # so it is made only with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_tpi_ride_script ${TPW_DECOMP_DIR}/tests/host_tpi_ride_script.cpp)
+    add_executable(tpw_host_tpi_ride_script ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_ride_script.cpp)
     target_include_directories(tpw_host_tpi_ride_script PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_ride_script COMMAND tpw_host_tpi_ride_script)
   endif()
@@ -784,22 +823,22 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # kinds kept, any other built as the stand-in, on made-up kinds, without game data. The original has no such mod, so it
   # is made only with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_tpi_bumper_kind ${TPW_DECOMP_DIR}/tests/host_tpi_bumper_kind.cpp)
+    add_executable(tpw_host_tpi_bumper_kind ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_bumper_kind.cpp)
     target_include_directories(tpw_host_tpi_bumper_kind PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_bumper_kind COMMAND tpw_host_tpi_bumper_kind)
     # Its load of a park saved with The Scorpions before 0.5.2 (TpiBumperLoadId, BMP_Load and PostLoadOperations): the ids
     # such a park keeps load as the stand-in's, Theme Park World's as saved.
-    add_executable(tpw_host_tpi_bumper_load ${TPW_DECOMP_DIR}/tests/host_tpi_bumper_load.cpp)
+    add_executable(tpw_host_tpi_bumper_load ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_bumper_load.cpp)
     target_include_directories(tpw_host_tpi_bumper_load PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_bumper_load COMMAND tpw_host_tpi_bumper_load)
     # Its ride camera node (include/TpiRideCamera.h): a mesh with no camera node rides at its first rider's head.
-    add_executable(tpw_host_tpi_ride_camera ${TPW_DECOMP_DIR}/tests/host_tpi_ride_camera.cpp)
+    add_executable(tpw_host_tpi_ride_camera ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_ride_camera.cpp)
     target_include_directories(tpw_host_tpi_ride_camera PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_ride_camera COMMAND tpw_host_tpi_ride_camera)
     # Its Great Lake (include/TpiGreatLake.h): placed only with its back on the lake's water, its boats' circles over water
     # and the plot, a long run of boats never over land, off the circles or stuck, on a made-up lake, and a water track's
     # crossroad centre still entered by its own bumps.
-    add_executable(tpw_host_tpi_great_lake ${TPW_DECOMP_DIR}/tests/host_tpi_great_lake.cpp)
+    add_executable(tpw_host_tpi_great_lake ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_great_lake.cpp)
     target_include_directories(tpw_host_tpi_great_lake PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_great_lake COMMAND tpw_host_tpi_great_lake)
   endif()
@@ -807,7 +846,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # the world, as the Mac's 32 bit sum puts it, and map cell 0's thing list is empty, without game data. The original
   # needs no such helper, so it is made only with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_cell_id_lookup ${TPW_DECOMP_DIR}/tests/host_cell_id_lookup.cpp)
+    add_executable(tpw_host_cell_id_lookup ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_cell_id_lookup.cpp)
     target_include_directories(tpw_host_cell_id_lookup PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME cell_id_lookup COMMAND tpw_host_cell_id_lookup)
   endif()
@@ -815,7 +854,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # for every random word, and the Mac's own point whenever labs(rand) * 100 does not wrap, without game data. The
   # original needs no such helper, so it is made only with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_fly_zone ${TPW_DECOMP_DIR}/tests/host_fly_zone.cpp)
+    add_executable(tpw_host_fly_zone ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_fly_zone.cpp)
     target_include_directories(tpw_host_fly_zone PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME fly_zone COMMAND tpw_host_fly_zone)
   endif()
@@ -832,7 +871,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # include/TpiSaveRepair.h): which saved map and track cells are reset as land on loading, without game data. The
   # original has no such mod, so it is made only with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_tpi_save_repair ${TPW_DECOMP_DIR}/tests/host_tpi_save_repair.cpp)
+    add_executable(tpw_host_tpi_save_repair ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_save_repair.cpp)
     target_include_directories(tpw_host_tpi_save_repair PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_save_repair COMMAND tpw_host_tpi_save_repair)
   endif()
@@ -841,7 +880,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # corridor of footbridge cells, with a capped model of LLCC_BuildHoardingDB's walk, without game data. The original has
   # no such mod, so it is made only with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_tpi_hoarding ${TPW_DECOMP_DIR}/tests/host_tpi_hoarding.cpp)
+    add_executable(tpw_host_tpi_hoarding ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_hoarding.cpp)
     target_include_directories(tpw_host_tpi_hoarding PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_hoarding COMMAND tpw_host_tpi_hoarding)
   endif()
@@ -850,7 +889,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # and the fill's scans stop at the level's edge, on a made-up level with models of the edit check's freeform run and the
   # fill's scans, without game data. The original has no such mod, so it is made only with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_tpi_land_buy ${TPW_DECOMP_DIR}/tests/host_tpi_land_buy.cpp)
+    add_executable(tpw_host_tpi_land_buy ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_land_buy.cpp)
     target_include_directories(tpw_host_tpi_land_buy PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_land_buy COMMAND tpw_host_tpi_land_buy)
   endif()
@@ -859,7 +898,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # before a grid line takes, on made-up ownership maps,
   # without game data. The original has no such mod, so it is made only with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_tpi_park_edge ${TPW_DECOMP_DIR}/tests/host_tpi_park_edge.cpp)
+    add_executable(tpw_host_tpi_park_edge ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_park_edge.cpp)
     target_include_directories(tpw_host_tpi_park_edge PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_park_edge COMMAND tpw_host_tpi_park_edge)
   endif()
@@ -867,7 +906,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # pixels a cell covers, the step down that keeps a view's cells in the pool's budget and the shrink of a tile, without
   # game data. The original has no pool, so it is made only with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_ground_pool ${TPW_DECOMP_DIR}/tests/host_ground_pool.cpp)
+    add_executable(tpw_host_ground_pool ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_ground_pool.cpp)
     target_include_directories(tpw_host_ground_pool PRIVATE ${TPW_INCLUDE_DIR})
     target_compile_definitions(tpw_host_ground_pool PRIVATE TPW_TEST_PORT_FIX)
     add_test(NAME ground_pool COMMAND tpw_host_ground_pool)
@@ -876,7 +915,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # truncsave): no read past the block, and only a whole block unpacks. The program builds the packing and that unpacking of
   # src/bullfrog/LbZLib.cpp, with the host's zlib; the original has no such call, so it is made only with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_truncated_save ${TPW_DECOMP_DIR}/tests/host_truncated_save.cpp ${TPW_DECOMP_DIR}/src/bullfrog/LbZLib.cpp)
+    add_executable(tpw_host_truncated_save ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_truncated_save.cpp ${TPW_DECOMP_DIR}/src/bullfrog/LbZLib.cpp)
     target_include_directories(tpw_host_truncated_save PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
     target_link_libraries(tpw_host_truncated_save PRIVATE ZLIB::ZLIB)
     tpw_slice(TARGET tpw_host_truncated_save NAME truncated_save KEEP
@@ -895,7 +934,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # Mac's recorder wrote for the pylon types and undos, put back by the real PortRepairOldPylonCodes of src/game/ActionRecorder.cpp.
   # The original has no such repair, so it is made only with the port's fixes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_pylon_codes ${TPW_DECOMP_DIR}/tests/host_pylon_codes.cpp ${TPW_DECOMP_DIR}/src/game/ActionRecorder.cpp)
+    add_executable(tpw_host_pylon_codes ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_pylon_codes.cpp ${TPW_DECOMP_DIR}/src/game/ActionRecorder.cpp)
     target_include_directories(tpw_host_pylon_codes PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
     tpw_slice(TARGET tpw_host_pylon_codes NAME pylon_codes KEEP
       __Z23PortRepairOldPylonCodesPhjPKj)   # PortRepairOldPylonCodes(unsigned char*, unsigned int, unsigned int const*)
@@ -909,7 +948,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # selection and click replays of src/game/ActionRecorder.cpp, LLCC_SystemSetRide, CWorld::FlagItemAsSelected and
   # CRideDatabase::GetRideInfo on a database of two types. The original selects the missing type and faults as the game did, so
   # ctest runs it only with the port's fixes; a build without them makes it, and it fails.
-  add_executable(tpw_host_replay_missing_ride ${TPW_DECOMP_DIR}/tests/host_replay_missing_ride.cpp
+  add_executable(tpw_host_replay_missing_ride ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_replay_missing_ride.cpp
     ${TPW_DECOMP_DIR}/src/game/ActionRecorder.cpp ${TPW_DECOMP_DIR}/src/game/park/LLCellSystem.cpp
     ${TPW_DECOMP_DIR}/src/game/World.cpp ${TPW_DECOMP_DIR}/src/game/rides/RideDB.cpp)
   target_include_directories(tpw_host_replay_missing_ride PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
@@ -931,7 +970,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # database's walk on a made-up lab; the world, the lab and the object controls being the test's stand-ins. Made only with
   # the port's fixes: the original sets a park's projects up once, when it starts.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_new_rides_research ${TPW_DECOMP_DIR}/tests/host_new_rides_research.cpp
+    add_executable(tpw_host_new_rides_research ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_new_rides_research.cpp
       ${TPW_DECOMP_DIR}/src/game/save/SaveLoad.cpp ${TPW_DECOMP_DIR}/src/game/buildings/ResearchLab.cpp
       ${TPW_DECOMP_DIR}/src/game/rides/RideDB.cpp)
     target_include_directories(tpw_host_new_rides_research PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
@@ -955,7 +994,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # id's callback on a made-up theme list, the online system, the parks and the download calls being the test's stand-ins.
   # Made only with the port's fixes: the original opened such a park in another world.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_unlisted_theme ${TPW_DECOMP_DIR}/tests/host_unlisted_theme.cpp
+    add_executable(tpw_host_unlisted_theme ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_unlisted_theme.cpp
       ${TPW_DECOMP_DIR}/src/game/online/FS_OnlineList.cpp ${TPW_DECOMP_DIR}/src/game/online/FS_Online.cpp)
     target_include_directories(tpw_host_unlisted_theme PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
     tpw_slice(TARGET tpw_host_unlisted_theme NAME unlisted_theme KEEP
@@ -972,7 +1011,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # CPlayerSettings::SetResolution and PortApplyGameSize, the windows and the clock being the test's stand-ins. Made only with
   # the port's fixes: the original has no such choice of sizes.
   if(TPW_PORT_FIX)
-    add_executable(tpw_host_resolution_slider ${TPW_DECOMP_DIR}/tests/host_resolution_slider.cpp ${TPW_DECOMP_DIR}/src/game/ui/ui_parkStatus.cpp
+    add_executable(tpw_host_resolution_slider ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_resolution_slider.cpp ${TPW_DECOMP_DIR}/src/game/ui/ui_parkStatus.cpp
                    ${TPW_DECOMP_DIR}/src/game/TPSettings.cpp ${TPW_DECOMP_DIR}/src/game/ui/ui_gamesize.cpp ${TPW_DECOMP_DIR}/platform/msl.cpp)
     target_include_directories(tpw_host_resolution_slider PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
     tpw_slice(TARGET tpw_host_resolution_slider NAME resolution_slider KEEP
@@ -988,7 +1027,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     # Walking in first person in a park visited online (the port's fix movethrottle): the real UpdateAvatarPos,
     # ChatGoFirstPerson and ChatBackToThirdPerson, the control, the windows and the clock being the test's stand-ins. Made only
     # with the port's fixes: the original sends a Move every frame.
-    add_executable(tpw_host_move_throttle ${TPW_DECOMP_DIR}/tests/host_move_throttle.cpp ${TPW_DECOMP_DIR}/src/game/ui/ui_onlinePanel.cpp)
+    add_executable(tpw_host_move_throttle ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_move_throttle.cpp ${TPW_DECOMP_DIR}/src/game/ui/ui_onlinePanel.cpp)
     target_include_directories(tpw_host_move_throttle PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
     tpw_slice(TARGET tpw_host_move_throttle NAME move_throttle KEEP
       __Z15UpdateAvatarPosv   # UpdateAvatarPos()
@@ -1002,10 +1041,12 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     endif()
     # A live change of shape reaches the mesh and gradient draw objects (the port's fix resslider): the real objects with the real
     # Change and GetUIMatrix; the engine's meshes and textures and the base class are the test's stand-ins.
-    add_executable(tpw_host_ui_follow ${TPW_DECOMP_DIR}/tests/host_ui_follow.cpp ${TPW_DECOMP_DIR}/src/game/ui/InterfaceDrawEngine.cpp
+    add_executable(tpw_host_ui_follow ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_ui_follow.cpp ${TPW_DECOMP_DIR}/src/game/ui/InterfaceDrawEngine.cpp
                    ${TPW_DECOMP_DIR}/src/game/TPMesh.cpp ${TPW_DECOMP_DIR}/src/game/LMatrix.cpp ${TPW_DECOMP_DIR}/src/game/ui/CoolRect.cpp
                    ${TPW_DECOMP_DIR}/src/game/ui/CoolRegion.cpp ${TPW_DECOMP_DIR}/platform/arena.cpp)
-    target_include_directories(tpw_host_ui_follow PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+    # fake_strings.h, the difftest units' fixture, stays in the submodule's tests folder
+    target_include_directories(tpw_host_ui_follow PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform
+                               ${TPW_DECOMP_DIR}/tests)
     tpw_slice(TARGET tpw_host_ui_follow NAME ui_follow KEEP
       __Z15PortFollowUnitsv   # PortFollowUnits()
       __Z11GetUIMatrixP7sMatrixssssffffsss   # GetUIMatrix(...)
@@ -1084,7 +1125,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # connection a fake. It is linked as tpw_launcher is, with its own stand-ins, so a body that is empty or missing answers 0 here as
   # it does in the game instead of being a link error or a test's fake.
   if(TARGET tpw_launcher)
-    add_library(tpw_host_chat_satellites_objects OBJECT ${TPW_DECOMP_DIR}/tests/host_chat_satellites.cpp launcher/pending_manual.cpp)
+    add_library(tpw_host_chat_satellites_objects OBJECT ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_chat_satellites.cpp launcher/pending_manual.cpp)
     target_include_directories(tpw_host_chat_satellites_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
     set(TPW_CHAT_SATELLITES_STUBS ${CMAKE_CURRENT_BINARY_DIR}/stubs_chat_satellites.cpp)
     tpw_gen_stubs(${TPW_CHAT_SATELLITES_STUBS} tpw_host_chat_satellites_objects "Generating stand-ins for the chat satellites test")
@@ -1103,7 +1144,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # as tpw_launcher is, with its own stand-ins. It needs no slicer, so Windows CI runs it. The original crashes there, so ctest
   # runs it only with the port's fixes; a build without them makes it, and it fails.
   if(TARGET tpw_launcher)
-    add_library(tpw_host_no_sound_device_objects OBJECT ${TPW_DECOMP_DIR}/tests/host_no_sound_device.cpp launcher/pending_manual.cpp)
+    add_library(tpw_host_no_sound_device_objects OBJECT ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_no_sound_device.cpp launcher/pending_manual.cpp)
     target_include_directories(tpw_host_no_sound_device_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
     target_link_libraries(tpw_host_no_sound_device_objects PRIVATE SDL3::SDL3)
     set(TPW_NO_SOUND_DEVICE_STUBS ${CMAKE_CURRENT_BINARY_DIR}/stubs_no_sound_device.cpp)
@@ -1130,7 +1171,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # using the real map and track cells, with no game data or window. Linked as the launcher is, so this also runs on
   # Windows and checks the original refusal with the fixes OFF.
   if(TARGET tpw_launcher)
-    add_library(tpw_host_tpi_gate_build_objects OBJECT ${TPW_DECOMP_DIR}/tests/host_tpi_gate_build.cpp launcher/pending_manual.cpp)
+    add_library(tpw_host_tpi_gate_build_objects OBJECT ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_gate_build.cpp launcher/pending_manual.cpp)
     target_include_directories(tpw_host_tpi_gate_build_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
     target_link_libraries(tpw_host_tpi_gate_build_objects PRIVATE SDL3::SDL3)
     target_compile_definitions(tpw_host_tpi_gate_build_objects PRIVATE TPW_HOST_TPI_GATE_BUILD_FIXED=$<BOOL:${TPW_PORT_FIX}>)
@@ -1147,7 +1188,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     endif()
     add_test(NAME tpi_gate_build COMMAND tpw_host_tpi_gate_build)
     if(TPW_PORT_FIX)
-      add_library(tpw_host_tpi_tunnel_top_engine_objects OBJECT ${TPW_DECOMP_DIR}/tests/host_tpi_tunnel_top_engine.cpp ${TPW_DECOMP_DIR}/tests/host_tpi_ground_colour.cpp launcher/pending_manual.cpp)
+      add_library(tpw_host_tpi_tunnel_top_engine_objects OBJECT ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_tunnel_top_engine.cpp ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_ground_colour.cpp launcher/pending_manual.cpp)
       target_include_directories(tpw_host_tpi_tunnel_top_engine_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
       target_link_libraries(tpw_host_tpi_tunnel_top_engine_objects PRIVATE SDL3::SDL3)
       set(TPW_TPI_TUNNEL_TOP_STUBS ${CMAKE_CURRENT_BINARY_DIR}/stubs_tpi_tunnel_top_engine.cpp)
@@ -1169,7 +1210,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # using the real map and track cells, with no game data or window. Linked as the launcher is, so this also runs on
   # Windows and checks the Mac's answers with the fixes OFF.
   if(TARGET tpw_launcher)
-    add_library(tpw_host_tpi_fence_build_objects OBJECT ${TPW_DECOMP_DIR}/tests/host_tpi_fence_build.cpp launcher/pending_manual.cpp)
+    add_library(tpw_host_tpi_fence_build_objects OBJECT ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_tpi_fence_build.cpp launcher/pending_manual.cpp)
     target_include_directories(tpw_host_tpi_fence_build_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
     target_link_libraries(tpw_host_tpi_fence_build_objects PRIVATE SDL3::SDL3)
     target_compile_definitions(tpw_host_tpi_fence_build_objects PRIVATE TPW_HOST_TPI_FENCE_BUILD_FIXED=$<BOOL:${TPW_PORT_FIX}>)
@@ -1190,7 +1231,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # gives them. Windows and Linux with the port's fixes have the PC original's Key Command Card, the Mac and a build without
   # them the Mac original's. Linked as tpw_launcher is, with its own stand-ins, so Windows CI runs it.
   if(TARGET tpw_launcher)
-    add_library(tpw_host_pc_keys_objects OBJECT ${TPW_DECOMP_DIR}/tests/host_pc_keys.cpp launcher/pending_manual.cpp)
+    add_library(tpw_host_pc_keys_objects OBJECT ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_pc_keys.cpp launcher/pending_manual.cpp)
     target_include_directories(tpw_host_pc_keys_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
     target_link_libraries(tpw_host_pc_keys_objects PRIVATE SDL3::SDL3)
     target_compile_definitions(tpw_host_pc_keys_objects PRIVATE TPW_HOST_PC_KEYS_FIXED=$<BOOL:${TPW_PORT_FIX}>)
@@ -1210,8 +1251,8 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # The intro films' proof for the import cards: the genuine GAMESYSTEM_Tick intro states with an empty data/Movies reach the
   # lobby, each missing film skipped and no window made (tests/host_intro_sequence.cpp). Linked as tpw_launcher is.
   if(TARGET tpw_launcher)
-    add_library(tpw_host_intro_sequence_objects OBJECT ${TPW_DECOMP_DIR}/tests/host_intro_sequence.cpp
-                ${TPW_DECOMP_DIR}/tests/host_intro_sequence_config.cpp launcher/pending_manual.cpp)
+    add_library(tpw_host_intro_sequence_objects OBJECT ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_intro_sequence.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_intro_sequence_config.cpp launcher/pending_manual.cpp)
     target_include_directories(tpw_host_intro_sequence_objects PRIVATE ${TPW_INCLUDE_DIR}
                                ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
     target_link_libraries(tpw_host_intro_sequence_objects PRIVATE SDL3::SDL3)
@@ -1245,7 +1286,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   endif()
 
   # Where the intro films are drawn (include/platform/filmbox.h): pure arithmetic, no game or window.
-  add_executable(tpw_host_filmbox ${TPW_DECOMP_DIR}/tests/host_filmbox.cpp)
+  add_executable(tpw_host_filmbox ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_filmbox.cpp)
   target_include_directories(tpw_host_filmbox PRIVATE ${TPW_INCLUDE_DIR})
   add_test(NAME filmbox COMMAND tpw_host_filmbox)
   if(TPW_MOVIES)
@@ -1257,19 +1298,19 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   endif()
   # An older build's language files read by the later program (include/platform/old_text_tables.h): its UITEXT and
   # CHAT_COMMANDS made the later build's, its fonts found by file name. No game, no files.
-  add_executable(tpw_host_old_text_tables ${TPW_DECOMP_DIR}/tests/host_old_text_tables.cpp)
+  add_executable(tpw_host_old_text_tables ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_old_text_tables.cpp)
   target_include_directories(tpw_host_old_text_tables PRIVATE ${TPW_INCLUDE_DIR})
   add_test(NAME old_text_tables COMMAND tpw_host_old_text_tables)
   # A sprite of the particle sprite file read as the texture a particle is drawn with (include/tb_particle.h, include/tb_starfield.h):
   # the record's words line up on the host, so a textured particle has its width. No game, no files.
-  add_executable(tpw_host_particle_texture ${TPW_DECOMP_DIR}/tests/host_particle_texture.cpp)
+  add_executable(tpw_host_particle_texture ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_particle_texture.cpp)
   target_include_directories(tpw_host_particle_texture PRIVATE ${TPW_INCLUDE_DIR} ${TPW_DECOMP_DIR}/platform)
   add_test(NAME particle_texture COMMAND tpw_host_particle_texture)
   # The procedural textures of the cells in view when more of the procedural window is in view than Prepare's list and the
   # handler's ring hold (the port's fix proccap): the real CHField::Prepare and GetTexturesUsed on a map of 128 by 128 cells,
   # the gamut, the texture cache and the handler being the test's stand-ins. Made in both builds; without the port's fixes
   # it checks only a view the list holds, since the original reads past the list in the others, as the game did.
-  add_executable(tpw_host_proc_cap ${TPW_DECOMP_DIR}/tests/host_proc_cap.cpp ${TPW_DECOMP_DIR}/src/engine/tb_hfield.cpp
+  add_executable(tpw_host_proc_cap ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_proc_cap.cpp ${TPW_DECOMP_DIR}/src/engine/tb_hfield.cpp
                  ${TPW_DECOMP_DIR}/platform/arena.cpp)
   target_include_directories(tpw_host_proc_cap PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
   # the test's own switch for the fixed path: the export takes TPW_PORT_FIX out of tests/, so the test cannot use it
@@ -1290,7 +1331,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # The texture cache's pages when a frame asks for more than they hold (the port's fix cachegrow): the real
   # CTextureCache::GenerateTexturePages and PortCacheGrow, the packing and the making of pages being the test's stand-ins.
   # Made in both builds; without the port's fixes it checks only the original's settings, which never grow the cache.
-  add_executable(tpw_host_cache_grow ${TPW_DECOMP_DIR}/tests/host_cache_grow.cpp ${TPW_DECOMP_DIR}/src/engine/TextureCache.cpp)
+  add_executable(tpw_host_cache_grow ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_cache_grow.cpp ${TPW_DECOMP_DIR}/src/engine/TextureCache.cpp)
   target_include_directories(tpw_host_cache_grow PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
   # the test's own switch for the fixed path, as proc_cap's
   if(TPW_PORT_FIX)
@@ -1307,7 +1348,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     add_test(NAME cache_grow COMMAND tpw_host_cache_grow)
   endif()
   # Tall coaster supports whose ground footprint is outside the ride camera's view.
-  add_executable(tpw_host_pylon_visibility ${TPW_DECOMP_DIR}/tests/host_pylon_visibility.cpp
+  add_executable(tpw_host_pylon_visibility ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_pylon_visibility.cpp
     ${TPW_DECOMP_DIR}/src/game/TPMesh.cpp ${TPW_DECOMP_DIR}/src/engine/MapWho.cpp
     ${TPW_DECOMP_DIR}/src/engine/tb_hfield.cpp ${TPW_DECOMP_DIR}/src/engine/Clipping.cpp ${TPW_DECOMP_DIR}/platform/arena.cpp)
   target_include_directories(tpw_host_pylon_visibility PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
@@ -1338,7 +1379,7 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   # The ground the free camera sees toward the horizon (the port's fix freecam): the real CHField::DivideAndConquer and
   # TestConQuad and the clipper's outside codes on Land of Invention's map, the math unit being the test's stand-in. Made
   # in both builds; without the port's fixes it checks only the normal camera, the original's cells and far plane.
-  add_executable(tpw_host_free_view ${TPW_DECOMP_DIR}/tests/host_free_view.cpp ${TPW_DECOMP_DIR}/src/engine/tb_hfield.cpp
+  add_executable(tpw_host_free_view ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_free_view.cpp ${TPW_DECOMP_DIR}/src/engine/tb_hfield.cpp
                  ${TPW_DECOMP_DIR}/src/engine/Clipping.cpp ${TPW_DECOMP_DIR}/src/engine/Gamut.cpp)
   target_include_directories(tpw_host_free_view PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
   # the test's own switch for the fixed path, as proc_cap's
@@ -1721,8 +1762,10 @@ foreach(target ${TPW_DECOMP_TARGETS} ${TPW_PORT_TARGETS})
         set(dir ${TPW_OVERLAY_DIR}/platform)
       endif()
       string(SUBSTRING "${dir}" 0 ${prefix_length} prefix)
-      if(dir STREQUAL "${TPW_DECOMP_DIR}/assets")
-        # the launcher's asset library: no TPW_PORT_FIX, so nothing in it has an override
+      if(dir STREQUAL "${TPW_DECOMP_DIR}/assets" OR dir STREQUAL "${TPW_DECOMP_DIR}/assets/tests"
+         OR dir STREQUAL "${TPW_DECOMP_DIR}/tests")
+        # the launcher's asset library, and the tests' fixtures that a port-only test (tests/) finds in the submodule:
+        # no header there has an override (check_overrides)
         list(APPEND new_dirs ${dir})
         continue()
       endif()

@@ -10,6 +10,7 @@
 #include "tb_clipping.h"
 #include "tb_ddraw.h"
 #include "tb_drawprimitive.h"
+// TPW_PORT_FIX spritefringe PortSpriteFringe | Mac: no such header | Port: include/PortSpriteFringe.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "PortSpriteFringe.h"
 #include "tb_hfield.h"
 #include "tb_loadmanager.h"

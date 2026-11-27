@@ -31,6 +31,7 @@
 #include "TPConfig.h"
 #include "TPEngine.h"
 #include "TPGlobals.h"
+// TPW_PORT_FIX mods gTpiThemeIsMod | Mac: no such header | Port: include/TpiGateFlow.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "TpiGateFlow.h"
 #include "TpiWorlds.h"
 #include "TPMain.h"

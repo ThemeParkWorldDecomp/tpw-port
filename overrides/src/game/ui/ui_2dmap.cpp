@@ -4,6 +4,7 @@
 #include "AdvisorScoring.h"
 #include "analyser.h"
 #include "CellBase.h"
+// TPW_PORT_FIX cellzero CellIdOffset/CellIdWho/IsMapCellZero | Mac: no such header | Port: include/CellIdLookup.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "CellIdLookup.h"
 #include "Debug.h"
 #include "DrawRenderClasses.h"

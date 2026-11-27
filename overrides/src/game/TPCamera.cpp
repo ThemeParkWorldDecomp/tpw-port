@@ -36,6 +36,7 @@
 #include "TPCamera.h"
 #include "TPCoaster.h"
 #include "TPEngine.h"
+// TPW_PORT_FIX mods gTpiThemeIsMod/TpiRideCameraFallback | Mac: no such headers | Port: include/TpiGateFlow.h, include/TpiRideCamera.h, the fixes' own headers (tpw-port only) | Why: the fixes' code in this file
 #include "TpiGateFlow.h"
 #include "TpiRideCamera.h"
 #include "TPMain.h"

@@ -19,6 +19,7 @@
 #include "platform/msl.h"
 #include "platform/samsutils.h"
 #include "ppc_math.h"
+// TPW_PORT_FIX mods ps2_characters | Mac: no such header | Port: include/Ps2Characters.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "Ps2Characters.h"
 #include "rsse.h"
 #include "ThingReceivers.h"

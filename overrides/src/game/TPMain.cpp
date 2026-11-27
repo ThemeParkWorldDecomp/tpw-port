@@ -15,6 +15,7 @@
 #include "OnlineBalance.h"
 #include "platform/macdoze.h"
 #include "platform/msl.h"
+// TPW_PORT_FIX wasd-camera gPortWasdCamera/PortWasdCameraKey | Mac: no such header | Port: include/port_wasd.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "port_wasd.h"
 #include "ResolutionBalance.h"
 #include "SoundBalance.h"

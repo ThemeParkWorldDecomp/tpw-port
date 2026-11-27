@@ -14,6 +14,7 @@
 #include "Ptr32.h"
 #include "TPCoaster.h"
 #include "TPEngine.h"
+// TPW_PORT_FIX mods gTpiExtraGuests/gTpiUmbrellas | Mac: no such headers | Port: include/TpiGuests.h, include/TpiUmbrellas.h, the fixes' own headers (tpw-port only) | Why: the fixes' code in this file
 #include "TpiGuests.h"
 #include "TpiUmbrellas.h"
 #include "World.h"

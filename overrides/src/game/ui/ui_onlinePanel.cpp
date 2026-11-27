@@ -14,6 +14,8 @@
 #include "InterfaceWindow.h"
 #include "intrface.h"
 #include "keyboard.h"
+// TPW_PORT_FIX wasd-camera gPortWasdCamera/PortWasdCameraKey | Mac: no such header | Port: include/port_wasd.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
+#include "port_wasd.h"
 // TPW_PORT_FIX framerate UpdateAvatarPos | Mac: the countdown before the avatar's place is sent counts down once a frame | Port: once each step's time (PortFrameSteps) | Why: the wait keeps one length at any frame rate, should the online world come back
 #include "LbTime.h"
 #include "LLCellSystem.h"
@@ -22,7 +24,6 @@
 #include "Mouse.h"
 #include "online.h"
 #include "platform/samsutils.h"
-#include "port_wasd.h"
 #include "ppc_math.h"
 #include "RideDB.h"
 #include "TbDynamicStringTemplate.h"

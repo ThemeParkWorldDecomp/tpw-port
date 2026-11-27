@@ -17,7 +17,9 @@
 #include "ParkTime.h"
 #include "platform/msl.h"
 #include "ppc_math.h"
+// TPW_PORT_FIX mods gModPs1PickRotation | Mac: no such header | Port: include/Ps1PickRotation.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "Ps1PickRotation.h"
+// TPW_PORT_FIX goldbadge gPortRideBadges | Mac: no such header | Port: include/RideBadges.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "RideBadges.h"
 #include "RideDB.h"
 #include "TbColour.h"

@@ -27,11 +27,14 @@
 #include "ThingReceivers.h"
 #include "TPCamera.h"
 #include "TPEngine.h"
+// TPW_PORT_FIX mods gTpiThemeIsMod | Mac: no such header | Port: include/TpiGateFlow.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "TpiGateFlow.h"
 // TPW_PORT_FIX mods CPeep::SetRandomDestination | Mac: no mod header | Port: TPW_MOD_HOOK tpi_worlds, the footbridge joins below | Why: guests wander through the mod's tunnels
 #include "TpiFootbridge.h"
+// TPW_PORT_FIX mods gTpiPeeps | Mac: no such header | Port: include/TpiGenerations.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "TpiGenerations.h"
 #include "TPSound.h"
+// TPW_PORT_FIX mods gTpiExtraGuests/gTpiUmbrellas | Mac: no such headers | Port: include/TpiGuests.h, include/TpiUmbrellas.h, the fixes' own headers (tpw-port only) | Why: the fixes' code in this file
 #include "TpiGuests.h"
 #include "TpiUmbrellas.h"
 #include "VehicleSteer.h"

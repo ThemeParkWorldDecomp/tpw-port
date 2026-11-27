@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <new>
 
+// TPW_PORT_FIX soundpools SoundPoolLock | Mac: no such header | Port: include/helpers/SoundPoolLock.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "SoundPoolLock.h"
 
 // A size of 0 counts as 1; a block of the class's size comes from the list of idle objects when there is one, anything else

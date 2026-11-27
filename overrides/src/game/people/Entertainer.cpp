@@ -2,6 +2,7 @@
 
 #include "analyser.h"
 #include "Debug.h"
+// TPW_PORT_FIX mods gModEntertainerSecondActs | Mac: no such header | Port: include/EntertainerSecondActs.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "EntertainerSecondActs.h"
 #include "ESP_sprites.h"
 #include "HLSprite.h"

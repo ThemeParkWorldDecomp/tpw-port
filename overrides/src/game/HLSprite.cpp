@@ -33,6 +33,7 @@
 #include "platform/arena.h"
 #include "platform/samsutils.h"
 #include "ppc_math.h"
+// TPW_PORT_FIX mods ps2_characters | Mac: no such header | Port: include/Ps2Characters.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "Ps2Characters.h"
 #include "RideDB.h"
 #include "rsse.h"
@@ -50,6 +51,7 @@
 #include "TPCoaster.h"
 #include "TPEngine.h"
 #include "TPGlobals.h"
+// TPW_PORT_FIX mods gTpiExtraGuests/gTpiUmbrellas | Mac: no such headers | Port: include/TpiGuests.h, include/TpiUmbrellas.h, the fixes' own headers (tpw-port only) | Why: the fixes' code in this file
 #include "TpiGuests.h"
 #include "TpiUmbrellas.h"
 #include "TPMain.h"

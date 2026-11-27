@@ -32,6 +32,7 @@
 #include "RideDB.h"
 #include "rsse.h"
 #include "SaveLoad.h"
+// TPW_PORT_FIX rideloadskip SkippedTimeControls | Mac: no such header | Port: include/SavedRideTypes.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "SavedRideTypes.h"
 #include "tb_ddraw.h"
 #include "tb_hfield.h"

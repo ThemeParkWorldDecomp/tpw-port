@@ -18,6 +18,7 @@
 #include "TbSoundInfo.h"
 #include "TbSoundManager.h"
 #include "TbSoundPipe.h"
+// TPW_PORT_FIX mods gTpiThemeIsMod/TpiSoundStandIns | Mac: no such headers | Port: include/TpiGateFlow.h, include/TpiSoundStandIns.h, the fixes' own headers (tpw-port only) | Why: the fixes' code in this file
 #include "TpiGateFlow.h"
 #include "TpiSoundStandIns.h"
 #include <cmath>

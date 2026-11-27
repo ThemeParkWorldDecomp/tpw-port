@@ -4,6 +4,7 @@
 #define TPW_V51039_STRONG
 #include "AdvisorQueue.h"
 #include "analyser.h"
+// TPW_PORT_FIX cellzero CellIdOffset/CellIdWho/IsMapCellZero | Mac: no such header | Port: include/CellIdLookup.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "CellIdLookup.h"
 #include "Cheat.h"
 #include "Debug.h"
@@ -37,6 +38,7 @@
 #include "platform/msl.h"
 #include "platform/samsutils.h"
 #include "platform/upixels.h"
+// TPW_PORT_FIX wasd-camera gPortWasdCamera/PortWasdCameraKey | Mac: no such header | Port: include/port_wasd.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "port_wasd.h"
 #include "Quickload.h"
 #include "RideDB.h"

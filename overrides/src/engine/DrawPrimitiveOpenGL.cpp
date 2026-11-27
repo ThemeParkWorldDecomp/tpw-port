@@ -24,6 +24,7 @@
 #include "tb_textureentry.h"
 #include "tpw_probe.h"
 #include "Wavelet.h"
+// TPW_PORT_FIX spritefringe PortSpriteFringe | Mac: no such header | Port: include/PortSpriteFringe.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "PortSpriteFringe.h"
 #include <cstdint>
 #include <cstdio>

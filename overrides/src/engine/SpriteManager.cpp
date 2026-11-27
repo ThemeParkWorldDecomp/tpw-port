@@ -5,6 +5,7 @@
 #include "platform/samsutils.h"
 #include "platform/upixels.h"
 #include "ppc_math.h"
+// TPW_PORT_FIX mods ps2_characters | Mac: no such header | Port: include/Ps2Characters.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "Ps2Characters.h"
 #include "sprite_engine.h"
 #include "tb_decode_wavelet.h"
@@ -20,6 +21,7 @@
 #include "tb_texturecache.h"
 #include "tb_textureentry.h"
 #include "Wavelet.h"
+// TPW_PORT_FIX spritefringe PortSpriteFringe | Mac: no such header | Port: include/PortSpriteFringe.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "PortSpriteFringe.h"
 #include <cstddef>
 #include <cstdint>

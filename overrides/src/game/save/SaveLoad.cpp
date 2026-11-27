@@ -33,13 +33,16 @@
 #include "platform/msl.h"
 #include "platform/samsutils.h"
 #include "ppc_math.h"
+// TPW_PORT_FIX mods gModPs1SaveRepair | Mac: no such header | Port: include/Ps1SaveRepair.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "Ps1SaveRepair.h"
 #include "Ptr32.h"
+// TPW_PORT_FIX goldbadge gPortRideBadges | Mac: no such header | Port: include/RideBadges.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "RideBadges.h"
 #include "RideDB.h"
 #include "rsse.h"
 #include "SaveLegalText.inc"
 #include "SaveLoad.h"
+// TPW_PORT_FIX rideloadskip SkippedTimeControls | Mac: no such header | Port: include/SavedRideTypes.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "SavedRideTypes.h"
 #include "Serialise.h"
 #include "SkyObjects.h"
@@ -55,12 +58,14 @@
 #include "TPOptions.h"
 #include "TPSettings.h"
 #include "TPSound.h"
+// TPW_PORT_FIX mods TpiBumperKind/TpiGateBuild/gTpiThemeIsMod/TpiObstacleShut/TpiTunnelTop | Mac: no such headers | Port: include/TpiBumperKind.h, include/TpiGateBuild.h, include/TpiGateFlow.h, include/TpiObstacleShut.h, include/TpiTunnelTop.h, the fixes' own headers (tpw-port only) | Why: the fixes' code in this file
 #include "TpiBumperKind.h"
 #include "TpiGateBuild.h"
 #include "TpiGateFlow.h"
 #include "TpiObstacleShut.h"
 #include "TpiTunnelTop.h"
 #include "tb_hfield.h"
+// TPW_PORT_FIX mods TpiOutside/TpiSaveRepair | Mac: no such headers | Port: include/TpiOutside.h, include/TpiSaveRepair.h, the fixes' own headers (tpw-port only) | Why: the fixes' code in this file
 #include "TpiOutside.h"
 #include "TpiSaveRepair.h"
 #include "UI_Base.h"

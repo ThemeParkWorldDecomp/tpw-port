@@ -17,6 +17,7 @@
 #include "Mouse.h"
 #include "ParkTime.h"
 #include "platform/arena.h"
+// TPW_PORT_FIX wasd-camera gPortWasdCamera/PortWasdCameraKey | Mac: no such header | Port: include/port_wasd.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "port_wasd.h"
 #include "ppc_math.h"
 #include "Ptr32.h"

@@ -2,6 +2,7 @@
 
 #include "analyser.h"
 #include "CellBase.h"
+// TPW_PORT_FIX cellzero CellIdOffset/CellIdWho/IsMapCellZero | Mac: no such header | Port: include/CellIdLookup.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
 #include "CellIdLookup.h"
 #include "CMessageCentre.h"
 #include "CMsg.h"
@@ -19,6 +20,7 @@
 #include "ThingParts2.h"
 #include "ThingReceivers.h"
 #include "TPCoaster.h"
+// TPW_PORT_FIX mods gTpiThemeIsMod/gTpiExtraGuests/gTpiUmbrellas | Mac: no such headers | Port: include/TpiGateFlow.h, include/TpiGuests.h, include/TpiUmbrellas.h, the fixes' own headers (tpw-port only) | Why: the fixes' code in this file
 #include "TpiGateFlow.h"
 #include "TpiGuests.h"
 #include "TpiUmbrellas.h"
