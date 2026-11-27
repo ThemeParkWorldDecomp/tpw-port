@@ -200,7 +200,7 @@ void KeepSettings(const ImporterBackend& backend, const std::string& prefPath, c
                                      kRideBadgesKey, kSoundPanKey, kSeveralKeysKey, kWasdCameraKey, kFarZoomKey, kFullScreenKey,
                                      kRendererKey, kFillNotchKey, kFrameRateKey, kFreeCameraKey, kFreeSwipeKey, kFreeInvertKey,
                                      kFreeSensitivityKey, kFreeFlySpeedKey, kFreeSmoothingKey, kFreeThroughGroundKey,
-                                     kFreeGamepadKey, kDrawDistanceKey,
+                                     kFreeGamepadKey, kDrawDistanceKey, kHideLightningFlashKey,
                                      kCheckUpdatesKey, kLanguageUsKey, kLanguageEurKey, kOnlineServerKey,
                                      kUpdateLastCheckKey, kUpdateFoundKey};
     for (const SamOption& option : SamOptions()) keys.push_back(option.key);   // the Graphics section's keys

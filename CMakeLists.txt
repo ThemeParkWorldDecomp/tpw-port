@@ -60,7 +60,7 @@ file(GLOB_RECURSE TPW_DECOMP_HEADERS CONFIGURE_DEPENDS RELATIVE ${TPW_DECOMP_DIR
 file(GLOB_RECURSE TPW_OVERRIDE_HEADERS CONFIGURE_DEPENDS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}/overrides
      ${CMAKE_CURRENT_SOURCE_DIR}/overrides/include/* ${CMAKE_CURRENT_SOURCE_DIR}/overrides/platform/*.h)
 # The port's own headers, which tpw-decomp has no copy of (export_split.py's PORT_ONLY): their override is the header.
-set(TPW_PORT_ONLY_HEADERS include/HoardingExtents.h)
+set(TPW_PORT_ONLY_HEADERS include/HoardingExtents.h include/PortLightningFlash.h)
 foreach(header ${TPW_OVERRIDE_HEADERS})
   if(NOT header IN_LIST TPW_DECOMP_HEADERS AND NOT header IN_LIST TPW_PORT_ONLY_HEADERS)
     message(FATAL_ERROR "overrides/${header} has no file in tpw-decomp to replace")
@@ -1349,6 +1349,28 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     set_target_properties(tpw_host_free_view PROPERTIES EXCLUDE_FROM_ALL ON)
   else()
     add_test(NAME free_view COMMAND tpw_host_free_view)
+  endif()
+  # The launcher's "Hide lightning flash" (the port's fix lightflash, include/PortLightningFlash.h): a strike's flash over the
+  # whole screen and the bolts, frame after frame, with the setting off and on; the real CRain::__RenderLightning,
+  # __LightningFlash, LightningFlash, AddLightning and SLightning::Init, the clock, the random numbers and the two drawings
+  # being the test's stand-ins. Made in both builds; without the port's fixes it checks only the original's flash.
+  add_executable(tpw_host_lightning_flash ${CMAKE_CURRENT_SOURCE_DIR}/tests/host_lightning_flash.cpp ${TPW_DECOMP_DIR}/src/engine/Rain.cpp)
+  target_include_directories(tpw_host_lightning_flash PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform)
+  target_compile_options(tpw_host_lightning_flash PRIVATE -Wno-invalid-offsetof)   # the game's headers check their layouts with offsetof
+  # the test's own switch for the fixed path, as proc_cap's
+  if(TPW_PORT_FIX)
+    target_compile_definitions(tpw_host_lightning_flash PRIVATE TPW_TEST_PORT_FIX)
+  endif()
+  tpw_slice(TARGET tpw_host_lightning_flash NAME lightning_flash KEEP
+    __ZN5CRain17__RenderLightningEv   # CRain::__RenderLightning()
+    __ZN5CRain16__LightningFlashEv   # CRain::__LightningFlash()
+    __ZN5CRain14LightningFlashEv   # CRain::LightningFlash()
+    __ZN5CRain12AddLightningE10_D3DVECTORS0_ii   # CRain::AddLightning(_D3DVECTOR, _D3DVECTOR, int, int)
+    __ZN10SLightning4InitE10_D3DVECTORS0_ii)   # SLightning::Init(_D3DVECTOR, _D3DVECTOR, int, int)
+  if(tpw_platform_tests_skipped)
+    set_target_properties(tpw_host_lightning_flash PROPERTIES EXCLUDE_FROM_ALL ON)
+  else()
+    add_test(NAME lightning_flash COMMAND tpw_host_lightning_flash)
   endif()
 
   # The launcher's own window (launcher/ui/): widgets drawn with SDL_Renderer, text with stb_truetype

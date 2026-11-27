@@ -2,6 +2,8 @@
 
 // TPW_PORT_FIX framerate CRain::__RenderLightning/__RenderSnow/GeneratePoint/NewRenderLightning/HeldDraws/BoltRandom | Mac: every frame drawn the lightning's bolts take a new shape (Random) and a new flicker (msl_rand), the snow's flakes a new jitter (msl_rand), and a strike's flash turns the screen to its colour negative for that one frame | Port: they change once each step's time (PortFrameSteps): the frames between replay the random numbers the step's drawing drew (HeldDraws), and the flash stays up for a step's time | Why: the bolts' and the snow's flicker kept one pace at any frame rate, and the flash stays as visible on a fast screen as on a slow one
 #include "LbTime.h"
+// TPW_PORT_FIX lightflash CRain::__RenderLightning | Mac: a strike's flash (LightningFlash, asked for by the island screen's bolts) is drawn over the whole screen by __LightningFlash, turning it to its colour negative | Port: with gPortNoLightningFlash (the launcher's "Hide lightning flash", include/PortLightningFlash.h) the flash is cleared as __LightningFlash clears it and not drawn; its timer, the bolts, the thunder and the random numbers are the original's; off, the original's flash, by default | Why: tpw-mods #9 (johhnyjefferson34133): the flash turns the whole screen negative with each bolt over Halloween World
+#include "PortLightningFlash.h"   // gPortNoLightningFlash (lightflash, CRain::__RenderLightning)
 #include "MapWho.h"
 #include "platform/d3d_types.h"
 #include "platform/msl.h"
@@ -474,6 +476,8 @@ int32_t CRain::__RenderLightning() {
         if (mLightningFlash != 0) gFlashUntil = now + kPortFrameStepTime;
         else if (now < gFlashUntil) mLightningFlash = 1;
     }
+    // the launcher's "Hide lightning flash" (lightflash above): the flash is dropped after its timer, before it is drawn
+    if (gPortNoLightningFlash) mLightningFlash = 0;
     if (mLightningFlash != 0 && __LightningFlash() == 0) return 0;
 
     int32_t index = mF3308;

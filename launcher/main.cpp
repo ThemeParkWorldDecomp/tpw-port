@@ -33,6 +33,7 @@
 
 #include "TPMain.h"
 #include "port_wasd.h"
+#include "PortLightningFlash.h"
 #include "tpw_probe.h"
 #include "ResolutionBalance.h"
 #include "OptionsBalance.h"
@@ -1313,6 +1314,9 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
     // The Settings box's "W A S D move the camera" (PortWasdCameraKey, include/port_wasd.h): off, the original's keys.
     gPortWasdCamera = backend.Setting(tpw::ui::kWasdCameraKey) == "1";
     if (gPortWasdCamera) tpw::Log("W A S D move the camera (the launcher's Settings)");
+    // The Settings box's "Hide lightning flash" (CRain::__RenderLightning, include/PortLightningFlash.h): off, the original's flash.
+    gPortNoLightningFlash = backend.Setting(tpw::ui::kHideLightningFlashKey) == "1";
+    if (gPortNoLightningFlash) tpw::Log("hide lightning flash (the launcher's Settings)");
     // A held A is released before the next key goes down, as every other key is, with the setting or without it (TPW_PORT_FIX
     // keya, platform/gamework.cpp); with it, a key-up the run loop cannot match lets go of the camera key that key still holds
     // (TPW_PORT_FIX wasd-stuck).

@@ -3595,6 +3595,52 @@ void CheckRideBadgesSwitch(SDL_Renderer* renderer) {
     CheckEq(b.Setting(kRideBadgesKey), "1", "ride badges: a launcher.ini with 0 shows it off, so one click turns it on");
 }
 
+// The Settings box's Hide lightning flash switch (launcher_ui.h kHideLightningFlashKey): with the port's fixes, off when
+// launcher.ini has no key (the original's flash), below Show Ride Badges, a click keeps "1", a second click "0", the box's
+// height counts the row, and a launcher.ini with "1" shows it on; the OFF build has no such row, so its game keeps the flash.
+void CheckLightningFlashSwitch(SDL_Renderer* renderer) {
+    FakeBackend b;
+    LauncherUi ui(renderer, b);
+    const float width = 1100, height = 2400;   // tall enough for the whole box
+    auto frames = [&](LauncherUi& u, int n) {
+        for (int i = 0; i < n; ++i) u.Frame(kDt, width, height, 1);
+    };
+    auto click = [&](LauncherUi& u) {
+        const Rect r = u.LightningFlashRect();
+        const float x = r.CentreX(), y = r.CentreY();
+        u.HandleEvent(MotionEvent(x, y));
+        frames(u, 1);
+        u.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_DOWN, x, y));
+        frames(u, 1);
+        u.HandleEvent(ButtonEvent(SDL_EVENT_MOUSE_BUTTON_UP, x, y));
+        frames(u, 1);
+    };
+    ui.ShowSettings(true);
+    frames(ui, 1);
+    if (!kLightningFlashRow) {
+        Check(ui.LightningFlashRect().w == 0, "lightning flash: the OFF build has no switch");
+        CheckEq(b.Setting(kHideLightningFlashKey), "", "lightning flash: the OFF build keeps nothing");
+        return;
+    }
+    Check(ui.LightningFlashRect().w > 0, "lightning flash: the switch is in the Settings box");
+    Check(ui.LightningFlashRect().y > ui.RideBadgesRect().y, "lightning flash: below Show Ride Badges");
+    CheckEq(b.Setting(kHideLightningFlashKey), "", "lightning flash: nothing is kept until the player chooses");
+    click(ui);
+    CheckEq(b.Setting(kHideLightningFlashKey), "1", "lightning flash: off by default, so a click hides the flash");
+    CheckEq(b.Setting(kRideBadgesKey), "", "lightning flash: the click is not Show Ride Badges'");
+    click(ui);
+    CheckEq(b.Setting(kHideLightningFlashKey), "0", "lightning flash: a second click shows it again");
+    const float counted = ui.SettingsBodyCounted(), drawn = ui.SettingsBodyDrawn();
+    std::printf("lightning flash: the body counted %.2f points, drawn %.2f\n", counted, drawn);
+    Check(drawn > 0 && counted - drawn > -0.5f && counted - drawn < 0.5f, "lightning flash: the box's height counts the row");
+    b.settings[kHideLightningFlashKey] = "1";
+    LauncherUi again(renderer, b);
+    again.ShowSettings(true);
+    frames(again, 1);
+    click(again);
+    CheckEq(b.Setting(kHideLightningFlashKey), "0", "lightning flash: a launcher.ini with 1 shows it on, so one click turns it off");
+}
+
 // The Settings box's Game options section (settings_game.cpp): none without the game's settings, every row of the Options
 // panel with them, nothing written by opening it, a change in the file at once and in no launcher.ini key, the game's
 // change shown when the window comes back, and nothing changed while the game holds the folder or of a file that does not read.
@@ -5496,6 +5542,7 @@ void CheckKeepSettings(const std::string& screens) {
         Check(backend.SaveSetting(kFreeCameraKey, "1", err), "keep settings: Free camera is saved: " + err);
         Check(backend.SaveSetting(kFreeFlySpeedKey, "2.5", err), "keep settings: the fly speed is saved: " + err);
         Check(backend.SaveSetting(kDrawDistanceKey, "whole", err), "keep settings: Draw distance is saved: " + err);
+        Check(backend.SaveSetting(kHideLightningFlashKey, "1", err), "keep settings: Hide lightning flash is saved: " + err);
         Check(backend.SaveSetting("mod.test-unlisted", "1", err), "keep settings: another key is saved: " + err);
         CheckEq(saved("mod.test-on"), "1", "keep settings: the switch is in the file before Play");
         backend.SetLastChoice(assets::EditionName(assets::kEditionUs), err);   // what Play does
@@ -5507,6 +5554,7 @@ void CheckKeepSettings(const std::string& screens) {
         CheckEq(saved(kFreeCameraKey), "1", "keep settings: Free camera stays after Play");
         CheckEq(saved(kFreeFlySpeedKey), "2.5", "keep settings: the fly speed stays after Play");
         CheckEq(saved(kDrawDistanceKey), "whole", "keep settings: Draw distance stays after Play");
+        CheckEq(saved(kHideLightningFlashKey), "1", "keep settings: Hide lightning flash stays after Play");
         CheckEq(saved("mod.test-unlisted"), "(absent)", "keep settings: only the keys named are written again");
         CheckEq(saved("mod.test-never"), "(absent)", "keep settings: a key never saved is not written");
     }
@@ -5568,6 +5616,7 @@ int main(int argc, char** argv) {
             CheckDrawDistance(renderer);
             CheckSoundPanSwitch(renderer);
             CheckRideBadgesSwitch(renderer);
+            CheckLightningFlashSwitch(renderer);
             CheckGameOptions(renderer);
             CheckSeveralKeysSwitch(renderer);
             CheckWasdCameraSwitch(renderer);

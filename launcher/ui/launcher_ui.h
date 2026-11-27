@@ -108,6 +108,16 @@ inline constexpr bool kRideBadgesRow = true;
 #else
 inline constexpr bool kRideBadgesRow = false;
 #endif
+// launcher.ini's key for the Settings box's "Hide lightning flash" ("1": a lightning strike no longer flashes the whole screen
+// to its colour negative, gPortNoLightningFlash in include/PortLightningFlash.h, the bolt and its thunder kept; absent or
+// "0": the original's flash). Display only. Asked for by johhnyjefferson34133 (tpw-mods #9).
+inline constexpr const char* kHideLightningFlashKey = "hide_lightning_flash";
+// Whether the Settings box has the "Hide lightning flash" row: only with the port's fixes, as the switch itself is.
+#ifdef TPW_PORT_FIX
+inline constexpr bool kLightningFlashRow = true;
+#else
+inline constexpr bool kLightningFlashRow = false;
+#endif
 // launcher.ini's key for the Settings box's "Full screen" (absent or "1": the game is a real full-screen window, as it has
 // always been; "0": it plays in a window with a title bar, as --windowed starts it). Alt+Enter in the game switches on
 // Windows, Cmd+Ctrl+F or the green button on a Mac.
@@ -465,6 +475,9 @@ public:
     // The Settings box's Show Ride Badges switch where the last frame drew it, in points (empty when the box is closed or
     // the build has no such row, kRideBadgesRow).
     Rect RideBadgesRect() const { return settingsOpen_ ? rideBadgesRect_ : Rect{}; }
+    // The Settings box's Hide lightning flash switch where the last frame drew it, in points (empty when the box is closed or
+    // the build has no such row, kLightningFlashRow).
+    Rect LightningFlashRect() const { return settingsOpen_ ? lightningFlashRect_ : Rect{}; }
     // The Settings box's Several keys at once switch where the last frame drew it, in points (empty when the box is closed).
     Rect SeveralKeysRect() const { return settingsOpen_ ? severalKeysRect_ : Rect{}; }
     // The Settings box's W A S D move the camera switch where the last frame drew it, in points (empty when the box is closed).
@@ -661,6 +674,7 @@ private:
     bool backToLauncher_ = false;   // the Settings box's "Back to the launcher after playing", as launcher.ini keeps it
     bool pcSoundPicks_ = true;      // the Settings box's "Varied sounds", as launcher.ini keeps it (on when absent)
     bool rideBadges_ = true;        // the Settings box's "Show Ride Badges", as launcher.ini keeps it (on when absent)
+    bool hideLightningFlash_ = false;   // the Settings box's "Hide lightning flash", as launcher.ini keeps it
     bool fullScreen_ = true;        // the Settings box's "Full screen", as launcher.ini keeps it (on when absent)
     bool rendererRow_ = kRendererRow;   // whether the Settings box has the Renderer row
     int renderer_ = 0;              // the Settings box's "Renderer": 0 OpenGL (also when absent), 1 Vulkan
@@ -767,6 +781,7 @@ private:
     Rect drawDistanceRect_;    // last frame's (DrawDistanceRect)
     Rect soundPanRect_;        // last frame's (SoundPanRect)
     Rect rideBadgesRect_;      // last frame's (RideBadgesRect)
+    Rect lightningFlashRect_;  // last frame's (LightningFlashRect)
     Rect severalKeysRect_;     // last frame's (SeveralKeysRect)
     Rect wasdCameraRect_;      // last frame's (WasdCameraRect)
     Rect freeCameraRect_;      // last frame's (FreeCameraRect)

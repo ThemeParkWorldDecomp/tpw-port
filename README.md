@@ -104,6 +104,7 @@ Settings:
 | Varied sounds | On | Sounds vary, as on the PC. Off is the Mac's way. |
 | Stereo panning | Off | Sounds pan with the camera. |
 | Show Ride Badges | On | GOLD and PS1 badges on build-menu icons. |
+| Hide lightning flash | Off | Lightning bolts no longer flash the whole screen (Halloween World on the world selection screen). The bolt and its thunder stay. |
 | Interface size | 100% | 85% or 70% shows more park. |
 | Language | The edition's own | Text and advisor voice, from your discs' languages. |
 | Game options | The game's own | The game's Options panel (Config.tcf, gms.dat). Greyed while playing. |
@@ -329,7 +330,7 @@ use `build\tpw_launcher.exe 2> log.txt`.
 - [tpw-decomp](https://github.com/ThemeParkWorldDecomp/tpw-decomp) submodule: the translated game, bugs included.
 - launcher/: the launcher. launcher/net/ is the only internet code.
 - platform/: Mac and Windows shims on SDL3 and OpenGL. platform/vulkan/: the Linux Vulkan renderer.
-- overrides/: 756 fixes, listed in [FIXES.md](FIXES.md).
+- overrides/: 758 fixes, listed in [FIXES.md](FIXES.md).
 - mods/: the [tpw-mods](https://github.com/ThemeParkWorldDecomp/tpw-mods) submodule, via TPW_MOD_HOOK. `-DTPW_MODS_DIR=<folder>` points elsewhere.
 
 ### The Windows build

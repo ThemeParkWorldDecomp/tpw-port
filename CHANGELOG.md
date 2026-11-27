@@ -2,6 +2,10 @@
 
 ## 0.6.4 (not released yet)
 
+### New Features
+
+- A new setting, Hide lightning flash (off by default): lightning no longer flashes the whole screen, as it does over Halloween World on the world selection screen; the bolt is still drawn and its thunder still heard (Thanks johhnyjefferson34133, tpw-mods #9)
+
 ### Bug Fixes
 
 - Fixed flying tours (such as Jurassic Tours, or the Flying Pelican in the SimCoaster/TPI mod's worlds) built on land bought after the park opened flying off the map once the park was saved and loaded again: they now stay over the park and land when their ride time is up (Thanks Addable13)
