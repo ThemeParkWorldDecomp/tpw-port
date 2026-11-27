@@ -1,5 +1,7 @@
 # Changelog
 
+## 0.6.5 (not released yet)
+
 ## 0.6.4 (2026-11-27)
 
 ### New Features
