@@ -52,6 +52,8 @@
 #include "TPAdvisor.h"
 #include "TPCamera.h"
 #include "PortSpriteFringe.h"
+#include "PortGroundPad.h"
+#include "PortGlErrors.h"
 #include "AdvisorScoring.h"
 #include "TrueTypeRender.h"
 #include "analyser.h"
@@ -782,10 +784,52 @@ std::string ModLockedText(const tpw::mods::Mod& mod) {
 }
 #endif
 
+#ifdef TPW_PORT_FIX
+// tpw-port #125's two switches for a driver the Mac's does not behave like (PortGroundPad.h, PortGlErrors.h): set by hand
+// in launcher.ini or the environment, never in the launcher's Settings, read once at the start of a game. The environment
+// wins over launcher.ini.
+constexpr const char* kGroundPadKey = "ground_pad_nearer";
+constexpr const char* kGroundPadVariable = "TPW_GROUND_PAD_NEARER";
+constexpr const char* kGlErrorsKey = "gl_error_drain";
+constexpr const char* kGlErrorsVariable = "TPW_GL_ERROR_DRAIN";
+std::string gGroundPadIni, gGlErrorsIni;   // launcher.ini's values, kept by ChooseFromDataFolder
+
+void LogGlErrorTaken(uint32_t error, int32_t taken) {
+    tpw::Log("gl_error_drain: OpenGL error 0x%04x was pending before a texture bind (%d so far%s)", error, taken,
+             taken == tpw::glerrors::kLogged ? "; no more are logged" : "");
+}
+
+void SetDriverSwitches() {
+    const char* const padVariable = std::getenv(kGroundPadVariable);
+    const bool padFromVariable = padVariable != nullptr && *padVariable != 0;
+    const std::string pad = padFromVariable ? padVariable : gGroundPadIni;
+    tpw::groundpad::nearerSteps = static_cast<float>(tpw::groundpad::StepsSetting(pad.c_str()));
+    if (tpw::groundpad::nearerSteps > 0.0f)
+        tpw::Log("ground_pad_nearer: the bases of rides and shops are drawn %d depth steps nearer than the ground (%s)",
+                 static_cast<int>(tpw::groundpad::nearerSteps), padFromVariable ? kGroundPadVariable : "launcher.ini");
+    else if (!pad.empty() && pad != "0")
+        tpw::Log("ground_pad_nearer: %s=%s is not 0 to %d; off", padFromVariable ? kGroundPadVariable : kGroundPadKey,
+                 pad.c_str(), static_cast<int>(tpw::groundpad::kMostSteps));
+    const char* const errorsVariable = std::getenv(kGlErrorsVariable);
+    const bool errorsFromVariable = errorsVariable != nullptr && *errorsVariable != 0;
+    const std::string errors = errorsFromVariable ? errorsVariable : gGlErrorsIni;
+    tpw::glerrors::drain = errors == "1";
+    tpw::glerrors::log = LogGlErrorTaken;
+    if (tpw::glerrors::drain)
+        tpw::Log("gl_error_drain: OpenGL errors pending before a texture bind are taken first and the first %d logged (%s)",
+                 static_cast<int>(tpw::glerrors::kLogged), errorsFromVariable ? kGlErrorsVariable : "launcher.ini");
+    else if (!errors.empty() && errors != "0")
+        tpw::Log("gl_error_drain: %s=%s is not 0 or 1; off", errorsFromVariable ? kGlErrorsVariable : kGlErrorsKey,
+                 errors.c_str());
+}
+#endif
+
 void KeepLauncherSettings(const tpw::ui::ImporterBackend& backend, const std::string& prefPath) {
     std::vector<std::string> more;
 #ifdef TPW_PORT_FIX
     for (const tpw::mods::Mod& mod : tpw::mods::Catalog()) more.push_back(tpw::mods::Key(mod));
+    more.push_back(kGroundPadKey);   // tpw-port #125's switches, set by hand
+    more.push_back(kGlErrorsKey);
 #endif
     tpw::ui::KeepSettings(backend, prefPath, more);
 }
@@ -1289,6 +1333,9 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
     // The Settings box's "Zoom out further" (HandleCamera, include/TPCamera.h): off, the original's limit, by default.
     gPortFarZoom = backend.Setting(tpw::ui::kFarZoomKey) == "1";
     if (gPortFarZoom) tpw::Log("zoom out further (the launcher's Settings)");
+    // tpw-port #125's switches, set by hand in launcher.ini (SetDriverSwitches reads them at the start of the game).
+    gGroundPadIni = backend.Setting(kGroundPadKey);
+    gGlErrorsIni = backend.Setting(kGlErrorsKey);
     // The Settings box's "Draw distance" (CMapWho::Render, include/TPCamera.h): Farther by default, Original the original's.
     static_assert(kPortDrawOriginal == 0 && kPortDrawFarther == 1 && kPortDrawWhole == 2 &&
                       tpw::ui::kDrawDistanceDefault == kPortDrawFarther,
@@ -2194,6 +2241,10 @@ int LauncherMain(int argc, char** argv) {
     gPortPlainKey = tpw::PlainKeyCharacter;
     // The world sprite passes preserve opaque depth and blend soft edges (PortSpriteFringe.h).
     tpw::spritefringe::enabled = true;
+#ifdef TPW_PORT_FIX
+    // tpw-port #125's switches for a driver the Mac's does not behave like, off unless set by hand.
+    SetDriverSwitches();
+#endif
     // The fixes of samueleagle91 (tpw-port PRs #2, #5, #7, #12 and #13): the advisor's aspect (TPAdvisor.h), the Options
     // panel as a 4:3 panel (UI_Base.h), the signs' text (TrueTypeRender.h) and the spawns from the script code (analyser.h).
     gPortAdvisorAspect = true;

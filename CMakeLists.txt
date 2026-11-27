@@ -758,6 +758,18 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
     target_include_directories(tpw_host_tpi_doorway PRIVATE ${TPW_INCLUDE_DIR})
     add_test(NAME tpi_doorway COMMAND tpw_host_tpi_doorway)
   endif()
+  # tpw-port #125's two switches (TPW_PORT_FIX groundpad and glerrors, include/PortGroundPad.h and PortGlErrors.h): a
+  # ride's base against the ground under it through the port's depth math, and the OpenGL errors earlier calls leave
+  # against a texture's bind, on a made-up error queue. No game data; the original has neither switch, so they are made
+  # only with the port's fixes.
+  if(TPW_PORT_FIX)
+    add_executable(tpw_host_ground_pad ${TPW_DECOMP_DIR}/tests/host_ground_pad.cpp)
+    target_include_directories(tpw_host_ground_pad PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME ground_pad COMMAND tpw_host_ground_pad)
+    add_executable(tpw_host_gl_errors ${TPW_DECOMP_DIR}/tests/host_gl_errors.cpp)
+    target_include_directories(tpw_host_gl_errors PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME gl_errors COMMAND tpw_host_gl_errors)
+  endif()
   # The TPI Worlds and Rides mod's start of a ride script (TPW_MOD_HOOK tpi_worlds, include/TpiRideScript.h): which scripts
   # start with SPECIAL set (a ride with an O animation), on made-up flags, without game data. The original has no such mod,
   # so it is made only with the port's fixes.
