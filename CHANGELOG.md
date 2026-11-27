@@ -1,10 +1,10 @@
 # Changelog
 
-## 0.6.4 (not released yet)
+## 0.6.4 (2026-11-27)
 
 ### New Features
 
-- A new setting, Hide lightning flash (off by default): lightning no longer flashes the whole screen, as it does over Halloween World on the world selection screen; the bolt is still drawn and its thunder still heard (Thanks johhnyjefferson34133, tpw-mods #9)
+- A new setting, Hide lightning flash (off by default): lightning no longer flashes the whole screen, as it does over Halloween World on the world selection screen; the bolt is still drawn and its thunder still heard (Thanks @johhnyjefferson34133, tpw-mods #9)
 
 ### Bug Fixes
 
@@ -12,7 +12,7 @@
 
 ### Changes
 
-- Two switches for the bright rectangles flickering on the ground around rides and shops on some NVIDIA cards, off by default and set by hand in launcher.ini (or the environment) for testing: ground_pad_nearer=4 draws the ground under rides and shops a little behind their bases, and gl_error_drain=1 keeps an OpenGL error left by an earlier call from turning a texture off, and writes the first such errors to the launcher log (Thanks johhnyjefferson34133)
+- Two switches for the bright rectangles flickering on the ground around rides and shops on some NVIDIA cards, off by default and set by hand in launcher.ini (or the environment) for testing: ground_pad_nearer=4 draws the ground under rides and shops a little behind their bases, and gl_error_drain=1 keeps an OpenGL error left by an earlier call from turning a texture off, and writes the first such errors to the launcher log (Thanks @johhnyjefferson34133, tpw-port #125)
 
 ## 0.6.3 (2026-11-24)
 
