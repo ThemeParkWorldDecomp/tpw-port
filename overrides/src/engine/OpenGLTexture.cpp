@@ -13,6 +13,8 @@
 #include "tb_textureentry.h"
 #include <cstdint>
 #include <new>
+// TPW_PORT_FIX glerrors COpenGLTexture::Select | Mac: the bind's error check reads whatever error any earlier call left, and one turns texturing off | Port: with launcher.ini's gl_error_drain=1 or TPW_GL_ERROR_DRAIN=1 (off by default), the errors pending before the bind are taken first (tpw::glerrors::Drain) and the first eight written to the launcher log, so only the bind's own error turns texturing off; off, the Mac's | Why: tpw-port #125 (Windows 10, NVIDIA MX150 and RTX 3070): bright patches flickering on the ground around rides and shops, as untextured draws would look; a switch the player can try, and its log says whether the driver answers such errors, as no Mac shows it
+#include "PortGlErrors.h"
 
 // OpenGL start-up, Mac 2.04b3. Log contexts identify tb_init_opengl.cpp;
 // these functions are filed with tb_printf_opengl.cpp in the inventory.
@@ -110,6 +112,7 @@ int32_t COpenGLTexture::Destroy() {
 }
 
 void COpenGLTexture::Select(int32_t state) {
+    if (tpw::glerrors::drain) tpw::glerrors::Drain([] { return glGetError(); });
     glBindTexture(GL_TEXTURE_2D, mTexture);
     if (glGetError() == 0) SetState(state);
     else glDisable(GL_TEXTURE_2D);

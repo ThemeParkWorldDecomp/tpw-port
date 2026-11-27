@@ -27,6 +27,7 @@
 
 // TPW_PORT_FIX mods SRenderListEntry::CalcRenderEntry | Mac: a face set's vertices keep the depth Project gives them | Port: TPW_MOD_HOOK tpi_worlds (gModTpiWorlds, include/TpiDoorway.h): a face set LoadM3D2Header marked as one of the mod's doorway floors (doorway_alpha.tga) is moved four times the depth curve's far slope (gei_Display.mZ6C) depth steps nearer after a perspective projection (tpw::TpiDoorwayNearer); its sort depth, geometry and draw order are unchanged; off, an original world or any other face set, the Mac's | Why: tpw-mods tpi-worlds; Theme Park Inc lays its entrance floors 0.002 to 0.6 units (0.03 in Polar Zone's umbrella shop) above the opaque base under them, too close for the 24-bit depth buffer beyond the original's zoom limit, so at the port's farther zooms the base won the depth test on whole floor triangles and the ground showed through as a white wedge that came and went as the camera turned (the maintainer, Polar Zone's umbrella shop, 0.6.1)
 #include "TpiDoorway.h"   // tpw::TpiDoorwayNearer (TPW_MOD_HOOK tpi_worlds, SRenderListEntry::CalcRenderEntry)
+#include "PortGroundPad.h"   // tpw::groundpad (SRenderListEntry::CalcRenderEntry)
 
 // tb_resource_display.cpp (engine library of SimTheme Park 2.04b3): CDisplay and the
 // render list's start-up. PARTIAL: CRenderList's members (0x100262e0..0x10026954) and
@@ -309,6 +310,12 @@ int32_t SRenderListEntry::CalcRenderEntry(SPrimitive* primitive, int32_t faceSet
     primitive->mDepth = primitive->mDepth + depth;
     if (gModTpiWorlds && projection == 0 && (set.mF0C[3] & tpw::kTpiDoorwayMark) != 0) {
         tpw::TpiDoorwayNearer(vertices, stride, primitive->mVertexCount - oldCount, gei_Display.mZ6C);
+    }
+    // TPW_PORT_FIX groundpad SRenderListEntry::CalcRenderEntry | Mac: a ride's base keeps the depth Project gives it, the same as the ground's under it | Port: with launcher.ini's ground_pad_nearer=N or TPW_GROUND_PAD_NEARER=N (1 to 64; off by default), a face set whose texture record has the base bit 0x800 (SetBaseBlendFlags) is moved N times the depth curve's far slope (gei_Display.mZ6C) depth steps nearer after a perspective projection (tpw::groundpad::Nearer); its sort depth, geometry and draw order are unchanged; off, the Mac's | Why: tpw-port #125 (Windows 10, NVIDIA MX150 and RTX 3070): parts of the ground under rides and shops showed lighter or blurrier and flickered, worse zoomed out, as if the ground won the depth test against the base drawn over it at the same depth; a switch the player can try, as no Mac shows it
+    if (tpw::groundpad::nearerSteps > 0.0f && projection == 0 && record != nullptr &&
+        tpw::groundpad::IsBase(&record->mF00)) {
+        tpw::groundpad::Nearer(vertices, stride, primitive->mVertexCount - oldCount, tpw::groundpad::nearerSteps,
+                               gei_Display.mZ6C);
     }
     if ((primitive->mBlendingMode & kBlendCountDepth) != 0) {
         primitive->mDepth =

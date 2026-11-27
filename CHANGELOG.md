@@ -10,6 +10,10 @@
 
 - Fixed flying tours (such as Jurassic Tours, or the Flying Pelican in the SimCoaster/TPI mod's worlds) built on land bought after the park opened flying off the map once the park was saved and loaded again: they now stay over the park and land when their ride time is up (Thanks Addable13)
 
+### Changes
+
+- Two switches for the bright rectangles flickering on the ground around rides and shops on some NVIDIA cards, off by default and set by hand in launcher.ini (or the environment) for testing: ground_pad_nearer=4 draws the ground under rides and shops a little behind their bases, and gl_error_drain=1 keeps an OpenGL error left by an earlier call from turning a texture off, and writes the first such errors to the launcher log (Thanks johhnyjefferson34133)
+
 ## 0.6.3 (2026-11-24)
 
 ### Bug Fixes
