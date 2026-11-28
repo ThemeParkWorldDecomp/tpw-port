@@ -186,9 +186,6 @@ if(TPW_BUILD_ASSETS_TESTS)
   target_compile_definitions(tpw_spritefringe_tests PRIVATE TPW_HOST_SPRITEFRINGE_FIXED=$<BOOL:${TPW_PORT_FIX}>)
   add_test(NAME spritefringe COMMAND tpw_spritefringe_tests)
 endif()
-# The PS2 converter reads include/Ps2Pack.h through TPW_INCLUDE_DIR, so tpw-port builds it from the same overlay copy as
-# the game (include/Ps2Characters.h), never the submodule's raw one.
-target_include_directories(tpw_assets PUBLIC ${TPW_INCLUDE_DIR})
 # With the fixes the sea test also checks the sea against the second ring's places (include/tpi_island_ring.h, a fix's own
 # header): tpw-port builds the test from its override (overrides/assets/tests/), which finds its fixture beside the
 # submodule's copy (devtools/split/export_split.py).
