@@ -429,6 +429,39 @@ jobs:
   # (unshare -n: no interface but the loopback). libclang-18-dev is for the platform tests' slicer, mesa-vulkan-drivers
   # and libvulkan1 for the renderer test (lavapipe and the loader), glslang-tools for the shader check. Then the launcher
   # as the Flatpak bundle, installed, started and installed again by install.sh --flatpak.
+  android:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install Android SDK packages
+        run: |
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install \
+            "ndk;28.2.13676358" "platforms;android-36" "build-tools;36.0.0"
+      - name: Build the Android launcher
+        run: |
+          cmake -S . -B build-android -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="${ANDROID_HOME}/ndk/28.2.13676358/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-30 -DANDROID_STL=c++_static
+          cmake --build build-android --target tpw_launcher
+      - name: Package the debug APK
+        run: |
+          python3 launcher/android/package.py --build-dir build-android \
+            --android-jar "${ANDROID_HOME}/platforms/android-36/android.jar" \
+            --build-tools-dir "${ANDROID_HOME}/build-tools/36.0.0" \
+            --output-apk build-android/stp-tpw-arm64-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-arm64-debug-${{ matrix.os }}
+          path: build-android/stp-tpw-arm64-debug.apk
+          if-no-files-found: error
+
   linux:
     runs-on: ubuntu-24.04
     timeout-minutes: 120

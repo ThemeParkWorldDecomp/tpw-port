@@ -176,8 +176,8 @@ int32_t TbITable::FormatString(unsigned char* out, uint32_t size, uint32_t id, .
     buffer.mOverflow = false;
     va_list args;
     va_start(args, id);
-#if defined(TPW_PORT_FIX) && defined(__x86_64__) && !defined(_WIN32)
-    // TPW_PORT_FIX intel TbITable::FormatString | Mac: hands DoFormat the va_list itself as the address of the tag arguments, which they are on the Mac (and on Apple Silicon and Windows) | Port: on Intel Macs the tags are taken with va_arg, as the wide overload above takes them | Why: there the va_list is the address of a register save record, not of the arguments, so FindVariableTag read garbage and the park's date line crashed on loading a park
+#ifdef TPW_PORT_FIX
+    // FIX intel: read tags with va_arg so register-based va_list layouts work too.
     const int32_t result = Format(mStrings[id], buffer, [&args](uint32_t id) {
         va_list scan;
         va_copy(scan, args);

@@ -136,7 +136,8 @@ size_t SharedFolderLength(const std::vector<Item>& items) {
 }
 
 // Unpacks the zip into `out` (emptied first) and writes the stamp last, so a folder without one is never used.
-bool Unpack(const fs::path& zip, const fs::path& unpacked, const fs::path& out, size_t& files, std::string& err) {
+bool Unpack(const fs::path& zip, const fs::path& unpacked, const fs::path& out, size_t& files, size_t& inData,
+            std::string& err) {
     std::shared_ptr<assets::Blob> blob = assets::OpenFileBlob(tpw::PathText(zip), err);
     if (!blob) return false;
     std::unique_ptr<assets::Source> source = assets::OpenZip(blob, err);
@@ -161,7 +162,6 @@ bool Unpack(const fs::path& zip, const fs::path& unpacked, const fs::path& out, 
     fs::create_directories(out, ec);
     std::vector<char> buffer(1 << 16);
     uint64_t written = 0;
-    size_t inData = 0;   // the files unpacked under data/
     for (const Item& item : items) {
         const assets::Entry* entry = item.entry;
         // A resource fork is kept as the game folder keeps one, in an ".rsrc" side file.
@@ -218,6 +218,14 @@ bool Unpack(const fs::path& zip, const fs::path& unpacked, const fs::path& out, 
 
 }  // namespace
 
+#ifdef __ANDROID__
+bool ValidateAssetPack(const fs::path& zip, const fs::path& temp, std::string& error) {
+    if (Lower(tpw::PathText(zip.extension())) != ".zip" || !UsableStem(tpw::PathText(zip.stem()))) return false;
+    size_t files = 0, inData = 0;
+    return Unpack(zip, temp, temp / zip.stem(), files, inData, error) && inData != 0;
+}
+#endif
+
 void UsePacks(const fs::path& folder) {
     std::error_code ec;
     fs::create_directories(folder, ec);
@@ -246,9 +254,9 @@ void UsePacks(const fs::path& folder) {
         const fs::path out = unpacked / zip.stem();
         const std::string name = tpw::PathText(zip.filename());
         if (ReadStamp(out) != StampOf(zip)) {
-            size_t files = 0;
+            size_t files = 0, inData = 0;
             std::string err;
-            if (!Unpack(zip, unpacked, out, files, err)) {
+            if (!Unpack(zip, unpacked, out, files, inData, err)) {
                 RemovePackFolder(unpacked, out);
                 tpw::Log("asset pack: %s left out: %s", name.c_str(), err.c_str());
                 continue;

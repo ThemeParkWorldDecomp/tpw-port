@@ -8,11 +8,17 @@
 #pragma once
 
 #include <filesystem>
+#include <string>
 
 namespace tpw::launcher {
 
 // Unpacks the packs of `folder` where needed and hands them to the platform layer, logging each one. A pack that cannot
 // be read is left out, with a log line saying why. The folder is made when it is missing, so the player can find it.
 void UsePacks(const std::filesystem::path& folder);
+
+#ifdef __ANDROID__
+// Check a selected zip using the normal unpacker in a private temporary folder.
+bool ValidateAssetPack(const std::filesystem::path& zip, const std::filesystem::path& temp, std::string& error);
+#endif
 
 }  // namespace tpw::launcher

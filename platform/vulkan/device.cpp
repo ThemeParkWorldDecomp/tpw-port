@@ -431,6 +431,23 @@ void DestroySwapchain() {
     r.swapExtent = {0, 0};
 }
 
+#ifdef __ANDROID__
+void DestroySurface() {
+    Renderer& r = R();
+    if (r.surface == VK_NULL_HANDLE) return;
+    SDL_Vulkan_DestroySurface(r.instance, r.surface, nullptr);
+    r.surface = VK_NULL_HANDLE;
+}
+
+bool RetryAndroidSwapchain(VkResult result) {
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) return true;
+    if (result != VK_ERROR_SURFACE_LOST_KHR) return false;
+    if (R().swapchain != VK_NULL_HANDLE) DestroySwapchain();
+    DestroySurface();
+    return true;
+}
+#endif
+
 // A swapchain for the window's pixels: FIFO (one presentation a refresh, the vsync the pacing counts on), images the
 // present blits into. False (and no swapchain) while the window has no size, or when the surface refuses.
 bool CreateSwapchain(int wide, int high) {
@@ -438,8 +455,22 @@ bool CreateSwapchain(int wide, int high) {
     DestroySwapchain();
     r.swapchainStale = false;
     if (wide <= 0 || high <= 0) return false;
+#ifdef __ANDROID__
+    // Android can remove the native window while the game is switching to the background.
+    if (!SDL_GetPointerProperty(SDL_GetWindowProperties(r.window), SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr)) {
+        DestroySurface();
+        return false;
+    }
+    if (r.surface == VK_NULL_HANDLE && !SDL_Vulkan_CreateSurface(r.window, r.instance, nullptr, &r.surface)) {
+        r.surface = VK_NULL_HANDLE;
+        return false;
+    }
+#endif
     VkSurfaceCapabilitiesKHR caps{};
     VkResult result = r.api.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(r.physical, r.surface, &caps);
+#ifdef __ANDROID__
+    if (RetryAndroidSwapchain(result)) return false;
+#else
     if (result == VK_ERROR_SURFACE_LOST_KHR) {
         // The surface is gone (the window system took it back): a new one on the same window, asked once more.
         if (r.surface != VK_NULL_HANDLE) SDL_Vulkan_DestroySurface(r.instance, r.surface, nullptr);
@@ -451,6 +482,7 @@ bool CreateSwapchain(int wide, int high) {
         }
         result = r.api.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(r.physical, r.surface, &caps);
     }
+#endif
     if (result != VK_SUCCESS) {
         Fail("asking the surface's capabilities", result);
         return false;
@@ -467,9 +499,15 @@ bool CreateSwapchain(int wide, int high) {
     }
     if (extent.width == 0 || extent.height == 0) return false;   // minimised
     uint32_t formatCount = 0;
-    r.api.vkGetPhysicalDeviceSurfaceFormatsKHR(r.physical, r.surface, &formatCount, nullptr);
+    result = r.api.vkGetPhysicalDeviceSurfaceFormatsKHR(r.physical, r.surface, &formatCount, nullptr);
+#ifdef __ANDROID__
+    if (RetryAndroidSwapchain(result)) return false;
+#endif
     std::vector<VkSurfaceFormatKHR> formats(formatCount);
-    r.api.vkGetPhysicalDeviceSurfaceFormatsKHR(r.physical, r.surface, &formatCount, formats.data());
+    result = r.api.vkGetPhysicalDeviceSurfaceFormatsKHR(r.physical, r.surface, &formatCount, formats.data());
+#ifdef __ANDROID__
+    if (RetryAndroidSwapchain(result)) return false;
+#endif
     VkSurfaceFormatKHR chosen = formats.empty() ? VkSurfaceFormatKHR{VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR}
                                                 : formats[0];
     for (const VkSurfaceFormatKHR& format : formats) {
@@ -501,6 +539,9 @@ bool CreateSwapchain(int wide, int high) {
     result = r.api.vkCreateSwapchainKHR(r.device, &info, nullptr, &r.swapchain);
     if (result != VK_SUCCESS) {
         r.swapchain = VK_NULL_HANDLE;
+#ifdef __ANDROID__
+        if (RetryAndroidSwapchain(result)) return false;
+#endif
         Fail("making the swapchain", result);
         return false;
     }
@@ -1368,6 +1409,9 @@ void EndPresent(const fit::PixelBox& box, int windowWide, int windowHigh) {
             // Out of date again (a window still being resized), or the surface gone: the next present makes the
             // swapchain anew (and the surface with it, CreateSwapchain); this frame is not shown. Not a failure.
             r.swapchainStale = true;
+#ifdef __ANDROID__
+            RetryAndroidSwapchain(result);
+#endif
             return;
         } else if (result != VK_SUCCESS) {
             if (result != VK_TIMEOUT && result != VK_NOT_READY) Fail("taking a swapchain image", result);
@@ -1416,6 +1460,9 @@ void EndPresent(const fit::PixelBox& box, int windowWide, int windowHigh) {
         r.api.vkResetFences(r.device, 1, &r.fence);
         if (result == VK_SUBOPTIMAL_KHR || result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_ERROR_SURFACE_LOST_KHR) {
             r.swapchainStale = true;
+#ifdef __ANDROID__
+            RetryAndroidSwapchain(result);
+#endif
             return;
         }
         if (result != VK_SUCCESS) {

@@ -22,7 +22,9 @@
 #include <dlfcn.h>
 // The _WIN32 parts of this file: Windows port contributed by samueleagle91 (tpw-port PR #1).
 #ifndef _WIN32
+#ifndef __ANDROID__
 #include <execinfo.h>
+#endif
 #include <sys/ucontext.h>
 #endif
 #include <unistd.h>
@@ -136,6 +138,9 @@ bool gGameUs = true;            // the edition playing is the US one (DressGameW
 bool gTraceStubs = false;
 std::string gOnlineServer;      // --online-server HOST: the online server the game connects to (updater.h ChooseOnlineServer)
 std::string gOnlineServerSetting, gOnlineServerFound;   // launcher.ini's online_server (the player's) and online_server_found
+#ifdef __ANDROID__
+std::string gAndroidOnlineServerFound;   // validated pointer cached by the Android launcher
+#endif
 long gStubCalls = 0;
 const char* volatile gLastStub = nullptr;
 // Calls per stand-in (keyed by its name, which the stub table keeps for the whole run), so the
@@ -170,6 +175,7 @@ public:
             int32_t wide = 0;
             int32_t high = 0;
             UI_PresetSize(saved, aspect, wide, high);
+            const bool savedPresetReplacesDefault = gPortStartWide != 0 && PortResolutionPreset(setting, 0) != 0;
             if (exact && gStartAtSavedShape && PortSizeFits(exactWide, exactHigh)) {
                 mPreset = UI_ClosestPreset(exactWide, exactHigh, UI_SizeAspect(exactWide, exactHigh));
                 gUIWideAspect = UI_SizeAspect(exactWide, exactHigh);
@@ -177,9 +183,11 @@ public:
                 gPortStartHigh = exactHigh;
                 tpw::Log("resolution: %dx%d, saved from the options panel", exactWide, exactHigh);
                 tpw::LogFileF("game size: %dx%d, saved from the options panel", exactWide, exactHigh);
-            } else if ((saved != mPreset || aspect != gUIWideAspect) && PortSizeFits(wide, high)) {
+            } else if ((saved != mPreset || aspect != gUIWideAspect || savedPresetReplacesDefault) &&
+                       PortSizeFits(wide, high)) {
                 mPreset = saved;
                 gUIWideAspect = aspect;
+                gPortStartWide = gPortStartHigh = 0;
                 tpw::Log("resolution: %dx%d (preset %d), saved from the options panel", wide, high, mPreset);
                 tpw::LogFileF("game size: %dx%d (preset %d), saved from the options panel", wide, high, mPreset);
             }
@@ -333,6 +341,14 @@ void CrashWrite(const char* text, int length) {
     if (fd >= 0) tpw::WriteScrubbed(fd, text, static_cast<size_t>(length));
 }
 
+#if defined(__ANDROID__)
+int (*CrashBacktrace)(void**, int) = nullptr;
+void (*WriteCrashFrames)(void* const*, int, int) = nullptr;
+#elif !defined(_WIN32)
+constexpr auto CrashBacktrace = backtrace;
+constexpr auto WriteCrashFrames = backtrace_symbols_fd;
+#endif
+
 // A crash right after a stand-in returned is usually caused by it (a zero where the caller
 // expected an object, or a structure result left unwritten): name the last one reached.
 void OnCrash(int signal) {
@@ -351,17 +367,21 @@ void OnCrash(int signal) {
         CrashWrite(fatal, static_cast<int>(std::strlen(fatal)));
         CrashWrite("\n", 1);
     }
-    const int fd = tpw::LogFileDescriptor();
-    if (fd >= 0) {
-#else
-    // Where it happened (the launcher keeps its symbols); in the log file too.
-    static void* frames[48];
-    const int depth = backtrace(frames, 48);
-    backtrace_symbols_fd(frames, depth, 2);
-    const int fd = tpw::LogFileDescriptor();
-    if (fd >= 0) {
-        backtrace_symbols_fd(frames, depth, fd);
 #endif
+    const int fd = tpw::LogFileDescriptor();
+#ifndef _WIN32
+    // Where it happened (the launcher keeps its symbols); in the log file too.
+#ifdef __ANDROID__
+    if (CrashBacktrace != nullptr && WriteCrashFrames != nullptr)
+#endif
+    {
+        static void* frames[48];
+        const int depth = CrashBacktrace(frames, 48);
+        WriteCrashFrames(frames, depth, 2);
+        if (fd >= 0) WriteCrashFrames(frames, depth, fd);
+    }
+#endif
+    if (fd >= 0) {
         gExitLogged = 1;
         const int length = signal == SIGABRT ? std::snprintf(text, sizeof text, "exit: abort%s\n", tpw::LogRunTag())
                                              : std::snprintf(text, sizeof text, "exit: crashed (signal %d)%s\n", signal,
@@ -1376,7 +1396,13 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
     // camera. With it the run loop gives the camera its wheel, drags and pinch (platform/platform.h), and keeps its keys
     // down together as the W A S D keys are.
     gPortFreeCamera = backend.Setting(tpw::ui::kFreeCameraKey) == "1";
-    if (gPortFreeCamera) {
+#ifdef __ANDROID__
+    // The Android overlay turns the camera on per park. Set up its options and physical pointer hooks at launch.
+    const bool configureFreeCamera = true;
+#else
+    const bool configureFreeCamera = gPortFreeCamera;
+#endif
+    if (configureFreeCamera) {
         gPortFreeSwipeZooms = tpw::ui::FreeSwipeZooms(backend.Setting(tpw::ui::kFreeSwipeKey));
         gPortFreeInvertLook = backend.Setting(tpw::ui::kFreeInvertKey) == "1";
         gPortFreeLookSensitivity = static_cast<float>(tpw::ui::FreeQuarters(backend.Setting(tpw::ui::kFreeSensitivityKey))) / 4.0f;
@@ -1394,15 +1420,18 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
         tpw::gPortDragGoing = PortFreeHookDragGoing;
         tpw::gPortDragEnd = PortFreeHookDragEnd;
         tpw::gPortPinch = PortFreeHookPinch;
-        tpw::gPortKeyTogether = PortKeyTogether;   // and none while an edit box has the keyboard (typing-order)
-        tpw::gPortStrayKeyUp = PortWasdStrayKeyUp;
-        tpw::gPortReleaseKeyA = true;   // A, one of the flight keys, is released before the next key, as W A S D release it
+        if (gPortFreeCamera) {
+            tpw::gPortKeyTogether = PortKeyTogether;   // and none while an edit box has the keyboard (typing-order)
+            tpw::gPortStrayKeyUp = PortWasdStrayKeyUp;
+            tpw::gPortReleaseKeyA = true;   // A, one of the flight keys, is released before the next key, as W A S D release it
+        }
         tpw::Log("free camera (the launcher's Settings): swipe %s, invert %d, sensitivity %.2f, fly speed %.2f, smoothing %d, "
                  "through the ground %d",
                  gPortFreeSwipeZooms ? "zooms" : "moves", gPortFreeInvertLook ? 1 : 0, gPortFreeLookSensitivity,
                  gPortFreeFlySpeed, gPortFreeSmoothing ? 1 : 0, gPortFreeThroughGround ? 1 : 0);
         // Its "Gamepad" (TPW_PORT_FIX gamepad, include/PortFreeCamera.h), on unless launcher.ini says 0: the run loop opens
         // SDL's gamepads and gives the camera their sticks, triggers and buttons. Off, the game opens no gamepad.
+#ifndef __ANDROID__
         static_assert(kPortFreePadLeftX == int{SDL_GAMEPAD_AXIS_LEFTX} && kPortFreePadRightY == int{SDL_GAMEPAD_AXIS_RIGHTY} &&
                           kPortFreePadLeftTrigger == int{SDL_GAMEPAD_AXIS_LEFT_TRIGGER} &&
                           kPortFreePadRightTrigger == int{SDL_GAMEPAD_AXIS_RIGHT_TRIGGER} &&
@@ -1419,9 +1448,13 @@ int ChooseFromDataFolder(tpw::Config& config, std::filesystem::path& packs,
             tpw::gPortPadGone = PortFreeHookPadGone;
         }
         tpw::Log("free camera gamepad: %s", gPortFreePadOn ? "on" : "off");
+#endif
     }
     gOnlineServerSetting = backend.Setting(tpw::ui::kOnlineServerKey);
     gOnlineServerFound = backend.Setting(tpw::ui::kOnlineServerFoundKey);
+#ifdef __ANDROID__
+    if (!gAndroidOnlineServerFound.empty()) gOnlineServerFound = gAndroidOnlineServerFound;
+#endif
     // The Settings box's Graphics section: the original's options files' values the player chose (EngineStartup_OptionsFile).
     for (const tpw::ui::SamOption& option : tpw::ui::SamOptions()) {
         const std::string value = backend.Setting(option.key);
@@ -1798,6 +1831,11 @@ int LauncherMain(int argc, char** argv) {
     // (game_app.h), does the same, into the same file.
     if (!tpw::win32::HasStandardError()) tpw::win32::CaptureOutputToLog();
 #else
+#ifdef __ANDROID__
+    // Android added these libc functions in API 33. Resolve them before installing the handler.
+    CrashBacktrace = reinterpret_cast<decltype(CrashBacktrace)>(dlsym(RTLD_DEFAULT, "backtrace"));
+    WriteCrashFrames = reinterpret_cast<decltype(WriteCrashFrames)>(dlsym(RTLD_DEFAULT, "backtrace_symbols_fd"));
+#endif
     for (int crash : {SIGSEGV, SIGBUS, SIGTRAP, SIGILL, SIGABRT}) {
         struct sigaction action{};
         action.sa_sigaction = OnCrashInfo;
@@ -2270,6 +2308,13 @@ int LauncherMain(int argc, char** argv) {
     if (resolution > 0) {
         const char* forced = std::getenv("TPW_LARGEST_GAME_SIZE");
         const int limit = forced != nullptr ? std::atoi(forced) : tpw::LargestGameSize();
+#if defined(__ANDROID__)
+        // Start at Full HD unless the player has saved a size or supplied an explicit size or aspect.
+        if (!resolutionGiven && !aspectGiven) {
+            namedWide = 1920;
+            namedHigh = 1080;
+        }
+#endif
         if (namedWide > 0 && (limit <= 0 || (namedWide <= limit && namedHigh <= limit))) {
             gPortStartWide = namedWide;
             gPortStartHigh = namedHigh;
@@ -2337,7 +2382,20 @@ int LauncherMain(int argc, char** argv) {
 }
 }  // namespace
 
+#ifdef __ANDROID__
+void SetAndroidOnlineServerFound(const char* host) {
+    if (tpw::net::ValidHost(host)) gAndroidOnlineServerFound = host;
+}
+
+void InitAndroidSamTables() {
+    static const bool registered = [] { RegisterSamTables(); return true; }();
+    (void)registered;
+}
+
+int TpwLauncherMain(int argc, char** argv) {
+#else
 int main(int argc, char** argv) {
+#endif
     // --version and --help need no log file; every other run opens one before anything logs, and ends it with how the
     // run ended (exit: code N here; a crash or an abort writes its own from the signal handler).
     gArgc = argc;

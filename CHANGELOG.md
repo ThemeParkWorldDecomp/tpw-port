@@ -16,6 +16,15 @@
 
 - Two switches for the bright rectangles flickering on the ground around rides and shops on some NVIDIA cards, off by default and set by hand in launcher.ini (or the environment) for testing: ground_pad_nearer=4 draws the ground under rides and shops a little behind their bases, and gl_error_drain=1 keeps an OpenGL error left by an earlier call from turning a texture off, and writes the first such errors to the launcher log (Thanks @johhnyjefferson34133, tpw-port #125)
 
+### Android
+
+- Import a supported PlayStation 2 disc and enable PS2 Guest Models to display its 3D park guests, staff and entertainers.
+- Added orbit camera, advanced free-camera and physical keyboard settings, more frame rate and interface size choices, game and profile options, and Android display and launcher settings.
+- The Android launcher discovers the online server, and the game overlay and controller bindings can open, write and send chat.
+- Listed missing and customized files, added verified settings restoration and refresh for PlayStation rides and SimCoaster worlds.
+- The launcher offers to download an APK for your device when a newer official release is available.
+- The Android port now supports Android 11 and later on devices with Vulkan.
+
 ## 0.6.3 (2026-11-24)
 
 ### Bug Fixes

@@ -61,13 +61,17 @@ namespace {
 // port's own Vulkan renderer is the player's to choose (--renderer, launcher.ini's renderer key, which the Renderer row
 // writes). With Vulkan as this default, a Vulkan whose only device draws in software would give way to a hardware
 // OpenGL (OpenGLForSoftwareVulkan); one asked for draws in software.
+#ifdef __ANDROID__
+constexpr Api kDefault = Api::Vulkan;
+#else
 constexpr Api kDefault = Api::OpenGL;
+#endif
 Api gRequested = kDefault;
 Api gChosen = gRequested;
 bool gProbed = false;
 int gLargest = 0;
 
-#ifdef TPW_HAVE_VULKAN
+#if defined(TPW_HAVE_VULKAN) && !defined(__ANDROID__)
 bool gAsked = false;   // Request was called (--renderer, launcher.ini's renderer key): not just the build's default
 
 // Whether an OpenGL driver's GL_RENDERER names a renderer that draws on the processor: Mesa's llvmpipe (also inside
@@ -115,9 +119,9 @@ bool OpenGLForSoftwareVulkan() {
 
 void Request(Api api) {
     gRequested = api;   // as asked, which the launcher's summary line names
-    gChosen = Available(api) ? api : Api::OpenGL;
+    gChosen = Available(api) ? api : kDefault;
     if (gChosen != api) tpw::Log("renderer: %s is not in this build; %s", Name(api), Name(gChosen));
-#ifdef TPW_HAVE_VULKAN
+#if defined(TPW_HAVE_VULKAN) && !defined(__ANDROID__)
     gAsked = true;
 #endif
     gProbed = false;
@@ -130,7 +134,9 @@ Api Chosen() { return gChosen; }
 const char* Name(Api api) { return api == Api::Vulkan ? "Vulkan" : "OpenGL"; }
 
 bool Available(Api api) {
-#ifdef TPW_HAVE_VULKAN
+#if defined(__ANDROID__)
+    return api == Api::Vulkan;
+#elif defined(TPW_HAVE_VULKAN)
     (void)api;
     return true;
 #else
@@ -139,6 +145,11 @@ bool Available(Api api) {
 }
 
 int Probe() {
+#ifdef __ANDROID__
+    // SDL Android has only one native window. Check the device when creating the game's Vulkan surface.
+    // 4096 is Vulkan's minimum maxImageDimension2D.
+    return 4096;
+#else
     if (gProbed) return gLargest;
     gProbed = true;
     gLargest = 0;
@@ -155,10 +166,13 @@ int Probe() {
 #endif
     gl::Probe(gLargest);
     return gLargest;
+#endif
 }
 
 // The backend a call goes to: the chosen one on Linux; OpenGL's, the only one, elsewhere.
-#ifdef TPW_HAVE_VULKAN
+#if defined(__ANDROID__)
+#define TPW_GFX_CALL(call) vkr::call
+#elif defined(TPW_HAVE_VULKAN)
 #define TPW_GFX_CALL(call) (gChosen == Api::Vulkan ? vkr::call : gl::call)
 #else
 #define TPW_GFX_CALL(call) gl::call
@@ -167,13 +181,13 @@ int Probe() {
 // With two backends the window is made for the one that works, so the choice is settled first. Probe has run already
 // when the launcher asked for the largest frame (tpw::LargestGameSize), but not when TPW_LARGEST_GAME_SIZE stood in for it.
 uint32_t WindowFlags() {
-#ifdef TPW_HAVE_VULKAN
+#if defined(TPW_HAVE_VULKAN) && !defined(__ANDROID__)
     if (!gProbed) Probe();
 #endif
     return TPW_GFX_CALL(WindowFlags());
 }
 bool Create(SDL_Window* window, bool fit, int gameWide, int gameHigh) {
-#ifdef TPW_HAVE_VULKAN
+#if defined(TPW_HAVE_VULKAN) && !defined(__ANDROID__)
     if (!gProbed) Probe();
 #endif
     return TPW_GFX_CALL(Create(window, fit, gameWide, gameHigh));
