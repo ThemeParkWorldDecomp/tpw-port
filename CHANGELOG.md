@@ -6,6 +6,7 @@
 
 - Android (preview): Sim Theme Park and Theme Park World on Android phones and tablets (Android 11 or later, with Vulkan), with touch controls and game controller support, an interface sized for small screens, and a launcher that imports your own copy of the game. It is an early preview: CI builds it as a test package, and it is not yet offered as a download (Thanks @mario910, tpw-port #135)
 - A dropped translation's language is now also read from its letters for Polish, Czech, Hungarian, Romanian, Greek and Turkish, beside Russian, Ukrainian, Belarusian and Bulgarian; one that is not clear is still named by you (tpw-port #128)
+- Linux: the launcher is now also a single AppImage file on the release page, with nothing to install: download STP-TPW-Launcher-0.6.5-x86_64.AppImage, make it executable (chmod +x) and run it; it runs on Ubuntu 22.04, Debian 12, Fedora 36 or newer and keeps your games, saves and settings in the same folder as the other Linux launchers (Thanks @mrdeathjr28, tpw-port #136)
 
 ### Bug Fixes
 

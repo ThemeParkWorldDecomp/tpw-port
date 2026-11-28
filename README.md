@@ -27,6 +27,10 @@ Run in Terminal:
 curl -fsSL https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest/download/install.sh | sh
 ```
 
+### Linux AppImage
+No install: download `STP-TPW-Launcher-<version>-x86_64.AppImage` from the [latest release](https://github.com/ThemeParkWorldDecomp/tpw-port/releases/latest),
+then `chmod +x` it and run it. Needs glibc 2.35+ (Ubuntu 22.04, Debian 12, Fedora 36 or newer).
+
 ### Play after install
 
 The launcher opens when the installer finishes. After that, type `themepark` in a new PowerShell or Terminal window, or
@@ -230,7 +234,7 @@ Mac keys. Windows and Linux: Option is Alt, Control is Ctrl. Tried: checked in p
 
 - Checks GitHub at start, for releases only. Sends nothing about you.
 - Banner: "Version X.Y.Z is out". Update installs it (script installs) or opens the release page (built by hand).
-  Flatpak: run `themepark update`.
+  Flatpak: run `themepark update`. AppImage: download the new one from the release page.
 - Off: Settings, Check for updates. Once: `tpw_launcher --check-updates`.
 - The game never needs the internet.
 
@@ -352,7 +356,7 @@ use `build\tpw_launcher.exe 2> log.txt`.
 - `--renderer vulkan` falls back to OpenGL without a Vulkan device. No Vulkan package needed to build.
 - After a shader change, run `devtools/vulkan_shaders.sh`.
 - Platform tests need libclang (libclang-18-dev, or `-DTPW_LIBCLANG=<path>`).
-- `install.sh --flatpak` installs the Flatpak instead.
+- `install.sh --flatpak` installs the Flatpak instead. Or download the AppImage (Quick start).
 
 ### Building by hand
 
@@ -412,7 +416,7 @@ Then:
 - Update: `git pull`, `git submodule update --init --recursive`, then the two cmake lines.
 - `-DTPW_STATIC_RUNTIME=OFF` uses the system C++ runtime.
 - `make`, `make run`, `make test`, `make clean` work too.
-- Flatpak bundle: `sh devtools/flatpak.sh`.
+- Flatpak bundle: `sh devtools/flatpak.sh`. AppImage: `sh devtools/appimage.sh` (x86-64).
 - Headless tests: `SDL_AUDIO_DRIVER=dummy`, `xvfb-run`.
 
 ### Game data from the command line

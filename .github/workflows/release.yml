@@ -1,7 +1,7 @@
 # Builds a release when its tag (vX.Y.Z) is pushed: the launcher for Windows x64 and for Macs with Apple Silicon and
 # Intel processors, all from the one tagged commit, with the tests run first, and on Linux the same sources built and
-# tested, with a Flatpak bundle when one builds (the flatpak job: its failure leaves the bundle out and never stops the
-# release); then publishes them as the tag's GitHub Release. A release is never changed afterwards. A fix found later
+# tested, with a Flatpak bundle and an AppImage when they build (the flatpak and appimage jobs: the failure of either
+# leaves its download out and never stops the release); then publishes them as the tag's GitHub Release. A release is never changed afterwards. A fix found later
 # goes into the next version (CONTRIBUTING.md, Releases), so every report that names a version names one build of the
 # code, the same on every system.
 #
@@ -244,9 +244,105 @@ jobs:
           path: build/STP-TPW-Launcher-*.flatpak
           if-no-files-found: error
 
-  # The flatpak job is the one that may fail: publish waits for it, then runs when everything else succeeded.
+  # The other Linux download: the launcher as an AppImage (devtools/appimage.sh), one file that runs with nothing to
+  # install. Optional, as the Flatpak is: when it fails the release is published without it. Built on the oldest Ubuntu
+  # GitHub offers, so it asks for no newer glibc than 2.35 (Ubuntu 22.04, Debian 12, Fedora 36 and newer); that Ubuntu's
+  # GCC is 12, so GCC 13 comes from the Ubuntu Toolchain PPA, and the C++ runtime is linked in, so none of it is needed
+  # where the AppImage runs. x86-64 only, as the linux job.
+  appimage:
+    needs: [check, linux]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install the build's packages
+        run: |
+          for try in 1 2 3; do
+            sudo add-apt-repository -y --no-update ppa:ubuntu-toolchain-r/test && break
+            [ "$try" -lt 3 ] || exit 1
+            echo "add-apt-repository: attempt $try failed; trying again in 60 seconds"; sleep 60
+          done
+          sh .github/apt-get.sh update
+          sh .github/apt-get.sh install -y --no-install-recommends gcc-13 g++-13 cmake ninja-build python3 git file \
+            desktop-file-utils libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev \
+            libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev \
+            libgl1-mesa-dri libdrm-dev libgbm-dev libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev \
+            libudev-dev libibus-1.0-dev xvfb
+      - name: Build the AppImage
+        env:
+          CC: gcc-13
+          CXX: g++-13
+        run: sh devtools/appimage.sh
+      # Only the C library: the C++ runtime is linked in, and no OpenGL, Vulkan, X11, Wayland or sound library is linked
+      # (SDL opens the machine's own at run time). No symbol newer than the build machine's glibc 2.35.
+      - name: The program needs only glibc 2.35
+        run: |
+          exe=build/appimage/AppDir/usr/bin/tpw_launcher
+          ldd "$exe"
+          if ldd "$exe" | grep -E 'libstdc\+\+|libgcc_s|libGL|libvulkan|libX11|libwayland|libasound|libpulse'; then
+            echo "::error::the program links a library the AppImage expects to find on the machine at run time only"
+            exit 1
+          fi
+          newest=$(objdump -T "$exe" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -n 1)
+          echo "newest glibc symbol version: $newest"
+          [ "$(printf '%s\n2.35\n' "$newest" | sort -V | tail -n 1)" = 2.35 ]
+      # As a player starts it: --version names the release's version, and with no game data the launcher opens its
+      # first screen (the import) and draws 60 frames, exit 0, its data folder and log in the home folder, nothing
+      # written beside the program or in the folder it was started from. Mounted with FUSE when the runner has it, and
+      # always extracted (--appimage-extract-and-run, what a machine without FUSE uses), and from an unpacked AppImage
+      # made read-only. The first frames are the run's artifact appimage-smoke.
+      - name: The AppImage starts
+        env:
+          SDL_AUDIO_DRIVER: dummy   # the runner has no sound device
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          set -o pipefail
+          app=$PWD/build/STP-TPW-Launcher-$VERSION-x86_64.AppImage
+          chmod +x "$app"
+          mkdir -p smoke/frames
+          cd smoke
+          run() {   # run NAME PROGRAM [ARGS]: in a new empty home and folder of its own
+            name=$1; shift
+            mkdir "$name" "$name/home" "$name/cwd"
+            home=$PWD/$name/home; cwd=$PWD/$name/cwd; frames=$PWD/frames/$name
+            (cd "$cwd" && HOME="$home" "$@" --version) | tee "$name/version.txt"
+            grep -F " v$VERSION" "$name/version.txt"
+            (cd "$cwd" && HOME="$home" xvfb-run -a -s "-screen 0 1280x800x24" "$@" --frames 60 --dump-frames "$frames" \
+              --dump-limit 4) 2>&1 | tee "$name/run.txt"
+            grep -F "log: $home/.local/share/STP-TPW Launcher/logs/launcher.log" "$name/run.txt"
+            grep -F "v$VERSION" "$home/.local/share/STP-TPW Launcher/logs/launcher.log"
+            ls "$frames"/launcher-frame-*.bmp
+            if [ -n "$(ls -A "$cwd")" ]; then
+              echo "::error::$name wrote into the folder it was started from"; ls -lA "$cwd"; exit 1
+            fi
+            find "$home" -type f | sort
+          }
+          if [ -c /dev/fuse ] && { command -v fusermount3 || command -v fusermount; } > /dev/null; then
+            run mounted "$app"
+          else
+            echo "this runner has no FUSE: the mounted start is not tried"
+          fi
+          run extracted "$app" --appimage-extract-and-run
+          "$app" --appimage-extract > /dev/null
+          chmod -R a-w squashfs-root
+          run readonly "$PWD/squashfs-root/AppRun"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: appimage-smoke
+          path: smoke/frames
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64-appimage
+          path: build/STP-TPW-Launcher-*.AppImage
+          if-no-files-found: error
+
+  # The flatpak and appimage jobs are the ones that may fail: publish waits for it, then runs when everything else succeeded.
   publish:
-    needs: [check, windows, macos, linux, flatpak]
+    needs: [check, windows, macos, linux, flatpak, appimage]
     if: >-
       github.event_name == 'push' && !cancelled() && needs.check.result == 'success' &&
       needs.windows.result == 'success' && needs.macos.result == 'success' && needs.linux.result == 'success'
@@ -278,7 +374,16 @@ jobs:
           else
             echo "::warning::the Flatpak bundle did not build, so this release has none (the flatpak job says why)"
             linux_flatpak="(This release has no Flatpak bundle.)"
-            linux_download="- Linux: no ready-made launcher in this release; the one line above builds it."
+            linux_download="- Linux: no Flatpak bundle in this release (the one line above builds the launcher)."
+          fi
+          appimage=STP-TPW-Launcher-$VERSION-x86_64.AppImage
+          if [ -f "$appimage" ]; then
+            linux_appimage="- Linux (x86-64, glibc 2.35 or newer: Ubuntu 22.04, Debian 12, Fedora 36 or newer), with nothing
+            to install: $appimage. Make it executable (\`chmod +x $appimage\`, or Properties, Allow executing as a
+            program) and run it. To update, download the new one from the newest release."
+          else
+            echo "::warning::the AppImage did not build, so this release has none (the appimage job says why)"
+            linux_appimage="- Linux: no AppImage in this release (the one line above builds the launcher)."
           fi
           sha256sum STP-TPW-Launcher-* install.sh install.ps1 > SHA256SUMS.txt
           { sed -n '/[^[:space:]]/,$p' changes.md; printf '\n## Downloads\n\n'; } > notes.md
@@ -305,6 +410,7 @@ jobs:
             Double-click it to unpack, then in Terminal run \`xattr -d com.apple.quarantine\` on the unpacked tpw_launcher
             (the launcher is not signed, so macOS blocks it otherwise) and start it.
           $linux_download
+          $linux_appimage
           - To build it yourself: \`git clone --branch $GITHUB_REF_NAME --recurse-submodules https://github.com/$GITHUB_REPOSITORY.git\`,
             then the README's Quick start.
 

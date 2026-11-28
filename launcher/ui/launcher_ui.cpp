@@ -861,12 +861,18 @@ float LauncherUi::DrawUpdateBanner(const Rect& w, float top) {
         default: {
             line = "Version " + updater_->Found() + " is out";
             // A launcher installed by the install script updates itself; the Flatpak (Linux) is updated by the themepark
-            // command on the host, outside the sandbox, so it says so; any other opens the release page.
+            // command on the host, outside the sandbox, so it says so; an AppImage (Linux, APPIMAGE set by its runtime) is
+            // never replaced from inside, so it says to download the new one and opens the release page; any other opens
+            // the release page.
             if (button("update-go", "Update", ButtonKind::Go, !updater_->Offline() && phase == Phase::Idle)) {
                 if (updater_->ScriptInstall()) updater_->Update();
 #ifdef __linux__
                 else if (std::getenv("FLATPAK_ID") != nullptr)
                     ShowNotice("To update, open a terminal and type: themepark update", false);
+                else if (std::getenv("APPIMAGE") != nullptr) {
+                    ShowNotice("To update, download the new AppImage from the release page", false);
+                    openPage(updater_->WhatsNewUrl());
+                }
 #endif
                 else openPage(updater_->WhatsNewUrl());
             }
