@@ -1,4 +1,4 @@
-# FFmpeg 9.0.2, trimmed to what the game's films need and built as one static library from the sources in this folder
+# FFmpeg 9.0.2, trimmed to what the game's films need and built as one library from the sources in this folder
 # (see NOTE.md). Ours, not FFmpeg's: FFmpeg's configure and makefiles are not here and never run. config/ (written by
 # gen_config.py, kept in the tree) stands in for what configure writes: no assembly, no intrinsics, no threads, no
 # hardware decoding, no external library but zlib, so the same C builds on macOS (arm64, x86_64), Linux and Windows.
@@ -8,7 +8,13 @@ cmake_minimum_required(VERSION 3.20)
 # pictures and IMA4 (adpcm_ima_qt) sound; the PC CD's are EA files (.TGQ: the ea demuxer) with EA TQI (eatqi) pictures
 # and EA ADPCM (adpcm_ea) sound. libswscale makes the RGB24 pictures platform/quicktime.cpp draws. Only the files a link
 # of those pulls in are listed (and kept).
-add_library(tpw_ffmpeg STATIC
+if(ANDROID)
+  # APKs carry the decoder as a replaceable library.
+  set(tpw_ffmpeg_kind SHARED)
+else()
+  set(tpw_ffmpeg_kind STATIC)
+endif()
+add_library(tpw_ffmpeg ${tpw_ffmpeg_kind}
   libavutil/aes.c libavutil/aes_ctr.c libavutil/ambient_viewing_environment.c libavutil/avsscanf.c
   libavutil/avstring.c libavutil/bprint.c libavutil/buffer.c libavutil/channel_layout.c libavutil/container_fifo.c
   libavutil/cpu.c libavutil/crc.c libavutil/csp.c libavutil/dict.c libavutil/display.c libavutil/dovi_meta.c

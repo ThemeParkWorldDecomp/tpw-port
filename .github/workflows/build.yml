@@ -423,6 +423,53 @@ jobs:
           path: build/logs/
           if-no-files-found: ignore
 
+  # Android (preview; contributed by mario910, tpw-port PR #135): the launcher and the game built with the NDK for arm64 as
+  # the shared library SDL's activity loads, packaged and signed with a debug key by launcher/android/package.py, on a
+  # Linux and a macOS runner (the two systems the README's Android steps build on). No device runs it here.
+  android:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      # Up to three attempts, 10 seconds apart (as the Windows jobs' curl --retry-delay 10): an NDK download can break off
+      # and leave a partial package, which is purged before the next attempt so it is fetched again whole (flutter_litert's
+      # NDK retry, its flutter-ci.yml). The toolchain file must be there at the end.
+      - name: Install Android SDK packages
+        run: |
+          for attempt in 1 2 3; do
+            "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install \
+              "ndk;28.2.13676358" "platforms;android-36" "build-tools;36.0.0" &&
+              [ -f "${ANDROID_HOME}/ndk/28.2.13676358/build/cmake/android.toolchain.cmake" ] && exit 0
+            echo "::warning::the Android SDK install failed in attempt $attempt"
+            [ "$attempt" -lt 3 ] || break
+            rm -rf "${ANDROID_HOME}/ndk/28.2.13676358" "${ANDROID_HOME}/.temp"
+            sleep 10
+          done
+          exit 1
+      - name: Build the Android launcher
+        run: |
+          cmake -S . -B build-android -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="${ANDROID_HOME}/ndk/28.2.13676358/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-30 -DANDROID_STL=c++_static
+          cmake --build build-android --target tpw_launcher
+      - name: Package the debug APK
+        run: |
+          python3 launcher/android/package.py --build-dir build-android \
+            --android-jar "${ANDROID_HOME}/platforms/android-36/android.jar" \
+            --build-tools-dir "${ANDROID_HOME}/build-tools/36.0.0" \
+            --output-apk build-android/stp-tpw-arm64-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-arm64-debug-${{ matrix.os }}
+          path: build-android/stp-tpw-arm64-debug.apk
+          if-no-files-found: error
+
   # Linux: the launcher built as the README's Linux steps build it (the distribution's GCC, CMake and Ninja, SDL's
   # development packages), the shaders checked against their sources, its tests and the renderer test under a virtual
   # screen with Mesa's software Vulkan and OpenGL, then the tests and the update check again with the network blocked

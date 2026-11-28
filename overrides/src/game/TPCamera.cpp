@@ -49,6 +49,8 @@
 #include "PortFreeCamera.h"
 // TPW_PORT_FIX mods TpiTunnelTop | Mac: no such header | Port: the Arabian tunnel's walker layers (tpw::gTpiFirstPersonRoof, tpw::TpiFirstPersonNavMode) for first person's walk | Why: first person walks through the tunnel under its cleared top, or over it (TPW_MOD_HOOK tpi_worlds)
 #include "TpiTunnelTop.h"
+// TPW_PORT_FIX androidcamera tpw::mobile::CameraAxes | Mac: no such header | Port: include/mobile_hooks.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
+#include "mobile_hooks.h"
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -1269,6 +1271,9 @@ void HandleCamera() {
     int32_t edge;       // the pointer is at a window edge with edge scrolling on
     int32_t firstOk;    // a first-person view that is not held back
     int32_t keyScroll = 0;
+    // TPW_PORT_FIX androidcamera HandleCamera | Mac: the keys and the pointer push the park's camera | Port: on Android the right stick or the touch screen's camera control pushes it too, in the camera keys' axes (tpw::mobile::CameraAxes, include/mobile_hooks.h), and only while it is pushed; elsewhere the stick reads 0 and nothing changes | Why: a phone or tablet has no camera keys and no pointer at the screen's edge; contributed by mario910 (tpw-port PR #135)
+    float stickX, stickY;
+    tpw::mobile::CameraAxes(stickX, stickY);
     if ((gFirstPersonFlags & 0x16) != 0) {
         edge = 0;
         firstOk = (gFirstPersonFlags & 0x800) == 0 ? 1 : 0;
@@ -1281,6 +1286,7 @@ void HandleCamera() {
         }
         firstOk = 0;
         if (Key(0xd) || Key(0xe) || Key(0xf) || Key(0x10)) keyScroll = 1;
+        if (stickX != 0.0f || stickY != 0.0f) keyScroll = 1;   // androidcamera: the stick scrolls as the keys do
     }
 
     // Which sides of the map the position is outside of: 1 x < 0, 4 z < 0, 2 x past the end, 8 z past the end.
@@ -1385,6 +1391,13 @@ void HandleCamera() {
             }
             gCameraYaw = gCameraF5BF4;
         } else {
+            // androidcamera: the stick's push, in the camera keys' axes (only when it is pushed, so a stick at rest
+            // leaves the keys' push as it is)
+            if (stickX != 0.0f || stickY != 0.0f) {
+                f30 += stickX * 0.7f;
+                f31 -= stickY * 0.7f;
+                gFirstPersonFlags &= ~0x1000u;
+            }
             const float target = gCameraF5BF4;
             float f3;
             if (isometric != 0) {
@@ -1410,6 +1423,7 @@ void HandleCamera() {
         const float f3 = kK002 * root;
         const float oldX = vel[0];
         const float oldZ = vel[2];
+        // TPW_PORT_FIX framerate HandleCamera | Mac: the pushed camera's velocity moves half way to the push once a frame | Port: it moves as far as that many halvings would in the frame's steps (kPortFrameStepTime), as the frame's time above | Why: the halvings came once a frame; the camera keeps one pace at any frame rate
         {   // the halving settles on the push itself (f30 f3, f31 f3); the rest is halved `frames` times
             // ((vel + push * share) * keep is that; at one step share is exactly 1, the Mac's (vel + push) * 0.5)
             const float keep = std::pow(0.5f, frames);

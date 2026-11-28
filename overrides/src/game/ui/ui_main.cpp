@@ -22,6 +22,8 @@
 #include "InterfaceFont.h"
 #include "InterfaceFontWrapper.h"
 #include "InterfaceWindow.h"
+// TPW_PORT_FIX androiduiscale tpw::mobile | Mac: no such header | Port: include/mobile_hooks.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
+#include "mobile_hooks.h"
 #include "intrface.h"
 #include "keyboard.h"
 #include "LbDraw.h"
@@ -2078,6 +2080,8 @@ void ProcessUI() {
     if (UI_PostcardPending()) UI_ActuallyDoPostcard();
     UI_DispatchMessages(0x400);
     UI_DispatchDeferredMessages();
+    // TPW_PORT_FIX androiduiscale ProcessUI | Mac: (none) | Port: on Android the open panels are fitted to the interface size once the frame's messages are handled (tpw::mobile::UpdateInterfaceScale, platform/android/interface_scale.cpp); elsewhere the call does nothing | Why: a panel opened during the frame is drawn and touched at the size it is shown; contributed by mario910 (tpw-port PR #135)
+    tpw::mobile::UpdateInterfaceScale();
     UI_PostMessage(gUIRootWindow, 2, 0, 0);
     UI_SendOnFrameMessages();
     UI_DispatchDrawMessages(0x1000);

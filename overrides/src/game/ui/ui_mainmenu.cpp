@@ -11,6 +11,8 @@
 #include "Game.h"
 #include "GameSys.h"
 #include "InterfaceWindow.h"
+// TPW_PORT_FIX androiduiscale tpw::mobile | Mac: no such header | Port: include/mobile_hooks.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
+#include "mobile_hooks.h"
 #include "keyboard.h"
 #include "LbDrawPrimitives.h"
 #include "LbSCBack.h"
@@ -466,6 +468,8 @@ void CreateMainMenu(int32_t a) {
         InitialiseLobbyMenu();
         gMainMenuPauseFlag = 1;
     } else {
+        // TPW_PORT_FIX androiduiscale CreateMainMenu | Mac: (none) | Port: on Android the interface is set to full size before the pause menu is made (tpw::mobile::FitInterfaceForMenu, platform/android/interface_scale.cpp); elsewhere the call does nothing | Why: the pause menu's buttons are where they are drawn; contributed by mario910 (tpw-port PR #135)
+        tpw::mobile::FitInterfaceForMenu();
         InitialiseMainMenu();
         RemoveSlideoutPanel(1);
         if (gGame.mF3C == 1) {

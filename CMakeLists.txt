@@ -30,6 +30,14 @@ if(NOT EXISTS ${TPW_DECOMP_DIR}/CMakeLists.txt)
   message(FATAL_ERROR "tpw-decomp is missing: git submodule update --init")
 endif()
 set(TPW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+# The Android build (launcher/android, platform/android; contributed by mario910, tpw-port PR #135): the game and the
+# launcher are one shared library that SDL's Java activity loads, so everything is position independent; the assets' host
+# tests are not built (they run on desktop), and the NDK's _FORTIFY_SOURCE checks are off as on Linux.
+if(ANDROID)
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+  set(TPW_BUILD_ASSETS_TESTS OFF CACHE BOOL "" FORCE)
+  add_compile_options(-U_FORTIFY_SOURCE)
+endif()
 # The Linux build (the TPW_LINUX parts of this file): the platform layer's host code is in platform/host_linux.cpp and
 # platform/linux, and the game is drawn by the system's OpenGL or, when the player chooses it, by the port's own Vulkan
 # renderer (platform/vulkan): every OpenGL call the game makes is the platform layer's own (platform/gl_entry.cpp), and
@@ -98,6 +106,8 @@ set(TPW_PORT_ONLY_HEADERS
     include/TpiTunnelTop.h
     include/TpiUmbrellas.h
     include/helpers/SoundPoolLock.h
+    include/mobile_hooks.h
+    include/packed_pixel.h
     include/port_wasd.h
     include/tpi_island_ring.h)
 foreach(header ${TPW_OVERRIDE_HEADERS})
@@ -120,6 +130,11 @@ foreach(header ${TPW_OVERLAY_HEADERS})
 endforeach()
 
 add_subdirectory(${TPW_DECOMP_DIR} tpw-decomp)
+if(ANDROID)
+  # include/mobile_hooks.h's platform/android headers, and libarchive's android_lf.h (platform/android).
+  target_include_directories(tpw PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/platform ${CMAKE_CURRENT_SOURCE_DIR}/platform/android)
+  target_include_directories(tpw_archive PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/platform/android)
+endif()
 
 if(NOT APPLE)
   # The Windows and Linux builds of the game library: tpw-decomp as it is, with what those systems lack provided here.
@@ -193,16 +208,25 @@ if(TPW_BUILD_ASSETS_TESTS AND TPW_PORT_FIX)
   target_include_directories(tpw_tpi_lobby_sea_tests PRIVATE ${TPW_INCLUDE_DIR} ${TPW_DECOMP_DIR}/assets/tests)
 endif()
 if(TPW_BUILD_LAUNCHER)
-  if(NOT TPW_LINUX)   # Linux: the OpenGL calls are the platform layer's own (platform/gl_entry.cpp), nothing is linked
+  if(NOT TPW_LINUX AND NOT ANDROID)   # Linux and Android supply their own OpenGL entry points
     find_package(OpenGL QUIET)
   endif()
   find_package(Python3 COMPONENTS Interpreter QUIET)
 endif()
-if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
+if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX OR ANDROID) AND Python3_FOUND)
   # SDL3 is built from source here (third_party/SDL3, static), never taken from the host: only the system's own frameworks
   # and libraries are linked, and no copy of SDL, libusb or the like that the host has is looked for.
-  set(SDL_STATIC ON CACHE BOOL "" FORCE)
-  set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+  if(ANDROID)
+    set(SDL_STATIC OFF CACHE BOOL "" FORCE)
+    set(SDL_SHARED ON CACHE BOOL "" FORCE)
+    set(TPW_SDL_LIBRARY SDL3-shared)
+    set(TPW_SDL_SYMBOLS --dynamic-provides)
+  else()
+    set(SDL_STATIC ON CACHE BOOL "" FORCE)
+    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+    set(TPW_SDL_LIBRARY SDL3-static)
+    set(TPW_SDL_SYMBOLS --provides)
+  endif()
   set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
   set(SDL_TESTS OFF CACHE BOOL "" FORCE)
   set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -212,8 +236,19 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   # SDL 3.4 stops at a missing X11 extension; XTest is the one the build's packages leave out, and 3.4.20 uses it for
   # nothing (X11_InitXTest is compiled out), so it is off rather than one more package to install.
   set(SDL_X11_XTEST OFF CACHE BOOL "" FORCE)
-  add_subdirectory(third_party/SDL3 SDL3 EXCLUDE_FROM_ALL)
-  target_compile_options(SDL3-static PRIVATE -w)   # SDL's C is not ours to warn about
+  if(ANDROID)
+    # The desktop vendor tree omits SDL's Android backend and Activity sources.
+    include(FetchContent)
+    FetchContent_Declare(tpw_android_sdl
+      URL https://github.com/libsdl-org/SDL/releases/download/release-3.4.20/SDL3-3.4.20.tar.gz
+      URL_HASH SHA256=f3bb06f55bed9557227a700af2ea62e49497ebdf58037732a731a5fb3ef8581f
+      BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/SDL3")
+    FetchContent_MakeAvailable(tpw_android_sdl)
+    set(TPW_ANDROID_SDL_SOURCE_DIR "${tpw_android_sdl_SOURCE_DIR}" CACHE INTERNAL "SDL Java sources for packaging")
+  else()
+    add_subdirectory(third_party/SDL3 SDL3 EXCLUDE_FROM_ALL)
+  endif()
+  target_compile_options(${TPW_SDL_LIBRARY} PRIVATE -w)   # SDL's C is not ours to warn about
   file(GLOB TPW_PLATFORM_SOURCES CONFIGURE_DEPENDS platform/*.cpp ${TPW_DECOMP_DIR}/platform/*.cpp)
   list(REMOVE_DUPLICATES TPW_PLATFORM_SOURCES)
   add_library(tpw_platform STATIC ${TPW_PLATFORM_SOURCES})
@@ -221,7 +256,7 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
   target_include_directories(tpw_platform PRIVATE ${TPW_DECOMP_DIR}/assets)   # gold_rides.cpp's gold_ride_table.h
   target_link_libraries(tpw_platform PUBLIC SDL3::SDL3)
   target_link_libraries(tpw_platform PRIVATE ZLIB::ZLIB)   # platform/online_ftp.cpp's park checks
-  if(NOT TPW_LINUX)
+  if(NOT TPW_LINUX AND NOT ANDROID)
     target_link_libraries(tpw_platform PUBLIC OpenGL::GL)
   endif()
   target_compile_definitions(tpw_platform PRIVATE GL_SILENCE_DEPRECATION)
@@ -249,7 +284,7 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     target_link_libraries(tpw_platform PUBLIC ws2_32 glu32)
     # platform/log_export.cpp: the Downloads folder is a Known Folder (SHGetKnownFolderPath, shell32; CoTaskMemFree, ole32).
     target_link_libraries(tpw_platform PUBLIC shell32 ole32)
-  elseif(TPW_LINUX)
+  elseif(TPW_LINUX OR ANDROID)
     # The signs' text is drawn with stb_truetype (platform/gdi_text_stb.cpp, as on Windows) in place of CoreText. The Mac's
     # thread quality-of-service header is platform/linux/pthread/qos.h, over platform/host_linux.cpp. Every OpenGL call
     # the game makes is the platform layer's own (platform/gl_entry.cpp): it goes to the system's OpenGL, which SDL opens
@@ -273,7 +308,7 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
 
   # The game's films (the Mac CD's QuickTime ones, Sorenson video, or the PC CD's EA .TGQ ones, EA TQI video) play
   # through FFmpeg (platform/quicktime.cpp), built from source here (third_party/ffmpeg: a trimmed FFmpeg, LGPL 2.1 or
-  # later, static); no copy on the host is ever looked for. With TPW_MOVIES off the game skips its films.
+  # later); no copy on the host is ever looked for. With TPW_MOVIES off the game skips its films.
   option(TPW_MOVIES "Play the game's films (FFmpeg, built from third_party/ffmpeg)" ON)
   set(TPW_MOVIE_SYSLIBS)
   if(TPW_MOVIES)
@@ -281,14 +316,26 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/ffmpeg ffmpeg)
     target_compile_definitions(tpw_platform PRIVATE TPW_HAVE_FFMPEG=1)
     target_link_libraries(tpw_platform PUBLIC tpw_ffmpeg)
-    # The generator must not stand in for FFmpeg's functions: the static library defines them.
-    set(TPW_MOVIE_SYSLIBS --provides $<TARGET_FILE:tpw_ffmpeg>)
+    # The generator must not stand in for FFmpeg's functions.
+    if(ANDROID)
+      set(TPW_MOVIE_SYSLIBS --dynamic-provides $<TARGET_FILE:tpw_ffmpeg>)
+    else()
+      set(TPW_MOVIE_SYSLIBS --provides $<TARGET_FILE:tpw_ffmpeg>)
+    endif()
+    set(TPW_MOVIE_TARGET tpw_ffmpeg)
     message(STATUS "tpw: films play (FFmpeg 9.0.2, third_party/ffmpeg)")
   endif()
 
   add_library(tpw_launcher_objects OBJECT launcher/main.cpp launcher/app_bundle.cpp launcher/app_icon.cpp launcher/app_icon_standin.cpp launcher/asset_packs.cpp
               launcher/game_app.cpp launcher/game_app_mac.cpp launcher/game_app_win.cpp launcher/installed_icon.cpp launcher/pending_manual.cpp launcher/ps1_refresh.cpp launcher/tpi_refresh.cpp
               launcher/static_init.cpp launcher/startup.cpp launcher/sam_originals.cpp)
+  if(ANDROID)
+    target_sources(tpw_launcher_objects PRIVATE launcher/android/android_main.cpp launcher/android/android_import.cpp
+                   platform/android/interface_scale.cpp platform/android/mobile_controls.cpp)
+    if(TPW_MOVIES)
+      target_compile_definitions(tpw_launcher_objects PRIVATE TPW_ANDROID_MOVIES=1)
+    endif()
+  endif()
   target_include_directories(tpw_launcher_objects PRIVATE ${TPW_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/platform ${TPW_DECOMP_DIR}/platform launcher)
   if(APPLE)
     # The game's own application (launcher/game_app.h) is opened through NSWorkspace, whose completion handler is a block.
@@ -350,6 +397,21 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
       endif()
       list(APPEND TPW_STUB_SYSLIBS --provides ${TPW_WIN_LIB_${lib}})
     endforeach()
+  elseif(ANDROID)
+    get_filename_component(TPW_NDK_BIN ${CMAKE_NM} DIRECTORY)
+    get_filename_component(TPW_NDK_TOOLCHAIN ${TPW_NDK_BIN} DIRECTORY)
+    string(REGEX REPLACE "[0-9]+$" "" TPW_ANDROID_TRIPLE "${CMAKE_CXX_COMPILER_TARGET}")
+    string(REPLACE "-none-" "-" TPW_ANDROID_TRIPLE "${TPW_ANDROID_TRIPLE}")
+    string(REGEX MATCH "[0-9]+$" TPW_ANDROID_API "${CMAKE_CXX_COMPILER_TARGET}")
+    set(TPW_NDK_LIBS ${TPW_NDK_TOOLCHAIN}/sysroot/usr/lib/${TPW_ANDROID_TRIPLE})
+    find_program(TPW_CXXFILT NAMES llvm-cxxfilt PATHS ${TPW_NDK_BIN} NO_DEFAULT_PATH REQUIRED)
+    set(TPW_STUB_SYSLIBS --no-host-libs --elf --cxxfilt ${TPW_CXXFILT})
+    foreach(lib c m dl android log)
+      list(APPEND TPW_STUB_SYSLIBS --dynamic-provides ${TPW_NDK_LIBS}/${TPW_ANDROID_API}/lib${lib}.so)
+    endforeach()
+    list(APPEND TPW_STUB_SYSLIBS --provides ${TPW_NDK_LIBS}/libc++_static.a
+                --provides ${TPW_NDK_LIBS}/libc++abi.a
+                --provides ${TPW_NDK_LIBS}/${TPW_ANDROID_API}/crtbegin_so.o)
   elseif(TPW_LINUX)
     # The OpenGL calls are the platform layer's own (platform/gl_entry.cpp), and the C and C++ runtimes are dlsym'ed by the
     # generator; the part of glibc that is linked statically into every program (libc_nonshared.a: atexit, among others)
@@ -372,19 +434,23 @@ if(TPW_BUILD_LAUNCHER AND (OpenGL_FOUND OR TPW_LINUX) AND Python3_FOUND)
     list(JOIN TPW_STUB_SYSLIBS "\n" syslibs)
     list(JOIN TPW_MOVIE_SYSLIBS "\n" movie_syslibs)
     file(GENERATE OUTPUT ${args_file} CONTENT "--out\n${out}\n--include-dir\n${TPW_INCLUDE_DIR}\n--nm\n${CMAKE_NM}
---provides\n$<TARGET_FILE:SDL3-static>\n--provides\n$<TARGET_FILE:tpw_zlib>\n--provides\n$<TARGET_FILE:tpw_libjpeg>
+${TPW_SDL_SYMBOLS}\n$<TARGET_FILE:${TPW_SDL_LIBRARY}>\n--provides\n$<TARGET_FILE:tpw_zlib>\n--provides\n$<TARGET_FILE:tpw_libjpeg>
 --provides\n$<TARGET_FILE:tpw_launcher_ui>\n--provides\n$<TARGET_FILE:tpw_assets>\n${syslibs}\n${movie_syslibs}
 $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objects}>,\n>\n")
     add_custom_command(
       OUTPUT ${out}
       COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/launcher/gen_stubs.py @${args_file}
-      DEPENDS tpw tpw_platform SDL3-static tpw_zlib tpw_libjpeg tpw_launcher_ui tpw_assets $<TARGET_OBJECTS:${objects}>
+      DEPENDS tpw tpw_platform ${TPW_SDL_LIBRARY} tpw_zlib tpw_libjpeg tpw_launcher_ui tpw_assets ${TPW_MOVIE_TARGET} $<TARGET_OBJECTS:${objects}>
               launcher/gen_stubs.py ${args_file}
       VERBATIM
       COMMENT "${comment}")
   endfunction()
   tpw_gen_stubs(${TPW_STUBS} tpw_launcher_objects "Generating stand-ins for untranslated and unimplemented functions")
-  add_executable(tpw_launcher $<TARGET_OBJECTS:tpw_launcher_objects> ${TPW_STUBS})
+  if(ANDROID)
+    add_library(tpw_launcher SHARED $<TARGET_OBJECTS:tpw_launcher_objects> ${TPW_STUBS})
+  else()
+    add_executable(tpw_launcher $<TARGET_OBJECTS:tpw_launcher_objects> ${TPW_STUBS})
+  endif()
   target_include_directories(tpw_launcher PRIVATE ${TPW_INCLUDE_DIR} launcher)
   target_link_libraries(tpw_launcher PRIVATE tpw tpw_platform tpw_launcher_ui)
   if(TPW_LINUX)
@@ -1271,6 +1337,12 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   target_link_libraries(tpw_online_boss_e2e PRIVATE tpw_platform)
   add_test(NAME online_boss_e2e COMMAND tpw_online_boss_e2e)
   set_tests_properties(online_boss_e2e PROPERTIES SKIP_RETURN_CODE 77)
+
+  if(NOT ANDROID AND TPW_PORT_FIX)
+    add_executable(tpw_pixel_bounds_tests platform/tests/pixel_bounds_tests.cpp)
+    target_include_directories(tpw_pixel_bounds_tests PRIVATE ${TPW_INCLUDE_DIR})
+    add_test(NAME pixel_bounds COMMAND tpw_pixel_bounds_tests)
+  endif()
 
   if(TPW_LINUX)
     # The Vulkan renderer against the system's OpenGL, through the game's OpenGL calls (platform/tests/renderer_tests.cpp):

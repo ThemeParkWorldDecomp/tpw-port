@@ -7,14 +7,17 @@ usage: python3 -I devtools/check_offline.py [--root DIR]
   --root DIR   the tree to check (default: the one this script is in). A tpw-port clone with its submodules, or the
                monorepo.
 
-Every C, C++ and Objective-C file of the tree (build folders and .git left out) is read with its comments taken out,
-its strings kept, and these are findings:
+Every C, C++, Objective-C and Java file of the tree (build folders and .git left out) is read with its comments taken
+out, its strings kept, and these are findings:
 
   header    a network header: sys/socket.h, netinet/, arpa/inet.h, netdb.h, winsock.h, winsock2.h, ws2tcpip.h,
             wininet.h, winhttp.h, urlmon.h, curl/curl.h, CFNetwork, Network/Network.h
   call      a network call: socket(), getaddrinfo(), gethostbyname(), WSAStartup(), InternetOpen(), WinHttpOpen(),
             URLDownloadToFile(), NSURLSession and its kin, CFSocketCreate(), nw_connection_create(), SDLNet_, libcurl,
             inet_addr(), inet_pton(), and the socket calls of platform/winsock.cpp (the original's Winsock imports)
+  java      Java's network classes (the Android launcher, launcher/android): an import from java.net, javax.net,
+            android.net.http or okhttp3, a URLConnection or HttpsURLConnection, openConnection(), new Socket(...) and
+            its kin
   address   a web address in a string ("http://", "https://", "ftp://"), outside third_party/
   program   curl or wget as a program to run: a string that is just "curl" (or a path to it, or curl.exe), or a command
             line that starts with it ("curl -fL ...")
@@ -40,7 +43,7 @@ import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 
-SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".m", ".mm", ".inc"}
+SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".m", ".mm", ".inc", ".java"}
 EXEMPT_PREFIXES = ("launcher/net/",)
 
 # The original game's online layer: the TPW Online world, its e-mail and its FTP client, translated as the original had
@@ -93,9 +96,12 @@ CALLS = re.compile(r"(?<![\w.>])(?:"
                    r"\s*\(|(?:NSURLSession|NSURLConnection|NSURLRequest)\b|"
                    r"\b(?:conn|csock|email|emailcb|ftp|v5917)_callee::(?:Accept|Bind|CloseSocket|GetHostByName|"
                    r"GetSockName|Gethostname|InetAddr|Listen|Recv|Send|Shutdown|SockConnect|Socket)\s*\()")
+JAVA = re.compile(r"^[ \t]*import\s+(?:static\s+)?(?:java\.net|javax\.net|android\.net\.http|okhttp3)\.|"
+                  r"\b(?:Https?URLConnection|URLConnection)\b|\.openConnection\s*\(|"
+                  r"\bnew\s+(?:Socket|ServerSocket|DatagramSocket|SSLSocket|URL)\s*\(", re.M)
 ADDRESSES = re.compile(r"\"[^\"\n]*?\b(?:https?|ftp)://", re.I)
 PROGRAMS = re.compile(r"\"(?:[^\"\s]*[/\\])?(?:curl|wget)(?:\.exe)?(?:\"| -)", re.I)
-KINDS = (("header", HEADERS), ("call", CALLS), ("address", ADDRESSES), ("program", PROGRAMS))
+KINDS = (("header", HEADERS), ("call", CALLS), ("java", JAVA), ("address", ADDRESSES), ("program", PROGRAMS))
 
 
 def strip_comments(text):

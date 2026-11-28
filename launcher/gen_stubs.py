@@ -51,28 +51,29 @@ def run(cmd, text_in=None):
     return subprocess.run(cmd, input=text_in, capture_output=True, encoding="utf-8", errors="replace", check=True).stdout
 
 
-def symbols(nm, files):
+def symbols(nm, files, dynamic=False):
     """(undefined, weak, defined) external symbol names, as the object files spell them. The weak ones are the undefined
     references the linker lets stay so (a declaration with __attribute__((weak)), nm's w or v): nothing defining one, it
     gets the address zero instead of an error."""
     undefined, weak, defined = set(), set(), set()
     for f in files:
-        for line in run([nm, "-g", f]).splitlines():
+        command = [nm, "-g", "-D", f] if dynamic else [nm, "-g", f]
+        for line in run(command).splitlines():
             parts = line.split()
             if len(parts) == 2 and parts[0] == "U":
                 undefined.add(parts[1])
             elif len(parts) == 2 and parts[0] in ("w", "v"):
                 weak.add(parts[1])
             elif len(parts) == 3 and parts[1] not in "Uu":
-                defined.add(parts[2])
+                defined.add(parts[2].split("@", 1)[0] if dynamic else parts[2])
                 if WINDOWS and parts[2].startswith("__imp_"):
                     defined.add(parts[2][6:])   # an import library's data: the linker auto-imports the plain name
     return undefined, weak, defined
 
 
-def c_name(symbol):
+def c_name(symbol, macho):
     """The name as C source spells it (Mach-O adds a leading underscore)."""
-    return symbol[1:] if DARWIN and symbol.startswith("_") else symbol
+    return symbol[1:] if macho and symbol.startswith("_") else symbol
 
 
 class SystemLibraries:
@@ -131,15 +132,20 @@ def main():
     ap.add_argument("--include-dir", required=True)
     ap.add_argument("--syslib", action="append", default=[], help="a library the launcher links (dlsym'ed)")
     ap.add_argument("--provides", action="append", default=[], help="a static library the launcher links; the symbols it defines get no stand-in")
+    ap.add_argument("--dynamic-provides", action="append", default=[], help="a target shared library whose exports get no stand-in")
+    ap.add_argument("--no-host-libs", action="store_true", help="resolve runtime symbols from target libraries only")
+    ap.add_argument("--elf", action="store_true", help="generate ELF symbol aliases when cross-compiling")
     ap.add_argument("--c-function", action="append", default=[], help="an unmangled name that is a function")
     ap.add_argument("--nm", default="nm")
     ap.add_argument("--cxxfilt", default="c++filt")
     ap.add_argument("inputs", nargs="+")
     args = ap.parse_args(expand_args(sys.argv[1:]))
 
+    macho = DARWIN and not args.elf
+    coff = WINDOWS and not args.elf
     undefined, weak, defined = symbols(args.nm, args.inputs)
     labels = []
-    if WINDOWS or LINUX:
+    if WINDOWS or LINUX or args.elf:
         # An asm label in the Mach-O spelling (__asm__("__ZN..."), on a declaration, weak or not) names a C++ symbol
         # with one underscore more than COFF and ELF give it. Each gets a thunk to that name (label_thunks), which is
         # stood in for in turn when nothing defines it. A weak declaration's label counts too: without its thunk the
@@ -148,9 +154,10 @@ def main():
         labels = sorted(s for s in undefined | weak | defined if s.startswith("__Z"))
         undefined = (undefined - set(labels)) | {s[1:] for s in labels}
     defined |= symbols(args.nm, args.provides)[2]
+    defined |= symbols(args.nm, args.dynamic_provides, dynamic=True)[2]
     needed = sorted(undefined - defined)
-    system = SystemLibraries(args.syslib)
-    names = [c_name(s) for s in needed]
+    system = SystemLibraries(args.syslib) if not args.no_host_libs else None
+    names = [c_name(s, macho) for s in needed]
     # c_name already removes Mach-O's extra underscore. Older Apple c++filt versions strip one by default on
     # stdin; that would turn _Z... into Z... and classify every C++ function as a variable on a clean Mac.
     demangled = run([args.cxxfilt, "--no-strip-underscore"], "\n".join(names) + "\n").splitlines()
@@ -158,7 +165,7 @@ def main():
     functions, variables, special = [], [], []
     for symbol, name, pretty in zip(needed, names, demangled):
         mangled = name.startswith("_Z")
-        if system.has(name) or (not mangled and reserved(name)):
+        if (system is not None and system.has(name)) or (not mangled and reserved(name)):
             continue
         if pretty.startswith("tpw_stub_"):   # defined by the generated file itself
             continue
@@ -242,7 +249,7 @@ def main():
     w("    return n;")
     w("}")
     w("")
-    out.extend(trampolines(functions))
+    out.extend(trampolines(functions, macho, coff))
     if labels:
         out.extend(label_thunks(labels))
     text = "\n".join(out) + "\n"
@@ -282,7 +289,7 @@ def returns_this(pretty):
     return last == owner or last == "~" + owner
 
 
-def trampolines(functions):
+def trampolines(functions, macho, coff):
     """One entry point per stub: it passes its index to tpw_stub_hit and returns zero in
     the integer and floating-point return registers, so callers expecting an int, a
     pointer, a bool, a float or a double all read zero. (A caller expecting a structure
@@ -292,7 +299,7 @@ def trampolines(functions):
     The processor is the compiler's target, chosen in the generated file, not the one
     Python reports: on an Arm PC an x64 build runs an x64 Python, which can still report
     ARM64."""
-    prefix = "_" if DARWIN else ""
+    prefix = "_" if macho else ""
     lines = []
     w = lines.append
     w("#if defined(__aarch64__)")
@@ -336,7 +343,7 @@ def trampolines(functions):
     w(f'    "{prefix}tpw_stub_common:\\n"')
     w('    "    pushq %rbp\\n"')
     w('    "    movq %rsp, %rbp\\n"')
-    if WINDOWS:
+    if coff:
         # The Windows x64 convention: the first argument in %ecx, and 32 bytes of shadow space for the callee.
         w('    "    movl %eax, %ecx\\n"')
         w('    "    subq $32, %rsp\\n"')
@@ -347,7 +354,7 @@ def trampolines(functions):
     w('    "    xorl %edx, %edx\\n"')
     w('    "    xorps %xmm0, %xmm0\\n"')
     w('    "    xorps %xmm1, %xmm1\\n"')
-    if WINDOWS:
+    if coff:
         w('    "    movq %rbp, %rsp\\n"')
     w('    "    popq %rbp\\n"')
     w('    "    ret\\n"')

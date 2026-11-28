@@ -2,6 +2,10 @@
 
 ## 0.6.5 (not released yet)
 
+### New Features
+
+- Android (preview): Sim Theme Park and Theme Park World on Android phones and tablets (Android 11 or later, with Vulkan), with touch controls and game controller support, an interface sized for small screens, and a launcher that imports your own copy of the game. It is an early preview: CI builds it as a test package, and it is not yet offered as a download (Thanks @mario910, tpw-port #135)
+
 ## 0.6.4 (2026-11-27)
 
 ### New Features

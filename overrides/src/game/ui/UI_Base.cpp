@@ -35,6 +35,8 @@
 #include "UI_pump.h"
 #include "UIInterface.h"
 #include "WorldThings.h"
+// TPW_PORT_FIX androiduiscale tpw::mobile | Mac: no such header | Port: include/mobile_hooks.h, the fix's own header (tpw-port only) | Why: the fix's code in this file
+#include "mobile_hooks.h"
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
@@ -371,6 +373,15 @@ int16_t gUIScreenHeight = 0;
 // The UI's pixel box and unit space on a screen of width x height at an interface size `scale` (1: all of the height).
 void UnitsFor(int16_t width, int16_t height, float scale, int16_t& realWidth, int16_t& realHeight, int16_t& unitWidth,
               int16_t& unitHeight) {
+    // TPW_PORT_FIX androiduiscale UnitsFor | Mac: the UI spans the screen | Port: on Android an interface size above 1 (tpw::mobile::kEnlargedInterface, include/mobile_hooks.h) makes the UI's pixel box larger than the screen, so the unit space is smaller and each unit takes more pixels; elsewhere sizes above 1 are never given and nothing changes | Why: the park's buttons and text are large enough to touch on a phone; contributed by mario910 (tpw-port PR #135)
+    if (tpw::mobile::kEnlargedInterface && scale > 1.0f && width > 0 && height > 0) {
+        const int32_t baseWidth = gUIWideAspect > 0.0f && width * 3 > height * 4 ? UI_PillarboxWidth(height) : width;
+        realWidth = static_cast<int16_t>(baseWidth * scale + 0.5f);
+        realHeight = static_cast<int16_t>(height * scale + 0.5f);
+        unitWidth = static_cast<int16_t>(width * 0x800 / realWidth);
+        unitHeight = static_cast<int16_t>(height * 0x600 / realHeight);
+        return;
+    }
     realWidth = width;
     realHeight = height;
     // (the unit space follows the screen's width; the units stay square)
@@ -401,7 +412,10 @@ void UI_InterfaceUnits(bool on, int16_t& realWidth, int16_t& realHeight, int16_t
 bool UI_UseInterfaceSize(bool on) {
     if ((gUIInterfaceSizeOn != 0) == on) return false;
     gUIInterfaceSizeOn = on ? 1 : 0;
-    if (gUIScreenWidth == 0 || !(gUIScale < 1.0f)) return false;
+    bool scaled = gUIScale < 1.0f;
+    // TPW_PORT_FIX androiduiscale UI_UseInterfaceSize | Mac: (none) | Port: on Android the switch between the park's interface size and the full-screen panels' full size is made for an enlarged size too; elsewhere only a smaller size switches, as before | Why: the front end's whole-screen panels stay at full size while the park's controls are enlarged; contributed by mario910 (tpw-port PR #135)
+    if (tpw::mobile::kEnlargedInterface) scaled = gUIScale != 1.0f;
+    if (gUIScreenWidth == 0 || !scaled) return false;
     const int16_t wide = gUIUnitWidth;
     const int16_t high = gUIUnitHeight;
     UI_SetRealScreenRez(gUIScreenWidth, gUIScreenHeight);
@@ -423,6 +437,8 @@ void UI_SetRealScreenRez(int16_t width, int16_t height) {
     const float across = static_cast<float>(gUIRealScreenWidth) / 1024.0f;
     const float down = static_cast<float>(gUIRealScreenHeight) / 768.0f;
     gTbFontScale = std::max(1.0f, std::min(across, down));
+    // TPW_PORT_FIX androiduiscale UI_SetRealScreenRez | Mac: no font scale | Port: on Android the text is at least as large as the interface size makes the panels; elsewhere nothing changes | Why: an enlarged panel's text keeps its size in the panel on a phone's small resolution; contributed by mario910 (tpw-port PR #135)
+    if (tpw::mobile::kEnlargedInterface) gTbFontScale = std::max(gTbFontScale, UI_InterfaceSize());
 }
 
 // ---- callbacks, clock
