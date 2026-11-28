@@ -12,6 +12,7 @@
 
 - Fixed the launcher passing over a translation whose language folders are not inside `data/Language` (such as a zip of just its `American` and `English` folders): a translation is now found by its files' contents wherever they are in the drop (a folder of any name, nested folders, the top of a zip, 7z or RAR archive), checked and added like any other, and offered in Settings as "Russian (Unofficial)" for that one (Thanks @Nitablade, tpw-port #128)
 - Fixed a drop of text files that are no translation (English text, or the game's own files) saying nothing about them: the launcher now says why they were not added, and a program dropped on it (such as a translation's installer) is named, never run, with a note to unpack it first (tpw-port #128)
+- Fixed litter bins in the SimCoaster/TPI mod's worlds gathering more and more flies that no handyman ever cleared, until no other particle effect in the park could start: they now work as Theme Park World's bins do (the launcher converts the Theme Park Inc worlds again once; Thanks slappyhead, Pixus and Addable13)
 
 ## 0.6.4 (2026-11-27)
 
