@@ -106,7 +106,7 @@ Settings:
 | Show Ride Badges | On | GOLD and PS1 badges on build-menu icons. |
 | Hide lightning flash | Off | Lightning bolts no longer flash the whole screen (Halloween World on the world selection screen). The bolt and its thunder stay. |
 | Interface size | 100% | 85% or 70% shows more park. |
-| Language | The edition's own | Text and advisor voice, from your discs' languages. |
+| Language | The edition's own | Text and advisor voice, from your discs' languages and any translation you drop on the launcher (see [Your own translation](#your-own-translation)). |
 | Game options | The game's own | The game's Options panel (Config.tcf, gms.dat). Greyed while playing. |
 | Graphics | Default | Eight low/med/high.sam settings. Default follows Graphics quality. |
 | Draw distance (under Graphics) | Farther | How far rides and camcorder walks draw. Original is the original game's distance, Farther half as far again, Whole world the whole park and land with fog only at the edge. |
@@ -295,11 +295,14 @@ use `build\tpw_launcher.exe 2> log.txt`.
 
 ### Your own translation
 
-- Drop its zip or folder on the launcher. It is checked, kept apart from the game files and offered in Settings'
-  Language, so you can switch back any time.
-- Inside: `data/Language/English/` (or `American`) with the text tables (`UITEXT.str` at least) and fonts (`.bf4`).
-  Also taken: speech (`data/global/speech/`, `data/levels/<world>/speech/`), `data/Init/` pictures and `data/ui.wad`.
-  A folder around `data` is fine.
+- Drop its zip, 7z or RAR archive, or its folder, on the launcher. It is checked, kept apart from the game files and
+  offered in Settings' Language, so you can switch back any time. An installer (`.exe`) is never run: unpack it first
+  (7-Zip or The Unarchiver opens most), then drop the files it holds.
+- Inside: the text tables (`UITEXT.str` at least) and fonts (`.bf4`), found by their contents wherever they are: in
+  `data/Language/English/` (or `American`) as in the game folder, in `American` and `English` folders on their own, in
+  a folder of any name, or at the top of the zip. Either edition can use it. Also taken, with a `data` folder: speech
+  (`data/global/speech/`, `data/levels/<world>/speech/`), `data/Init/` pictures and `data/ui.wad`. A folder around
+  `data` is fine.
 - `data/ui.wad` replaces every interface picture, the words drawn in them included. Leave it out unless yours are
   redrawn.
 - Fonts can be redrawn or the edition's own. Letters beyond English need every text font redrawn with them; the
@@ -311,11 +314,14 @@ use `build\tpw_launcher.exe 2> log.txt`.
 - `MBToUni.dat` and `UniToMB.dat` from the other edition than the fonts are replaced by the fonts' edition's own, so the
   names the game writes itself (the park's, the rides') show right. This is said when the translation is added.
 - Dropping a changed version replaces the one kept. The same one again changes nothing.
-- Its name: a known release by its files (the Russian Project's, 2000); else its language read from its own letters
-  (Russian, Ukrainian, Belarusian, Bulgarian, for a Cyrillic translation made over the Latin-1 letters); else the
-  launcher asks you once, suggesting the name of the zip or folder. It is shown as "<language> (Unofficial)".
+- Its name: a known release by its files (the Russian Project's, 2000); else its language read from its own letters,
+  when they leave no doubt, for a translation drawn over the Latin-1 letters in a Windows code page's order: Russian,
+  Ukrainian, Belarusian or Bulgarian (Cyrillic, 1251), Polish, Czech, Hungarian or Romanian (Central European, 1250),
+  Greek (1253) or Turkish (1254); else the launcher asks you once, suggesting the name of the zip or folder. It is
+  shown as "<language> (Unofficial)".
 - English text is the game's own, from another pressing (the US 1.0 and 1.1 discs, the older European one), never a
-  translation: it is neither added nor asked about, and its files count for the edition as any disc's do.
+  translation: it is neither added nor asked about, and its files count for the edition as any disc's do. A drop of
+  text tables that are no translation (English, or the game's own files) says so.
 
 ## Where it stands
 

@@ -5,6 +5,12 @@
 ### New Features
 
 - Android (preview): Sim Theme Park and Theme Park World on Android phones and tablets (Android 11 or later, with Vulkan), with touch controls and game controller support, an interface sized for small screens, and a launcher that imports your own copy of the game. It is an early preview: CI builds it as a test package, and it is not yet offered as a download (Thanks @mario910, tpw-port #135)
+- A dropped translation's language is now also read from its letters for Polish, Czech, Hungarian, Romanian, Greek and Turkish, beside Russian, Ukrainian, Belarusian and Bulgarian; one that is not clear is still named by you (tpw-port #128)
+
+### Bug Fixes
+
+- Fixed the launcher passing over a translation whose language folders are not inside `data/Language` (such as a zip of just its `American` and `English` folders): a translation is now found by its files' contents wherever they are in the drop (a folder of any name, nested folders, the top of a zip, 7z or RAR archive), checked and added like any other, and offered in Settings as "Russian (Unofficial)" for that one (Thanks @Nitablade, tpw-port #128)
+- Fixed a drop of text files that are no translation (English text, or the game's own files) saying nothing about them: the launcher now says why they were not added, and a program dropped on it (such as a translation's installer) is named, never run, with a note to unpack it first (tpw-port #128)
 
 ## 0.6.4 (2026-11-27)
 

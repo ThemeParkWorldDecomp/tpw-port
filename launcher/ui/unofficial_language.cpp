@@ -10,6 +10,7 @@
 #include <initializer_list>
 #include <iterator>
 #include <map>
+#include <optional>
 #include <set>
 #include <sstream>
 #include "path_text.h"
@@ -212,6 +213,9 @@ bool GeneralFont(const std::string& name) {
 }
 struct Candidate {
     std::string prefix, language;
+    // Where the drop holds the contents of the game's data folder, for the speech, Init pictures and ui.wad: "x/data/",
+    // or "x/" for a data folder's own contents; none for language folders on their own.
+    std::optional<std::string> data;
     std::map<std::string, const Entry*> text;
 };
 // Whose own file `bytes` is: "the US edition's" or "the European edition's", when it is one game's only; else empty.
@@ -349,14 +353,16 @@ bool RussianProject(const std::map<std::string, Bytes>& text) {
 }
 // The language a translation's text is written in, from its letters: the count of each byte of its strings, read
 // through the code page `map` (MBToUni.dat: "BFMU", the count at 6, then byte b's character at 8 + 2 * (b - 1)), a
-// Latin-1 one. A fan translation for an alphabet the game has no code page for draws its own letters where Latin-1's
-// are, in the Windows code page 1251's order (Cyrillic at 0xC0 to 0xFF), so text mostly of Latin-1's own letters is
-// read as that code page, and a Cyrillic one is named by the letters only its language uses. Empty when not sure: Latin
-// text, too little text, a mix, or a language not told apart here (Serbian and Macedonian share their letters).
+// Latin-1 one. A fan translation for letters the game has no code page for draws its own letters where Latin-1's are, in
+// the order of a Windows code page: Cyrillic in 1251's (at 0xC0 to 0xFF), Greek in 1253's, Central European in 1250's and
+// Turkish in 1254's (Latin-1's letters but a few). So text mostly of Latin-1's own letters past A to Z is read as 1251 or
+// 1253, and Latin text with letters Latin-1 has not (or has where its language has none) as 1250 or 1254, and named by
+// the letters only its language uses. Empty when not sure: too little text, a mix, Latin-1's own languages, or a
+// language not told apart here (Serbian and Macedonian share their letters, as Croatian, Bosnian and Slovene do).
 std::string TextLanguage(const std::array<uint64_t, 256>& letters, const Bytes& map) {
     if (map.size() < 8 || std::memcmp(map.data(), "BFMU", 4)) return {};
     const size_t count = std::min<size_t>(U16(map, 6), (map.size() - 8) / 2);
-    std::array<uint64_t, 256> page{};   // the letters as code page 1251 bytes
+    std::array<uint64_t, 256> page{};   // the letters as code page bytes
     uint64_t latin = 0, high = 0;
     for (size_t c = 1; c <= count && c < 256; ++c) {
         const uint16_t u = U16(map, 8 + (c - 1) * 2);
@@ -364,12 +370,48 @@ std::string TextLanguage(const std::array<uint64_t, 256>& letters, const Bytes& 
         if (u >= 0xC0 && u <= 0xFF && u != 0xD7 && u != 0xF7) high += letters[c];
         if (u >= 0x80 && u <= 0xFF) page[u] += letters[c];
     }
-    if (high <= latin) return {};
     const auto sum = [&](std::initializer_list<uint8_t> bytes) {
         uint64_t n = 0;
         for (uint8_t b : bytes) n += page[b];
         return n;
     };
+    if (high <= latin) {
+        // Latin text. Per thousand letters, each in both cases: Polish's l with stroke and a with ogonek (superscripts
+        // three and one in Latin-1) and its dotted z, acute s and acute z; Czech's r and e with caron and u with ring;
+        // Romanian's a with breve, s and t with cedilla and i with circumflex; Hungarian's double acute o and u (beside
+        // Portuguese's o with tilde and French's u with circumflex); Turkish's dotless i, s with cedilla and soft
+        // g (where Icelandic has y with acute, thorn and eth); and the acute vowels the last three have none of.
+        uint64_t total = latin;
+        for (unsigned b = 0x80; b <= 0xFF; ++b) total += page[b];
+        if (total < 1000) return {};
+        const auto rate = [&](uint64_t n) { return n * 1000 / total; };
+        const uint64_t l = sum({0xA3, 0xB3}), a = sum({0xA5, 0xB9}), zs = sum({0xAF, 0xBF, 0x8C, 0x9C, 0x8F, 0x9F}),
+                       r = sum({0xD8, 0xF8}), e = sum({0xCC, 0xEC}), u = sum({0xD9, 0xF9}), breve = sum({0xC3, 0xE3}),
+                       comma = sum({0xAA, 0xBA, 0xDE, 0xFE}), circumflex = sum({0xCE, 0xEE}),
+                       o = sum({0xD5, 0xF5}), uu = sum({0xDB, 0xFB}), dotless = page[0xFD], g = sum({0xD0, 0xF0}),
+                       acute = sum({0xC1, 0xE1, 0xC9, 0xE9, 0xCD, 0xED, 0xD3, 0xF3, 0xDA, 0xFA});
+        if (rate(l) >= 5 && rate(a) >= 2 && zs && rate(r) < 1) return "Polish";
+        if (rate(l) >= 1) return {};
+        if (rate(r) >= 4 && rate(e) >= 4 && u) return "Czech";
+        if (rate(breve) >= 10 && rate(comma) >= 5 && circumflex && acute * 10 < breve) return "Romanian";
+        if (rate(o) >= 4 && uu && sum({0xD6, 0xF6}) && breve * 4 < o && sum({0xC7, 0xE7}) * 4 < o && rate(r) < 1)
+            return "Hungarian";
+        if (rate(dotless) >= 20 && rate(comma) >= 4 && g && g * 2 < dotless && acute * 4 < dotless)
+            return "Turkish";
+        return {};
+    }
+    // Greek: its alpha far more than the rare upsilon with dialytika and tonos (in 1251, the Cyrillic be and a, its
+    // commonest letter but o), its omicron more than xi (pe and o), and its accented vowels (the rarer soft sign, e and
+    // yu, and capitals) one letter in twenty or more. Each in both cases.
+    const uint64_t alpha = sum({0xC1, 0xE1}), a = sum({0xC0, 0xE0}), omicron = sum({0xCF, 0xEF}), xi = sum({0xCE, 0xEE}),
+                   tonos = sum({0xDC, 0xDD, 0xDE, 0xDF, 0xFC, 0xFD, 0xFE});
+    uint64_t greek = 0;
+    for (unsigned b = 0xC1; b <= 0xFE; ++b) greek += b == 0xD2 ? 0 : page[b];
+    if (greek >= 200 && greek * 3 >= (greek + latin) * 2 && alpha > a * 4 && omicron > xi * 2 &&
+        tonos * 1000 >= greek * 50)
+        return "Greek";
+    // Cyrillic text has more a than be: other text is not named Cyrillic.
+    if (alpha > a) return {};
     // Each in both cases: Serbian and Macedonian's own letters, Belarusian's short u, Ukrainian's four, Russian's two
     // (yery, e), the hard sign, yo, Belarusian's dotted i (and Ukrainian's), and i, which Belarusian has not.
     const uint64_t serbian = sum({0x80, 0x90, 0x81, 0x83, 0x8A, 0x9A, 0x8C, 0x9C, 0x8D, 0x9D, 0x8E, 0x9E, 0x8F, 0x9F,
@@ -543,21 +585,34 @@ bool OtherCodePage(const std::vector<uint8_t>& map, std::vector<uint8_t>& mbToUn
 SupplementResult ImportUnofficialLanguages(Source& source, const std::string& assetsDir,
                                            const std::atomic<bool>& cancel) {
     SupplementResult result;
-    std::map<std::string, Candidate> candidates;
+    std::map<std::string, Candidate> candidates, loose;
     for (const Entry& e : source.Entries()) {
         if (e.kind != EntryKind::Data || e.unreadable || !SafePath(e.path)) continue;
-        const std::string path = Lower(e.path), token = "data/language/";
-        size_t at = path.find(token);
-        if (at == std::string::npos || (at && path[at - 1] != '/')) continue;
-        const size_t start = at + token.size(), slash = path.find('/', start);
-        if (slash == std::string::npos || path.find('/', slash + 1) != std::string::npos) continue;
-        const std::string language = OriginalName(path.substr(start, slash - start));
-        if (language.empty()) continue;
-        Candidate& c = candidates[path.substr(0, slash + 1)];
-        c.prefix = path.substr(0, at);
-        c.language = language;
+        const std::string path = Lower(e.path);
+        const size_t slash = path.find_last_of('/');
+        const size_t start = slash == std::string::npos ? 0 : path.find_last_of('/', slash - 1) + 1;   // npos + 1 is 0
+        const std::string folder = slash == std::string::npos ? "" : path.substr(start, slash - start),
+                          parent = path.substr(0, start), language = OriginalName(folder);
+        // The game folder's data/Language/<language>/ is taken by its place. Any other folder (the drop's top, a
+        // language folder copied out of a data or Language folder, one named after the translation, at any depth) is
+        // taken by its text tables below (tpw-port #128).
+        const auto ends = [&](const std::string& tail) {
+            return parent.size() >= tail.size() && parent.compare(parent.size() - tail.size(), tail.size(), tail) == 0 &&
+                   (parent.size() == tail.size() || parent[parent.size() - tail.size() - 1] == '/');
+        };
+        const bool game = ends("data/language/"), inData = !game && ends("language/");
+        Candidate& c = (game && !language.empty() ? candidates : loose)[path.substr(0, slash + 1)];
+        // A release is the folder its language folders are in; a folder of another name is a release of its own.
+        c.prefix = language.empty() && !game && !inData ? path.substr(0, slash + 1)
+                                                        : parent.substr(0, parent.size() - (game ? 14 : inData ? 9 : 0));
+        if (game || inData) c.data = game ? c.prefix + "data/" : c.prefix;
+        c.language = language.empty() ? "English" : language;
         c.text.emplace(path.substr(slash + 1), &e);
     }
+    // A folder with the game's text tables (by their names; their contents are checked below) is a translation's.
+    for (auto& pair : loose)
+        if (std::any_of(std::begin(kTables), std::end(kTables), [&](const Table& t) { return pair.second.text.count(t.file); }))
+            candidates.insert(std::move(pair));
     // A known release's other language folder is part of the same release (the Russian Project put its translation in
     // both), so it is not offered as a second translation of its own.
     std::set<std::string> knownReleases;
@@ -631,7 +686,19 @@ SupplementResult ImportUnofficialLanguages(Source& source, const std::string& as
             unknownText = unknownText || !Official(b);
             bytes.emplace(item.first, std::move(b));
         }
-        if (!unknownText) continue;
+        // Text tables that are no translation are said (a drop of them alone would otherwise say nothing about them):
+        // the edition's import still takes the game's own.
+        const auto note = [&](const std::string& what) {
+            const std::string& first = c.text.begin()->second->path;
+            const size_t end = first.find_last_of('/');
+            result.notes.push_back((end == std::string::npos ? std::string("The text files dropped")
+                                                             : "The text files in " + first.substr(0, end)) +
+                                   what);
+        };
+        if (!unknownText) {
+            if (!bytes.empty()) note(" are the game's own, not a translation");
+            continue;
+        }
         const bool russian = err.empty() && RussianProject(bytes);
         const auto claim = [&] {
             for (const auto& item : c.text) result.claimed.insert(item.second->path);
@@ -678,7 +745,11 @@ SupplementResult ImportUnofficialLanguages(Source& source, const std::string& as
         // the European English, Dutch, Italian and Polish one), not a translation: it is left to the edition's import,
         // never offered or asked about.
         const Bytes map = codePage(c);
-        if (!russian && TextLanguage(letters, map).empty() && EnglishText(bytes, map)) continue;
+        if (!russian && TextLanguage(letters, map).empty() && EnglishText(bytes, map)) {
+            note(" are in English, the game's own language (another version of the game's text), so they are not a "
+                 "translation");
+            continue;
+        }
         for (const auto& item : c.text) {
             if (item.first.size() < 4 || item.first.substr(item.first.size() - 4) != ".bf4") continue;
             Bytes b;
@@ -805,10 +876,10 @@ SupplementResult ImportUnofficialLanguages(Source& source, const std::string& as
         }
         for (const Entry& e : source.Entries()) {
             const std::string path = Lower(e.path);
-            if (e.kind != EntryKind::Data || e.unreadable || !SafePath(e.path) ||
-                path.compare(0, c.prefix.size(), c.prefix) != 0)
+            if (!c.data || e.kind != EntryKind::Data || e.unreadable || !SafePath(e.path) ||
+                path.compare(0, c.data->size(), *c.data) != 0)
                 continue;
-            const std::string tail = path.substr(c.prefix.size());
+            const std::string tail = "data/" + path.substr(c.data->size());
             if (SpeechFile(tail)) {
                 files.emplace(tail, &e);
                 ++speechCount;

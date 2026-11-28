@@ -493,6 +493,10 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
     const bool pack = HoldsTranslation(report) && !LooksLikeDisc(report);
     const std::string* refused = RefusedTranslation(report);
     const bool firstRelease = LooksLikeFirstRelease(report, before);
+    // Text tables that are no translation (ImportReport::notTranslations), said for a drop that is neither a disc nor a
+    // translation's.
+    const bool untranslated = !report.notTranslations.empty() && !HoldsTranslation(report) && !LooksLikeDisc(report);
+    bool untranslatedShown = false;
 
     if (firstRelease) {
         const EditionStatus& us = after[StatusIndex(assets::kEditionUsPc)];
@@ -549,6 +553,16 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
         r.headline = "Language not added";
         r.lines.push_back(*refused);
         errorShown = refused == &report.errors.front();
+    } else if (untranslated && report.written == 0 && report.alreadyThere == 0) {
+        r.headline = "No translation found";
+        for (const std::string& note : report.notTranslations) r.lines.push_back(note + ".");
+        untranslatedShown = true;
+    } else if (!report.programs.empty() && report.written == 0 && report.alreadyThere == 0 && !LooksLikeDisc(report)) {
+        // A program (ImportReport::programs), such as a translation's own installer: never run.
+        r.headline = "The launcher does not run programs";
+        r.lines.push_back(report.programs.front() + " is a program, such as an installer. The launcher never runs one.");
+        r.lines.push_back("Unpack it first (7-Zip or The Unarchiver opens most installers, or run it on Windows), then "
+                          "drop the files it holds.");
     } else if (!report.installers.empty() && report.written == 0 && report.alreadyThere == 0) {
         // An InstallShield setup of the game (ImportReport::installers): its files are inside the setup's cabinets.
         r.headline = "The game is inside an installer the launcher cannot open";
@@ -635,6 +649,8 @@ ResultText DescribeResult(const ImportReport& report, const EditionStatus before
     for (const std::string& line : report.themeParkIncAddOn) r.lines.push_back(line);
     for (const std::string& line : report.playStation2) r.lines.push_back(line);
     for (const std::string& line : report.translations) r.lines.push_back(line);
+    if (untranslated && !untranslatedShown)
+        for (const std::string& note : report.notTranslations) r.lines.push_back(note + ".");
     if (report.written) r.lines.push_back(Files(report.written) + " put in place");
     if (report.alreadyThere) r.lines.push_back(Files(report.alreadyThere) + " already in place");
     if (filmNeeded && !damagedShown) r.lines.push_back(damagedLine);

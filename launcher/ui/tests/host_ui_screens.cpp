@@ -3383,6 +3383,33 @@ void CheckLanguageUnlocks(SDL_Renderer* renderer) {
         r = DescribeResult(report, before);
         Check(!r.good && r.headline == "Language not added" && !r.lines.empty() && r.lines.front() == report.errors.front(),
               "language result: a refused translation says why");
+        // Text tables that are no translation are said, never passed over (tpw-port #128); a disc's own are not.
+        report.errors.clear();
+        report.unknownFiles = 62;
+        report.notTranslations = {"Languages.zip: The text files in American are in English, the game's own language "
+                                  "(another version of the game's text), so they are not a translation"};
+        const std::string note = report.notTranslations.front() + ".";
+        r = DescribeResult(report, before);
+        Check(!r.good && r.headline == "No translation found" && HasLine(r, note),
+              "language result: text tables that are no translation say why");
+        report.written = 12;
+        r = DescribeResult(report, before);
+        Check(r.headline != "No translation found" && HasLine(r, note),
+              "language result: with other files put in place, the text tables are still said");
+        report.written = 0;
+        report.alreadyThere = 500;
+        report.matched = 100000;
+        r = DescribeResult(report, before);
+        Check(!HasLine(r, note), "language result: a disc's own text tables are not said");
+        report.alreadyThere = report.matched = 0;
+        report.notTranslations.clear();
+        // A program, such as a translation's installer, is named and never run: the player is told to unpack it.
+        report.unknownFiles = 1;
+        report.programs = {"RussianSetup.exe"};
+        r = DescribeResult(report, before);
+        Check(!r.good && r.headline == "The launcher does not run programs" && r.lines.size() >= 2 &&
+                  r.lines[0].rfind("RussianSetup.exe is a program", 0) == 0 && r.lines[1].rfind("Unpack it first", 0) == 0,
+              "language result: a program is named and the player told to unpack it");
     }
     auto frames = [&](LauncherUi& ui, int n = 2) {
         for (int i = 0; i < n; ++i) ui.Frame(kDt, width, height, 1);

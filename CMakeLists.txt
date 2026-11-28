@@ -1670,6 +1670,8 @@ $<TARGET_FILE:tpw>\n$<TARGET_FILE:tpw_platform>\n$<JOIN:$<TARGET_OBJECTS:${objec
   if(TPW_PORT_FIX)
     add_executable(tpw_unofficial_language_tests launcher/ui/tests/host_unofficial_language.cpp)
     target_link_libraries(tpw_unofficial_language_tests PRIVATE tpw_launcher_ui)
+    # the archive and InstallShield fixture writers (assets/tests: in tpw-port, the tpw-decomp submodule's)
+    target_include_directories(tpw_unofficial_language_tests PRIVATE ${TPW_DECOMP_DIR}/assets/tests)
     add_test(NAME unofficial_language COMMAND tpw_unofficial_language_tests
              "${CMAKE_BINARY_DIR}/unofficial-language-test")
   endif()
